@@ -99,7 +99,7 @@
 					employee_id,
 					branch_id,
 					hr_employees!users_employee_id_fkey(id, name),
-					branches(id, name_en)
+					branches!users_branch_id_fkey(id, name_en)
 				`)
 				.order('username');
 

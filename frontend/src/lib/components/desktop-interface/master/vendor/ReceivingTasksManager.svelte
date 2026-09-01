@@ -4,8 +4,9 @@
   import { locale } from '$lib/i18n';
   import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
   import ReceivingTaskTemplates from '$lib/components/desktop-interface/master/vendor/ReceivingTaskTemplates.svelte';
+  import StandaloneReceivingTasks from '$lib/components/desktop-interface/master/vendor/StandaloneReceivingTasks.svelte';
 
-  let activeTab: 'positions' | 'templates' = 'positions';
+  let activeTab: 'positions' | 'templates' | 'receivingTasks' = 'positions';
 
   $: isRTL = $locale === 'ar';
 </script>
@@ -26,13 +27,22 @@
     >
       📋 {isRTL ? 'قوالب مهام الاستلام' : 'Receiving Task Templates'}
     </button>
+    <button
+      class="rtm-tab"
+      class:active={activeTab === 'receivingTasks'}
+      on:click={() => (activeTab = 'receivingTasks')}
+    >
+      🧩 {isRTL ? 'مهام الاستلام' : 'Receiving Tasks'}
+    </button>
   </div>
 
   <div class="rtm-content">
     {#if activeTab === 'positions'}
       <DefaultPositions />
-    {:else}
+    {:else if activeTab === 'templates'}
       <ReceivingTaskTemplates />
+    {:else}
+      <StandaloneReceivingTasks />
     {/if}
   </div>
 </div>
@@ -78,5 +88,15 @@
   }
   .rtm-content > :global(*) {
     flex: 1;
+  }
+
+  .coming-soon {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #64748b;
   }
 </style>

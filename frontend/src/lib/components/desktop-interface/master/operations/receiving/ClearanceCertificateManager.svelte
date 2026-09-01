@@ -9,6 +9,12 @@
   export let show = false;
   export let printOnly = false;
   export let autoGenerate = false;
+  // true when receivingRecord actually lives in pending_receiving_records (Start Receiving
+  // bill type other than "Original Bill") instead of receiving_records. Defaults to false so
+  // every other caller of this component (e.g. ReceivingRecords.svelte) is unaffected.
+  export let isPendingRecord = false;
+  $: receivingTableName = isPendingRecord ? 'pending_receiving_records' : 'receiving_records';
+  $: receivingTasksApiPath = isPendingRecord ? '/api/pending-receiving-tasks' : '/api/receiving-tasks';
   
   let currencySymbolUrl = '/icons/saudi-currency.png';
   const dispatch = createEventDispatcher();
@@ -834,7 +840,7 @@
 
       // Update receiving record with certificate information
       const { error: updateError } = await supabase
-        .from('receiving_records')
+        .from(receivingTableName)
         .update({
           certificate_url: publicUrl,
           certificate_generated_at: new Date().toISOString(),
@@ -947,7 +953,7 @@
       }
       
       // Call the API to generate tasks
-      const response = await fetch('/api/receiving-tasks', {
+      const response = await fetch(receivingTasksApiPath, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1092,7 +1098,7 @@
     if (!receivingRecord?.id) return;
     
     try {
-      const response = await fetch(`/api/receiving-tasks?receiving_record_id=${receivingRecord.id}`);
+      const response = await fetch(`${receivingTasksApiPath}?receiving_record_id=${receivingRecord.id}`);
       const result = await response.json();
       
       if (result.success) {
@@ -1148,7 +1154,7 @@
     if (!receivingRecord?.id) return;
     
     try {
-      const response = await fetch(`/api/receiving-tasks?receiving_record_id=${receivingRecord.id}`);
+      const response = await fetch(`${receivingTasksApiPath}?receiving_record_id=${receivingRecord.id}`);
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.tasks && result.tasks.length > 0) {

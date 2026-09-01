@@ -164,7 +164,7 @@
 					branch_id,
 					status,
 					user_type,
-					branches (
+					branches!users_branch_id_fkey (
 						name_en,
 						name_ar
 					)

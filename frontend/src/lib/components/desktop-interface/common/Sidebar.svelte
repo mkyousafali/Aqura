@@ -87,6 +87,7 @@
 	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
 	import CentralPerformance from '$lib/components/desktop-interface/master/reports/CentralPerformance.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
+	import PendingReceivingRecords from '$lib/components/desktop-interface/master/vendor/PendingReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
 	import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
@@ -2230,6 +2231,7 @@ function openApprovalCenter() {
 			'RECEIVING': openReceiving,
 			'START_RECEIVING': openStartReceiving,
 			'RECEIVING_RECORDS': openReceivingRecords,
+			'PENDING_RECEIVING_RECORDS': openPendingReceivingRecords,
 			'VENDOR_RECORDS': openVendorRecords,
 			// 'FLYER_MASTER': openFlyerMaster,       // removed from Media > Dashboard
 			// 'PRODUCTS_DASHBOARD': openProductsDashboard, // removed from Media > Dashboard
@@ -3453,6 +3455,30 @@ function openApprovalCenter() {
 		showVendorSubmenu = false;
 	}
 
+	function openPendingReceivingRecords() {
+		collapseAllMenus();
+		const windowId = generateWindowId('pending-receiving-records');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${$currentLocale === 'ar' ? 'سجلات الاستلام المعلقة' : 'Pending Receiving Records'} #${instanceNumber}`,
+			component: PendingReceivingRecords,
+			componentName: "PendingReceivingRecords",
+			icon: '⏳',
+			size: { width: 1400, height: 900 },
+			position: {
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showVendorSubmenu = false;
+	}
+
 	// Media section functions
 	function openFlyerMaster() {
 		const windowId = generateWindowId('flyer-master');
@@ -4524,6 +4550,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openReceivingRecords}>
 								<span class="menu-icon">📋</span>
 								<span class="menu-text">{t('nav.receivingRecords')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('PENDING_RECEIVING_RECORDS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPendingReceivingRecords}>
+								<span class="menu-icon">⏳</span>
+								<span class="menu-text">{$currentLocale === 'ar' ? 'سجلات الاستلام المعلقة' : 'Pending Receiving Records'}</span>
 							</button>
 						</div>
 					{/if}

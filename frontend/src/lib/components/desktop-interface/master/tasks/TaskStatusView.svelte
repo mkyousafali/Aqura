@@ -328,7 +328,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 						employee_id,
 						branch_id,
 						hr_employees(id, name),
-						branches(id, name_en)
+						branches!users_branch_id_fkey(id, name_en)
 					`)
 					.in('id', userIds);
 

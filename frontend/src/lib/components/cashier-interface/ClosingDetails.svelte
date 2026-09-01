@@ -3,6 +3,7 @@
 	import { currentLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
+	import { addMoney, money, multiplyMoney, subtractMoney } from '$lib/utils/money';
 
 	export let windowId: string;
 	export let operation: any;
@@ -105,20 +106,20 @@
 			supervisorCode = '';
 			
 			// Load bank reconciliation
-			madaAmount = details.bank_mada || '';
-			visaAmount = details.bank_visa || '';
-			masterCardAmount = details.bank_mastercard || '';
-			googlePayAmount = details.bank_google_pay || '';
-			otherAmount = details.bank_other || '';
+			madaAmount = details.bank_mada === undefined ? '' : money(details.bank_mada);
+			visaAmount = details.bank_visa === undefined ? '' : money(details.bank_visa);
+			masterCardAmount = details.bank_mastercard === undefined ? '' : money(details.bank_mastercard);
+			googlePayAmount = details.bank_google_pay === undefined ? '' : money(details.bank_google_pay);
+			otherAmount = details.bank_other === undefined ? '' : money(details.bank_other);
 			
 			// Load ERP details
-			systemCashSales = details.system_cash_sales || '';
-			systemCardSales = details.system_card_sales || '';
-			systemReturn = details.system_return || '';
+			systemCashSales = details.system_cash_sales === undefined ? '' : money(details.system_cash_sales);
+			systemCardSales = details.system_card_sales === undefined ? '' : money(details.system_card_sales);
+			systemReturn = details.system_return === undefined ? '' : money(details.system_return);
 			
 			// Load recharge details
-			openingBalance = details.recharge_opening_balance || '';
-			closeBalance = details.recharge_close_balance || '';
+			openingBalance = details.recharge_opening_balance === undefined ? '' : money(details.recharge_opening_balance);
+			closeBalance = details.recharge_close_balance === undefined ? '' : money(details.recharge_close_balance);
 			
 			// Load recharge card transaction dates and times
 			startDateInput = details.recharge_transaction_start_date || '';
@@ -143,7 +144,7 @@
 			}
 			
 			// Load vouchers
-			vouchers = details.vouchers || [];
+			vouchers = (details.vouchers || []).map((voucher: any) => ({ ...voucher, amount: money(voucher.amount) }));
 			
 			// If closing details exist, it means it was already saved
 			closingSaved = true;
@@ -171,11 +172,11 @@
 	$: closingTotal = Object.keys(closingCounts).reduce((sum, key) => {
 		const count = closingCounts[key] || 0;
 		const denomValue = denomValues[key] || 0;
-		return sum + (count * denomValue);
+		return addMoney(sum, multiplyMoney(denomValue, count));
 	}, 0);
 
 	// Calculate cash sales (closing total - checked amount)
-	$: cashSales = closingTotal - (operation?.total_after || 0);
+	$: cashSales = subtractMoney(closingTotal, operation?.total_after);
 
 	// Purchase vouchers
 	let vouchers: Array<{serial: string, amount: number}> = [];
@@ -196,7 +197,7 @@
 
 			vouchers = [...vouchers, {
 				serial: newVoucherSerial,
-				amount: Number(newVoucherAmount)
+				amount: money(newVoucherAmount)
 			}];
 			newVoucherSerial = '';
 			newVoucherAmount = '';
@@ -208,10 +209,10 @@
 	}
 
 	// Calculate vouchers total
-	$: vouchersTotal = vouchers.reduce((sum, v) => sum + v.amount, 0);
+	$: vouchersTotal = vouchers.reduce((sum, v) => addMoney(sum, v.amount), 0);
 
 	// Calculate total cash sales (cash sales + vouchers - recharge sales)
-	$: totalCashSales = (cashSales + vouchersTotal) - (Number(sales) || 0);
+	$: totalCashSales = subtractMoney(addMoney(cashSales, vouchersTotal), sales);
 
 	// Bank reconciliation payment methods
 	let madaAmount: number | '' = '';
@@ -221,10 +222,10 @@
 	let otherAmount: number | '' = '';
 
 	// Calculate bank reconciliation total
-	$: bankTotal = (Number(madaAmount) || 0) + (Number(visaAmount) || 0) + (Number(masterCardAmount) || 0) + (Number(googlePayAmount) || 0) + (Number(otherAmount) || 0);
+	$: bankTotal = addMoney(madaAmount, visaAmount, masterCardAmount, googlePayAmount, otherAmount);
 
 	// Calculate total sales (total cash sales + total bank sales)
-	$: totalSales = totalCashSales + bankTotal;
+	$: totalSales = addMoney(totalCashSales, bankTotal);
 
 	// System sales
 	let systemCashSales: number | '' = '';
@@ -232,8 +233,8 @@
 	let systemReturn: number | '' = '';
 
 	// Calculate system sales totals
-	$: totalSystemCashSales = (Number(systemCashSales) || 0) - (Number(systemReturn) || 0);
-	$: totalSystemSales = totalSystemCashSales + (Number(systemCardSales) || 0);
+	$: totalSystemCashSales = subtractMoney(systemCashSales, systemReturn);
+	$: totalSystemSales = addMoney(totalSystemCashSales, systemCardSales);
 
 	// Time format conversion for 12-hour format
 	let startDateInput = '';
@@ -258,20 +259,20 @@
 	let sales: number | '' = '';
 
 	// Auto-calculate sales
-	$: sales = (Number(closeBalance) || 0) - (Number(openingBalance) || 0);
+	$: sales = subtractMoney(closeBalance, openingBalance);
 
 	// Differences fields
 	let differenceInCashSales: number = 0;
 	let differenceInCardSales: number = 0;
 
 	// Auto-calculate difference in cash sales (total cash sales - (system cash sales - returns))
-	$: differenceInCashSales = Math.round((totalCashSales - ((Number(systemCashSales) || 0) - (Number(systemReturn) || 0))) * 100) / 100;
+	$: differenceInCashSales = subtractMoney(totalCashSales, totalSystemCashSales);
 
 	// Auto-calculate difference in card sales (bank total - system card sales)
-	$: differenceInCardSales = Math.round((bankTotal - (Number(systemCardSales) || 0)) * 100) / 100;
+	$: differenceInCardSales = subtractMoney(bankTotal, systemCardSales);
 
 	// Auto-calculate total difference
-	$: totalDifference = Math.round((differenceInCashSales + differenceInCardSales) * 100) / 100;
+	$: totalDifference = addMoney(differenceInCashSales, differenceInCardSales);
 
 	// Supervisor code
 	let supervisorCode: string = '';
@@ -422,26 +423,26 @@
 				closing_end_time: endHour && endMinute ? `${endHour}:${endMinute} ${endAmPm}` : null,
 				
 				// Recharge cards
-				recharge_opening_balance: openingBalance || 0,
-				recharge_close_balance: closeBalance || 0,
-				recharge_sales: sales || 0,
+				recharge_opening_balance: money(openingBalance),
+				recharge_close_balance: money(closeBalance),
+				recharge_sales: money(sales),
 				recharge_transaction_start_date: startDateInput,
 				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
 				recharge_transaction_end_date: endDateInput,
 				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
 				
 				// Bank reconciliation
-				bank_mada: madaAmount || 0,
-				bank_visa: visaAmount || 0,
-				bank_mastercard: masterCardAmount || 0,
-				bank_google_pay: googlePayAmount || 0,
-				bank_other: otherAmount || 0,
+				bank_mada: money(madaAmount),
+				bank_visa: money(visaAmount),
+				bank_mastercard: money(masterCardAmount),
+				bank_google_pay: money(googlePayAmount),
+				bank_other: money(otherAmount),
 				bank_total: bankTotal,
 				
 				// ERP details
-				system_cash_sales: systemCashSales || 0,
-				system_card_sales: systemCardSales || 0,
-				system_return: systemReturn || 0,
+				system_cash_sales: money(systemCashSales),
+				system_card_sales: money(systemCardSales),
+				system_return: money(systemReturn),
 				
 				// Differences
 				difference_cash_sales: differenceInCashSales,
@@ -467,18 +468,18 @@
 				difference_cash_sales: differenceInCashSales,
 				difference_card_sales: differenceInCardSales,
 				total_difference: totalDifference,
-				recharge_opening_balance: openingBalance || 0,
-				recharge_close_balance: closeBalance || 0,
-				recharge_sales: sales || 0,
-				bank_mada: madaAmount || 0,
-				bank_visa: visaAmount || 0,
-				bank_mastercard: masterCardAmount || 0,
-				bank_google_pay: googlePayAmount || 0,
-				bank_other: otherAmount || 0,
+				recharge_opening_balance: money(openingBalance),
+				recharge_close_balance: money(closeBalance),
+				recharge_sales: money(sales),
+				bank_mada: money(madaAmount),
+				bank_visa: money(visaAmount),
+				bank_mastercard: money(masterCardAmount),
+				bank_google_pay: money(googlePayAmount),
+				bank_other: money(otherAmount),
 				bank_total: bankTotal,
-				system_cash_sales: systemCashSales || 0,
-				system_card_sales: systemCardSales || 0,
-				system_return: systemReturn || 0
+				system_cash_sales: money(systemCashSales),
+				system_card_sales: money(systemCardSales),
+				system_return: money(systemReturn)
 			};
 
 			const { error: updateError } = await supabase

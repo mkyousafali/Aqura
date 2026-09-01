@@ -55,7 +55,13 @@
 	function scrollToSection(section: string) {
 		if (!tableContainer) return;
 		const el = tableContainer.querySelector<HTMLElement>(`[data-section="${section}"]`);
-		if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		if (!el) return;
+		// scrollIntoView({ block: 'start' }) aligns the row flush with the top of the scroll
+		// container — which is exactly where the sticky <thead> sits, so the section header ends
+		// up hidden underneath it. Compute the offset manually so it lands just below the header.
+		const headerHeight = tableContainer.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+		const delta = el.getBoundingClientRect().top - tableContainer.getBoundingClientRect().top - headerHeight - 4;
+		tableContainer.scrollBy({ top: delta, behavior: 'smooth' });
 	}
 
 	const sectionOrder = [
@@ -191,7 +197,7 @@
 			let countQuery = supabase.from('users').select('id', { count: 'exact' });
 			let dataQuery = supabase
 				.from('users')
-				.select('id, username, is_master_admin, is_admin, branch_id, position_id, employee_id, branches (name_en)', { count: 'exact' })
+				.select('id, username, is_master_admin, is_admin, branch_id, position_id, employee_id, branches!users_branch_id_fkey (name_en)', { count: 'exact' })
 				.order('username', { ascending: true })
 				.range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
 
@@ -390,6 +396,105 @@
 	function isChanged(code: string): boolean {
 		return pendingChanges.has(code);
 	}
+
+	// ── Copy From Another User ──
+	// Replaces the target user's entire button_permissions with an exact copy of the source
+	// user's rows (via a SECURITY DEFINER RPC — same reasoning as upsert_button_permission above:
+	// anon/authenticated only have SELECT on this table at the Postgres grant level).
+	let showCopyModal = false;
+	let copySourceQuery = '';
+	let copyTargetQuery = '';
+	let copySourceResults: any[] = [];
+	let copyTargetResults: any[] = [];
+	let copySourceUser: any = null;
+	let copyTargetUser: any = null;
+	let copySourceTimeout: any = null;
+	let copyTargetTimeout: any = null;
+	let copySaving = false;
+	let copyError = '';
+
+	async function searchCopyUsers(query: string): Promise<any[]> {
+		const { supabase } = await import('$lib/utils/supabase');
+		let q = supabase.from('users').select('id, username').order('username').limit(20);
+		if (query) q = q.ilike('username', `%${query}%`);
+		const { data } = await q;
+		return data || [];
+	}
+
+	function openCopyModal() {
+		showCopyModal = true;
+		copySourceQuery = '';
+		copyTargetQuery = '';
+		copySourceUser = null;
+		copyTargetUser = null;
+		copyError = '';
+		// Show a default list of users immediately rather than an empty box.
+		searchCopyUsers('').then((r) => (copySourceResults = r));
+		searchCopyUsers('').then((r) => (copyTargetResults = r));
+	}
+
+	function closeCopyModal() {
+		showCopyModal = false;
+	}
+
+	function onCopySourceInput() {
+		copySourceUser = null;
+		clearTimeout(copySourceTimeout);
+		copySourceTimeout = setTimeout(async () => { copySourceResults = await searchCopyUsers(copySourceQuery); }, 250);
+	}
+
+	function onCopyTargetInput() {
+		copyTargetUser = null;
+		clearTimeout(copyTargetTimeout);
+		copyTargetTimeout = setTimeout(async () => { copyTargetResults = await searchCopyUsers(copyTargetQuery); }, 250);
+	}
+
+	function selectCopySource(u: any) {
+		copySourceUser = u;
+		copySourceQuery = u.username;
+		copySourceResults = [];
+	}
+
+	function selectCopyTarget(u: any) {
+		copyTargetUser = u;
+		copyTargetQuery = u.username;
+		copyTargetResults = [];
+	}
+
+	async function saveCopyPermissions() {
+		if (!copySourceUser || !copyTargetUser) return;
+		if (copySourceUser.id === copyTargetUser.id) {
+			copyError = 'Source and target must be different users';
+			return;
+		}
+		const requestingUserId = get(currentUser)?.id;
+		if (!requestingUserId) return;
+		copySaving = true;
+		copyError = '';
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.rpc('copy_button_permissions', {
+				p_requesting_user_id: requestingUserId,
+				p_source_user_id: copySourceUser.id,
+				p_target_user_id: copyTargetUser.id,
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Failed to copy permissions');
+
+			showCopyModal = false;
+			// If the target is whoever's currently open in the panel, refresh it so the copied
+			// permissions show up immediately instead of looking unchanged until reselected.
+			if (selectedUserId === copyTargetUser.id) {
+				pendingChanges = new Map();
+				await loadButtonPermissions();
+			}
+		} catch (err: any) {
+			console.error('Error copying permissions:', err);
+			copyError = err.message || 'Failed to copy permissions';
+		} finally {
+			copySaving = false;
+		}
+	}
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
@@ -546,6 +651,9 @@
 						<div class="flex-1"></div>
 
 						<!-- Bulk actions -->
+						<button class="px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600 text-white hover:bg-violet-700 transition-all shadow-sm" on:click={openCopyModal} title="Copy all button permissions from another user onto this one">
+							📋 Copy From Another User
+						</button>
 						<button class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm" on:click={enableAll} title="Enable all visible buttons">
 							Enable All ({filteredButtons.length})
 						</button>
@@ -557,20 +665,21 @@
 
 				<!-- Section Quick-Jump Nav -->
 				{#if availableSections.length > 0 && !buttonsLoading}
-					<div class="flex items-center gap-1.5 px-3 py-2 border-b border-slate-200 bg-slate-50 overflow-x-auto" style="flex-wrap: nowrap; scrollbar-width: thin;">
-						<span class="text-[10px] font-black uppercase tracking-wider text-slate-400 shrink-0 mr-1">Jump:</span>
-						{#each availableSections as sec}
-							<button
-								class="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all hover:scale-105 active:scale-95"
-								style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd;"
-								on:click={() => scrollToSection(sec)}
-								on:mouseenter={(e) => { (e.currentTarget as HTMLElement).style.background = '#0369a1'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
-								on:mouseleave={(e) => { (e.currentTarget as HTMLElement).style.background = '#e0f2fe'; (e.currentTarget as HTMLElement).style.color = '#0369a1'; }}
-							>
-								<span>{sectionIcons[sec] ?? '📋'}</span>
-								<span>{sec}</span>
-							</button>
-						{/each}
+					<div class="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-slate-50">
+						<span class="text-[10px] font-black uppercase tracking-wider text-slate-400 shrink-0">Jump to section:</span>
+						<select
+							class="text-[12px] font-bold text-sky-700 bg-white border border-sky-200 rounded-lg px-2.5 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-sky-300"
+							on:change={(e) => {
+								const sec = e.currentTarget.value;
+								if (sec) scrollToSection(sec);
+								e.currentTarget.value = '';
+							}}
+						>
+							<option value="">Select…</option>
+							{#each availableSections as sec}
+								<option value={sec}>{sectionIcons[sec] ?? '📋'} {sec}</option>
+							{/each}
+						</select>
 					</div>
 				{/if}
 
@@ -679,6 +788,95 @@
 		</div>
 	</div>
 </div>
+
+{#if showCopyModal}
+	<div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[9999]" on:click|self={closeCopyModal} on:keydown={(e) => { if (e.key === 'Escape') closeCopyModal(); }} role="presentation">
+		<div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+			<div class="px-5 py-4 bg-violet-600 text-white flex items-center justify-between">
+				<h3 class="text-sm font-black uppercase tracking-wide">📋 Copy From Another User</h3>
+				<button class="text-white/80 hover:text-white text-lg leading-none" on:click={closeCopyModal}>✕</button>
+			</div>
+			<div class="p-5 space-y-4">
+				<p class="text-xs text-slate-500">
+					This replaces the target user's <strong>entire</strong> set of button permissions with an exact copy of the source user's — anything the target already has will be removed first.
+				</p>
+
+				<!-- Source user -->
+				<div>
+					<label class="block text-xs font-black uppercase tracking-wide text-slate-500 mb-1">Copy permissions from</label>
+					<div class="relative">
+						<input
+							type="text"
+							class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+							placeholder="Search username..."
+							bind:value={copySourceQuery}
+							on:input={onCopySourceInput}
+							style="color:#000;"
+						/>
+						{#if copySourceResults.length > 0 && !copySourceUser}
+							<div class="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg">
+								{#each copySourceResults as u}
+									<button type="button" class="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 text-slate-700" on:click={() => selectCopySource(u)}>
+										{u.username}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					{#if copySourceUser}
+						<span class="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-violet-100 text-violet-700">✓ {copySourceUser.username}</span>
+					{/if}
+				</div>
+
+				<!-- Target user -->
+				<div>
+					<label class="block text-xs font-black uppercase tracking-wide text-slate-500 mb-1">Copy permissions to</label>
+					<div class="relative">
+						<input
+							type="text"
+							class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+							placeholder="Search username..."
+							bind:value={copyTargetQuery}
+							on:input={onCopyTargetInput}
+							style="color:#000;"
+						/>
+						{#if copyTargetResults.length > 0 && !copyTargetUser}
+							<div class="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg">
+								{#each copyTargetResults as u}
+									<button type="button" class="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 text-slate-700" on:click={() => selectCopyTarget(u)}>
+										{u.username}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					{#if copyTargetUser}
+						<span class="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-violet-100 text-violet-700">✓ {copyTargetUser.username}</span>
+					{/if}
+				</div>
+
+				{#if copyError}
+					<div class="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600 font-semibold">{copyError}</div>
+				{/if}
+			</div>
+			<div class="px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+				<button class="px-4 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100 transition-all" on:click={closeCopyModal}>Cancel</button>
+				<button
+					class="px-5 py-2 rounded-xl text-sm font-bold text-white transition-all
+						{copySourceUser && copyTargetUser && !copySaving ? 'bg-violet-600 hover:bg-violet-700 shadow-lg shadow-violet-200' : 'bg-slate-300 cursor-not-allowed'}"
+					disabled={!copySourceUser || !copyTargetUser || copySaving}
+					on:click={saveCopyPermissions}
+				>
+					{#if copySaving}
+						<span class="inline-block animate-spin mr-1">⏳</span> Saving...
+					{:else}
+						💾 Save
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	@keyframes loading-bar {

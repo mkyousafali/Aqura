@@ -14,6 +14,7 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Manage Vendor": "MANAGE_VENDOR",
   "Start Receiving": "START_RECEIVING",
   "Receiving Records": "RECEIVING_RECORDS",
+  "Pending Receiving Records": "PENDING_RECEIVING_RECORDS",
   "Vendor Records": "VENDOR_RECORDS",
   "Flyer Master": "FLYER_MASTER",
   "Product Master": "PRODUCT_MASTER",

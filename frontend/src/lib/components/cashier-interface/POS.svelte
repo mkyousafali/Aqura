@@ -4,6 +4,7 @@
 	import { t, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
+	import { addMoney, multiplyMoney, subtractMoney } from '$lib/utils/money';
 	import CloseBox from './CloseBox.svelte';
 	import ClosingDetails from './ClosingDetails.svelte';
 	import CounterCheck from './CounterCheck.svelte';
@@ -714,7 +715,7 @@
 		for (const [key, count] of Object.entries(realCounts)) {
 			const numCount = typeof count === 'number' ? count : parseFloat(count as any) || 0;
 			const denomValue = denomValues[key] || 0;
-			total += numCount * denomValue;
+			total = addMoney(total, multiplyMoney(denomValue, numCount));
 		}
 		return total;
 	}
@@ -722,7 +723,7 @@
 	$: displayTotal = Object.entries(realCounts).reduce((sum, [key, count]) => {
 		const numCount = typeof count === 'number' ? count : parseFloat(count as any) || 0;
 		const denomValue = denomValues[key] || 0;
-		return sum + (numCount * denomValue);
+		return addMoney(sum, multiplyMoney(denomValue, numCount));
 	}, 0);
 
 	function checkMatchStatus() {
@@ -763,7 +764,7 @@
 		isStarting = true;
 		try {
 			const realTotal = displayTotal;
-			const difference = selectedBox.total - realTotal;
+			const difference = subtractMoney(selectedBox.total, realTotal);
 			const userId = user?.id || user?.user_id;
 
 			console.log('📝 Starting operation for box:', selectedBox.number, 'user:', userId, 'branch:', branch.id);

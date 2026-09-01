@@ -4,6 +4,7 @@
 	import { t } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
+	import { addMoney, money, multiplyMoney, subtractMoney } from '$lib/utils/money';
 
 	export let windowId: string;
 	export let box: any;
@@ -182,7 +183,7 @@
 		for (const key of Object.keys(denomValues)) {
 			const count = Number(realCounts[key]) || 0;
 			const denomValue = denomValues[key] || 0;
-			total += count * denomValue;
+			total = addMoney(total, multiplyMoney(denomValue, count));
 		}
 		console.log('Calculated total:', total, 'from counts:', realCounts);
 		return total;
@@ -357,12 +358,12 @@
 				const closingData = {
 					counts_after: countsToSave,
 					total_after: displayTotal,
-					difference: displayTotal - Number(box.total),
+					difference: subtractMoney(displayTotal, box.total),
 					is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
 					// Recharge card details
 					recharge_transaction_start_date: rechargeStartDate,
 					recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`,
-					recharge_opening_balance: rechargeOpeningBalance
+					recharge_opening_balance: money(rechargeOpeningBalance)
 				};
 				
 				let error;
@@ -387,7 +388,7 @@
 							counts_after: countsToSave,
 							total_before: box.total,
 							total_after: displayTotal,
-							difference: displayTotal - Number(box.total),
+							difference: subtractMoney(displayTotal, box.total),
 							is_matched: Math.abs(displayTotal - Number(box.total)) < 0.01,
 							status: 'draft',
 							start_time: new Date().toISOString(),
@@ -503,7 +504,7 @@
 			});
 
 			const realTotal = calculateRealTotal();
-			const difference = realTotal - box.total;
+			const difference = subtractMoney(realTotal, box.total);
 			const isMatched = Math.abs(difference) < 0.01;
 
 			// Build closing details with recharge card info
@@ -515,7 +516,7 @@
 				// Recharge card details
 				recharge_transaction_start_date: rechargeStartDate,
 				recharge_transaction_start_time: `${rechargeStartHour}:${rechargeStartMinute} ${rechargeStartAmPm}`,
-				recharge_opening_balance: rechargeOpeningBalance
+				recharge_opening_balance: money(rechargeOpeningBalance)
 			};
 
 			const { error } = await supabase

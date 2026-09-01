@@ -28,6 +28,9 @@
 	let vendorSearchTerm = ''; // Search by vendor name
 	let selectedErpRefFilter = ''; // Filter by ERP invoice reference ('' = all, 'entered', 'not_entered')
 	let erpReferenceSearchTerm = ''; // Search by ERP invoice reference number
+	let erpCheckStatusFilter = ''; // '' | 'mismatch' | 'not_found' — filters rows by their persisted erp_check_result.status
+	let erpMismatchCount = 0;
+	let erpNotFoundCount = 0;
 	let billDateFilterMode = ''; // '' = any date, 'specific' = one date, 'period' = date range
 	let billDateFrom = '';
 	let billDateTo = '';
@@ -56,10 +59,89 @@
 	let erpReferenceValue = '';
 	let updatingErp = false;
 
+	// Live ERP existence check (Purchase Invoice lookup via branch tunnel)
+	let erpConnections = []; // erp_connections rows: branch_id, tunnel_url, erp_branch_id
+	let erpCheckStatus = {}; // record.id -> 'checking' | 'found' | 'not_found' | 'error'
+	let erpCheckResult = {}; // record.id -> { grandTotal, partyName, transactionDate } | { error }
+
+	// Button permissions (gates editing an already-entered ERP number — same access as the
+	// Vendor Records window, mirroring the isButtonAllowed pattern used in Sidebar.svelte/Taskbar.svelte)
+	let allowedButtonCodes = new Set();
+	let buttonPermissionsLoaded = false;
+
+	async function loadButtonPermissions() {
+		if (!$currentUser?.id) {
+			allowedButtonCodes = new Set();
+			buttonPermissionsLoaded = false;
+			return;
+		}
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: permissions, error } = await supabase
+				.from('button_permissions')
+				.select('button_code')
+				.eq('user_id', $currentUser.id)
+				.eq('is_enabled', true);
+			if (error) throw error;
+			allowedButtonCodes = new Set((permissions || []).map((p) => p.button_code));
+			buttonPermissionsLoaded = true;
+		} catch (err) {
+			console.error('Error loading button permissions:', err);
+			allowedButtonCodes = new Set();
+			buttonPermissionsLoaded = true;
+		}
+	}
+
+	function isButtonAllowed(buttonCode) {
+		if (!buttonPermissionsLoaded) return false;
+		if ($currentUser?.isMasterAdmin) return true;
+		return allowedButtonCodes.has(buttonCode);
+	}
+
+	$: if ($currentUser) {
+		loadButtonPermissions();
+	}
+	// Referencing the args directly (not just calling isButtonAllowed) so Svelte's reactive
+	// dependency tracking actually re-runs this once the async permission load resolves.
+	$: canEditErpReference = buttonPermissionsLoaded && ($currentUser?.isMasterAdmin || allowedButtonCodes.has('VENDOR_RECORDS'));
+
 	// Record edit popup state (Master Admin only)
 	let showEditPopup = false;
 	let editingRecord = null;
 	let editForm = null;
+	let editVendors = []; // Vendors available for editForm.branch_id, so the vendor can be re-selected
+	let editVendorsLoading = false;
+	let editVendorsError = '';
+	let editVendorSearchTerm = '';
+	// Only search results (typed term required) are listed in a table; the current selection is
+	// shown separately as a card, not buried inside a giant dropdown/list.
+	$: editSearchResults = (() => {
+		const tokens = editVendorSearchTerm.trim().toLowerCase().split(/\s+/).filter(Boolean);
+		if (!tokens.length) return [];
+		return editVendors
+			.filter((v) => {
+				const name = (v.vendor_name || '').toLowerCase();
+				const id = String(v.erp_vendor_id ?? '');
+				// AND across words: each additional word narrows the results (as expected), instead
+				// of broadening them — "al marai" must match both "al" and "marai", not just either.
+				return tokens.every((tok) => name.includes(tok) || id.includes(tok));
+			})
+			.slice(0, 50);
+	})();
+	// The currently selected vendor's display info — prefers the loaded editVendors list (has
+	// fresh vat_number), falling back to the record's own joined vendor so the card still shows
+	// correctly before editVendors finishes loading.
+	$: editSelectedVendorInfo = editForm?.vendor_id
+		? editVendors.find((v) => String(v.erp_vendor_id) === String(editForm.vendor_id)) ||
+		  (String(editingRecord?.vendor_id) === String(editForm.vendor_id)
+				? { erp_vendor_id: editingRecord?.vendor_id, vendor_name: editingRecord?.vendors?.vendor_name, vat_number: editingRecord?.vendors?.vat_number }
+				: null)
+		: null;
+
+	function selectEditVendor(v) {
+		editForm.vendor_id = String(v.erp_vendor_id);
+		editVendorSearchTerm = '';
+	}
 	let savingEdit = false;
 	let editError = '';
 	let editScheduleCount = 0;
@@ -68,7 +150,9 @@
 
 	onMount(() => {
 		loadBranches();
+		loadErpConnections();
 		loadReceivingRecords();
+		loadErpCheckCounts();
 		setupRealtimeSubscriptions();
 		
 		return () => {
@@ -80,6 +164,27 @@
 			}
 		};
 	});
+
+	// Badge counts for the Mismatch/Not Found filter buttons — independent of the currently applied
+	// filters/pagination, so the counts stay meaningful even while one of them is active.
+	async function loadErpCheckCounts() {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const [mismatchResult, notFoundResult] = await Promise.all([
+				supabase.rpc('get_receiving_records_with_details', { p_limit: 1, p_erp_check_status_filter: 'mismatch' }),
+				supabase.rpc('get_receiving_records_with_details', { p_limit: 1, p_erp_check_status_filter: 'not_found' })
+			]);
+			erpMismatchCount = mismatchResult.data?.[0]?.total_count || 0;
+			erpNotFoundCount = notFoundResult.data?.[0]?.total_count || 0;
+		} catch (err) {
+			console.error('Error loading ERP check counts:', err);
+		}
+	}
+
+	function toggleErpCheckStatusFilter(status) {
+		erpCheckStatusFilter = erpCheckStatusFilter === status ? '' : status;
+		onFilterChange();
+	}
 
 	async function setupRealtimeSubscriptions() {
 		try {
@@ -174,6 +279,7 @@
 								allLoadedRecords = [newRecord, ...allLoadedRecords];
 								totalRecords += 1;
 								updatePaginatedRecords();
+								seedErpCheckState([newRecord]);
 								console.log('✅ New record added to table without full reload');
 							}
 						} catch (err) {
@@ -269,6 +375,163 @@
 		}
 	}
 
+	// Load ERP tunnel connections so the ERP Check button can query each branch's live SQL Server
+	async function loadErpConnections() {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('erp_connections')
+				.select('branch_id, tunnel_url, erp_branch_id')
+				.eq('is_active', true);
+			if (!error && data) {
+				erpConnections = data;
+			}
+		} catch (err) {
+			console.error('Error loading ERP connections:', err);
+		}
+	}
+
+	// Vendor IDs can legitimately diverge (duplicate/renamed ERP ledgers for the same real vendor,
+	// e.g. "HADI MADKHALI" vs "HADI MADKHALI(SAMTAH)") while still being the same business — so the
+	// vendor match decision compares NAMES (parenthetical suffixes stripped, tokenized) instead of IDs.
+	function normalizeVendorNameTokens(name) {
+		if (!name) return [];
+		return name
+			.toString()
+			.toLowerCase()
+			.replace(/\([^)]*\)/g, ' ')
+			.replace(/[^\p{L}\p{N}\s]/gu, ' ')
+			.split(/\s+/)
+			.filter((t) => t.length >= 2);
+	}
+
+	function vendorNamesMatch(nameA, nameB) {
+		const tokensA = new Set(normalizeVendorNameTokens(nameA));
+		const tokensB = new Set(normalizeVendorNameTokens(nameB));
+		if (tokensA.size === 0 || tokensB.size === 0) return false;
+		let overlap = 0;
+		for (const t of tokensA) if (tokensB.has(t)) overlap++;
+		return overlap / Math.min(tokensA.size, tokensB.size) >= 0.8;
+	}
+
+	// Confirms whether record.erp_purchase_invoice_reference (a VoucherNumber typed in by staff)
+	// actually exists as a Purchase Invoice (PI) in that branch's own ERP SQL Server, live over the
+	// tunnel, AND that its vendor NAME (not the ERP ledger ID) and amount (±1 tolerance)
+	// both match this receiving record — a voucher number alone can exist but belong to a different vendor/amount.
+	// The verdict is persisted to receiving_records.erp_check_result (jsonb) so it survives reloads.
+	async function checkErpInvoice(record) {
+		const ref = (record.erp_purchase_invoice_reference || '').toString().trim();
+		if (!ref) return;
+
+		const conn = erpConnections.find((c) => String(c.branch_id) === String(record.branch_id) && c.tunnel_url);
+		if (!conn) {
+			erpCheckStatus = { ...erpCheckStatus, [record.id]: 'error' };
+			erpCheckResult = { ...erpCheckResult, [record.id]: { error: 'No ERP tunnel configured for this branch' } };
+			return;
+		}
+
+		erpCheckStatus = { ...erpCheckStatus, [record.id]: 'checking' };
+		try {
+			const safeRef = ref.replace(/'/g, "''");
+			const sql = `SELECT TOP 1 m.InvTransactionMasterID, m.GrandTotal, m.PartyName, m.TransactionDate, l.LedgerCode AS VendorId FROM InvTransactionMaster m LEFT JOIN AccLedgers l ON l.LedgerID = m.LedgerID AND l.BranchID = m.BranchID WHERE m.VoucherType='PI' AND CAST(m.VoucherNumber AS VARCHAR(50))='${safeRef}' AND m.BranchID=${conn.erp_branch_id} AND m.IsActive=1`;
+			const response = await fetch('/api/erp-products', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'query', tunnelUrl: conn.tunnel_url, sql })
+			});
+			const data = await response.json();
+			if (!data.success) throw new Error(data.error || 'Query failed');
+
+			const row = data.recordset?.[0];
+			if (!row) {
+				const payload = { status: 'not_found', checkedAt: new Date().toISOString() };
+				erpCheckStatus = { ...erpCheckStatus, [record.id]: 'not_found' };
+				erpCheckResult = { ...erpCheckResult, [record.id]: payload };
+				await persistErpCheckResult(record.id, payload);
+				return;
+			}
+
+			const erpVendorId = String(row.VendorId ?? '').trim();
+			const localVendorId = String(record.vendor_id ?? '').trim();
+			const erpAmount = parseFloat(row.GrandTotal) || 0;
+			// final_bill_amount can be a discounted/adjusted figure that legitimately differs from
+			// the ERP's GrandTotal, while bill_amount (the original entered total) is often the closer
+			// match — check against both and accept whichever is within tolerance.
+			const billAmount = parseFloat(record.bill_amount ?? 0) || 0;
+			const finalAmount = parseFloat(record.final_bill_amount ?? record.bill_amount ?? 0) || 0;
+			const diffFromBill = erpAmount - billAmount;
+			const diffFromFinal = erpAmount - finalAmount;
+			const AMOUNT_TOLERANCE = 1;
+			const matchesBill = Math.abs(diffFromBill) <= AMOUNT_TOLERANCE;
+			const matchesFinal = Math.abs(diffFromFinal) <= AMOUNT_TOLERANCE;
+			const amountMatches = matchesBill || matchesFinal;
+			const useBill = Math.abs(diffFromBill) <= Math.abs(diffFromFinal);
+			const amountDiff = useBill ? diffFromBill : diffFromFinal;
+			const amountSource = useBill ? 'Bill' : 'Final';
+			// Step 1: exact vendor ID match. Step 2 (fallback, only when IDs differ): vendor NAME
+			// match — catches duplicate/renamed ERP ledgers for the same real vendor.
+			const vendorIdMatches = erpVendorId !== '' && erpVendorId === localVendorId;
+			const vendorNameMatches = !vendorIdMatches && vendorNamesMatch(record.vendors?.vendor_name, row.PartyName);
+			const vendorMatches = vendorIdMatches || vendorNameMatches;
+			const vendorMatchedVia = vendorIdMatches ? 'id' : (vendorNameMatches ? 'name' : null);
+
+			const payload = {
+				status: vendorMatches && amountMatches ? 'matched' : 'mismatch',
+				grandTotal: erpAmount, amountDiff, amountSource, erpVendorId, localVendorId,
+				vendorMatches, vendorIdMatches, vendorNameMatches, vendorMatchedVia, amountMatches,
+				partyName: row.PartyName, localVendorName: record.vendors?.vendor_name || null,
+				checkedAt: new Date().toISOString()
+			};
+			erpCheckStatus = { ...erpCheckStatus, [record.id]: payload.status };
+			erpCheckResult = { ...erpCheckResult, [record.id]: payload };
+			await persistErpCheckResult(record.id, payload);
+		} catch (err) {
+			console.error('ERP check failed:', err);
+			erpCheckStatus = { ...erpCheckStatus, [record.id]: 'error' };
+			erpCheckResult = { ...erpCheckResult, [record.id]: { error: err.message || 'Check failed' } };
+		}
+	}
+
+	// Writes the latest ERP check verdict back to receiving_records.erp_check_result (jsonb) and
+	// mirrors it into the in-memory record arrays so it round-trips without needing a full reload.
+	async function persistErpCheckResult(recordId, payload) {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { error } = await supabase
+				.from('receiving_records')
+				.update({ erp_check_result: payload })
+				.eq('id', recordId);
+			if (error) throw error;
+
+			const patch = (records) => records.map((r) => (r.id === recordId ? { ...r, erp_check_result: payload } : r));
+			receivingRecords = patch(receivingRecords);
+			allLoadedRecords = patch(allLoadedRecords);
+			paginatedRecords = patch(paginatedRecords);
+			archivedRecords = patch(archivedRecords);
+		} catch (err) {
+			console.error('Failed to persist ERP check result:', err);
+		}
+	}
+
+	// Seeds the client-side check-status maps from each record's persisted erp_check_result,
+	// so a previously "Matched" record shows that way immediately without a fresh live query.
+	function seedErpCheckState(records) {
+		let statusChanged = false;
+		let resultChanged = false;
+		const nextStatus = { ...erpCheckStatus };
+		const nextResult = { ...erpCheckResult };
+		for (const record of records) {
+			if (record.erp_check_result && nextStatus[record.id] === undefined) {
+				nextStatus[record.id] = record.erp_check_result.status;
+				nextResult[record.id] = record.erp_check_result;
+				statusChanged = true;
+				resultChanged = true;
+			}
+		}
+		if (statusChanged) erpCheckStatus = nextStatus;
+		if (resultChanged) erpCheckResult = nextResult;
+	}
+
 	async function loadReceivingRecords() {
 		loading = true;
 		try {
@@ -283,6 +546,7 @@
 			vendorSearchTerm = '';
 			selectedErpRefFilter = '';
 			erpReferenceSearchTerm = '';
+			erpCheckStatusFilter = '';
 			billDateFilterMode = '';
 			billDateFrom = '';
 			billDateTo = '';
@@ -321,6 +585,9 @@
 			if (erpReferenceSearch) {
 				rpcParams.p_erp_reference_search = erpReferenceSearch;
 			}
+			if (erpCheckStatusFilter) {
+				rpcParams.p_erp_check_status_filter = erpCheckStatusFilter;
+			}
 			if (billDateFilterMode === 'specific' && billDateFrom) {
 				rpcParams.p_bill_date_from = billDateFrom;
 				rpcParams.p_bill_date_to = billDateFrom;
@@ -329,7 +596,7 @@
 				if (billDateTo) rpcParams.p_bill_date_to = billDateTo;
 			}
 			const hasEnhancedFilters = Boolean(
-				erpReferenceSearch || rpcParams.p_bill_date_from || rpcParams.p_bill_date_to
+				erpReferenceSearch || rpcParams.p_bill_date_from || rpcParams.p_bill_date_to || erpCheckStatusFilter
 			);
 
 			console.log(`📄 Loading page ${pageNum} via RPC (offset: ${startIdx}, limit: ${pageSize}, filters: ${JSON.stringify(rpcParams)})...`);
@@ -346,12 +613,14 @@
 				delete legacyParams.p_erp_reference_search;
 				delete legacyParams.p_bill_date_from;
 				delete legacyParams.p_bill_date_to;
+				delete legacyParams.p_erp_check_status_filter;
 				const legacyResult = await supabase.rpc('get_receiving_records_with_details', legacyParams);
 				const fallbackMatches = legacyResult.data?.filter((record) =>
 					(!erpReferenceSearch || String(record.erp_purchase_invoice_reference || '')
 						.toLowerCase().includes(erpReferenceSearch.toLowerCase())) &&
 					(!rpcParams.p_bill_date_from || record.bill_date >= rpcParams.p_bill_date_from) &&
-					(!rpcParams.p_bill_date_to || record.bill_date <= rpcParams.p_bill_date_to)
+					(!rpcParams.p_bill_date_to || record.bill_date <= rpcParams.p_bill_date_to) &&
+					(!erpCheckStatusFilter || record.erp_check_result?.status === erpCheckStatusFilter)
 				) || [];
 				records = fallbackMatches.map((record) => ({
 					...record,
@@ -429,12 +698,14 @@
 				has_multiple_schedules: false,
 				pr_excel_verified: record.pr_excel_verified,
 				pr_excel_verified_by: record.pr_excel_verified_by,
-				pr_excel_verified_date: record.pr_excel_verified_date
+				pr_excel_verified_date: record.pr_excel_verified_date,
+				erp_check_result: record.erp_check_result
 			}));
 
 			receivingRecords = recordsWithDetails;
 			allLoadedRecords = recordsWithDetails;
 			updatePaginatedRecords();
+			seedErpCheckState(recordsWithDetails);
 			console.log(`✅ Page ${pageNum} loaded via RPC (${recordsWithDetails.length} records shown)`);
 		} catch (err) {
 			console.error(`Error loading page ${pageNum}:`, err);
@@ -453,7 +724,7 @@
 			
 		const { data: records, error: recordsError } = await supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban')
+			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban, erp_check_result')
 			.order('created_at', { ascending: false })
 			.limit(200);			if (recordsError) throw recordsError;
 
@@ -490,6 +761,7 @@
 			}));
 
 			archivedRecords = recordsWithDetails;
+			seedErpCheckState(recordsWithDetails);
 			const endTime = performance.now();
 			console.log(`✅ Archived records loaded in ${(endTime - startTime).toFixed(0)}ms (${recordsWithDetails.length} records)`);
 		} catch (error) {
@@ -1191,10 +1463,12 @@
 		editingRecord = record;
 		editError = '';
 		editScheduleCount = 0;
+		editVendorSearchTerm = '';
 		editForm = {
 			bill_number: record.bill_number || '',
 			bill_date: toDateInput(record.bill_date),
-			branch_id: record.branch_id || '',
+			branch_id: record.branch_id != null ? String(record.branch_id) : '',
+			vendor_id: record.vendor_id != null ? String(record.vendor_id) : '',
 			payment_method: record.payment_method || '',
 			credit_period: record.credit_period ?? '',
 			due_date: toDateInput(record.due_date),
@@ -1204,6 +1478,7 @@
 			iban: record.iban || ''
 		};
 		showEditPopup = true;
+		loadEditVendors(editForm.branch_id);
 
 		// A split payment has several schedule rows; the amount must not be
 		// copied onto each of them, so find out how many are linked first.
@@ -1219,6 +1494,37 @@
 		} catch (err) {
 			console.error('Error loading linked payment schedules:', err);
 		}
+	}
+
+	// Vendors are branch-scoped — reload the pickable list whenever the branch changes, and drop the
+	// current selection since a vendor_id from the old branch may not exist for the new one.
+	async function loadEditVendors(branchId) {
+		editVendorsError = '';
+		if (!branchId) { editVendors = []; editVendorsError = 'No branch selected — pick a branch first.'; return; }
+		editVendorsLoading = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase
+				.from('vendors')
+				.select('erp_vendor_id, vendor_name, vat_number')
+				.eq('branch_id', branchId)
+				.order('vendor_name');
+			if (error) throw error;
+			editVendors = data || [];
+			if (editVendors.length === 0) editVendorsError = 'No vendors found for this branch.';
+		} catch (err) {
+			console.error('Error loading vendors for edit popup:', err);
+			editVendors = [];
+			editVendorsError = `Failed to load vendors: ${err.message || err}`;
+		} finally {
+			editVendorsLoading = false;
+		}
+	}
+
+	function onEditBranchChange() {
+		if (editForm) editForm.vendor_id = '';
+		editVendorSearchTerm = '';
+		loadEditVendors(editForm?.branch_id);
 	}
 
 	function closeEditPopup() {
@@ -1243,6 +1549,10 @@
 			editError = tFn('receiving.records.editBranchRequired');
 			return;
 		}
+		if (!editForm.vendor_id) {
+			editError = tFn('receiving.records.editVendorRequired');
+			return;
+		}
 		if (isNaN(billAmount) || billAmount < 0 || isNaN(finalAmount) || finalAmount < 0) {
 			editError = tFn('receiving.records.editAmountInvalid');
 			return;
@@ -1254,11 +1564,13 @@
 			const { supabase } = await import('$lib/utils/supabase');
 
 			const creditPeriod = editForm.credit_period === '' ? null : parseInt(editForm.credit_period);
+			const selectedVendor = editVendors.find((v) => String(v.erp_vendor_id) === String(editForm.vendor_id));
 
 			const recordUpdate = {
 				bill_number: editForm.bill_number.trim(),
 				bill_date: editForm.bill_date || null,
 				branch_id: editForm.branch_id,
+				vendor_id: editForm.vendor_id,
 				payment_method: editForm.payment_method || null,
 				credit_period: isNaN(creditPeriod) ? null : creditPeriod,
 				due_date: editForm.due_date || null,
@@ -1281,6 +1593,9 @@
 				bill_number: recordUpdate.bill_number,
 				bill_date: recordUpdate.bill_date,
 				branch_id: recordUpdate.branch_id,
+				vendor_id: recordUpdate.vendor_id,
+				vendor_name: selectedVendor?.vendor_name || null,
+				vat_number: selectedVendor?.vat_number || null,
 				payment_method: recordUpdate.payment_method,
 				bank_name: recordUpdate.bank_name,
 				iban: recordUpdate.iban
@@ -1304,7 +1619,10 @@
 			}
 
 			// Reflect the change locally without a full reload
-			const applyEdit = (r) => (r.id === editingRecord.id ? { ...r, ...recordUpdate } : r);
+			const applyEdit = (r) => (r.id === editingRecord.id ? {
+				...r, ...recordUpdate,
+				vendors: selectedVendor ? { erp_vendor_id: selectedVendor.erp_vendor_id, vendor_name: selectedVendor.vendor_name, vat_number: selectedVendor.vat_number, branch_id: recordUpdate.branch_id } : r.vendors
+			} : r);
 			receivingRecords = receivingRecords.map(applyEdit);
 			allLoadedRecords = allLoadedRecords.map(applyEdit);
 			archivedRecords = archivedRecords.map(applyEdit);
@@ -1432,6 +1750,29 @@
 				</div>
 			</div>
 			<div class="min-w-0">
+				<label class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.erpCheckIssuesLabel')}</label>
+				<div class="flex gap-2">
+					<button
+						type="button"
+						on:click={() => toggleErpCheckStatusFilter('mismatch')}
+						disabled={loading}
+						title="Show only rows whose persisted ERP Check is Mismatch"
+						class="flex-1 px-3 py-2.5 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed {erpCheckStatusFilter === 'mismatch' ? 'text-white bg-amber-500 hover:bg-amber-600' : 'text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100'}"
+					>
+						⚠️ {erpMismatchCount}
+					</button>
+					<button
+						type="button"
+						on:click={() => toggleErpCheckStatusFilter('not_found')}
+						disabled={loading}
+						title="Show only rows whose persisted ERP Check is Not Found"
+						class="flex-1 px-3 py-2.5 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed {erpCheckStatusFilter === 'not_found' ? 'text-white bg-red-600 hover:bg-red-700' : 'text-red-700 bg-red-50 border border-red-200 hover:bg-red-100'}"
+					>
+						⚠️ {erpNotFoundCount}
+					</button>
+				</div>
+			</div>
+			<div class="min-w-0">
 				<label for="bill-date-mode" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.billDateFilter')}</label>
 				<div class="flex gap-2">
 					<select id="bill-date-mode" bind:value={billDateFilterMode} on:change={onBillDateModeChange} class="w-full min-w-0 px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 focus:ring-2 focus:ring-emerald-500 outline-none">
@@ -1494,6 +1835,7 @@
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colPaymentInfo')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colDaysToDue')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colAmounts')}</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colErpCheck')}</th>
 							{#if isMasterAdmin}
 								<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colActions')}</th>
 							{/if}
@@ -1705,7 +2047,15 @@
 								<div>{$t('receiving.records.billLabel')} {parseFloat(record.bill_amount || 0).toFixed(2)}</div>
 								<div class="font-bold text-emerald-700">{$t('receiving.records.finalLabel')} {parseFloat(record.final_bill_amount || 0).toFixed(2)}</div>
 								{#if record.erp_purchase_invoice_reference}
-									<div class="text-xs text-slate-500">{$t('receiving.records.erpLabel')} {record.erp_purchase_invoice_reference}</div>
+									{#if canEditErpReference}
+										<div
+											class="text-xs text-slate-500 cursor-pointer hover:text-emerald-600"
+											on:dblclick={() => openErpPopup(record)}
+											title="Double-click to edit ERP invoice reference"
+										>{$t('receiving.records.erpLabel')} {record.erp_purchase_invoice_reference}</div>
+									{:else}
+										<div class="text-xs text-slate-500">{$t('receiving.records.erpLabel')} {record.erp_purchase_invoice_reference}</div>
+									{/if}
 								{:else}
 									<button
 										class="text-xs text-red-400 hover:text-red-600 cursor-pointer bg-transparent border-none p-0 text-left"
@@ -1716,6 +2066,47 @@
 									</button>
 								{/if}
 							</div>
+						</td>
+
+						<td class="px-3 py-3 text-sm text-center">
+							{#if !record.erp_purchase_invoice_reference}
+								<span class="text-xs text-slate-400">—</span>
+							{:else if erpCheckStatus[record.id] === 'checking'}
+								<div class="spinner-small mx-auto"></div>
+							{:else if erpCheckStatus[record.id] === 'matched'}
+								<div class="text-xs text-emerald-600 font-bold">✅ {$t('receiving.records.erpCheckMatched')}</div>
+								<div class="text-xs text-slate-400" title={`Local: ${erpCheckResult[record.id]?.localVendorName || '-'} / ERP: ${erpCheckResult[record.id]?.partyName || '-'}`}>
+									{$t('receiving.records.idLabel')} {erpCheckResult[record.id]?.erpVendorId}{erpCheckResult[record.id]?.vendorMatchedVia === 'name' ? ` (≠ ${erpCheckResult[record.id]?.localVendorId}, matched by name)` : ''}
+								</div>
+								<div class="text-xs text-slate-500">
+									{parseFloat(erpCheckResult[record.id]?.grandTotal || 0).toFixed(2)}{Math.abs(erpCheckResult[record.id]?.amountDiff || 0) < 0.005 ? ' ✓' : ` (Δ ${erpCheckResult[record.id]?.amountDiff > 0 ? '+' : ''}${parseFloat(erpCheckResult[record.id]?.amountDiff || 0).toFixed(2)})`} vs {erpCheckResult[record.id]?.amountSource}
+								</div>
+							{:else if erpCheckStatus[record.id] === 'mismatch'}
+								<div class="text-xs text-red-600 font-bold">❌ {$t('receiving.records.erpCheckMismatch')}</div>
+								{#if !erpCheckResult[record.id]?.vendorMatches}
+									<div class="text-xs text-slate-500" title={`Local: ${erpCheckResult[record.id]?.localVendorName || '-'} / ERP: ${erpCheckResult[record.id]?.partyName || '-'}`}>
+										{$t('receiving.records.idLabel')} {erpCheckResult[record.id]?.erpVendorId} ≠ {erpCheckResult[record.id]?.localVendorId} (name also differs)
+									</div>
+								{/if}
+								<div class="text-xs text-slate-500">
+									{parseFloat(erpCheckResult[record.id]?.grandTotal || 0).toFixed(2)}{erpCheckResult[record.id]?.amountMatches ? ` ✓ vs ${erpCheckResult[record.id]?.amountSource}` : ` (Δ ${erpCheckResult[record.id]?.amountDiff > 0 ? '+' : ''}${parseFloat(erpCheckResult[record.id]?.amountDiff || 0).toFixed(2)} vs ${erpCheckResult[record.id]?.amountSource})`}
+								</div>
+								<button class="text-xs text-slate-400 underline bg-transparent border-none cursor-pointer" on:click={() => checkErpInvoice(record)}>{$t('receiving.records.erpCheckRecheck')}</button>
+							{:else if erpCheckStatus[record.id] === 'not_found'}
+								<div class="text-xs text-red-600 font-bold mb-1">❌ {$t('receiving.records.erpCheckNotFound')}</div>
+								<button class="text-xs text-slate-400 underline bg-transparent border-none cursor-pointer" on:click={() => checkErpInvoice(record)}>{$t('receiving.records.erpCheckRecheck')}</button>
+							{:else if erpCheckStatus[record.id] === 'error'}
+								<div class="text-xs text-orange-600 font-bold mb-1" title={erpCheckResult[record.id]?.error || ''}>⚠️ {$t('receiving.records.erpCheckError')}</div>
+								<button class="text-xs text-slate-400 underline bg-transparent border-none cursor-pointer" on:click={() => checkErpInvoice(record)}>{$t('receiving.records.erpCheckRecheck')}</button>
+							{:else}
+								<button
+									class="text-xs text-white bg-indigo-600 hover:bg-indigo-700 px-2 py-1 rounded cursor-pointer border-none transition-colors duration-200"
+									on:click={() => checkErpInvoice(record)}
+									title="Check if this ERP number exists as a Purchase Invoice (PI) with a matching vendor and amount"
+								>
+									🔍 {$t('receiving.records.erpCheckButton')}
+								</button>
+							{/if}
 						</td>
 						
 						{#if isMasterAdmin}
@@ -1843,7 +2234,57 @@
 				<button class="erp-popup-close" on:click={closeEditPopup}>&times;</button>
 			</div>
 			<div class="erp-popup-content">
-				<p>{$t('receiving.records.vendorLabel')} {editingRecord?.vendors?.vendor_name || $t('receiving.records.naText')}</p>
+				<div class="edit-section-title">{$t('receiving.records.colVendorDetails')}</div>
+				<div class="erp-input-group">
+					<label>{$t('receiving.records.editVendor')}</label>
+					{#if editSelectedVendorInfo}
+						<div class="edit-vendor-card">
+							<div>
+								<div class="edit-vendor-card-name">{editSelectedVendorInfo.vendor_name || $t('receiving.records.naText')}</div>
+								<div class="edit-vendor-card-meta">{$t('receiving.records.idLabel')} {editSelectedVendorInfo.erp_vendor_id} · {$t('receiving.records.vatLabel')} {editSelectedVendorInfo.vat_number || $t('receiving.records.naText')}</div>
+							</div>
+						</div>
+					{:else}
+						<div class="edit-vendor-card edit-vendor-card-empty">{$t('receiving.records.naText')}</div>
+					{/if}
+					<input
+						id="edit-vendor-search"
+						type="text"
+						class="erp-input"
+						style="margin-top: 8px;"
+						bind:value={editVendorSearchTerm}
+						placeholder={$t('receiving.records.typeVendorName')}
+						disabled={savingEdit}
+					/>
+					{#if editVendorsLoading}
+						<div class="text-xs text-slate-400" style="margin-top: 4px;">Loading vendors…</div>
+					{:else if editVendorsError}
+						<div class="text-xs text-red-500" style="margin-top: 4px;">{editVendorsError}</div>
+					{:else if editVendorSearchTerm.trim()}
+						<div class="edit-vendor-results">
+							<table class="edit-vendor-results-table">
+								<thead>
+									<tr>
+										<th>{$t('receiving.records.editVendor')}</th>
+										<th>{$t('receiving.records.idLabel')}</th>
+										<th>{$t('receiving.records.vatLabel')}</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each editSearchResults as v}
+										<tr class="edit-vendor-result-row" on:click={() => selectEditVendor(v)}>
+											<td>{v.vendor_name}</td>
+											<td>{v.erp_vendor_id}</td>
+											<td>{v.vat_number || $t('receiving.records.naText')}</td>
+										</tr>
+									{:else}
+										<tr><td colspan="3" class="edit-vendor-no-results">{$t('receiving.records.naText')}</td></tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
 
 				<div class="edit-section-title">{$t('receiving.records.colBillInfo')}</div>
 				<div class="edit-grid">
@@ -1860,9 +2301,9 @@
 				<div class="edit-section-title">{$t('receiving.records.colBranch')}</div>
 				<div class="erp-input-group">
 					<label for="edit-branch">{$t('receiving.records.editBranch')}</label>
-					<select id="edit-branch" class="erp-input" bind:value={editForm.branch_id} disabled={savingEdit}>
+					<select id="edit-branch" class="erp-input" bind:value={editForm.branch_id} on:change={onEditBranchChange} disabled={savingEdit}>
 						{#each branches as branch}
-							<option value={branch.id}>
+							<option value={String(branch.id)}>
 								{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
 								{#if branch.location_en} - {$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en}{/if}
 							</option>
@@ -2215,6 +2656,78 @@
 
 	.edit-span-2 {
 		grid-column: 1 / -1;
+	}
+
+	.edit-vendor-card {
+		display: flex;
+		align-items: center;
+		padding: 10px 14px;
+		border: 1px solid #a7f3d0;
+		border-radius: 8px;
+		background: #ecfdf5;
+	}
+
+	.edit-vendor-card-empty {
+		color: #9ca3af;
+		font-style: italic;
+	}
+
+	.edit-vendor-card-name {
+		font-weight: 700;
+		color: #065f46;
+		font-size: 14px;
+	}
+
+	.edit-vendor-card-meta {
+		margin-top: 2px;
+		font-size: 12px;
+		color: #6b7280;
+	}
+
+	.edit-vendor-results {
+		margin-top: 8px;
+		max-height: 220px;
+		overflow-y: auto;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+	}
+
+	.edit-vendor-results-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 13px;
+	}
+
+	.edit-vendor-results-table thead th {
+		position: sticky;
+		top: 0;
+		background: #f3f4f6;
+		text-align: left;
+		padding: 8px 10px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: #6b7280;
+		border-bottom: 1px solid #e5e7eb;
+	}
+
+	.edit-vendor-result-row {
+		cursor: pointer;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.edit-vendor-result-row:hover {
+		background: #eff6ff;
+	}
+
+	.edit-vendor-result-row td {
+		padding: 8px 10px;
+	}
+
+	.edit-vendor-no-results {
+		padding: 12px;
+		text-align: center;
+		color: #9ca3af;
 	}
 
 	.edit-note {

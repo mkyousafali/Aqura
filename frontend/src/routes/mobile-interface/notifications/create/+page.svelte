@@ -159,7 +159,7 @@
 					id,
 					username,
 					branch_id,
-					branches(
+					branches!users_branch_id_fkey(
 						id,
 						name_en
 					)

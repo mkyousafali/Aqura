@@ -10,9 +10,41 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   import { onMount, tick } from 'svelte';
   import { _ as t, currentLocale } from '$lib/i18n';
   
+  // Final Receiving mode: reopening this window for an already-saved pending record
+  // (from the Pending Receiving Records window's "Final Receiving" button).
+  export let windowId = null;
+  export let finalReceivingPendingId = null;
+  let finalReceivingLoading = false;
+  let finalReceivingLoadError = '';
+  // true while reopened via "Final Receiving" for an existing pending record. At that point
+  // the real original bill has been received, so VAT/Bill Number/Payment become required
+  // again regardless of the bill type originally chosen — this also triggers posting to
+  // receiving_records once the certificate step completes.
+  let finalizingPendingRecord = false;
+
   $: steps = [$t('receiving.stepSelectBranch'), $t('receiving.stepSelectVendor'), $t('receiving.stepBillInformation'), $t('receiving.stepFinalization')];
-  let currentStep = 0;
+  let currentStep = -1; // -1 = blank intro screen, shown before Step 1
   let allRequiredUsersSelected = false; // Track if all required users are selected
+
+  // Intro screen: bill document type selection
+  const billDocumentTypes = [
+    { key: 'original_bill', labelKey: 'billTypeOriginalBill', icon: '🧾' },
+    { key: 'delivery_note', labelKey: 'billTypeDeliveryNote', icon: '🚚' },
+    { key: 'duplicate_bill', labelKey: 'billTypeDuplicateBill', icon: '📄' },
+    { key: 'without_bill', labelKey: 'billTypeWithoutBill', icon: '🚫' }
+  ];
+  let selectedBillDocumentType = '';
+  // Original Bill posts exactly as before; any other choice posts to the pending table instead.
+  $: isPendingBillType = selectedBillDocumentType !== '' && selectedBillDocumentType !== 'original_bill';
+  $: receivingTableName = isPendingBillType ? 'pending_receiving_records' : 'receiving_records';
+  // Without Bill / Delivery Note: there's no bill to verify a VAT number against, so the
+  // VAT card is hidden and it's never required to proceed. Not during Final Receiving though —
+  // by then the real original bill has been received, so VAT is required again.
+  $: vatCheckNotApplicable = !finalizingPendingRecord && (selectedBillDocumentType === 'without_bill' || selectedBillDocumentType === 'delivery_note');
+  // Same rule for Bill Number — optional pre-finalization, required once finalizing.
+  $: billNumberNotMandatory = !finalizingPendingRecord && (selectedBillDocumentType === 'without_bill' || selectedBillDocumentType === 'delivery_note');
+  // Same rule for Payment/Due Date — hidden pre-finalization, required once finalizing.
+  $: paymentNotApplicable = !finalizingPendingRecord && (selectedBillDocumentType === 'without_bill' || selectedBillDocumentType === 'delivery_note');
   
   // Clearance Certification state
   let showCertificateManager = false;
@@ -339,10 +371,167 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedNightSupervisors.length > 0;
 
   onMount(async () => {
+    if (finalReceivingPendingId) {
+      // Final Receiving mode: hydrate everything from the pending record and
+      // jump straight to Step 3 (Bill Information). Skip the normal default-branch
+      // auto-selection flow entirely so it doesn't overwrite the hydrated data.
+      await loadBranches();
+      await loadPendingRecordForFinalReceiving();
+      return;
+    }
     // Load branches and user's default branch
     await loadBranches();
     await loadUserDefaultBranch();
   });
+
+  // Resolve a list of user IDs into {id, username, employeeName, position} objects,
+  // matching the shape used throughout this component (see loadBranchDefaultPositions).
+  async function resolveUsersByIds(userIds) {
+    const ids = (userIds || []).filter(Boolean);
+    if (ids.length === 0) return {};
+    const { data: employees, error } = await supabase
+      .from('hr_employee_master_with_status')
+      .select('user_id, name_en, id')
+      .in('user_id', ids);
+    if (error || !employees) return {};
+    const map = {};
+    employees.forEach(emp => {
+      map[emp.user_id] = {
+        id: emp.user_id,
+        username: emp.id,
+        employeeName: emp.name_en || emp.id,
+        position: ''
+      };
+    });
+    return map;
+  }
+
+  // Final Receiving mode: load a saved pending_receiving_records row and hydrate every
+  // field so Step 3 (Bill Information) opens pre-filled, ready to review/edit and
+  // generate the final clearance. Does NOT touch receiving_tasks / task creation.
+  async function loadPendingRecordForFinalReceiving() {
+    finalReceivingLoading = true;
+    finalReceivingLoadError = '';
+    try {
+      const { data: record, error } = await supabase
+        .from('pending_receiving_records')
+        .select('*')
+        .eq('id', finalReceivingPendingId)
+        .single();
+
+      if (error || !record) {
+        throw error || new Error('Pending receiving record not found');
+      }
+      if (record.status === 'cleared') {
+        finalReceivingLoadError = 'This record has already been finalized.';
+        finalReceivingLoading = false;
+        return;
+      }
+
+      // Branch
+      selectedBranch = record.branch_id.toString();
+      showBranchSelector = false;
+
+      // Vendor (full row, same shape as normal vendor selection)
+      const { data: vendor } = await supabase
+        .from('vendors')
+        .select('*')
+        .eq('erp_vendor_id', record.vendor_id)
+        .eq('branch_id', record.branch_id)
+        .single();
+      selectedVendor = vendor || null;
+
+      // Staff — resolve every referenced user id in one batch
+      const singleIds = [
+        record.branch_manager_user_id,
+        record.purchasing_manager_user_id,
+        record.inventory_manager_user_id,
+        record.accountant_user_id
+      ];
+      const arrayIds = [
+        ...(record.shelf_stocker_user_ids || []),
+        ...(record.night_supervisor_user_ids || []),
+        ...(record.warehouse_handler_user_ids || [])
+      ];
+      const userMap = await resolveUsersByIds([...singleIds, ...arrayIds]);
+
+      selectedBranchManager = record.branch_manager_user_id ? userMap[record.branch_manager_user_id] || null : null;
+      selectedPurchasingManager = record.purchasing_manager_user_id ? userMap[record.purchasing_manager_user_id] || null : null;
+      selectedInventoryManager = record.inventory_manager_user_id ? userMap[record.inventory_manager_user_id] || null : null;
+      selectedAccountant = record.accountant_user_id ? userMap[record.accountant_user_id] || null : null;
+      selectedShelfStockers = (record.shelf_stocker_user_ids || []).map(id => userMap[id]).filter(Boolean);
+      selectedNightSupervisors = (record.night_supervisor_user_ids || []).map(id => userMap[id]).filter(Boolean);
+      selectedWarehouseHandler = (record.warehouse_handler_user_ids || [])[0] ? userMap[record.warehouse_handler_user_ids[0]] || null : null;
+
+      // Bill info
+      billDate = record.bill_date;
+      billAmount = record.bill_amount != null ? record.bill_amount.toString() : '';
+      billNumber = record.bill_number || '';
+      paymentMethod = record.payment_method || '';
+      paymentMethodExplicitlySelected = !!record.payment_method;
+      creditPeriod = record.credit_period != null ? record.credit_period.toString() : '';
+      dueDate = record.due_date || '';
+      dueDateReady = !!record.due_date || (record.payment_method === 'Cash on Delivery' || record.payment_method === 'Bank on Delivery');
+      bankName = record.bank_name || '';
+      iban = record.iban || '';
+
+      // VAT
+      vendorVatNumber = record.vendor_vat_number || '';
+      billVatNumber = record.bill_vat_number || '';
+      vatMismatchReason = record.vat_mismatch_reason || '';
+
+      // Returns
+      returns = {
+        expired: {
+          hasReturn: record.has_expired_returns ? 'yes' : 'no',
+          amount: record.expired_return_amount != null ? record.expired_return_amount.toString() : '',
+          erpDocumentType: record.expired_erp_document_type || '',
+          erpDocumentNumber: record.expired_erp_document_number || '',
+          vendorDocumentNumber: record.expired_vendor_document_number || ''
+        },
+        nearExpiry: {
+          hasReturn: record.has_near_expiry_returns ? 'yes' : 'no',
+          amount: record.near_expiry_return_amount != null ? record.near_expiry_return_amount.toString() : '',
+          erpDocumentType: record.near_expiry_erp_document_type || '',
+          erpDocumentNumber: record.near_expiry_erp_document_number || '',
+          vendorDocumentNumber: record.near_expiry_vendor_document_number || ''
+        },
+        overStock: {
+          hasReturn: record.has_over_stock_returns ? 'yes' : 'no',
+          amount: record.over_stock_return_amount != null ? record.over_stock_return_amount.toString() : '',
+          erpDocumentType: record.over_stock_erp_document_type || '',
+          erpDocumentNumber: record.over_stock_erp_document_number || '',
+          vendorDocumentNumber: record.over_stock_vendor_document_number || ''
+        },
+        damage: {
+          hasReturn: record.has_damage_returns ? 'yes' : 'no',
+          amount: record.damage_return_amount != null ? record.damage_return_amount.toString() : '',
+          erpDocumentType: record.damage_erp_document_type || '',
+          erpDocumentNumber: record.damage_erp_document_number || '',
+          vendorDocumentNumber: record.damage_vendor_document_number || ''
+        }
+      };
+
+      // Bill type — keep it exactly as originally chosen so the record keeps
+      // posting to pending_receiving_records until finalization completes.
+      selectedBillDocumentType = record.bill_document_type || 'delivery_note';
+
+      // This is the record we're editing/updating, and tasks already exist for it —
+      // reuse the existing "already assigned" flag so ClearanceCertificateManager
+      // opens in printOnly mode and does NOT recreate tasks.
+      savedReceivingId = record.id;
+      tasksAlreadyAssigned = true;
+      finalizingPendingRecord = true;
+
+      // Jump straight to Step 3 (Bill Information)
+      currentStep = 2;
+    } catch (err) {
+      console.error('Error loading pending record for final receiving:', err);
+      finalReceivingLoadError = 'Failed to load record: ' + (err.message || err);
+    } finally {
+      finalReceivingLoading = false;
+    }
+  }
 
   // Load the user's saved default branch for receiving
   async function loadUserDefaultBranch() {
@@ -1947,13 +2136,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // Clearance Certification Functions
   async function saveReceivingData() {
     // Validate required fields before saving
-    if (!billDate || !billAmount || !billNumber || !billNumber.trim() || !paymentMethodExplicitlySelected || !dueDateReady) {
+    if (!billDate || !billAmount || (!billNumberNotMandatory && (!billNumber || !billNumber.trim())) || (!paymentNotApplicable && (!paymentMethodExplicitlySelected || !dueDateReady))) {
       const missingFields = [];
       if (!billDate) missingFields.push('Bill Date');
       if (!billAmount) missingFields.push('Bill Amount');
-      if (!billNumber || !billNumber.trim()) missingFields.push('Bill Number');
-      if (!paymentMethodExplicitlySelected) missingFields.push('Payment Method (must be explicitly selected)');
-      if (!dueDateReady) missingFields.push('Due Date (needs bill date and credit period if applicable)');
+      if (!billNumberNotMandatory && (!billNumber || !billNumber.trim())) missingFields.push('Bill Number');
+      if (!paymentNotApplicable && !paymentMethodExplicitlySelected) missingFields.push('Payment Method (must be explicitly selected)');
+      if (!paymentNotApplicable && !dueDateReady) missingFields.push('Due Date (needs bill date and credit period if applicable)');
       
       alert(`Please fill in the following required fields:\n• ${missingFields.join('\n• ')}`);
       return;
@@ -1962,6 +2151,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     // Validate bill amount is greater than 0
     if (parseFloat(billAmount) <= 0) {
       alert('Bill Amount must be greater than 0');
+      return;
+    }
+
+    // VAT number mismatch requires a reason before saving
+    if (selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && billVatNumber && vatNumbersMatch === false && !vatMismatchReason.trim()) {
+      alert('Please provide a reason for the VAT number mismatch before proceeding.');
       return;
     }
 
@@ -2014,11 +2209,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         damage_vendor_document_number: returns.damage.hasReturn === 'yes' ? returns.damage.vendorDocumentNumber : null
       };
 
+      // pending_receiving_records has a bill_document_type column; receiving_records does not.
+      if (isPendingBillType) {
+        receivingData.bill_document_type = selectedBillDocumentType;
+      }
+
       // Check for duplicate bills before saving (skip if updating existing record)
       if (!savedReceivingId) {
       console.log('Checking for duplicate bills...');
       const { data: existingRecords, error: duplicateError } = await supabase
-        .from('receiving_records')
+        .from(receivingTableName)
         .select('id, bill_number, bill_amount, created_at')
         .eq('vendor_id', selectedVendor?.erp_vendor_id)
         .eq('branch_id', selectedBranch)
@@ -2065,7 +2265,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       if (savedReceivingId) {
         console.log('Updating existing receiving record:', savedReceivingId);
         const { error: updateError } = await supabase
-          .from('receiving_records')
+          .from(receivingTableName)
           .update(receivingData)
           .eq('id', savedReceivingId);
 
@@ -2077,9 +2277,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
         console.log('Receiving record updated successfully');
       } else {
-      // Save to receiving_records table - don't select anything back to avoid permission issues
+      // Save to receiving_records (or pending_receiving_records for non-Original-Bill types) -
+      // don't select anything back to avoid permission issues
       const { data, error } = await supabase
-        .from('receiving_records')
+        .from(receivingTableName)
         .insert([receivingData]);
 
       if (error) {
@@ -2091,10 +2292,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       console.log('Receiving record saved (no data returned due to permission checks)');
       // Note: data will be null since we didn't use .select(), but the INSERT succeeded if no error
       // We'll need to fetch the ID from the database if needed
-      
+
       // Fetch the ID of the newly created record by querying the most recent one for this user/vendor/bill
       const { data: fetchedData, error: fetchError } = await supabase
-        .from('receiving_records')
+        .from(receivingTableName)
         .select('id')
         .eq('user_id', $currentUser?.id)
         .eq('vendor_id', selectedVendor?.erp_vendor_id)
@@ -2225,7 +2426,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Get the saved receiving record for task generation
       try {
         const { data, error } = await supabase
-          .from('receiving_records')
+          .from(receivingTableName)
           .select('*')
           .eq('id', savedReceivingId)
           .single();
@@ -2340,7 +2541,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
       // Update receiving record with certificate URL
       const { error: updateError } = await supabase
-        .from('receiving_records')
+        .from(receivingTableName)
         .update({
           certificate_url: certificateUrl,
           certificate_generated_at: new Date().toISOString(),
@@ -2800,18 +3001,90 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     showCertificateManager = false;
     // Mark tasks as assigned after first successful certificate flow
     tasksAlreadyAssigned = true;
+
+    if (finalizingPendingRecord && savedReceivingId) {
+      finalizePendingReceiving();
+    }
+  }
+
+  // Final Receiving completion: copy the pending record into receiving_records
+  // (same id preserved, so its already-created receiving_tasks stay correctly linked)
+  // and mark the pending_receiving_records row as Cleared. Does not touch task creation.
+  async function finalizePendingReceiving() {
+    try {
+      const { data, error } = await supabase.rpc('finalize_pending_receiving_record', {
+        p_pending_id: savedReceivingId,
+        p_cleared_by_user_id: $currentUser?.id || null
+      });
+
+      if (error) throw error;
+      if (data && data.success === false) {
+        throw new Error(data.error || 'Failed to finalize receiving record');
+      }
+
+      finalizingPendingRecord = false;
+      alert('Final receiving completed. The record has been posted to Receiving Records.');
+
+      if (windowId) {
+        windowManager.closeWindow(windowId);
+      }
+    } catch (err) {
+      console.error('Error finalizing pending receiving record:', err);
+      alert('Failed to complete final receiving: ' + (err.message || err));
+    }
   }
 </script>
 <div class="receiving-layout">
+{#if currentStep > -1}
 <div class="step-indicator-fixed">
   <StepIndicator {steps} {currentStep} />
 </div>
+{/if}
 <div class="receiving-content">
+
+{#if finalReceivingLoading}
+  <div class="form-section" style="text-align:center;">Loading record…</div>
+{:else if finalReceivingLoadError}
+  <div class="form-section" style="text-align:center; color:#dc2626;">{finalReceivingLoadError}</div>
+{/if}
+
+<!-- Intro: Blank Screen -->
+{#if currentStep === -1}
+<div class="form-section intro-blank-screen">
+  <div class="bill-type-options">
+    {#each billDocumentTypes as docType}
+      <button
+        type="button"
+        class="bill-type-btn"
+        class:active={selectedBillDocumentType === docType.key}
+        on:click={() => selectedBillDocumentType = docType.key}
+      >
+        <span class="bill-type-icon">{docType.icon}</span>
+        <span class="bill-type-label">{$t('receiving.' + docType.labelKey)}</span>
+      </button>
+    {/each}
+  </div>
+
+  <button
+    type="button"
+    class="primary-btn"
+    disabled={!selectedBillDocumentType}
+    on:click={() => currentStep = 0}
+  >
+    {$t('receiving.next')}
+  </button>
+</div>
+{/if}
 
 <!-- Step 1: Branch Selection Section -->
 {#if currentStep === 0}
 <div class="form-section">
-  
+  <div style="margin-bottom: 0.75rem;">
+    <button type="button" class="secondary-btn" on:click={() => currentStep = -1}>
+      {$t('receiving.back')}
+    </button>
+  </div>
+
   {#if selectedBranch && !showBranchSelector}
     <!-- Compact Branch Bar -->
     <div class="branch-bar-compact">
@@ -3478,8 +3751,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           <div class="bill-field bill-field--number">
             <div class="bill-field__icon">🧾</div>
             <div class="bill-field__content">
-              <label for="billNumber">{$t('receiving.billNumber')} <span class="required">*</span></label>
-              <input type="text" id="billNumber" bind:value={billNumber} placeholder={$t('receiving.billNumberPlaceholder')} class="editable-input" required 
+              <label for="billNumber">{$t('receiving.billNumber')} {#if !billNumberNotMandatory}<span class="required">*</span>{/if}</label>
+              <input type="text" id="billNumber" bind:value={billNumber} placeholder={$t('receiving.billNumberPlaceholder')} class="editable-input" required={!billNumberNotMandatory}
                 on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('return-select-expired')?.focus(); }}} />
             </div>
           </div>
@@ -3584,7 +3857,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     <!-- Row 3: Payment + Due Date + VAT all in one row -->
     {#if selectedVendor}
       <div class="step3-row-3">
-        <!-- Payment -->
+        <!-- Payment (hidden for Without Bill / Delivery Note — no real payment terms to record) -->
+        {#if !paymentNotApplicable}
         <div class="pay-card">
           <div class="pay-header">💳 {$t('receiving.payment')}</div>
           <div class="pay-fields">
@@ -3620,6 +3894,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <div class="pay-notice">ℹ️ {$t('receiving.paymentModifiedNotice')}</div>
           {/if}
         </div>
+        {/if}
 
         <!-- Due Date -->
         {#if paymentMethod}
@@ -3646,7 +3921,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           </div>
         {/if}
 
-        <!-- VAT -->
+        <!-- VAT (hidden for Without Bill / Delivery Note — there's no bill to verify a VAT number against) -->
+        {#if !vatCheckNotApplicable}
         <div class="vat-card">
           <div class="pay-header">🧾 {$t('receiving.vatVerification')}</div>
           {#if selectedVendor.vat_applicable !== 'VAT Applicable'}
@@ -3679,6 +3955,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {/if}
           {/if}
         </div>
+        {/if}
       </div>
     {/if}
 
@@ -3699,7 +3976,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {/if}
 
 <!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && billNumber && billNumber.trim() && paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady && (!selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
+{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && (billNumberNotMandatory || (billNumber && billNumber.trim())) && (paymentNotApplicable || (paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady)) && (vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
@@ -3714,15 +3991,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     <div class="step-incomplete-info">
       <span class="step-incomplete-icon">⏳</span>
       <span class="step-incomplete-text">
-        {#if !paymentMethodExplicitlySelected}
+        {#if !paymentNotApplicable && !paymentMethodExplicitlySelected}
           {$t('receiving.selectPaymentMethod')}
-        {:else if !dueDateReady}
+        {:else if !paymentNotApplicable && !dueDateReady}
           {$t('receiving.completeDueDate')}
-        {:else if !billDate || !billAmount || !billNumber || !billNumber.trim()}
+        {:else if !billDate || !billAmount || (!billNumberNotMandatory && (!billNumber || !billNumber.trim()))}
           {$t('receiving.fillRequiredFields')}
-        {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && !billVatNumber}
+        {:else if !vatCheckNotApplicable && selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && !billVatNumber}
           {$t('receiving.enterBillVat')}
-        {:else if selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && billVatNumber && vatNumbersMatch === false && !vatMismatchReason}
+        {:else if !vatCheckNotApplicable && selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && billVatNumber && vatNumbersMatch === false && !vatMismatchReason}
           {$t('receiving.provideVatReason')}
         {:else}
           {$t('receiving.completeAllFields')}
@@ -3842,6 +4119,55 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		background: #fff;
 		border-radius: 8px;
 		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+	}
+
+	.intro-blank-screen {
+		height: 100%;
+		min-height: 300px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1.5rem;
+	}
+
+	.bill-type-options {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.75rem;
+	}
+
+	.bill-type-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 1rem 1.5rem;
+		min-width: 140px;
+		background: #fff;
+		border: 1.5px solid #e0e0e0;
+		border-radius: 10px;
+		cursor: pointer;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #333;
+		transition: all 0.2s;
+	}
+	.bill-type-btn:hover {
+		border-color: #1976d2;
+		background: #f5faff;
+	}
+	.bill-type-btn.active {
+		border-color: #1976d2;
+		background: #e3f2fd;
+		color: #1976d2;
+	}
+	.bill-type-icon { font-size: 1.6rem; }
+
+	.intro-blank-screen .primary-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.form-section h3 {
@@ -8049,10 +8375,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {/if}
 
 <!-- Clearance Certificate Manager -->
-<ClearanceCertificateManager 
+<ClearanceCertificateManager
   bind:show={showCertificateManager}
   receivingRecord={currentReceivingRecord}
   printOnly={tasksAlreadyAssigned}
   autoGenerate={true}
+  isPendingRecord={isPendingBillType}
   on:close={handleCertificateManagerClose}
 />
