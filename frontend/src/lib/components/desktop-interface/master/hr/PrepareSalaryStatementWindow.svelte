@@ -676,14 +676,15 @@
 		if (travelPayMode === 'Bank') bankAllow += travelAllow;
 		if (foodPayMode === 'Bank') bankAllow += distFoodAllow;
 		const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFoodAllow;
-		// Deductions applied to cash first, then bank (attendance-scaled for Remote Jobs)
+		// Deductions are applied to Bank first (attendance-scaled for Remote Jobs); only the
+		// overflow — if Bank isn't enough to cover them — spills over to Cash.
 		const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
 		const effGrossBank = bankAllow * scaleFactor;
 		const effGrossCash = (distTotal - bankAllow) * scaleFactor;
 		const nonFoodDeds = totalDeductions - foodDeductionDed;
-		const deductFromCash = Math.min(nonFoodDeds, effGrossCash);
-		const netCash = Math.max(0, effGrossCash - deductFromCash);
-		const netBank = Math.max(0, effGrossBank - (nonFoodDeds - deductFromCash));
+		const deductFromBank = Math.min(nonFoodDeds, effGrossBank);
+		const netBank = Math.max(0, effGrossBank - deductFromBank);
+		const netCash = Math.max(0, effGrossCash - (nonFoodDeds - deductFromBank));
 
 		return { gross: grossWorkedSalary, totalDeductions, netSalary, netBank, netCash };
 	}
@@ -825,20 +826,46 @@
 // MUDAD EXPORTER
 // ====================================================================
 let showMudadModal = false;
-let mudadTemplateFile: File | null = null;
+// Aqura holds employees across all branches, while each Mudad template is branch-specific —
+// so the exporter accepts several template files at once and checks them all as one combined set.
+let mudadTemplateFiles: File[] = [];
 let mudadProcessing = false;
 let mudadError = '';
 let mudadSuccess = '';
 let mudadFileInputEl: HTMLInputElement;
 
-function normalizeLegalId(value: any): string {
-if (value === null || value === undefined) return '';
-return String(value).trim().replace(/\s+/g, '');
+/** Strip characters that are illegal (or awkward) in a downloaded file/folder name */
+function sanitizeFileName(name: string): string {
+	const cleaned = name.trim().replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+	return cleaned || 'Mudad_Export';
 }
 
-/** Build a map from normalized Legal Id -> mudad values for all current filteredAnalysisData rows */
-function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number; travelAllowBank: number }> {
-	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number; travelAllowBank: number }>();
+function normalizeLegalId(value: any): string {
+if (value === null || value === undefined) return '';
+let s = String(value).trim();
+// Excel stores numeric-typed cells in scientific notation for large values
+// (e.g. Legal Id 2240687489 comes back from the XML as "2.240687489E9").
+// Expand that to a plain integer string before any other normalization.
+if (/^-?\d+(\.\d+)?[eE][+-]?\d+$/.test(s)) {
+	const num = Number(s);
+	if (Number.isFinite(num)) s = num.toFixed(0);
+}
+// Excel sometimes yields numeric ids with a trailing ".0" (e.g. "2240687489.0")
+s = s.replace(/\.0+$/, '');
+// Strip everything except letters/digits — handles spaces, dashes, dots, etc.
+s = s.replace(/[^0-9A-Za-z]/g, '');
+// Drop leading zeros on purely numeric ids (number-vs-text storage can add/drop these)
+if (/^\d+$/.test(s)) s = s.replace(/^0+(?=\d)/, '');
+return s.toUpperCase();
+}
+
+/** Build a map from normalized Legal Id -> amounts for all current filteredAnalysisData rows.
+ *  Only these fields are written into the template — Other Allowances (Amount), Leave of Absence
+ *  (Amount), and Other Deductions (Amount); the export must not touch any other Mudad field.
+ *  hasNetBank is exposed purely so a matched-but-cash-only employee (the Mudad template is
+ *  expected to only ever list Net-Bank employees) can be flagged as an exception. */
+function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; hasNetBank: boolean }> {
+	const map = new Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; hasNetBank: boolean }>();
 	for (const row of filteredAnalysisData) {
 		const legalId = normalizeLegalId(row.idNumber);
 		if (!legalId) continue;
@@ -853,23 +880,24 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		const shiftHPD = 8;
 		const isRemote = row.employmentStatus === 'Remote Job';
 
-		// Other Allowances — bank-paid only
-		const otherAllow = otherAllowances[empId] || 0;
-		const otherPayMode = (otherAllowancePaymentModes[empId] || 'Bank').toLowerCase();
-		const otherAllowBank = otherPayMode !== 'cash' ? otherAllow : 0;
-
 		const foodAllow = foodAllowances[empId] || 0;
 		const foodDeductionActive = foodDeductionActives[empId] ?? false;
+
+		// Other Allowances — the bank-paid portion of Other Allowance, plus the bank-paid portion
+		// of Food Allowance. Food's inclusion here depends only on its payment mode (Bank), not on
+		// whether the Food Allowance Deduction toggle is on — the two are independent: an employee
+		// can have their Food Allowance paid via bank (added here) AND deducted (see Other
+		// Deductions below) at the same time, per their salary setup.
+		const otherAllow = otherAllowances[empId] || 0;
+		const otherAllowPayMode = (otherAllowancePaymentModes[empId] || 'Bank').toLowerCase();
+		const otherAllowBank = otherAllowPayMode !== 'cash' ? otherAllow : 0;
+
 		const foodPayMode = (foodPaymentModes[empId] || 'Bank').toLowerCase();
-		const foodAllowBank = (!foodDeductionActive && foodPayMode !== 'cash') ? foodAllow : 0;
+		const foodAllowBank = foodPayMode !== 'cash' ? foodAllow : 0;
 
-		const travelAllow = travelAllowances[empId] || 0;
-		const travelPayMode = (travelPaymentModes[empId] || 'Bank').toLowerCase();
-		const travelAllowBank = travelPayMode !== 'cash' ? travelAllow : 0;
+		const otherAllowancesAmount = otherAllowBank + foodAllowBank;
 
-		const otherAllowancesAmount = otherAllowBank + foodAllowBank; // travelAllowBank handled conditionally in processMudadSheetXml
-
-		// Leave of Absence = incomplete + late + under worked deductions.
+		// Leave of Absence = incomplete + late + under worked + unapproved leave deductions.
 		// A manual override always applies; only the auto-computed fallback is zeroed for Remote Job.
 		let incompleteDed = 0;
 		const incompOvr = incompleteDayDeductionOverrides[empId];
@@ -889,23 +917,30 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		if (underOvr !== undefined) underDed = underOvr;
 		else if (effUnder > 0) underDed = (effUnder / 60) * hourlyRate;
 
-		const leaveOfAbsenceAmount = incompleteDed + lateDed + underDed;
+		let unapprovedDed = 0;
+		const unapOvr = unapprovedLeaveDeductionOverrides[empId];
+		const effUnapDays = isRemote ? 0 : (row.totalUnapprovedDaysOff || 0);
+		if (unapOvr !== undefined) unapprovedDed = unapOvr;
+		else if (effUnapDays > 0) unapprovedDed = effUnapDays * shiftHPD * hourlyRate;
 
-		// Other Deductions = POS + advance + loan + penalties + other
+		const leaveOfAbsenceAmount = incompleteDed + lateDed + underDed + unapprovedDed;
+
+		// Other Deductions = POS + advance + loan + penalties + other + food deduction
+		const foodDeductionDed = foodDeductionActive ? foodAllow : 0;
 		const otherDeductionsAmount =
 			(posShortageDeductions[empId] || 0) +
 			(empEditOverrides[empId]?.salaryAdvance || 0) +
 			(empEditOverrides[empId]?.loanDeductions || 0) +
 			(autoFineDeductions[empId] || 0) +
 			(empEditOverrides[empId]?.penalties || 0) +
-			(empEditOverrides[empId]?.otherDeductions || 0);
+			(empEditOverrides[empId]?.otherDeductions || 0) +
+			foodDeductionDed;
 
 		map.set(legalId, {
 			otherAllowances: otherAllowancesAmount,
 			leaveOfAbsence: leaveOfAbsenceAmount,
 			otherDeductions: otherDeductionsAmount,
-			netBank: parseFloat((computeRowSalary(row).netBank).toFixed(2)),
-			travelAllowBank: parseFloat(travelAllowBank.toFixed(2))
+			hasNetBank: computeRowSalary(row).netBank > 0
 		});
 	}
 	return map;
@@ -992,17 +1027,15 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		return result;
 	}
 
-	/** Add a solid yellow fill to xl/styles.xml and return the new cellXf style index */
-	function addYellowFillToStyles(stylesXml: string): { xml: string; styleIdx: number } {
-		const yellowFill = '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>';
-		// Current count = 0-based index of the new fill
+	/** Add a solid fill (given as an RRGGBB hex, e.g. "FF0000") to xl/styles.xml and return the new cellXf style index */
+	function addSolidFillToStyles(stylesXml: string, rgbHex: string): { xml: string; styleIdx: number } {
+		const fillXml = `<fill><patternFill patternType="solid"><fgColor rgb="FF${rgbHex}"/><bgColor indexed="64"/></patternFill></fill>`;
 		const fillsCountMatch = stylesXml.match(/fills[^>]*\scount="(\d+)"/);
 		const newFillIdx = fillsCountMatch ? parseInt(fillsCountMatch[1]) : 2;
-		// Current count = 0-based index of the new xf
 		const cellXfsCountMatch = stylesXml.match(/cellXfs[^>]*\scount="(\d+)"/);
 		const newStyleIdx = cellXfsCountMatch ? parseInt(cellXfsCountMatch[1]) : 1;
 		let xml = stylesXml;
-		xml = xml.replace('</fills>', yellowFill + '</fills>');
+		xml = xml.replace('</fills>', fillXml + '</fills>');
 		xml = xml.replace(/(<fills[^>]*\scount=")(\d+)(")/, (_m, p1, p2, p3) => p1 + (parseInt(p2) + 1) + p3);
 		const newXf = `<xf numFmtId="0" fontId="0" fillId="${newFillIdx}" borderId="0" xfId="0"/>`;
 		xml = xml.replace('</cellXfs>', newXf + '</cellXfs>');
@@ -1010,34 +1043,40 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		return { xml, styleIdx: newStyleIdx };
 	}
 
-	/** Apply s="styleIdx" to each cell in cellRefs (yellow background for unmatched rows) */
-	function applyYellowToCells(xml: string, cellRefs: string[], styleIdx: number): string {
+	/** Apply s="styleIdx" (a solid fill) to every cell in the given rows, without touching cell values/types */
+	function applyFillToRows(xml: string, rowNums: number[], styleIdx: number): string {
 		let result = xml;
-		for (const cellRef of cellRefs) {
-			const rAttr = 'r="' + cellRef + '"';
-			let pos = 0;
-			while (true) {
-				const cellStart = result.indexOf('<c ', pos);
-				if (cellStart === -1) break;
-				const tagEnd = result.indexOf('>', cellStart);
-				if (tagEnd === -1) break;
-				const openTag = result.substring(cellStart, tagEnd + 1);
-				if (!openTag.includes(rAttr)) { pos = tagEnd + 1; continue; }
-				let newTag: string;
-				if (/\ss="[^"]*"/.test(openTag)) {
-					newTag = openTag.replace(/\ss="[^"]*"/, ` s="${styleIdx}"`);
-				} else {
-					newTag = '<c s="' + styleIdx + '" ' + openTag.slice(3);
-				}
-				result = result.substring(0, cellStart) + newTag + result.substring(tagEnd + 1);
-				break;
-			}
+		const rowSet = new Set(rowNums);
+		let pos = 0;
+		while (true) {
+			const rowStart = result.indexOf('<row ', pos);
+			if (rowStart === -1) break;
+			const tagEnd = result.indexOf('>', rowStart);
+			if (tagEnd === -1) break;
+			const openTag = result.substring(rowStart, tagEnd + 1);
+			const rMatch = openTag.match(/\br="(\d+)"/);
+			if (!rMatch || !rowSet.has(parseInt(rMatch[1]))) { pos = tagEnd + 1; continue; }
+			const rowClose = result.indexOf('</row>', tagEnd);
+			if (rowClose === -1) { pos = tagEnd + 1; continue; }
+			const rowInner = result.substring(tagEnd + 1, rowClose);
+			// Lazy match so the optional trailing "/" (self-closing cells) is captured separately
+			// from the attribute list, and re-emitted in place — never dropped or duplicated.
+			const newInner = rowInner.replace(/<c\b([^>]*?)(\/?)>/g, (_m, attrs, selfClose) => {
+				const cleanAttrs = attrs.replace(/\ss="[^"]*"/, '');
+				return `<c${cleanAttrs} s="${styleIdx}"${selfClose}>`;
+			});
+			result = result.substring(0, tagEnd + 1) + newInner + result.substring(rowClose);
+			// rowClose's offset shifted by however much the replacement changed the row's length —
+			// recompute from tagEnd rather than reusing the pre-replacement index.
+			pos = tagEnd + 1 + newInner.length + '</row>'.length;
 		}
 		return result;
 	}
 
-	/** Insert XML for new cells before the closing </row> tag of the given row number */
-	function insertCellsIntoRow(xml: string, rowNum: number, newCells: string): string {
+	/** Insert XML for a new cell before the closing </row> tag of the given row number.
+	 *  The cell ref must be a column past every column the template already uses in that row,
+	 *  so this only ever appends a brand-new cell — it never touches an existing one. */
+	function insertCellIntoRow(xml: string, rowNum: number, cellXml: string): string {
 		let pos = 0;
 		while (true) {
 			const rowStart = xml.indexOf('<row ', pos);
@@ -1049,81 +1088,61 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			if (!rMatch || parseInt(rMatch[1]) !== rowNum) { pos = tagEnd + 1; continue; }
 			const rowClose = xml.indexOf('</row>', tagEnd);
 			if (rowClose === -1) break;
-			return xml.substring(0, rowClose) + newCells + xml.substring(rowClose);
+			return xml.substring(0, rowClose) + cellXml + xml.substring(rowClose);
 		}
 		return xml;
 	}
 
-	function makeFmCell(ref: string, formula: string): string {
-		return `<c r="${ref}"><f>${formula}</f><v>0</v></c>`;
-	}
-	function makeValCell(ref: string, value: number): string {
-		return `<c r="${ref}"><v>${value}</v></c>`;
-	}
-	function makeHdrCell(ref: string, text: string): string {
-		return `<c r="${ref}" t="inlineStr"><is><t>${text}</t></is></c>`;
+	/** Build a new inline-string cell (no shared-string table entry needed) */
+	function makeRemarkCell(ref: string, text: string, styleIdx?: number): string {
+		const sAttr = styleIdx !== undefined ? ` s="${styleIdx}"` : '';
+		const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		return `<c r="${ref}"${sAttr} t="inlineStr"><is><t>${escaped}</t></is></c>`;
 	}
 
-	/** Add red/yellow/green dxf entries to xl/styles.xml for the Q-column conditional formatting */
-	function addComputedColsStyles(stylesXml: string): { xml: string; dxfRedIdx: number; dxfYellowIdx: number; dxfGreenIdx: number } {
-		const dxfRed    = '<dxf><fill><patternFill><bgColor rgb="FFFF0000"/></patternFill></fill></dxf>';
-		const dxfYellow = '<dxf><fill><patternFill><bgColor rgb="FFFFFF00"/></patternFill></fill></dxf>';
-		const dxfGreen  = '<dxf><fill><patternFill><bgColor rgb="FF00B050"/></patternFill></fill></dxf>';
-		const newDxfs = dxfRed + dxfYellow + dxfGreen;
-		let xml = stylesXml;
-		let dxfStartIdx = 0;
+	const MUDAD_NOT_IN_AQURA_REMARK = 'Exists in Mudad, Not in Aqura';
+	const MUDAD_NO_NET_BANK_REMARK = 'No Net Bank in Aqura';
 
-		// Check for self-closing <dxfs.../> first (e.g. <dxfs count="0"/>) — these have no </dxfs> tag
-		const selfClosingMatch = xml.match(/<dxfs([^>]*?)\/>/);
-		if (selfClosingMatch) {
-			const countMatch = selfClosingMatch[1].match(/count="(\d+)"/);
-			dxfStartIdx = countMatch ? parseInt(countMatch[1]) : 0;
-			xml = xml.replace(selfClosingMatch[0], `<dxfs count="${dxfStartIdx + 3}">${newDxfs}</dxfs>`);
-		} else if (xml.includes('</dxfs>')) {
-			// Regular <dxfs ...>...</dxfs>
-			const openMatch = xml.match(/<dxfs([^>]*?)>/);
-			const countMatch = openMatch?.[1].match(/count="(\d+)"/);
-			dxfStartIdx = countMatch ? parseInt(countMatch[1]) : 0;
-			xml = xml.replace('</dxfs>', newDxfs + '</dxfs>');
-			xml = xml.replace(/(<dxfs[^>]*count=")(\d+)(")/, (_m, p1, _p2, p3) => p1 + (dxfStartIdx + 3) + p3);
-		} else {
-			// No <dxfs> element at all — insert after </cellStyles> or </cellXfs>
-			const insertAfter = xml.includes('</cellStyles>') ? '</cellStyles>' : '</cellXfs>';
-			xml = xml.replace(insertAfter, insertAfter + `<dxfs count="3">${newDxfs}</dxfs>`);
-		}
-
-		return { xml, dxfRedIdx: dxfStartIdx, dxfYellowIdx: dxfStartIdx + 1, dxfGreenIdx: dxfStartIdx + 2 };
-	}
-
-	/** Find header row, match Legal Ids, return updated sheet XML and match count */
-	/** Find header row, match Legal Ids, fill values + add computed columns M–Q */
+	/**
+	 * Find the header row, match each data row's Legal Id, and fill ONLY the "Other Allowances
+	 * (Amount)", "Leave of Absence (Amount)" and "Other Deductions (Amount)" cells. Everything else
+	 * already present in the Mudad template — names, Legal Ids, Basic Wage, Net Salary, GOSI, cell
+	 * styling, etc. — is left completely untouched (Mudad does not allow its prefilled fields to be
+	 * edited after the template is downloaded), with two deliberate exceptions, each flagged in a
+	 * brand-new column just past the template's own columns:
+	 *   - red + "Exists in Mudad, Not in Aqura": Legal Id has no matching Aqura employee at all.
+	 *   - orange + "No Net Bank in Aqura": the Legal Id does match an Aqura employee, but that
+	 *     employee has no Net Bank amount there (only whether it exists is checked — not its size —
+	 *     since the Mudad template is expected to only ever list Net-Bank employees).
+	 */
 	function processMudadSheetXml(
 		xml: string,
 		sharedStrings: string[],
-		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; netBank: number; travelAllowBank: number }>,
-		yellowStyleIdx?: number,
-		dxfRedIdx?: number,
-		dxfYellowIdx?: number,
-		dxfGreenIdx?: number
-	): { result: string; matchCount: number; changed: boolean } {
+		mudadMap: Map<string, { otherAllowances: number; leaveOfAbsence: number; otherDeductions: number; hasNetBank: boolean }>,
+		redStyleIdx?: number,
+		orangeStyleIdx?: number
+	): { result: string; matchCount: number; changed: boolean; seenLegalIds: string[]; notInAquraCount: number; noNetBankCount: number } {
 		const HEADERS = ['Legal Id', 'Other Allowances (Amount)', 'Leave of Absence (Amount)', 'Other Deductions (Amount)'];
 		const parser = new DOMParser();
 		const doc = parser.parseFromString(xml, 'application/xml');
 		const rows = Array.from(doc.getElementsByTagName('row'));
 
 		let headerRowNum = -1;
-		let legalIdCol = 0, otherAllowCol = 0, leaveAbsenceCol = 0, otherDedCol = 0, transportationCol = 0;
+		let legalIdCol = 0, otherAllowCol = 0, leaveAbsenceCol = 0, otherDedCol = 0, remarkCol = 0;
 		for (const row of rows) {
 			if (headerRowNum !== -1) break;
 			const colMap: Record<string, number> = {};
+			let rowMaxCol = 0;
 			for (const cell of Array.from(row.getElementsByTagName('c'))) {
+				const colNum = mudadColToNum(cell.getAttribute('r') || '');
+				if (colNum > rowMaxCol) rowMaxCol = colNum;
 				if (cell.getAttribute('t') !== 's') continue;
 				const vEl = cell.querySelector('v');
 				if (!vEl?.textContent) continue;
 				const idx = parseInt(vEl.textContent);
 				if (isNaN(idx)) continue;
 				const str = sharedStrings[idx]?.trim();
-				if (str) colMap[str] = mudadColToNum(cell.getAttribute('r') || '');
+				if (str) colMap[str] = colNum;
 			}
 			if (HEADERS.every(h => colMap[h])) {
 				headerRowNum    = parseInt(row.getAttribute('r') || '0');
@@ -1131,20 +1150,21 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				otherAllowCol   = colMap['Other Allowances (Amount)'];
 				leaveAbsenceCol = colMap['Leave of Absence (Amount)'];
 				otherDedCol     = colMap['Other Deductions (Amount)'];
-				transportationCol = colMap['Transportation Allowance'] || 0;
+				remarkCol       = rowMaxCol + 1; // first column past everything the template already uses
 			}
 		}
-		if (headerRowNum === -1) return { result: xml, matchCount: 0, changed: false };
+		if (headerRowNum === -1) return { result: xml, matchCount: 0, changed: false, seenLegalIds: [], notInAquraCount: 0, noNetBankCount: 0 };
 
 		const updates = new Map<string, number>();
-		const unmatchedCellRefs: string[] = [];
-		const matchedRows: Array<{ rowNum: number; netBank: number }> = [];
-		let lastDataRowNum = headerRowNum;
+		const notInAquraRowNums: number[] = [];
+		const noNetBankRowNums: number[] = [];
+		const remarkCells = new Map<number, string>(); // rowNum -> remark text
+		const seenLegalIds: string[] = [];
+		let matchCount = 0;
 
 		for (const row of rows) {
 			const rowNum = parseInt(row.getAttribute('r') || '0');
 			if (rowNum <= headerRowNum) continue;
-			lastDataRowNum = Math.max(lastDataRowNum, rowNum);
 			let legalId = '';
 			for (const cell of Array.from(row.getElementsByTagName('c'))) {
 				if (mudadColToNum(cell.getAttribute('r') || '') !== legalIdCol) continue;
@@ -1156,163 +1176,201 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				legalId = normalizeLegalId(rawVal);
 				break;
 			}
-			if (!legalId) continue;
+			if (!legalId) continue; // Blank row — nothing to match, nothing to flag.
+			seenLegalIds.push(legalId);
 			const vals = mudadMap.get(legalId);
 			if (!vals) {
-				// Legal ID exists in template but not in salary statement — collect for yellow highlight
-				if (yellowStyleIdx !== undefined) {
-					for (const cell of Array.from(row.getElementsByTagName('c'))) {
-						const ref = cell.getAttribute('r');
-						if (ref) unmatchedCellRefs.push(ref);
-					}
-				}
+				// Legal Id present in the template but no matching Aqura employee — flag the row.
+				notInAquraRowNums.push(rowNum);
+				remarkCells.set(rowNum, MUDAD_NOT_IN_AQURA_REMARK);
 				continue;
 			}
-			matchedRows.push({ rowNum, netBank: vals.netBank });
-			// Check if template already has a Transportation Allowance value for this row
-			let templateTransportVal = 0;
-			if (transportationCol > 0) {
-				for (const cell of Array.from(row.getElementsByTagName('c'))) {
-					if (mudadColToNum(cell.getAttribute('r') || '') !== transportationCol) continue;
-					const vEl = cell.querySelector('v');
-					if (vEl?.textContent) templateTransportVal = parseFloat(vEl.textContent) || 0;
-					break;
-				}
+			matchCount++;
+			if (!vals.hasNetBank) {
+				// Matched, but this employee has no Net Bank in Aqura — an exception, not a non-match.
+				noNetBankRowNums.push(rowNum);
+				remarkCells.set(rowNum, MUDAD_NO_NET_BANK_REMARK);
 			}
-			// Only add travel allowance to Other Allowances if template Transportation Allowance is 0/empty
-			const travelToAdd = (transportationCol === 0 || templateTransportVal === 0) ? vals.travelAllowBank : 0;
 			for (const cell of Array.from(row.getElementsByTagName('c'))) {
 				const ref = cell.getAttribute('r') || '';
 				const col = mudadColToNum(ref);
-				if (col === otherAllowCol)       updates.set(ref, parseFloat((vals.otherAllowances + travelToAdd).toFixed(2)));
+				if (col === otherAllowCol)        updates.set(ref, parseFloat(vals.otherAllowances.toFixed(2)));
 				else if (col === leaveAbsenceCol) updates.set(ref, parseFloat(vals.leaveOfAbsence.toFixed(2)));
 				else if (col === otherDedCol)     updates.set(ref, parseFloat(vals.otherDeductions.toFixed(2)));
 			}
 		}
 
 		const hasUpdates = updates.size > 0;
-		const hasUnmatched = unmatchedCellRefs.length > 0;
-		const hasMatched = matchedRows.length > 0;
-		if (!hasUpdates && !hasUnmatched && !hasMatched) return { result: xml, matchCount: 0, changed: false };
+		const hasNotInAqura = notInAquraRowNums.length > 0 && redStyleIdx !== undefined;
+		const hasNoNetBank = noNetBankRowNums.length > 0 && orangeStyleIdx !== undefined;
+		if (!hasUpdates && !hasNotInAqura && !hasNoNetBank) {
+			return { result: xml, matchCount: 0, changed: false, seenLegalIds, notInAquraCount: 0, noNetBankCount: 0 };
+		}
 
 		let result = xml;
 		if (hasUpdates) result = updateMudadCells(result, updates);
-		if (hasUnmatched && yellowStyleIdx !== undefined) result = applyYellowToCells(result, unmatchedCellRefs, yellowStyleIdx);
-
-		// ── Computed columns M–Q ──────────────────────────────────────────────
-		if (hasMatched) {
-			// Column headers in the header row
-			result = insertCellsIntoRow(result, headerRowNum,
-				makeHdrCell(`M${headerRowNum}`, 'Populated GOSI') +
-				makeHdrCell(`N${headerRowNum}`, 'Net Ded') +
-				makeHdrCell(`O${headerRowNum}`, 'Net Total') +
-				makeHdrCell(`P${headerRowNum}`, 'Net Bank') +
-				makeHdrCell(`Q${headerRowNum}`, 'Difference')
-			);
-			// Formula + value cells for each matched data row
-			for (const { rowNum: r, netBank } of matchedRows) {
-				result = insertCellsIntoRow(result, r,
-					makeFmCell(`M${r}`, `F${r}*J${r}%`) +
-					makeFmCell(`N${r}`, `K${r}+L${r}+M${r}`) +
-					makeFmCell(`O${r}`, `F${r}+G${r}+H${r}+I${r}-N${r}`) +
-					makeValCell(`P${r}`, parseFloat(netBank.toFixed(2))) +
-					makeFmCell(`Q${r}`, `O${r}-P${r}`)
-				);
-			}
-			// Conditional formatting for Q: red=negative, yellow=positive, green=zero
-			if (dxfRedIdx !== undefined && dxfYellowIdx !== undefined && dxfGreenIdx !== undefined && lastDataRowNum > headerRowNum) {
-				const sqref = `Q${headerRowNum + 1}:Q${lastDataRowNum}`;
-				const cfXml =
-					`<conditionalFormatting sqref="${sqref}">` +
-					`<cfRule type="cellIs" dxfId="${dxfRedIdx}" priority="1" operator="lessThan"><formula>0</formula></cfRule>` +
-					`<cfRule type="cellIs" dxfId="${dxfYellowIdx}" priority="2" operator="greaterThan"><formula>0</formula></cfRule>` +
-					`<cfRule type="cellIs" dxfId="${dxfGreenIdx}" priority="3" operator="equal"><formula>0</formula></cfRule>` +
-					`</conditionalFormatting>`;
-				// CF must appear before <pageMargins>/<pageSetup> in OOXML schema.
-				// Insert after the last element that should precede it: </mergeCells> → </autoFilter> → </sheetData>
-				const insertAfterCandidates = ['</mergeCells>', '</autoFilter>', '</sheetData>'];
-				let inserted = false;
-				for (const tag of insertAfterCandidates) {
-					if (result.includes(tag)) {
-						result = result.replace(tag, tag + cfXml);
-						inserted = true;
-						break;
-					}
-				}
-				if (!inserted) result = result.replace('</worksheet>', cfXml + '</worksheet>');
+		if (hasNotInAqura) result = applyFillToRows(result, notInAquraRowNums, redStyleIdx!);
+		if (hasNoNetBank) result = applyFillToRows(result, noNetBankRowNums, orangeStyleIdx!);
+		if (hasNotInAqura || hasNoNetBank) {
+			result = insertCellIntoRow(result, headerRowNum, makeRemarkCell(`${mudadNumToCol(remarkCol)}${headerRowNum}`, 'Remarks'));
+			for (const [rowNum, text] of remarkCells) {
+				const styleIdx = text === MUDAD_NOT_IN_AQURA_REMARK ? redStyleIdx : orangeStyleIdx;
+				result = insertCellIntoRow(result, rowNum, makeRemarkCell(`${mudadNumToCol(remarkCol)}${rowNum}`, text, styleIdx));
 			}
 		}
-
-		return { result, matchCount: Math.round(updates.size / 3), changed: true };
+		return { result, matchCount, changed: true, seenLegalIds, notInAquraCount: notInAquraRowNums.length, noNetBankCount: noNetBankRowNums.length };
 	}
 
-	function handleMudadTemplateImport(file: File) {
+	/** Accepts one branch's worth of newly-picked files and merges them into the working set —
+	 *  Aqura spans every branch, so several branch-specific Mudad templates can be queued together. */
+	function handleMudadTemplateImport(files: FileList | File[]) {
 		mudadError = '';
 		mudadSuccess = '';
-		if (!file) return;
-		if (!file.name.match(/\.xlsx?$/i)) {
-			mudadError = 'Please upload a valid Excel file (.xlsx or .xls).';
-			mudadTemplateFile = null;
-			return;
+		const picked = Array.from(files);
+		if (!picked.length) return;
+		const invalid = picked.filter(f => !f.name.match(/\.xlsx?$/i));
+		const valid = picked.filter(f => f.name.match(/\.xlsx?$/i));
+		if (invalid.length) {
+			mudadError = `Skipped ${invalid.length} file(s) that aren't .xlsx/.xls: ${invalid.map(f => f.name).join(', ')}`;
 		}
-		mudadTemplateFile = file;
-		mudadSuccess = `Template ready: ${file.name}`;
+		if (valid.length) {
+			// De-dupe by name+size so re-selecting the same file twice doesn't queue it twice.
+			const existingKeys = new Set(mudadTemplateFiles.map(f => `${f.name}:${f.size}`));
+			const toAdd = valid.filter(f => !existingKeys.has(`${f.name}:${f.size}`));
+			mudadTemplateFiles = [...mudadTemplateFiles, ...toAdd];
+			if (!invalid.length) mudadSuccess = `${mudadTemplateFiles.length} template(s) ready.`;
+		}
+	}
+
+	function removeMudadTemplateFile(idx: number) {
+		mudadTemplateFiles = mudadTemplateFiles.filter((_, i) => i !== idx);
 	}
 
 	async function exportMudadExcel() {
-		if (!mudadTemplateFile) { mudadError = 'Please upload a Mudad template file first.'; return; }
+		if (!mudadTemplateFiles.length) { mudadError = 'Please upload at least one Mudad template file first.'; return; }
 		if (!filteredAnalysisData.length) { mudadError = 'No salary data loaded. Load a salary statement first.'; return; }
 		mudadProcessing = true; mudadError = ''; mudadSuccess = '';
 		try {
-			// JSZip opens the XLSX as a raw ZIP — ALL parts (tables, drawings, autofilter) are fully preserved
+			// JSZip opens each XLSX as a raw ZIP — ALL parts (tables, drawings, autofilter) are fully preserved
 			const JSZipMod: any = await import('jszip');
 			const JSZip = JSZipMod.default ?? JSZipMod;
-			const arrayBuffer = await mudadTemplateFile!.arrayBuffer();
-			const zip = await JSZip.loadAsync(arrayBuffer);
-
-			const sharedStrings = await parseMudadSharedStrings(zip);
+			// Built once from the Aqura side and checked against every uploaded template — Aqura
+			// spans all branches, so the same salary data is the source of truth for all of them.
 			const mudadMap = buildMudadRowMap();
 
-			// Inject styles: yellow fill for unmatched rows + red/yellow/green dxfs for Q column CF
-			let yellowStyleIdx: number | undefined;
-			let dxfRedIdx: number | undefined, dxfYellowIdx: number | undefined, dxfGreenIdx: number | undefined;
-			const stylesFile = (zip as any).file('xl/styles.xml');
-			if (stylesFile) {
-				let stylesXml: string = await stylesFile.async('string');
-				const { xml: afterYellow, styleIdx } = addYellowFillToStyles(stylesXml);
-				stylesXml = afterYellow; yellowStyleIdx = styleIdx;
-				const { xml: afterCf, dxfRedIdx: ri, dxfYellowIdx: yi, dxfGreenIdx: gi } = addComputedColsStyles(stylesXml);
-				stylesXml = afterCf; dxfRedIdx = ri; dxfYellowIdx = yi; dxfGreenIdx = gi;
-				(zip as any).file('xl/styles.xml', stylesXml);
-			}
-
-			let totalMatched = 0;
-			const sheetPaths = Object.keys((zip as any).files).filter((f: string) =>
-				/^xl\/worksheets\/sheet\d+\.xml$/i.test(f)
-			);
-			for (const sheetPath of sheetPaths) {
-				const xml: string = await (zip as any).file(sheetPath)!.async('string');
-				const { result, matchCount, changed } = processMudadSheetXml(xml, sharedStrings, mudadMap, yellowStyleIdx, dxfRedIdx, dxfYellowIdx, dxfGreenIdx);
-				if (changed) { (zip as any).file(sheetPath, result); totalMatched += matchCount; }
-			}
-
-			const blob: Blob = await (zip as any).generateAsync({
-				type: 'blob',
-				mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-				compression: 'DEFLATE',
-				compressionOptions: { level: 6 }
-			});
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
 			const today = new Date();
 			const stamp = String(today.getFullYear()) + String(today.getMonth() + 1).padStart(2, '0') + String(today.getDate()).padStart(2, '0');
-			a.href = url; a.download = 'Mudad_' + stamp + '.xlsx';
-			document.body.appendChild(a); a.click();
-			setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
-			mudadSuccess = totalMatched > 0
-				? 'Done — ' + totalMatched + ' employee(s) matched and exported.'
-				: 'Warning: No employees were matched. Check that Legal Id values in the template match the salary data.';
-			recordLog({ action_type: LOG.MUDAD_EXPORT, action_description: `Exported Mudad Excel — ${totalMatched} employees matched`, related_ui: 'MudadModal', metadata: { startDate, endDate, selectedBranch, totalMatched, templateFile: mudadTemplateFile?.name } });
+
+			let totalMatched = 0;
+			let totalNotInAqura = 0;
+			let totalNoNetBank = 0;
+			// Legal Ids seen across every uploaded template, combined — the final "not found anywhere"
+			// comparison only happens once all templates have been checked as one set.
+			const allSeenLegalIds = new Set<string>();
+			// Every generated file (one per uploaded template, plus the final unmatched-employees
+			// file) is collected here and packaged into a single zip at the end, instead of firing
+			// off several separate downloads.
+			const outputFiles: { name: string; blob: Blob }[] = [];
+
+			for (const templateFile of mudadTemplateFiles) {
+				const arrayBuffer = await templateFile.arrayBuffer();
+				const zip = await JSZip.loadAsync(arrayBuffer);
+				const sharedStrings = await parseMudadSharedStrings(zip);
+
+				// Two style changes made to each template: a red fill + "Remarks" note on rows whose
+				// Legal Id has no matching Aqura employee, and an orange fill + note on rows that DO
+				// match but that employee has no Net Bank in Aqura. Everything else is untouched.
+				let redStyleIdx: number | undefined;
+				let orangeStyleIdx: number | undefined;
+				const stylesFile = (zip as any).file('xl/styles.xml');
+				if (stylesFile) {
+					let stylesXml: string = await stylesFile.async('string');
+					const { xml: afterRed, styleIdx: redIdx } = addSolidFillToStyles(stylesXml, 'FF0000');
+					stylesXml = afterRed; redStyleIdx = redIdx;
+					const { xml: afterOrange, styleIdx: orangeIdx } = addSolidFillToStyles(stylesXml, 'FFA500');
+					stylesXml = afterOrange; orangeStyleIdx = orangeIdx;
+					(zip as any).file('xl/styles.xml', stylesXml);
+				}
+
+				let fileMatched = 0;
+				const sheetPaths = Object.keys((zip as any).files).filter((f: string) =>
+					/^xl\/worksheets\/sheet\d+\.xml$/i.test(f)
+				);
+				for (const sheetPath of sheetPaths) {
+					const xml: string = await (zip as any).file(sheetPath)!.async('string');
+					const { result, matchCount, changed, seenLegalIds, notInAquraCount, noNetBankCount } = processMudadSheetXml(xml, sharedStrings, mudadMap, redStyleIdx, orangeStyleIdx);
+					seenLegalIds.forEach(id => allSeenLegalIds.add(id));
+					totalNotInAqura += notInAquraCount;
+					totalNoNetBank += noNetBankCount;
+					if (changed) { (zip as any).file(sheetPath, result); fileMatched += matchCount; }
+				}
+				totalMatched += fileMatched;
+
+				const blob: Blob = await (zip as any).generateAsync({
+					type: 'blob',
+					mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+					compression: 'DEFLATE',
+					compressionOptions: { level: 6 }
+				});
+				const baseName = templateFile.name.replace(/\.xlsx?$/i, '');
+				outputFiles.push({ name: `Mudad_${baseName}_${stamp}.xlsx`, blob });
+			}
+
+			// Only after ALL uploaded templates have been checked as one combined set: employees
+			// present in this Salary Statement whose Legal Id doesn't appear in any of them — either
+			// it's missing in Aqura, or none of the uploaded templates list them. One final file.
+			const unmatchedEmployees = filteredAnalysisData
+				.map(row => ({ row, legalId: normalizeLegalId(row.idNumber) }))
+				.filter(({ legalId }) => !legalId || !allSeenLegalIds.has(legalId));
+			let unmatchedFileWritten = false;
+			if (unmatchedEmployees.length > 0) {
+				unmatchedFileWritten = true;
+				const ExcelJS: any = await import('exceljs');
+				const uwb = new ExcelJS.Workbook();
+				const uws = uwb.addWorksheet('Not In Any Mudad Template');
+				uws.columns = [
+					{ header: 'Employee ID', key: 'employeeId', width: 14 },
+					{ header: 'Employee Name', key: 'employeeName', width: 28 },
+					{ header: 'Legal Id', key: 'legalId', width: 18 },
+					{ header: 'Branch', key: 'branch', width: 22 },
+					{ header: 'Status', key: 'status', width: 22 },
+					{ header: 'Reason', key: 'reason', width: 32 }
+				];
+				uws.getRow(1).font = { bold: true };
+				for (const { row, legalId } of unmatchedEmployees) {
+					uws.addRow({
+						employeeId: row.employeeId,
+						employeeName: row.employeeName,
+						legalId: row.idNumber || '',
+						branch: branches.find((b: any) => String(b.id) === String(row.currentBranchId))?.name_en || '',
+						status: row.employmentStatus || '',
+						reason: legalId ? 'Legal Id not found in any uploaded Mudad template' : 'No Legal Id on file in Aqura'
+					});
+				}
+				const ubuffer = await uwb.xlsx.writeBuffer();
+				const ublob = new Blob([ubuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+				outputFiles.push({ name: 'Mudad_NotInAnyTemplate_' + stamp + '.xlsx', blob: ublob });
+			}
+
+			// Package every generated file into one zip, named after this Salary Statement.
+			const outputZip = new JSZip();
+			for (const { name, blob } of outputFiles) outputZip.file(name, blob);
+			const zipBlob: Blob = await outputZip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+			const zipName = sanitizeFileName(saveStatementName || `Salary_${startDate}_to_${endDate}`);
+			const zurl = URL.createObjectURL(zipBlob);
+			const za = document.createElement('a');
+			za.href = zurl; za.download = `${zipName}.zip`;
+			document.body.appendChild(za); za.click();
+			setTimeout(() => { URL.revokeObjectURL(zurl); za.remove(); }, 1500);
+
+			mudadSuccess = totalMatched > 0 || totalNotInAqura > 0
+				? 'Done — ' + totalMatched + ' employee(s) matched across ' + mudadTemplateFiles.length + ' template file(s).'
+					+ (totalNotInAqura > 0 ? ` ${totalNotInAqura} row(s) marked "Exists in Mudad, Not in Aqura".` : '')
+					+ (totalNoNetBank > 0 ? ` ${totalNoNetBank} row(s) marked "No Net Bank in Aqura".` : '')
+					+ (unmatchedFileWritten ? ` ${unmatchedEmployees.length} employee(s) not found in any template were listed in a separate file.` : '')
+					+ ` All files saved in ${zipName}.zip.`
+				: 'Warning: No employees were matched. Check that Legal Id values in the template(s) match the salary data.';
+			recordLog({ action_type: LOG.MUDAD_EXPORT, action_description: `Exported Mudad Excel — ${totalMatched} employees matched across ${mudadTemplateFiles.length} template(s)`, related_ui: 'MudadModal', metadata: { startDate, endDate, selectedBranch, totalMatched, totalNotInAqura, totalNoNetBank, unmatchedCount: unmatchedEmployees.length, templateFiles: mudadTemplateFiles.map(f => f.name), zipName: `${zipName}.zip` } });
 		} catch (err: any) {
 			console.error('Mudad export error:', err);
 			mudadError = 'Export failed: ' + (err?.message || 'Unknown error');
@@ -1409,7 +1467,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			const { data: salaryData } = await supabase
 				.from('hr_basic_salary')
 				.select('employee_id, gosi_is_percentage, gosi_percentage');
-			
+
 			if (salaryData) {
 				salaryData.forEach(item => {
 					gosiIsPercentages[item.employee_id] = item.gosi_is_percentage ?? true;
@@ -1418,6 +1476,34 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			}
 		} catch (e) {
 			console.error('Error refreshing GOSI percentages:', e);
+		}
+	}
+
+	/**
+	 * A saved statement freezes each row's Legal Id at save time. If an employee's Legal Id was
+	 * added or corrected in their employee record afterward (very common — Iqama/national ID
+	 * numbers often get entered later), the frozen value goes stale and the Mudad export's
+	 * Legal-Id matching silently fails for that employee even though the live employee record
+	 * is correct. Re-pull the current Legal Id for every employee in the loaded statement.
+	 */
+	async function refreshLegalIdsFromDatabase() {
+		try {
+			const ids = [...new Set(analysisData.map(r => r.employeeId).filter(Boolean))];
+			if (!ids.length) return;
+			const { data: empData, error } = await supabase
+				.from('hr_employee_master_with_status')
+				.select('id, id_number')
+				.in('id', ids);
+			if (error) throw error;
+			if (empData) {
+				const idMap = new Map(empData.map((e: any) => [String(e.id), e.id_number ?? null]));
+				analysisData = analysisData.map(row => {
+					const fresh = idMap.get(String(row.employeeId));
+					return fresh !== undefined ? { ...row, idNumber: fresh } : row;
+				});
+			}
+		} catch (e) {
+			console.error('Error refreshing Legal Ids:', e);
 		}
 	}
 
@@ -1490,6 +1576,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			const item = data.item;
 			restoreStatementSnapshot(item.data_json);
 			await refreshGosiPercentagesFromDatabase();
+			await refreshLegalIdsFromDatabase();
 			currentSavedStatementId = item.id;
 			saveStatementName = item.statement_name;
 			isLoadedFromSaved = true;
@@ -3174,7 +3261,7 @@ return n;
 
 			
 <button
-on:click={() => { showMudadModal = true; mudadError = ''; mudadSuccess = ''; mudadTemplateFile = null; recordLog({ action_type: LOG.MUDAD_OPEN, action_description: 'Opened Mudad Exporter modal', related_ui: 'MudadModal' }); }}
+on:click={() => { showMudadModal = true; mudadError = ''; mudadSuccess = ''; mudadTemplateFiles = []; recordLog({ action_type: LOG.MUDAD_OPEN, action_description: 'Opened Mudad Exporter modal', related_ui: 'MudadModal' }); }}
 disabled={loading || analysisData.length === 0}
 class="px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
 title="Export salary data to Mudad Excel template"
@@ -3833,14 +3920,13 @@ title="Export salary data to Mudad Excel template"
 										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
 										if (foodPayMode === 'Bank') bankAllowances += distFood;
 										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
-										// Deductions applied to cash first, then bank
+										// Deductions are applied to Bank first; only the overflow (if Bank isn't enough) spills to Cash.
 										const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
 										const effGrossBank = bankAllowances * scaleFactor;
-										const effGrossCash = (distTotal - bankAllowances) * scaleFactor;
 										const nonFoodDeds = grossWorkedSalary - netSalary - foodDeductionDed;
-										const deductFromCash = Math.min(nonFoodDeds, effGrossCash);
-										const netBank = Math.max(0, effGrossBank - (nonFoodDeds - deductFromCash));
-										
+										const deductFromBank = Math.min(nonFoodDeds, effGrossBank);
+										const netBank = Math.max(0, effGrossBank - deductFromBank);
+
 										return netBank.toFixed(2);
 									})()}
 								</td>
@@ -3914,14 +4000,14 @@ title="Export salary data to Mudad Excel template"
 										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
 										if (foodPayMode === 'Bank') bankAllowances += distFood;
 										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
-										// Deductions applied to cash first, then bank
+										// Deductions are applied to Bank first; only the overflow (if Bank isn't enough) spills to Cash.
 										const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
 										const effGrossBank = bankAllowances * scaleFactor;
 										const effGrossCash = (distTotal - bankAllowances) * scaleFactor;
 										const nonFoodDeds = grossWorkedSalary - netSalary - foodDeductionDed;
-										const deductFromCash = Math.min(nonFoodDeds, effGrossCash);
-										const netCash = Math.max(0, effGrossCash - deductFromCash);
-										
+										const deductFromBank = Math.min(nonFoodDeds, effGrossBank);
+										const netCash = Math.max(0, effGrossCash - (nonFoodDeds - deductFromBank));
+
 										return netCash.toFixed(2);
 									})()}
 								</td>
@@ -4000,7 +4086,7 @@ title="Export salary data to Mudad Excel template"
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" on:click|self={() => (showMudadModal = false)}>
-<div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border-2 border-orange-400">
+<div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 border-2 border-orange-400">
 <div class="flex items-center justify-between mb-4">
 <div class="flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -4011,19 +4097,30 @@ title="Export salary data to Mudad Excel template"
 <button type="button" class="text-slate-400 hover:text-slate-700 text-xl leading-none" on:click={() => (showMudadModal = false)}>×</button>
 </div>
 <p class="text-sm text-slate-600 mb-4">
-Upload your Mudad Excel template. The system will match employees by <strong>Legal Id</strong> and fill in:
-<strong>Other Allowances (Amount)</strong>, <strong>Leave of Absence (Amount)</strong>, and <strong>Other Deductions (Amount)</strong>.
+Upload one or more Mudad Excel templates — e.g. one per branch. The system checks all of them together against this Salary Statement, matches employees by <strong>Legal Id</strong>, and fills in only <strong>Other Allowances (Amount)</strong> (the bank-paid portion), <strong>Leave of Absence (Amount)</strong> and <strong>Other Deductions (Amount)</strong> per row. Nothing else already in a template is changed. A row whose Legal Id has no matching Aqura employee is highlighted red and marked <strong>"Exists in Mudad, Not in Aqura"</strong>. A row that does match but whose employee has no <strong>Net Bank</strong> in Aqura is highlighted orange and marked <strong>"No Net Bank in Aqura"</strong>. After all templates are checked, employees found in Aqura but in none of them are listed in one final file.
 </p>
 <div class="mb-4">
-<label for="mudad-template-input" class="block text-xs font-bold text-slate-700 mb-1 uppercase">Import Mudad Template (.xlsx)</label>
+<label for="mudad-template-input" class="block text-xs font-bold text-slate-700 mb-1 uppercase">Import Mudad Template(s) (.xlsx)</label>
 <input
 type="file"
 accept=".xlsx,.xls"
+multiple
 id="mudad-template-input" bind:this={mudadFileInputEl}
-on:change={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleMudadTemplateImport(f); }}
+on:change={(e) => { const f = (e.target as HTMLInputElement).files; if (f && f.length) handleMudadTemplateImport(f); (e.target as HTMLInputElement).value = ''; }}
 class="block w-full text-sm text-slate-700 border border-slate-300 rounded-lg cursor-pointer bg-slate-50 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200"
 />
+<p class="text-[11px] text-slate-500 mt-1">Select multiple files at once (ctrl/cmd-click), or add more by choosing again — each pick is added to the list below.</p>
 </div>
+{#if mudadTemplateFiles.length}
+<ul class="mb-4 border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-40 overflow-y-auto">
+{#each mudadTemplateFiles as f, idx (f.name + f.size)}
+<li class="flex items-center justify-between px-3 py-1.5 text-sm">
+<span class="truncate text-slate-700">{f.name}</span>
+<button type="button" class="text-slate-400 hover:text-red-600 text-xs font-bold ml-2 shrink-0" on:click={() => removeMudadTemplateFile(idx)} disabled={mudadProcessing}>Remove</button>
+</li>
+{/each}
+</ul>
+{/if}
 {#if mudadError}
 <div class="mb-3 px-3 py-2 bg-red-50 border border-red-300 rounded-lg text-red-700 text-sm font-medium">{mudadError}</div>
 {/if}
@@ -4040,7 +4137,7 @@ class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-
 <button
 type="button"
 on:click={exportMudadExcel}
-disabled={mudadProcessing || !mudadTemplateFile}
+disabled={mudadProcessing || !mudadTemplateFiles.length}
 class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold shadow"
 >
 {#if mudadProcessing}
@@ -4506,9 +4603,9 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	{@const _effGrossBank = _bankAllow * _scaleFactor}
 	{@const _effGrossCash = (_distTotal - _bankAllow) * _scaleFactor}
 	{@const _nonFoodDeds = _gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed}
-	{@const _deductFromCash = Math.min(_nonFoodDeds, _effGrossCash)}
-	{@const _netCash = Math.max(0, _effGrossCash - _deductFromCash)}
-	{@const _netBank = Math.max(0, _effGrossBank - (_nonFoodDeds - _deductFromCash))}
+	{@const _deductFromBank = Math.min(_nonFoodDeds, _effGrossBank)}
+	{@const _netBank = Math.max(0, _effGrossBank - _deductFromBank)}
+	{@const _netCash = Math.max(0, _effGrossCash - (_nonFoodDeds - _deductFromBank))}
 	{@const _perMinuteRate = _hourlyRate / 60}
 	{@const _perDayRate = 8 * _hourlyRate}
 	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:click|self={() => showEmpEditModal = false} on:keydown={(e) => e.key === 'Escape' && (showEmpEditModal = false)}>

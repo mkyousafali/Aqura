@@ -19,6 +19,19 @@
 	let branches = [];
 	let loading = false;
 	let uploadingBillId = null;
+	// AI "Check" on the Original Bill document — the AI extracts the document's
+	// values and also judges whether each matches the record. Pressing "Done" in
+	// the popup persists the verdict to receiving_records.original_bill_check_result
+	// (mirrors the erp_check_result pattern below), which then drives the
+	// Matched/Recheck status shown in the Original Bill cell.
+	let checkingBillId = null;
+	let showBillCheckModal = false;
+	let billCheckResult = null;
+	let billCheckRecord = null;
+	let savingBillCheck = false;
+	let originalBillCheckStatus = {}; // record.id -> 'matched' | 'mismatch'
+	let originalBillCheckResult = {}; // record.id -> persisted payload
+	let manualVerified = false; // "Manual Verification" checkbox in the Unmatched section
 	let uploadingExcelId = null;
 	let generatingCertificateId = null;
 	let updatingBillId = null;
@@ -314,6 +327,7 @@
 								totalRecords += 1;
 								updatePaginatedRecords();
 								seedErpCheckState([newRecord]);
+								seedOriginalBillCheckState([newRecord]);
 								console.log('✅ New record added to table without full reload');
 							}
 						} catch (err) {
@@ -750,13 +764,15 @@
 				pr_excel_verified: record.pr_excel_verified,
 				pr_excel_verified_by: record.pr_excel_verified_by,
 				pr_excel_verified_date: record.pr_excel_verified_date,
-				erp_check_result: record.erp_check_result
+				erp_check_result: record.erp_check_result,
+				original_bill_check_result: record.original_bill_check_result
 			}));
 
 			receivingRecords = recordsWithDetails;
 			allLoadedRecords = recordsWithDetails;
 			updatePaginatedRecords();
 			seedErpCheckState(recordsWithDetails);
+			seedOriginalBillCheckState(recordsWithDetails);
 			console.log(`✅ Page ${pageNum} loaded via RPC (${recordsWithDetails.length} records shown)`);
 		} catch (err) {
 			console.error(`Error loading page ${pageNum}:`, err);
@@ -775,7 +791,7 @@
 			
 		const { data: records, error: recordsError } = await supabase
 			.from('receiving_records')
-			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban, erp_check_result')
+			.select('id, bill_number, vendor_id, branch_id, bill_date, bill_amount, created_at, user_id, original_bill_url, erp_purchase_invoice_reference, certificate_url, due_date, pr_excel_file_url, final_bill_amount, payment_method, credit_period, bank_name, iban, erp_check_result, original_bill_check_result')
 			.order('created_at', { ascending: false })
 			.limit(200);			if (recordsError) throw recordsError;
 
@@ -813,6 +829,7 @@
 
 			archivedRecords = recordsWithDetails;
 			seedErpCheckState(recordsWithDetails);
+			seedOriginalBillCheckState(recordsWithDetails);
 			const endTime = performance.now();
 			console.log(`✅ Archived records loaded in ${(endTime - startTime).toFixed(0)}ms (${recordsWithDetails.length} records)`);
 		} catch (error) {
@@ -1100,6 +1117,154 @@
 
 		// Trigger file selection
 		fileInput.click();
+	}
+
+	// Writes an AI Bill Check verdict back to receiving_records.original_bill_check_result (jsonb)
+	// and mirrors it into the in-memory record arrays + status maps so the Original Bill cell
+	// updates immediately, without needing a full reload. Shared by the auto-save that runs right
+	// after every Check/Recheck completes, and by "Done" (which re-saves with whatever the Manual
+	// Verification checkbox is currently set to).
+	//
+	// Vendor match is decided by VAT number (the authoritative identifier), not the name —
+	// result.vendorMatches already folds that rule in (see /api/check-original-bill). A name
+	// mismatch alongside a matched VAT still shows up via vendorNameMatches for review, it just
+	// doesn't block the overall vendor (or bill) match on its own.
+	async function persistBillCheckResult(record, result, manuallyVerifiedFlag) {
+		const aiAllMatch = result.vendorMatches === true
+			&& result.billAmountMatches === true
+			&& result.billDateMatches === true;
+		const payload = {
+			vendorName: result.vendorName,
+			vendorVatNumber: result.vendorVatNumber,
+			billAmountIncludingVat: result.billAmountIncludingVat,
+			billDate: result.billDate,
+			billDateIso: result.billDateIso,
+			vendorNameMatches: result.vendorNameMatches,
+			vendorVatMatches: result.vendorVatMatches,
+			vendorMatches: result.vendorMatches,
+			billAmountMatches: result.billAmountMatches,
+			billDateMatches: result.billDateMatches,
+			manuallyVerified: manuallyVerifiedFlag,
+			manuallyVerifiedBy: manuallyVerifiedFlag ? ($currentUser?.username || $currentUser?.id || null) : null,
+			manuallyVerifiedAt: manuallyVerifiedFlag ? new Date().toISOString() : null,
+			status: (aiAllMatch || manuallyVerifiedFlag) ? 'matched' : 'mismatch',
+			checkedAt: new Date().toISOString()
+		};
+
+		const { supabase } = await import('$lib/utils/supabase');
+		const { error } = await supabase
+			.from('receiving_records')
+			.update({ original_bill_check_result: payload })
+			.eq('id', record.id);
+		if (error) throw error;
+
+		originalBillCheckStatus = { ...originalBillCheckStatus, [record.id]: payload.status };
+		originalBillCheckResult = { ...originalBillCheckResult, [record.id]: payload };
+
+		const patch = (records) => records.map((r) => (r.id === record.id ? { ...r, original_bill_check_result: payload } : r));
+		receivingRecords = patch(receivingRecords);
+		allLoadedRecords = patch(allLoadedRecords);
+		paginatedRecords = patch(paginatedRecords);
+		archivedRecords = patch(archivedRecords);
+
+		return payload;
+	}
+
+	// Runs the AI check and auto-saves the result the moment it comes back — no "Done" press
+	// needed for the result itself to be persisted. Used both for the first Check from the table
+	// row and for "Recheck" inside the already-open popup (which just calls this again on the same
+	// record — the popup re-renders with the fresh result since billCheckResult/billCheckRecord
+	// are reassigned here).
+	async function checkOriginalBill(record) {
+		if (!record.original_bill_url || checkingBillId) return;
+		checkingBillId = record.id;
+		try {
+			const response = await fetch('/api/check-original-bill', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					url: record.original_bill_url,
+					localVendorName: record.vendors?.vendor_name || null,
+					localVendorVat: record.vendors?.vat_number || null,
+					localBillAmount: parseFloat(record.final_bill_amount ?? record.bill_amount ?? 0) || 0,
+					// Raw ISO (YYYY-MM-DD, as stored) — the server compares this against the AI's
+					// own ISO-normalized read of the document with a plain string equality, not an
+					// AI judgment call, so it needs to be in the same unambiguous format.
+					localBillDate: record.bill_date || null
+				})
+			});
+			const data = await response.json();
+			if (!response.ok) throw new Error(data.error || 'Failed to check bill');
+			billCheckResult = data;
+			billCheckRecord = record;
+			manualVerified = false;
+			showBillCheckModal = true;
+
+			try {
+				await persistBillCheckResult(record, data, false);
+			} catch (saveErr) {
+				console.error('Failed to auto-save AI bill check result:', saveErr);
+				alert(`AI check completed, but saving the result failed: ${saveErr?.message || saveErr}`);
+			}
+		} catch (err) {
+			alert(`Error checking original bill: ${err?.message || err}`);
+		} finally {
+			checkingBillId = null;
+		}
+	}
+
+	function closeBillCheckModal() {
+		showBillCheckModal = false;
+		billCheckResult = null;
+		billCheckRecord = null;
+		manualVerified = false;
+	}
+
+	// Reopens the popup showing the already-persisted verdict (Matched or Unmatched), without
+	// re-running the AI check — purely for review. Recheck (inside the popup) is what triggers a
+	// fresh AI call from here.
+	function openSavedBillCheck(record) {
+		const saved = originalBillCheckResult[record.id];
+		if (!saved) return;
+		billCheckResult = saved;
+		billCheckRecord = record;
+		manualVerified = !!saved.manuallyVerified;
+		showBillCheckModal = true;
+	}
+
+	// "Done" — re-saves the currently displayed result together with whatever the Manual
+	// Verification checkbox is set to right now (the AI-only result was already auto-saved by
+	// checkOriginalBill; this is what lets a manual override on top of it actually persist).
+	async function saveBillCheckResult() {
+		if (!billCheckRecord || !billCheckResult || savingBillCheck) return;
+		savingBillCheck = true;
+		try {
+			await persistBillCheckResult(billCheckRecord, billCheckResult, manualVerified);
+			closeBillCheckModal();
+		} catch (err) {
+			alert(`Error saving bill check result: ${err?.message || err}`);
+		} finally {
+			savingBillCheck = false;
+		}
+	}
+
+	// Seeds the client-side status maps from each record's persisted original_bill_check_result,
+	// so a previously "Matched"/mismatched record shows that way immediately without re-checking.
+	function seedOriginalBillCheckState(records) {
+		let statusChanged = false;
+		let resultChanged = false;
+		const nextStatus = { ...originalBillCheckStatus };
+		const nextResult = { ...originalBillCheckResult };
+		for (const record of records) {
+			if (record.original_bill_check_result && nextStatus[record.id] === undefined) {
+				nextStatus[record.id] = record.original_bill_check_result.status;
+				nextResult[record.id] = record.original_bill_check_result;
+				statusChanged = true;
+				resultChanged = true;
+			}
+		}
+		if (statusChanged) originalBillCheckStatus = nextStatus;
+		if (resultChanged) originalBillCheckResult = nextResult;
 	}
 
 	async function uploadPRExcel(recordId) {
@@ -1952,18 +2117,51 @@
 											<span>🔍</span>
 										</div>
 									</div>
-									<div class="update-bill-section">
-										{#if updatingBillId === record.id}
-											<div class="updating-indicator">
-												<div class="spinner-small"></div>
-												<small>{$t('receiving.records.updating')}</small>
-											</div>
-										{:else}
-											<button class="update-bill-btn" on:click={() => updateOriginalBill(record.id)} title="Upload updated version">
-												<span>🔄</span>
-												<small>{$t('receiving.records.update')}</small>
-											</button>
-										{/if}
+									<div class="original-bill-actions">
+										<div class="update-bill-section">
+											{#if updatingBillId === record.id}
+												<div class="updating-indicator">
+													<div class="spinner-small"></div>
+													<small>{$t('receiving.records.updating')}</small>
+												</div>
+											{:else}
+												<button class="update-bill-btn" on:click={() => updateOriginalBill(record.id)} title="Upload updated version">
+													<span>🔄</span>
+													<small>{$t('receiving.records.update')}</small>
+												</button>
+											{/if}
+										</div>
+										<div class="check-bill-section">
+											{#if originalBillCheckStatus[record.id] === 'matched'}
+												<button
+													class="check-bill-btn check-bill-matched"
+													on:click={() => openSavedBillCheck(record)}
+													title={originalBillCheckResult[record.id]?.manuallyVerified ? 'AI Bill Check: manually verified as matched — click to review' : 'AI Bill Check: everything matched — click to review'}
+												>
+													<span>✅</span>
+													<small>Matched</small>
+												</button>
+											{:else if originalBillCheckStatus[record.id] === 'mismatch'}
+												<button
+													class="check-bill-btn check-bill-mismatch"
+													on:click={() => openSavedBillCheck(record)}
+													title="AI Bill Check: unmatched — click to review (Recheck is inside the popup)"
+												>
+													<span>⚠️</span>
+													<small>Unmatched</small>
+												</button>
+											{:else}
+												<button
+													class="check-bill-btn"
+													on:click={() => checkOriginalBill(record)}
+													disabled={checkingBillId === record.id}
+													title="Extract Vendor Name, Bill Amount (incl. VAT) and Bill Date from this document using AI"
+												>
+													<span>{checkingBillId === record.id ? '⏳' : '🔍✨'}</span>
+													<small>Check</small>
+												</button>
+											{/if}
+										</div>
 									</div>
 								</div>
 							{:else}
@@ -2458,12 +2656,99 @@
 
 <!-- Certificate Generation Modal -->
 {#if showCertificateModal && selectedRecordForCertificate}
-	<ClearanceCertificateManager 
+	<ClearanceCertificateManager
 		receivingRecord={selectedRecordForCertificate}
 		show={true}
 		on:certificateGenerated={handleCertificateGenerated}
 		on:close={closeCertificateModal}
 	/>
+{/if}
+
+<!-- AI Original Bill Check Popup — AI extracts the document's values and judges the match itself -->
+{#if showBillCheckModal && billCheckResult}
+	{@const aiAllMatch = billCheckResult.vendorMatches === true && billCheckResult.billAmountMatches === true && billCheckResult.billDateMatches === true}
+	{@const vendorNameMismatchOnly = billCheckResult.vendorMatches === true && billCheckResult.vendorNameMatches === false}
+	{@const rechecking = checkingBillId === billCheckRecord?.id}
+	<div class="erp-popup-overlay" on:click={closeBillCheckModal}>
+		<div class="erp-popup-modal" on:click|stopPropagation>
+			<div class="erp-popup-header">
+				<h3>🔍✨ AI Bill Check{#if billCheckRecord}&nbsp;— #{billCheckRecord.bill_number || $t('receiving.records.naText')}{/if}</h3>
+				<button class="erp-popup-close" on:click={closeBillCheckModal}>&times;</button>
+			</div>
+			<div class="erp-popup-content">
+				<p style="font-size: 12px; color: #6b7280; margin-top: -4px;">Extracted directly from the Original Bill document by AI, which also judges whether each value matches what's already on file. The vendor is verified by VAT Number — a matching VAT number is enough even if the Vendor Name is worded differently. Press Done to save this result.</p>
+				{#if billCheckResult.manuallyVerified}
+					<p style="font-size: 12px; color: #065f46; background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; padding: 6px 10px; margin: 0;">
+						✅ Manually verified{#if billCheckResult.manuallyVerifiedBy} by {billCheckResult.manuallyVerifiedBy}{/if}{#if billCheckResult.manuallyVerifiedAt} on {formatDate(billCheckResult.manuallyVerifiedAt)}{/if} — treated as Matched despite the AI mismatch below.
+					</p>
+				{/if}
+				<div class="erp-input-group">
+					<label>Vendor Name</label>
+					<p style="font-weight: 700; font-size: 15px; margin: 4px 0 0;">{billCheckResult.vendorName || '—'}</p>
+					<p style="font-size: 12px; color: #9ca3af; margin: 2px 0 0;">
+						{#if billCheckResult.vendorNameMatches === true}✅{:else if vendorNameMismatchOnly}⚠️{:else if billCheckResult.vendorNameMatches === false}❌{/if}
+						Receiving Record: {billCheckRecord?.vendors?.vendor_name || $t('receiving.records.naText')}
+					</p>
+					{#if vendorNameMismatchOnly}
+						<p style="font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 4px 8px; margin: 4px 0 0;">
+							⚠️ Vendor Name does not match exactly — VAT number matched, so the vendor is still treated as Matched. Please review the name difference.
+						</p>
+					{/if}
+				</div>
+				<div class="erp-input-group">
+					<label>Vendor VAT Number</label>
+					<p style="font-weight: 700; font-size: 15px; margin: 4px 0 0;">{billCheckResult.vendorVatNumber || '—'}</p>
+					<p style="font-size: 12px; color: #9ca3af; margin: 2px 0 0;">
+						{#if billCheckResult.vendorVatMatches === true}✅{:else if billCheckResult.vendorVatMatches === false}❌{/if}
+						Receiving Record: {billCheckRecord?.vendors?.vat_number || $t('receiving.records.naText')}
+					</p>
+				</div>
+				<div class="erp-input-group">
+					<label>Bill Amount (incl. VAT)</label>
+					<p style="font-weight: 700; font-size: 15px; margin: 4px 0 0;">{billCheckResult.billAmountIncludingVat || '—'}</p>
+					<p style="font-size: 12px; color: #9ca3af; margin: 2px 0 0;">
+						{#if billCheckResult.billAmountMatches === true}✅{:else if billCheckResult.billAmountMatches === false}❌{/if}
+						Receiving Record: {parseFloat(billCheckRecord?.final_bill_amount ?? billCheckRecord?.bill_amount ?? 0).toFixed(2)}
+					</p>
+				</div>
+				<div class="erp-input-group">
+					<label>Bill Date</label>
+					<p style="font-weight: 700; font-size: 15px; margin: 4px 0 0;">{billCheckResult.billDate || '—'}</p>
+					<p style="font-size: 12px; color: #9ca3af; margin: 2px 0 0;">
+						{#if billCheckResult.billDateMatches === true}✅{:else if billCheckResult.billDateMatches === false}❌{/if}
+						Receiving Record: {formatDate(billCheckRecord?.bill_date)}
+					</p>
+				</div>
+				{#if !aiAllMatch}
+					<div class="erp-input-group manual-verify-box">
+						<label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 600; color: #9a3412;">
+							<input type="checkbox" bind:checked={manualVerified} style="margin-top: 2px;" />
+							<span>Manual Verification — I've reviewed the bill myself and confirm the information above is correct despite the AI mismatch. Pressing Done will mark this record as Matched.</span>
+						</label>
+					</div>
+				{/if}
+			</div>
+			<div class="erp-popup-actions">
+				<button class="erp-btn-cancel" on:click={closeBillCheckModal} disabled={savingBillCheck || rechecking}>{$t('receiving.records.cancel')}</button>
+				<button class="erp-btn-cancel" on:click={() => checkOriginalBill(billCheckRecord)} disabled={savingBillCheck || rechecking} title="Run the AI check again and auto-save the new result">
+					{#if rechecking}
+						<div class="spinner-small"></div>
+						Rechecking…
+					{:else}
+						🔄 Recheck
+					{/if}
+				</button>
+				<button class="erp-btn-save" on:click={saveBillCheckResult} disabled={savingBillCheck || rechecking}>
+					{#if savingBillCheck}
+						<div class="spinner-small"></div>
+						{$t('receiving.records.updating')}
+					{:else}
+						Done
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -2671,6 +2956,18 @@
 		color: #374151;
 		font-weight: 500;
 		font-size: 14px;
+	}
+
+	.manual-verify-box {
+		background: #fff7ed;
+		border: 1px solid #fed7aa;
+		border-radius: 8px;
+		padding: 10px 12px;
+	}
+
+	.manual-verify-box label {
+		margin-bottom: 0;
+		font-size: 13px;
 	}
 
 	.erp-input {
@@ -2916,6 +3213,13 @@
 		justify-content: space-between;
 	}
 
+	.original-bill-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
 	.update-bill-section {
 		display: flex;
 		align-items: center;
@@ -2950,6 +3254,71 @@
 	.update-bill-btn span {
 		font-size: 12px;
 		margin-bottom: 1px;
+	}
+
+	.check-bill-section {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.check-bill-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 4px 6px;
+		background: #ede9fe;
+		border: 1px solid #8b5cf6;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		color: #5b21b6;
+		font-size: 9px;
+		min-width: 40px;
+		height: 40px;
+	}
+
+	.check-bill-btn:hover:not(:disabled) {
+		background: #ddd6fe;
+		color: #4c1d95;
+		transform: scale(1.05);
+		border-color: #7c3aed;
+	}
+
+	.check-bill-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.check-bill-btn span {
+		font-size: 12px;
+		margin-bottom: 1px;
+	}
+
+	.check-bill-btn.check-bill-matched {
+		background: #d1fae5;
+		border-color: #10b981;
+		color: #065f46;
+	}
+
+	.check-bill-btn.check-bill-matched:hover:not(:disabled) {
+		background: #a7f3d0;
+		color: #064e3b;
+		border-color: #059669;
+	}
+
+	.check-bill-btn.check-bill-mismatch {
+		background: #fee2e2;
+		border-color: #ef4444;
+		color: #991b1b;
+	}
+
+	.check-bill-btn.check-bill-mismatch:hover:not(:disabled) {
+		background: #fecaca;
+		color: #7f1d1d;
+		border-color: #dc2626;
 	}
 
 	.updating-indicator {
