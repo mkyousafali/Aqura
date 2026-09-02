@@ -27,6 +27,7 @@
 	}
 
 	let regularShift: any = null;
+	let regularShiftVersions: any[] = []; // all versions with date_from/date_to, for per-date resolution
 	let dayOffWeekday: any = null;
 	let dayOffDates: any[] = [];
 	let specialShiftDateWise: any[] = [];
@@ -128,20 +129,27 @@
 				supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: empIds })
 			]);
 
-			// Regular shifts: group by version_id to detect single vs multi-slot
+			// Regular shifts: group by version_id to detect single vs multi-slot.
+			// An employee can have MULTIPLE versions (their standing shift changed over time),
+			// each with its own date_from/date_to — keep them all for per-date resolution.
 			const regByVersion = new Map<number, any[]>();
 			for (const r of regRows || []) { const l = regByVersion.get(r.version_id) || []; l.push(r); regByVersion.set(r.version_id, l); }
-			regularShift = null; multiShiftRegular = [];
+			regularShift = null; regularShiftVersions = []; multiShiftRegular = [];
 			for (const [, slots] of regByVersion) {
+				const versionEntry = { id: employee.id, ...slots[0] };
+				regularShiftVersions.push(versionEntry);
 				if (slots.length === 1) {
-					regularShift = { id: employee.id, ...slots[0] };
 					if (slots[0].is_shift_overlapping_next_day) isShiftOverlappingNextDay = true;
 				} else if (slots.length > 1) {
-					regularShift = { id: employee.id, ...slots[0] };
 					if (slots.some((s: any) => s.is_shift_overlapping_next_day)) isShiftOverlappingNextDay = true;
-					multiShiftRegular = slots.map((s: any) => ({ employee_id: employee.id, ...s }));
+					for (const s of slots) multiShiftRegular.push({ employee_id: employee.id, ...s });
 				}
 			}
+			// Pick the "current" version for header display: prefer the open-ended one (date_to null),
+			// else the one with the latest date_from.
+			regularShift = regularShiftVersions.find((v) => !v.date_to)
+				?? [...regularShiftVersions].sort((a, b) => (b.date_from || '').localeCompare(a.date_from || ''))[0]
+				?? null;
 
 			// Day off data (unchanged)
 			const { data: dayOffWData } = await supabase.from('day_off_weekday').select('*').eq('employee_id', employee.id);
@@ -968,26 +976,32 @@
 		if (!dateStr) return null;
 		// Extract the weekday
 		const dayNum = getDayNameFromDate(dateStr);
+		// Convert dateStr from DD-MM-YYYY to YYYY-MM-DD for comparison
+		const [day, month, year] = dateStr.split('-');
+		const formattedDate = `${year}-${month}-${day}`;
 
 		// First priority: Check special_shift_date_wise (overwrites for specific date)
-		const dateWiseShift = specialShiftDateWise.find((shift) => {
-			// Convert dateStr from DD-MM-YYYY to YYYY-MM-DD for comparison
-			const [day, month, year] = dateStr.split('-');
-			const formattedDate = `${year}-${month}-${day}`;
-			return shift.shift_date === formattedDate;
-		});
+		const dateWiseShift = specialShiftDateWise.find((shift) => shift.shift_date === formattedDate);
 		if (dateWiseShift) {
 			return dateWiseShift;
 		}
 
-		// Second priority: Check special_shift_weekday
-		const weekdayShift = specialShiftWeekday.find((shift) => shift.weekday === dayNum);
+		// Second priority: Check special_shift_weekday, honoring the version's effective date range
+		const weekdayShift = specialShiftWeekday.find((shift) =>
+			shift.weekday === dayNum &&
+			(!shift.date_from || formattedDate >= shift.date_from) &&
+			(!shift.date_to || formattedDate <= shift.date_to)
+		);
 		if (weekdayShift) {
 			return weekdayShift;
 		}
 
-		// Third priority: Fall back to regular shift
-		return regularShift;
+		// Third priority: regular shift — pick the version whose date range covers this date
+		const regMatch = regularShiftVersions.find((v) =>
+			(!v.date_from || formattedDate >= v.date_from) &&
+			(!v.date_to || formattedDate <= v.date_to)
+		);
+		return regMatch || regularShift;
 	}
 
 	/**
@@ -1012,16 +1026,18 @@
 			}
 		}
 
-		// 2) Weekday-wise multi-shifts
+		// 2) Weekday-wise multi-shifts, honoring the version's effective date range
 		for (const ms of multiShiftWeekday) {
-			if (ms.weekday === dayNum) {
+			if (ms.weekday === dayNum && (!ms.date_from || formattedDate >= ms.date_from) && (!ms.date_to || formattedDate <= ms.date_to)) {
 				results.push(ms);
 			}
 		}
 
-		// 3) Regular multi-shifts (always apply)
+		// 3) Regular multi-shifts — honor each version's effective date range
 		for (const ms of multiShiftRegular) {
-			results.push(ms);
+			if ((!ms.date_from || formattedDate >= ms.date_from) && (!ms.date_to || formattedDate <= ms.date_to)) {
+				results.push(ms);
+			}
 		}
 
 		return results;
