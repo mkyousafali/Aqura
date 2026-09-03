@@ -44,13 +44,19 @@ export async function POST({ request }) {
       return json({ error: "No image provided" }, { status: 400 });
     }
 
-    const prompt = `You are extracting information from a photo of a card payment terminal (mada/POS) reconciliation/settlement slip. Read the document carefully and extract exactly these fields, as printed on the slip:
+    const prompt = `You are extracting information from a photo of a card payment terminal (mada/POS) reconciliation/settlement slip. These slips have a well-known layout near the top:
 
-1. Date — the date printed on the slip.
+Line 1: Date on the left, Time on the right (e.g. "19/06/2026" ..... "20:17:11").
+Line 2: A code starting with "RYDB" on the left (this is NOT the terminal ID — ignore it), and a long numeric code on the right, directly under the Time — THIS long number on the right of line 2 is the Terminal ID.
+Line 3: A line like "5411 552142 6.1.79.P635972" — the FIRST short number ("5411") is not needed, the SECOND number (e.g. "552142") is the Statement/Batch match number, and anything after that (e.g. version-looking text like "6.1.79.P635972") is not needed.
+
+Extract exactly these fields:
+
+1. Date — the date printed on line 1 (left side).
 2. Date (normalized) — the same date, converted to ISO format YYYY-MM-DD. This business is in Saudi Arabia, so when the printed format is ambiguous (e.g. DD/MM vs MM/DD), assume DD/MM/YYYY.
-3. Time — the time printed on the slip, in 24-hour HH:MM:SS format if seconds are shown, otherwise HH:MM.
-4. Terminal ID — the terminal identifier printed on the slip (may be labeled e.g. "RYDB" followed by a long numeric code, or a separate terminal ID field). Extract just the ID value.
-5. Statement/Batch match number — the batch/reconciliation match number printed on the slip (often a short numeric code near a line like "5411 <number> ..." — extract just that number).
+3. Time — the time printed on line 1 (right side), in 24-hour HH:MM:SS format if seconds are shown, otherwise HH:MM.
+4. Terminal ID — the long numeric code on line 2, positioned under the Time (right side). Do NOT use the "RYDB..." code on the left of that same line.
+5. Statement/Batch match number — the second number on the "5411 ..." line (the one after "5411"), not the "5411" itself and not any version code that follows it.
 
 If a field cannot be found, return an empty string for that field. Do not guess or invent values.`;
 
