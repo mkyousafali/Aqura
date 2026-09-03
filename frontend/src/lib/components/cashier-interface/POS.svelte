@@ -391,7 +391,7 @@
 			
 			const { data, error } = await supabase
 				.from('box_operations')
-				.select('id, box_number, counts_before, counts_after, total_before, total_after, difference, is_matched, start_time, notes, user_id, supervisor_id, status, closing_details')
+				.select('id, box_number, counts_before, counts_after, total_before, total_after, difference, is_matched, start_time, notes, user_id, supervisor_id, status, closing_details, erp_counter_id, erp_counter_shift_id, erp_counter_name, erp_branch_id')
 				.eq('branch_id', branchId)
 				.eq('user_id', userId)
 				.in('status', ['in_use', 'pending_close'])

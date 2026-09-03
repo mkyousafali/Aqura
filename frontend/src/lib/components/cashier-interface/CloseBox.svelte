@@ -344,6 +344,334 @@
 	// Auto-calculate total difference
 	$: totalDifference = addMoney(differenceInCashSales, differenceInCardSales);
 
+	// ERP Sales Details (Get Details button) — pulls the shift's SI/SR-only postings from ERP
+	// (POS cash + POS bank), i.e. real sales net of returns, excluding MJV/JV/CR/BR/BP noise.
+	let erpSalesDetails: { cashSales: number; cardSales: number; totalSales: number; counterStatus: string; rawStatus: string; closedAt: string; closingCashPhysical: number } | null = null;
+	let loadingErpSales = false;
+	let erpSalesError = '';
+
+	// Combine ERP's TransactionDate (date) + ClosingTime (dummy-date-1900 + real time) into a
+	// readable "YYYY-MM-DD h:mm:ss AM/PM" string, same pattern used for OpenTime in CounterCheck.svelte.
+	function formatErpDateTime(dateStr: string, timeStr: string): string {
+		if (!dateStr || !timeStr) return '-';
+		const timeMatch = String(timeStr).match(/T(\d{2}):(\d{2}):(\d{2})/);
+		const dateMatch = String(dateStr).match(/(\d{4}-\d{2}-\d{2})/);
+		if (!timeMatch || !dateMatch) return '-';
+		let hours = parseInt(timeMatch[1], 10);
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		hours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+		return `${dateMatch[1]} ${hours}:${timeMatch[2]}:${timeMatch[3]} ${ampm}`;
+	}
+
+	// Compare ERP figures against the manually-entered Total Cash Sales / Total Bank Sales / Total Sales
+	$: erpCashMatch = erpSalesDetails ? Math.abs(erpSalesDetails.cashSales - totalCashSales) < 0.01 : null;
+	$: erpCardMatch = erpSalesDetails ? Math.abs(erpSalesDetails.cardSales - bankTotal) < 0.01 : null;
+	$: erpTotalMatch = erpSalesDetails ? Math.abs(erpSalesDetails.totalSales - totalSales) < 0.01 : null;
+	$: erpClosingCashMatch = erpSalesDetails ? Math.abs(erpSalesDetails.closingCashPhysical - closingTotal) < 0.01 : null;
+
+	// ERP Opening Details (Get Opening Details button) — backfills the same erp_* columns that
+	// CounterCheck.svelte's "Get My Counter Details" writes when a box was opened without that
+	// data ever getting saved (e.g. legacy operations). Uses operation.user_id (the cashier this
+	// box belongs to), not the browser session, since that's whose shift is open in ERP.
+	let erpOpeningDetails: any = null;
+	let erpOpeningBranchId: number | null = null;
+	let loadingOpeningDetails = false;
+	let openingDetailsError = '';
+	let openingDetailsWarning = '';
+	let hasOpeningDetails = false; // true once erp_counter_id/erp_counter_shift_id are already saved
+
+	async function checkHasOpeningDetails() {
+		try {
+			const { data } = await supabase
+				.from('box_operations')
+				.select('erp_counter_id, erp_counter_shift_id')
+				.eq('id', operation.id)
+				.maybeSingle();
+			hasOpeningDetails = !!(data?.erp_counter_id && data?.erp_counter_shift_id);
+		} catch (error) {
+			console.error('Error checking opening details:', error);
+		}
+	}
+
+	// Same column set as CounterCheck.svelte's buildErpColumns(), so opening details backfilled
+	// from here land in the exact same table/columns Counter Check uses.
+	function buildOpeningErpColumns() {
+		let shiftStartTime: string | null = null;
+		if (erpOpeningDetails?.OpenTime) {
+			const match = String(erpOpeningDetails.OpenTime).match(/T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+			shiftStartTime = match ? match[1] : null;
+		}
+		return {
+			erp_counter_id: erpOpeningDetails?.CounterID ?? null,
+			erp_counter_shift_id: erpOpeningDetails?.CounterShiftID ?? null,
+			erp_counter_name: erpOpeningDetails?.CounterName ?? null,
+			erp_shift_name: erpOpeningDetails?.ShiftName ?? null,
+			erp_shift_start_date: erpOpeningDetails?.TransactionDate ?? null,
+			erp_shift_start_time: shiftStartTime,
+			erp_opening_cash_physical: erpOpeningDetails?.OpenCashPhysical ?? null,
+			erp_opening_cash_system: erpOpeningDetails?.OpeningCashBySystem ?? null,
+			erp_branch_id: erpOpeningBranchId
+		};
+	}
+
+	// Same ERP query/credentials logic as CounterCheck.svelte's fetchCounterDetails(), but the
+	// result is saved by UPDATEing this operation's own box_operations row instead of creating one.
+	async function fetchOpeningDetails() {
+		loadingOpeningDetails = true;
+		openingDetailsError = '';
+
+		try {
+			if (!operation?.user_id) {
+				throw new Error($currentLocale === 'ar' ? 'لا يوجد كاشير مرتبط بهذه العملية' : 'No cashier assigned to this operation');
+			}
+
+			const { data: credData, error: credError } = await supabase
+				.from('user_erp_credentials')
+				.select('erp_username, erp_user_id, erp_password, erp_branch_id, aqura_branch_id')
+				.eq('user_id', operation.user_id)
+				.eq('aqura_branch_id', branch.id)
+				.single();
+
+			if (credError || !credData) {
+				throw new Error($currentLocale === 'ar'
+					? 'لم يتم العثور على بيانات اعتماد ERP'
+					: 'ERP credentials not found');
+			}
+
+			const { erp_user_id, erp_branch_id } = credData;
+
+			if (!erp_user_id || !erp_branch_id) {
+				throw new Error($currentLocale === 'ar'
+					? 'بيانات اعتماد ERP غير كاملة'
+					: 'ERP credentials incomplete');
+			}
+
+			const tunnelUrlMap: Record<number, string> = {
+				1: 'https://erp-branch1.urbanaqura.com',
+				2: 'https://erp-branch2.urbanaqura.com',
+				3: 'https://erp-branch3.urbanaqura.com'
+			};
+			const tunnelUrl = tunnelUrlMap[branch?.id];
+			if (!tunnelUrl) {
+				throw new Error($currentLocale === 'ar'
+					? 'لا يمكن الاتصال بـ ERP لهذا الفرع'
+					: 'Cannot connect to ERP for this branch');
+			}
+
+			const erpUserId = parseInt(erp_user_id, 10);
+			if (!erpUserId) {
+				throw new Error($currentLocale === 'ar' ? 'معرّف مستخدم ERP غير صالح' : 'Invalid ERP user ID');
+			}
+
+			const sql = `
+				SELECT TOP 10
+					cs.CounterID,
+					cs.CounterShiftID,
+					cs.ShiftName,
+					cs.TransactionDate,
+					cs.OpenTime,
+					cs.OpenCloseStatus,
+					cs.OpenCashPhysical,
+					cs.OpeningCashBySystem,
+					c.CounterName
+				FROM CounterShift cs
+				LEFT JOIN Counter c ON cs.CounterID = c.CounterID AND cs.BranchID = c.BranchID
+				WHERE cs.BranchID = ${erp_branch_id}
+				  AND cs.OpenCloseStatus = 'O'
+				  AND cs.OpenUserID = ${erpUserId}
+				ORDER BY cs.TransactionDate DESC, cs.OpenTime DESC
+			`;
+
+			const response = await fetch(`${tunnelUrl}/query`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+				body: JSON.stringify({ sql })
+			});
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`ERP query failed: ${response.status} - ${errorText}`);
+			}
+
+			const result = await response.json();
+			const records = result.recordset || result || [];
+			const posRecords = records.filter((r: any) => r.CounterName && r.CounterName.startsWith('POS-'));
+
+			if (posRecords && posRecords[0]) {
+				erpOpeningDetails = posRecords[0];
+				erpOpeningBranchId = erp_branch_id;
+				openingDetailsError = '';
+				openingDetailsWarning = posRecords.length > 1
+					? ($currentLocale === 'ar'
+						? `⚠️ تحذير: لديك ${posRecords.length} نقاط بيع مفتوحة.`
+						: `⚠️ Warning: ${posRecords.length} open POS counters found for this cashier.`)
+					: '';
+
+				// Save directly into the same box_operations columns Counter Check uses.
+				const { error: updateError } = await supabase
+					.from('box_operations')
+					.update(buildOpeningErpColumns())
+					.eq('id', operation.id);
+
+				if (updateError) throw updateError;
+
+				hasOpeningDetails = true;
+			} else if (records.length > 0) {
+				openingDetailsError = $currentLocale === 'ar'
+					? 'لا توجد نقطة بيع مفتوحة (قد تكون هناك عداد إداري فقط)'
+					: 'No POS counter open (may only have administrative counters)';
+				erpOpeningDetails = null;
+			} else {
+				openingDetailsError = $currentLocale === 'ar'
+					? 'لا توجد نقطة بيع مفتوحة لهذا الكاشير'
+					: 'No open POS counter found for this cashier';
+				erpOpeningDetails = null;
+			}
+		} catch (error) {
+			console.error('Error fetching opening details:', error);
+			openingDetailsError = error instanceof Error
+				? error.message
+				: ($currentLocale === 'ar' ? 'حدث خطأ في جلب تفاصيل الافتتاح' : 'Error fetching opening details');
+			erpOpeningDetails = null;
+		} finally {
+			loadingOpeningDetails = false;
+		}
+	}
+
+	async function fetchErpSalesDetails() {
+		loadingErpSales = true;
+		erpSalesError = '';
+		erpSalesDetails = null;
+
+		try {
+			if (!operation?.id) {
+				throw new Error($currentLocale === 'ar' ? 'لا توجد عملية صندوق محددة' : 'No box operation selected');
+			}
+
+			// Re-fetch this exact box_operations row fresh from the DB by id — the `operation` prop
+			// passed into this window can be stale, so always read the saved erp_counter_shift_id
+			// from the source of truth instead of trusting the prop.
+			const { data: freshOp, error: fetchError } = await supabase
+				.from('box_operations')
+				.select('erp_counter_shift_id, erp_branch_id')
+				.eq('id', operation.id)
+				.single();
+
+			if (fetchError || !freshOp) {
+				throw new Error($currentLocale === 'ar' ? 'تعذر تحميل بيانات عملية الصندوق' : 'Could not load box operation data');
+			}
+
+			const shiftId = freshOp.erp_counter_shift_id;
+			const erpBranchId = freshOp.erp_branch_id;
+
+			if (!shiftId || !erpBranchId) {
+				throw new Error($currentLocale === 'ar'
+					? 'لا توجد بيانات ERP محفوظة لهذه الوردية (تم فتحها قبل إضافة هذه الميزة)'
+					: 'No ERP shift data saved for this operation (opened before this feature existed)');
+			}
+
+			const tunnelUrlMap: Record<number, string> = {
+				1: 'https://erp-branch1.urbanaqura.com',
+				2: 'https://erp-branch2.urbanaqura.com',
+				3: 'https://erp-branch3.urbanaqura.com'
+			};
+			const tunnelUrl = tunnelUrlMap[branch?.id];
+			if (!tunnelUrl) {
+				throw new Error($currentLocale === 'ar'
+					? 'لا يمكن الاتصال بـ ERP لهذا الفرع'
+					: 'Cannot connect to ERP for this branch');
+			}
+
+			const salesSql = `
+				SELECT l.LedgerID, m.VoucherType, SUM(d.Debit) - SUM(d.Credit) AS NetAmount
+				FROM AccTransactionDetails d
+				INNER JOIN AccTransactionMaster m ON d.AccTransactionMasterID = m.AccTransactionMasterID AND d.BranchID = m.BranchID
+				INNER JOIN AccLedgers l ON l.LedgerID = d.LedgerID AND l.BranchID = d.BranchID
+				WHERE m.BranchID = ${erpBranchId}
+				  AND d.BranchID = ${erpBranchId}
+				  AND l.BranchID = ${erpBranchId}
+				  AND m.CounterShiftID = ${shiftId}
+				  AND d.LedgerID IN (40, 41, 42, 43, 21)
+				  AND m.VoucherType IN ('SI','SR')
+				  AND m.IsActive = 1
+				GROUP BY l.LedgerID, m.VoucherType
+			`;
+			const statusSql = `
+				SELECT OpenCloseStatus, TransactionDate, ClosingTime, CloseCashPhysical FROM CounterShift
+				WHERE BranchID = ${erpBranchId} AND CounterShiftID = ${shiftId}
+			`;
+
+			const [salesResp, statusResp] = await Promise.all([
+				fetch(`${tunnelUrl}/query`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+					body: JSON.stringify({ sql: salesSql })
+				}),
+				fetch(`${tunnelUrl}/query`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+					body: JSON.stringify({ sql: statusSql })
+				})
+			]);
+
+			if (!salesResp.ok || !statusResp.ok) {
+				throw new Error($currentLocale === 'ar' ? 'فشل الاستعلام من ERP' : 'ERP query failed');
+			}
+
+			const salesResult = await salesResp.json();
+			const statusResult = await statusResp.json();
+
+			// Cash ledgers are split by voucher type so Return can be shown on its own instead of
+			// being silently netted into Cash Sales — card ledger (21) has no separate Return field
+			// in the UI, so SI/SR stay combined there.
+			const rows = salesResult.recordset || salesResult || [];
+			let cashSalesGross = 0;
+			let cashReturns = 0;
+			let cardSales = 0;
+			for (const row of rows) {
+				const net = Number(row.NetAmount) || 0;
+				if (row.LedgerID === 21) cardSales += net;
+				else if (row.VoucherType === 'SR') cashReturns += Math.abs(net);
+				else cashSalesGross += net;
+			}
+			const cashSales = subtractMoney(cashSalesGross, cashReturns);
+
+			const statusRows = statusResult.recordset || statusResult || [];
+			const rawStatus = statusRows[0]?.OpenCloseStatus;
+			const counterStatus = rawStatus === 'O'
+				? ($currentLocale === 'ar' ? 'مفتوح' : 'Open')
+				: rawStatus === 'C'
+					? ($currentLocale === 'ar' ? 'مغلق' : 'Closed')
+					: ($currentLocale === 'ar' ? 'غير معروف' : 'Unknown');
+			const closedAt = rawStatus === 'C'
+				? formatErpDateTime(statusRows[0]?.TransactionDate, statusRows[0]?.ClosingTime)
+				: '';
+
+			erpSalesDetails = {
+				cashSales,
+				cardSales,
+				totalSales: addMoney(cashSales, cardSales),
+				counterStatus,
+				rawStatus: rawStatus || '',
+				closedAt,
+				closingCashPhysical: Number(statusRows[0]?.CloseCashPhysical) || 0
+			};
+
+			// Auto-fill the manual "ERP Closing Details" card (checkbox 4) from this same fetch —
+			// Cash Sales is now the gross SI amount and Return is the SR amount, so the card's own
+			// Total ERP Cash Sales (Cash Sales - Return) still comes out to the same net cashSales.
+			systemCashSales = money(cashSalesGross);
+			systemCardSales = money(cardSales);
+			systemReturn = money(cashReturns);
+		} catch (error) {
+			erpSalesError = error instanceof Error
+				? error.message
+				: ($currentLocale === 'ar' ? 'حدث خطأ في جلب التفاصيل' : 'Error fetching ERP sales details');
+		} finally {
+			loadingErpSales = false;
+		}
+	}
+
 	// Progressive disclosure checkbox states
 	let checkbox1 = false; // Enter Closing Cash
 	let checkbox2 = false; // Sales through Purchase Voucher
@@ -878,6 +1206,7 @@
 	// Load saved details when component mounts
 	onMount(() => {
 		loadClosingDetails();
+		checkHasOpeningDetails();
 	});
 
 	// Real-time auto-save function
@@ -1015,11 +1344,29 @@
 				total_system_sales: totalSystemSales
 			};
 
+			// Snapshot of the ERP figures fetched via "Get Details" in the ERP SALES card, saved
+			// alongside closing_details so the exact ERP state at Close time is preserved.
+			const erpClosingDetails = erpSalesDetails ? {
+				erp_cash_sales: erpSalesDetails.cashSales,
+				erp_card_sales: erpSalesDetails.cardSales,
+				erp_total_sales: erpSalesDetails.totalSales,
+				erp_closing_cash_physical: erpSalesDetails.closingCashPhysical,
+				counter_status: erpSalesDetails.counterStatus,
+				counter_status_raw: erpSalesDetails.rawStatus,
+				closed_at: erpSalesDetails.closedAt,
+				cash_sales_matched: erpCashMatch,
+				card_sales_matched: erpCardMatch,
+				total_sales_matched: erpTotalMatch,
+				closing_cash_matched: erpClosingCashMatch,
+				fetched_at: new Date().toISOString()
+			} : null;
+
 			// Update both closing_details and status to pending_close with supervisor info
 			const { error: statusError } = await supabase
 				.from('box_operations')
 				.update({ 
 					closing_details: updatedClosingDetails,
+					erp_closing_details: erpClosingDetails,
 					status: 'pending_close',
 					supervisor_id: supervisorUserId,
 					supervisor_verified_at: new Date().toISOString(),
@@ -1517,7 +1864,7 @@
 				</div>
 			</div>
 			{/if}
-			{#if checkbox4}
+			{#if checkbox4 && erpSalesDetails}
 			<div class="split-section">
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
@@ -1534,10 +1881,10 @@
 						<input
 							type="number"
 							bind:value={systemCashSales}
-
+							disabled
 							min="0"
 							step="0.01"
-							class="system-input"
+							class="system-input system-input-disabled"
 						/>
 					</div>
 					<div class="system-input-group">
@@ -1545,10 +1892,10 @@
 						<input
 							type="number"
 							bind:value={systemCardSales}
-
+							disabled
 							min="0"
 							step="0.01"
-							class="system-input"
+							class="system-input system-input-disabled"
 						/>
 					</div>
 					<div class="system-input-group">
@@ -1556,10 +1903,10 @@
 						<input
 							type="number"
 							bind:value={systemReturn}
-
+							disabled
 							min="0"
 							step="0.01"
-							class="system-input"
+							class="system-input system-input-disabled"
 						/>
 					</div>
 				</div>
@@ -1693,6 +2040,7 @@
 			<div class="split-section">
 				
 				<div class="sub-cards-row">
+					{#if erpSalesDetails}
 					<div class="sub-card">
 						<div class="sub-card-content">
 							<div class="difference-row">
@@ -1734,7 +2082,108 @@
 							</div>
 						</div>
 					</div>
-					{#if checkbox1 && checkbox2 && checkbox3 && checkbox4 && checkbox5}
+					{/if}
+
+					{#if checkbox3}
+					<div class="sub-card">
+						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #166534; letter-spacing: 0.5px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #86efac; padding-bottom: 0.1rem;">
+							{$currentLocale === 'ar' ? 'مبيعات ERP' : 'ERP SALES'}
+						</div>
+						<div class="sub-card-content" style="gap: 0.2rem;">
+							{#if erpSalesDetails && erpSalesDetails.rawStatus === 'C'}
+								<div class="difference-row">
+									<div class="difference-group">
+										<label>{$currentLocale === 'ar' ? 'المبيعات النقدية (ERP)' : 'ERP Cash Sales'}</label>
+										<input type="number" value={erpSalesDetails.cashSales} disabled class="difference-input difference-input-disabled" />
+										<span class="difference-label" class:badge-match={erpCashMatch} class:badge-short={!erpCashMatch}>
+											{erpCashMatch ? '✓' : '✗'} {erpCashMatch ? ($currentLocale === 'ar' ? 'متطابق' : 'Match') : `${$currentLocale === 'ar' ? 'فرق' : 'Diff'}: ${(erpSalesDetails.cashSales - totalCashSales).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+										</span>
+									</div>
+									<div class="difference-group">
+										<label>{$currentLocale === 'ar' ? 'مبيعات البطاقة (ERP)' : 'ERP Card Sales'}</label>
+										<input type="number" value={erpSalesDetails.cardSales} disabled class="difference-input difference-input-disabled" />
+										<span class="difference-label" class:badge-match={erpCardMatch} class:badge-short={!erpCardMatch}>
+											{erpCardMatch ? '✓' : '✗'} {erpCardMatch ? ($currentLocale === 'ar' ? 'متطابق' : 'Match') : `${$currentLocale === 'ar' ? 'فرق' : 'Diff'}: ${(erpSalesDetails.cardSales - bankTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+										</span>
+									</div>
+								</div>
+								<div class="difference-row">
+									<div class="difference-group">
+										<label>{$currentLocale === 'ar' ? 'إجمالي المبيعات' : 'Total Sales'}</label>
+										<input type="number" value={erpSalesDetails.totalSales} disabled class="difference-input difference-input-disabled" />
+										<span class="difference-label" class:badge-match={erpTotalMatch} class:badge-short={!erpTotalMatch}>
+											{erpTotalMatch ? '✓' : '✗'} {erpTotalMatch ? ($currentLocale === 'ar' ? 'متطابق' : 'Match') : `${$currentLocale === 'ar' ? 'فرق' : 'Diff'}: ${(erpSalesDetails.totalSales - totalSales).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+										</span>
+									</div>
+									<div class="difference-group">
+										<label>{$currentLocale === 'ar' ? 'النقدية الختامية (ERP)' : 'ERP Closing Cash'}</label>
+										<input type="number" value={erpSalesDetails.closingCashPhysical} disabled class="difference-input difference-input-disabled" />
+										<span class="difference-label" class:badge-match={erpClosingCashMatch} class:badge-short={!erpClosingCashMatch}>
+											{erpClosingCashMatch ? '✓' : '✗'} {erpClosingCashMatch ? ($currentLocale === 'ar' ? 'متطابق' : 'Match') : `${$currentLocale === 'ar' ? 'فرق' : 'Diff'}: ${(erpSalesDetails.closingCashPhysical - closingTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+										</span>
+									</div>
+								</div>
+								<div style="font-size: 0.6rem; color: #166534; text-align: center; line-height: 1.3;">
+									<strong>{erpSalesDetails.counterStatus}</strong> · {erpSalesDetails.closedAt}
+								</div>
+							{:else if erpSalesDetails && erpSalesDetails.rawStatus === 'O'}
+								<span class="difference-label badge-excess">
+									{$currentLocale === 'ar' ? 'العداد لا يزال مفتوحًا في ERP' : 'Counter is still open in ERP'}
+								</span>
+							{:else if erpSalesError}
+								<span class="difference-label badge-short">{erpSalesError}</span>
+							{:else}
+								<span class="difference-label" style="background: #f3f4f6; color: #6b7280;">
+									{$currentLocale === 'ar' ? 'لم يتم جلب البيانات بعد' : 'Not fetched yet'}
+								</span>
+							{/if}
+							<button
+								type="button"
+								class="btn-get-erp-details"
+								on:click={fetchErpSalesDetails}
+								disabled={loadingErpSales}
+								style="margin-top: auto; padding: 0.3rem 0.6rem;"
+							>
+								{loadingErpSales
+									? ($currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...')
+									: ($currentLocale === 'ar' ? 'احصل على تفاصيل الإغلاق' : 'Get Closing Details')}
+							</button>
+						</div>
+					</div>
+					{/if}
+
+					{#if !hasOpeningDetails}
+					<div class="sub-card">
+						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #92400e; letter-spacing: 0.5px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #fcd34d; padding-bottom: 0.1rem;">
+							{$currentLocale === 'ar' ? 'تفاصيل الافتتاح (ERP)' : 'ERP OPENING'}
+						</div>
+						<div class="sub-card-content" style="gap: 0.2rem;">
+							{#if openingDetailsError}
+								<span class="difference-label badge-short">{openingDetailsError}</span>
+							{:else}
+								<span class="difference-label" style="background: #f3f4f6; color: #6b7280;">
+									{$currentLocale === 'ar' ? 'بيانات افتتاح ERP مفقودة لهذه العملية' : 'ERP opening data missing for this operation'}
+								</span>
+							{/if}
+							{#if openingDetailsWarning}
+								<span class="difference-label badge-excess">{openingDetailsWarning}</span>
+							{/if}
+							<button
+								type="button"
+								class="btn-get-erp-details"
+								on:click={fetchOpeningDetails}
+								disabled={loadingOpeningDetails}
+								style="margin-top: auto; padding: 0.3rem 0.6rem;"
+							>
+								{loadingOpeningDetails
+									? ($currentLocale === 'ar' ? 'جاري التحميل...' : 'Loading...')
+									: ($currentLocale === 'ar' ? 'احصل على تفاصيل الافتتاح' : 'Get Opening Details')}
+							</button>
+						</div>
+					</div>
+					{/if}
+
+					{#if checkbox1 && checkbox2 && checkbox3 && checkbox4 && checkbox5 && erpSalesDetails?.rawStatus === 'C'}
 					<div class="sub-card">
 						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #15803d; letter-spacing: 1px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #fed7aa; padding-bottom: 0.1rem;">
 							{$currentLocale === 'ar' ? 'التوقيع الإلكتروني' : 'ELECTRONIC SIGNATURE'}
@@ -1824,6 +2273,16 @@
 									🖨️ {$currentLocale === 'ar' ? 'إعادة طباعة' : 'Reprint'}
 								</button>
 							{/if}
+						</div>
+					</div>
+					{:else if checkbox1 && checkbox2 && checkbox3 && checkbox4 && checkbox5}
+					<div class="sub-card">
+						<div class="sub-card-content" style="align-items: center; justify-content: center; text-align: center;">
+							<span class="difference-label badge-excess">
+								{$currentLocale === 'ar'
+									? 'أغلق العداد في ERP أولاً، ثم اضغط "احصل على التفاصيل" لتأكيد الإغلاق قبل التوقيع'
+									: 'Close the counter in ERP first, then click "Get Details" to confirm before signing'}
+							</span>
 						</div>
 					</div>
 					{/if}
@@ -2882,6 +3341,28 @@
 		outline: none;
 		border-color: #e5e7eb;
 		box-shadow: none;
+	}
+
+	.btn-get-erp-details {
+		margin-top: auto;
+		padding: 0.4rem 0.75rem;
+		background: #16a34a;
+		color: white;
+		border: none;
+		border-radius: 0.375rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+
+	.btn-get-erp-details:hover:not(:disabled) {
+		background: #15803d;
+	}
+
+	.btn-get-erp-details:disabled {
+		background: #9ca3af;
+		cursor: not-allowed;
 	}
 
 	.difference-label {
@@ -4789,6 +5270,19 @@
 		outline: none;
 		border-color: #a855f7;
 		box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
+	}
+
+	.system-input-disabled {
+		background: #f3f4f6;
+		color: #6b7280;
+		border-color: #e5e7eb;
+		cursor: not-allowed;
+	}
+
+	.system-input-disabled:focus {
+		outline: none;
+		border-color: #e5e7eb;
+		box-shadow: none;
 	}
 
 	.system-total-1 {

@@ -4621,6 +4621,7 @@ export const englishLocale: LocaleData = {
       noBoxesWithBalance: "No boxes with balance",
       counterCheck: "Counter Check",
       enterRealCount: "Enter Real Count",
+      totals: "POS Total",
       realTotal: "Real Total",
       matched: "MATCHED",
       notMatched: "NOT MATCHED",

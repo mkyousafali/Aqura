@@ -148,6 +148,30 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// Closing cash counts - load from operation data
 	let closingCounts: Record<string, number> = {};
 	let closingDetails: any = {};
+
+	// ERP closing snapshot (fetched live from ERP when the counter was closed — see
+	// CloseBox.svelte's "Get Details" / erp-backfill-write.mjs for how this is populated).
+	let erpClosingDetails: any = null;
+	$: if (operation?.erp_closing_details) {
+		erpClosingDetails = typeof operation.erp_closing_details === 'string'
+			? JSON.parse(operation.erp_closing_details)
+			: operation.erp_closing_details;
+	}
+
+	// Shift start display, built from the erp_shift_start_date/erp_shift_start_time columns
+	// already saved on box_operations (CounterCheck.svelte / erp-backfill-write.mjs).
+	$: erpShiftStart = (operation?.erp_shift_start_date && operation?.erp_shift_start_time)
+		? formatErpShiftStart(operation.erp_shift_start_date, operation.erp_shift_start_time)
+		: '';
+
+	function formatErpShiftStart(dateStr: string, timeStr: string): string {
+		const timeMatch = String(timeStr).match(/(\d{2}):(\d{2}):(\d{2})/);
+		if (!timeMatch) return `${dateStr} ${timeStr}`;
+		let hours = parseInt(timeMatch[1], 10);
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		hours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+		return `${dateStr} ${hours}:${timeMatch[2]}:${timeMatch[3]} ${ampm}`;
+	}
 	
 	// Verification checkboxes for each denomination
 	let denomVerified: Record<string, boolean> = {};
@@ -2725,6 +2749,48 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				{/if}
 			</div>
 		</div>
+
+		<!-- ERP Closing Details Match Card -->
+		{#if erpClosingDetails}
+			<div class="blank-card" style="background: #f0fdf4; border: 2px solid #22c55e; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15); padding: 0.5rem; width: 100%;">
+				<div style="font-weight: 600; color: #15803d; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">📡 ERP Closing Details</div>
+				<div style="font-size: 0.65rem; width: 100%; display: flex; flex-direction: column; gap: 0.2rem;">
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Cash Sales: {erpClosingDetails.erp_cash_sales?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.cash_sales_matched} class:badge-short={!erpClosingDetails.cash_sales_matched}>
+							{erpClosingDetails.cash_sales_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Card Sales: {erpClosingDetails.erp_card_sales?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.card_sales_matched} class:badge-short={!erpClosingDetails.card_sales_matched}>
+							{erpClosingDetails.card_sales_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Total Sales: {erpClosingDetails.erp_total_sales?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.total_sales_matched} class:badge-short={!erpClosingDetails.total_sales_matched}>
+							{erpClosingDetails.total_sales_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Closing Cash: {erpClosingDetails.erp_closing_cash_physical?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.closing_cash_matched} class:badge-short={!erpClosingDetails.closing_cash_matched}>
+							{erpClosingDetails.closing_cash_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="margin-top: 0.2rem; border-top: 1px solid #86efac; padding-top: 0.2rem; color: #166534; font-size: 0.6rem; display: flex; flex-direction: column; gap: 0.1rem;">
+						{#if operation?.erp_counter_shift_id}
+							<div><strong>Shift ID:</strong> {operation.erp_counter_shift_id}</div>
+						{/if}
+						{#if erpShiftStart}
+							<div><strong>Shift Start:</strong> {erpShiftStart}</div>
+						{/if}
+						<div><strong>{erpClosingDetails.counter_status}</strong> · {erpClosingDetails.closed_at}</div>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 	</div>
 	{/if}

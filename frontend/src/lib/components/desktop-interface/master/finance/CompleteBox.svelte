@@ -166,7 +166,257 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// Closing cash counts - load from operation data
 	let closingCounts: Record<string, number> = {};
 	let closingDetails: any = {};
-	
+
+	// ERP closing snapshot (fetched live from ERP when the counter was closed — see
+	// CloseBox.svelte's "Get Details" / erp-backfill-write.mjs for how this is populated).
+	let erpClosingDetails: any = null;
+	$: if (operation?.erp_closing_details) {
+		erpClosingDetails = typeof operation.erp_closing_details === 'string'
+			? JSON.parse(operation.erp_closing_details)
+			: operation.erp_closing_details;
+	}
+
+	// Shift start display, built from the erp_shift_start_date/erp_shift_start_time columns
+	// already saved on box_operations (CounterCheck.svelte / erp-backfill-write.mjs).
+	$: erpShiftStart = (operation?.erp_shift_start_date && operation?.erp_shift_start_time)
+		? formatErpShiftStart(operation.erp_shift_start_date, operation.erp_shift_start_time)
+		: '';
+
+	function formatErpShiftStart(dateStr: string, timeStr: string): string {
+		const timeMatch = String(timeStr).match(/(\d{2}):(\d{2}):(\d{2})/);
+		if (!timeMatch) return `${dateStr} ${timeStr}`;
+		let hours = parseInt(timeMatch[1], 10);
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		hours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+		return `${dateStr} ${hours}:${timeMatch[2]}:${timeMatch[3]} ${ampm}`;
+	}
+
+	// Combine ERP's TransactionDate (date) + ClosingTime (dummy-date-1900 + real time) into a
+	// readable "YYYY-MM-DD h:mm:ss AM/PM" string — same pattern as CloseBox.svelte.
+	function formatErpDateTime(dateStr: string, timeStr: string): string {
+		if (!dateStr || !timeStr) return '-';
+		const timeMatch = String(timeStr).match(/T(\d{2}):(\d{2}):(\d{2})/);
+		const dateMatch = String(dateStr).match(/(\d{4}-\d{2}-\d{2})/);
+		if (!timeMatch || !dateMatch) return '-';
+		let hours = parseInt(timeMatch[1], 10);
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		hours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+		return `${dateMatch[1]} ${hours}:${timeMatch[2]}:${timeMatch[3]} ${ampm}`;
+	}
+
+	// "Get Details" for boxes that were completed before ERP linkage existed, or where the live
+	// fetch at Close time failed/was skipped — pulls the same SI/SR-only ERP snapshot CloseBox.svelte
+	// saves, and persists it here so this admin view has it going forward.
+	let loadingErpClosingDetails = false;
+	let erpClosingDetailsError = '';
+
+	async function fetchErpClosingDetails() {
+		loadingErpClosingDetails = true;
+		erpClosingDetailsError = '';
+
+		try {
+			if (!operation?.id) {
+				throw new Error('No box operation selected');
+			}
+
+			const { data: freshOp, error: fetchError } = await supabase
+				.from('box_operations')
+				.select('erp_counter_shift_id, erp_branch_id, branch_id, user_id, start_time, notes')
+				.eq('id', operation.id)
+				.single();
+
+			if (fetchError || !freshOp) {
+				throw new Error('Could not load box operation data');
+			}
+
+			const tunnelUrlMap: Record<number, string> = {
+				1: 'https://erp-branch1.urbanaqura.com',
+				2: 'https://erp-branch2.urbanaqura.com',
+				3: 'https://erp-branch3.urbanaqura.com'
+			};
+			const tunnelUrl = tunnelUrlMap[branch?.id];
+			if (!tunnelUrl) {
+				throw new Error('Cannot connect to ERP for this branch');
+			}
+
+			let shiftId = freshOp.erp_counter_shift_id;
+			let erpBranchId = freshOp.erp_branch_id;
+
+			// This box was never linked to an ERP shift (e.g. completed after the one-time backfill
+			// batch ran, or the live auto-detect at open time missed it) — find and save the shift now
+			// instead of failing, using the same window+POS-number+closed-status matching the backfill
+			// scripts use, so this self-heals instead of requiring another manual batch run.
+			if (!shiftId || !erpBranchId) {
+				const { data: cred } = await supabase
+					.from('user_erp_credentials')
+					.select('erp_branch_id, erp_user_id')
+					.eq('user_id', freshOp.user_id)
+					.eq('aqura_branch_id', freshOp.branch_id)
+					.maybeSingle();
+
+				if (!cred) {
+					throw new Error('No ERP shift data saved for this operation, and no ERP credentials found to look one up');
+				}
+
+				const dateStr = String(freshOp.start_time).slice(0, 10);
+				const shiftsSql = `
+					SELECT cs.CounterShiftID, cs.CounterID, c.CounterName, cs.TransactionDate, cs.OpenTime, cs.ClosingTime, cs.ShiftName,
+					       cs.OpenCloseStatus, cs.OpenCashPhysical, cs.OpeningCashBySystem, cs.CloseCashPhysical
+					FROM CounterShift cs
+					LEFT JOIN Counter c ON cs.CounterID = c.CounterID AND cs.BranchID = c.BranchID
+					WHERE cs.BranchID = ${cred.erp_branch_id} AND cs.OpenUserID = ${cred.erp_user_id}
+					  AND CAST(cs.TransactionDate AS date) = '${dateStr}'
+					ORDER BY cs.OpenTime
+				`;
+				const shiftsResp = await fetch(`${tunnelUrl}/query`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+					body: JSON.stringify({ sql: shiftsSql })
+				});
+				if (!shiftsResp.ok) throw new Error('ERP shift lookup failed');
+				const shiftsResult = await shiftsResp.json();
+				const shifts = shiftsResult.recordset || shiftsResult || [];
+
+				const localStart = new Date(new Date(freshOp.start_time).getTime() + 3 * 3600 * 1000);
+				const WINDOW_TOLERANCE_MIN = 10;
+				let windowMatch: any = null, best: any = null, bestDiff = Infinity;
+				for (const shift of shifts) {
+					const openMatch = String(shift.OpenTime).match(/T(\d{2}):(\d{2}):(\d{2})/);
+					const dateMatch = String(shift.TransactionDate).match(/(\d{4}-\d{2}-\d{2})/);
+					if (!openMatch || !dateMatch) continue;
+					const openAt = new Date(`${dateMatch[1]}T${openMatch[1]}:${openMatch[2]}:${openMatch[3]}Z`);
+					const closeMatch = shift.ClosingTime ? String(shift.ClosingTime).match(/T(\d{2}):(\d{2}):(\d{2})/) : null;
+					const closeAt = closeMatch ? new Date(`${dateMatch[1]}T${closeMatch[1]}:${closeMatch[2]}:${closeMatch[3]}Z`) : new Date();
+					const openAtTol = new Date(openAt.getTime() - WINDOW_TOLERANCE_MIN * 60000);
+					const closeAtTol = new Date(closeAt.getTime() + WINDOW_TOLERANCE_MIN * 60000);
+					if (openAtTol <= localStart && localStart <= closeAtTol) { windowMatch = shift; break; }
+					const diff = Math.abs(openAt.getTime() - localStart.getTime());
+					if (diff < bestDiff) { bestDiff = diff; best = shift; }
+				}
+
+				const matched = windowMatch || best;
+				if (!matched) throw new Error('No ERP shift found for this cashier on this date');
+
+				let notesPos: number | null = null;
+				try { notesPos = freshOp.notes ? JSON.parse(freshOp.notes).pos_number : null; } catch { /* ignore */ }
+				const counterNum = matched.CounterName ? (matched.CounterName.match(/\d+/) || [])[0] : null;
+				const posMatches = notesPos != null && counterNum != null && Number(notesPos) === Number(counterNum);
+				const shiftClosed = String(matched.OpenCloseStatus).toUpperCase() === 'C';
+				const confidence = windowMatch ? (posMatches ? 'high' : 'medium') : 'low';
+
+				if (confidence !== 'high' && !(confidence === 'medium' && shiftClosed)) {
+					throw new Error(`Could not confidently match an ERP shift (confidence=${confidence}) — needs manual review`);
+				}
+
+				const shiftStartTimeMatch = String(matched.OpenTime).match(/T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+				const shiftIdentityColumns = {
+					erp_counter_id: matched.CounterID ?? null,
+					erp_counter_shift_id: matched.CounterShiftID ?? null,
+					erp_counter_name: matched.CounterName ?? null,
+					erp_shift_name: matched.ShiftName ?? null,
+					erp_shift_start_date: String(matched.TransactionDate).slice(0, 10),
+					erp_shift_start_time: shiftStartTimeMatch ? shiftStartTimeMatch[1] : null,
+					erp_branch_id: cred.erp_branch_id
+				};
+				const { error: linkError } = await supabase
+					.from('box_operations')
+					.update(shiftIdentityColumns)
+					.eq('id', operation.id);
+				if (linkError) throw new Error('Matched an ERP shift but failed to save the link: ' + linkError.message);
+
+				shiftId = matched.CounterShiftID;
+				erpBranchId = cred.erp_branch_id;
+				operation = { ...operation, ...shiftIdentityColumns };
+			}
+
+			const salesSql = `
+				SELECT l.LedgerID, SUM(d.Debit) - SUM(d.Credit) AS NetAmount
+				FROM AccTransactionDetails d
+				INNER JOIN AccTransactionMaster m ON d.AccTransactionMasterID = m.AccTransactionMasterID AND d.BranchID = m.BranchID
+				INNER JOIN AccLedgers l ON l.LedgerID = d.LedgerID AND l.BranchID = d.BranchID
+				WHERE m.BranchID = ${erpBranchId}
+				  AND d.BranchID = ${erpBranchId}
+				  AND l.BranchID = ${erpBranchId}
+				  AND m.CounterShiftID = ${shiftId}
+				  AND d.LedgerID IN (40, 41, 42, 43, 21)
+				  AND m.VoucherType IN ('SI','SR')
+				  AND m.IsActive = 1
+				GROUP BY l.LedgerID
+			`;
+			const statusSql = `
+				SELECT OpenCloseStatus, TransactionDate, ClosingTime, CloseCashPhysical FROM CounterShift
+				WHERE BranchID = ${erpBranchId} AND CounterShiftID = ${shiftId}
+			`;
+
+			const [salesResp, statusResp] = await Promise.all([
+				fetch(`${tunnelUrl}/query`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+					body: JSON.stringify({ sql: salesSql })
+				}),
+				fetch(`${tunnelUrl}/query`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+					body: JSON.stringify({ sql: statusSql })
+				})
+			]);
+
+			if (!salesResp.ok || !statusResp.ok) {
+				throw new Error('ERP query failed');
+			}
+
+			const salesResult = await salesResp.json();
+			const statusResult = await statusResp.json();
+
+			const rows = salesResult.recordset || salesResult || [];
+			let cashSales = 0;
+			let cardSales = 0;
+			for (const row of rows) {
+				if (row.LedgerID === 21) cardSales = Number(row.NetAmount) || 0;
+				else cashSales += Number(row.NetAmount) || 0;
+			}
+
+			const statusRows = statusResult.recordset || statusResult || [];
+			const rawStatus = statusRows[0]?.OpenCloseStatus;
+			const counterStatus = rawStatus === 'O' ? 'Open' : rawStatus === 'C' ? 'Closed' : 'Unknown';
+			const closedAt = rawStatus === 'C'
+				? formatErpDateTime(statusRows[0]?.TransactionDate, statusRows[0]?.ClosingTime)
+				: '';
+			const totalSales = Math.round((cashSales + cardSales) * 100) / 100;
+			const closingCashPhysical = Number(statusRows[0]?.CloseCashPhysical) || 0;
+
+			const newErpClosingDetails = {
+				erp_cash_sales: cashSales,
+				erp_card_sales: cardSales,
+				erp_total_sales: totalSales,
+				erp_closing_cash_physical: closingCashPhysical,
+				counter_status: counterStatus,
+				counter_status_raw: rawStatus || '',
+				closed_at: closedAt,
+				cash_sales_matched: Math.abs(cashSales - totalSystemCashSales) < 0.01,
+				card_sales_matched: Math.abs(cardSales - (Number(systemCardSales) || 0)) < 0.01,
+				total_sales_matched: Math.abs(totalSales - totalSystemSales) < 0.01,
+				closing_cash_matched: Math.abs(closingCashPhysical - closingTotal) < 0.01,
+				fetched_at: new Date().toISOString()
+			};
+
+			const { error: updateError } = await supabase
+				.from('box_operations')
+				.update({ erp_closing_details: newErpClosingDetails })
+				.eq('id', operation.id);
+
+			if (updateError) {
+				throw new Error('Fetched from ERP but failed to save: ' + updateError.message);
+			}
+
+			operation = { ...operation, erp_closing_details: newErpClosingDetails };
+		} catch (error) {
+			erpClosingDetailsError = error instanceof Error ? error.message : 'Error fetching ERP closing details';
+		} finally {
+			loadingErpClosingDetails = false;
+		}
+	}
+
 	// Verification checkboxes for each denomination
 	let denomVerified: Record<string, boolean> = {};
 
@@ -963,6 +1213,93 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				entryToPassData.cashReceipt.adjustment = absNetDiff;
 			}
 		}
+	}
+
+	// AI-generated Entry to Pass (Gemini) — recomputes everything from the raw closing
+	// fields (not from any stored difference_* column) and asks Gemini to produce the
+	// actual journal entries per the Cash/Bank reconciliation policy.
+	let isGeneratingEntries = false;
+	let generatedEntries: any = null;
+	let generateEntriesError: string = '';
+
+	async function generatePosEntries() {
+		isGeneratingEntries = true;
+		generateEntriesError = '';
+		generatedEntries = null;
+		try {
+			const payload = {
+				posNumber: selectedPosNumber,
+				branchName,
+				cashierName,
+				boxNumber: operation?.box_number,
+				// Date only (no time) — the narration should read "Shift: 2026-09-02", not include a timestamp.
+				shiftDate: operation?.erp_shift_start_date
+					|| erpClosingDetails?.closed_at?.split(' ')[0]
+					|| (operation?.start_time ? String(operation.start_time).split('T')[0].split(' ')[0] : ''),
+				shiftId: operation?.erp_counter_shift_id ?? '',
+				// Recomputed live from raw fields via the component's own reactive statements —
+				// not read from any stored difference_cash_sales/difference_card_sales column.
+				cashDiff: differenceInCashSales,
+				cardDiff: differenceInCardSales,
+				totalDiff: totalDifference,
+				totals: {
+					closingTotal,
+					cashSales,
+					vouchersTotal,
+					totalCashSales,
+					rechargeSales: sales
+				},
+				bank: {
+					mada: Number(madaAmount) || 0,
+					visa: Number(visaAmount) || 0,
+					mastercard: Number(masterCardAmount) || 0,
+					googlePay: Number(googlePayAmount) || 0,
+					other: Number(otherAmount) || 0,
+					total: bankTotal
+				},
+				system: {
+					cashSales: Number(systemCashSales) || 0,
+					cardSales: Number(systemCardSales) || 0,
+					return: Number(systemReturn) || 0
+				},
+				erp: erpClosingDetails
+			};
+
+			const response = await fetch('/api/generate-pos-entries', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+
+			const data = await response.json();
+			if (!response.ok) {
+				throw new Error(data?.error || 'Failed to generate entries');
+			}
+
+			generatedEntries = data.result;
+		} catch (error: any) {
+			console.error('Error generating POS entries:', error);
+			generateEntriesError = error?.message || 'Failed to generate entries';
+		} finally {
+			isGeneratingEntries = false;
+		}
+	}
+
+	// Display "Employee Salary Account" as "<Cashier>'s Salary Account" so it's clear whose
+	// salary is being deducted, without depending on Gemini to format the name consistently.
+	function accountLabel(name: string): string {
+		return name === 'Employee Salary Account' ? `${cashierName || 'Cashier'}'s Salary Account` : name;
+	}
+
+	let copiedEntryIndex: number | null = null;
+
+	function copyEntryText(entry: any, index: number) {
+		// Copy the narration text only (no form_name/description/Dr/Cr lines, no "Narration:" prefix)
+		// so it can be pasted straight into the ERP's narration field.
+		navigator.clipboard.writeText(entry.narration || '').then(() => {
+			copiedEntryIndex = index;
+			setTimeout(() => { if (copiedEntryIndex === index) copiedEntryIndex = null; }, 1500);
+		}).catch(err => console.error('Copy failed:', err));
 	}
 
 	// Supervisor code
@@ -3022,72 +3359,117 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</div>
 		</div>
 		<div class="half-card split-card">
-			<div style="background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%); border-radius: 0.5rem; padding: 0.5rem; margin-bottom: 0.5rem; box-shadow: 0 4px 12px rgba(3, 105, 161, 0.2);">
-				<div style="font-size: 0.75rem; color: white; font-weight: 700; text-align: center; letter-spacing: 0.5px;">📝 Entry to Pass</div>
-			</div>
-			
-{#if entryToPassData.transfers.length > 0}
-				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
-					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">📤 Transfers:</div>
-					{#each entryToPassData.transfers as transfer}
-						<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #ffedd5; border-radius: 3px; width: 100%; font-size: 0.65rem;">
-							{#if transfer.debitAccount === 'POS Cash'}
-								<div style="margin-bottom: 0.1rem;"><strong>Dr POS {selectedPosNumber}:</strong> {transfer.debitAmount.toFixed(2)}</div>
-							{:else if transfer.debitAccount === 'POS Bank'}
-								<div style="margin-bottom: 0.1rem;"><strong>Dr POS Bank:</strong> {transfer.debitAmount.toFixed(2)}</div>
-							{:else}
-								<div style="margin-bottom: 0.1rem;"><strong>Dr {transfer.debitAccount}:</strong> {transfer.debitAmount.toFixed(2)}</div>
-							{/if}
-							{#if transfer.creditAccount === 'POS Cash'}
-								<div><strong>Cr POS {selectedPosNumber}:</strong> {transfer.creditAmount.toFixed(2)}</div>
-							{:else if transfer.creditAccount === 'POS Bank'}
-								<div><strong>Cr POS Bank:</strong> {transfer.creditAmount.toFixed(2)}</div>
-							{:else}
-								<div><strong>Cr {transfer.creditAccount}:</strong> {transfer.creditAmount.toFixed(2)}</div>
-							{/if}
-						</div>
-					{/each}
+			<!-- ERP Closing Details Match Card -->
+		<div class="blank-card" style="background: #f0fdf4; border: 2px solid #22c55e; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15); padding: 0.5rem; width: 100%;">
+			<div style="font-weight: 600; color: #15803d; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">📡 ERP Closing Details</div>
+			{#if erpClosingDetails}
+				<div style="font-size: 0.65rem; width: 100%; display: flex; flex-direction: column; gap: 0.2rem;">
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Cash Sales: {erpClosingDetails.erp_cash_sales?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.cash_sales_matched} class:badge-short={!erpClosingDetails.cash_sales_matched}>
+							{erpClosingDetails.cash_sales_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Card Sales: {erpClosingDetails.erp_card_sales?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.card_sales_matched} class:badge-short={!erpClosingDetails.card_sales_matched}>
+							{erpClosingDetails.card_sales_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Total Sales: {erpClosingDetails.erp_total_sales?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.total_sales_matched} class:badge-short={!erpClosingDetails.total_sales_matched}>
+							{erpClosingDetails.total_sales_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="display: flex; justify-content: space-between; align-items: center;">
+						<span>Closing Cash: {erpClosingDetails.erp_closing_cash_physical?.toFixed(2)}</span>
+						<span class="difference-label" class:badge-match={erpClosingDetails.closing_cash_matched} class:badge-short={!erpClosingDetails.closing_cash_matched}>
+							{erpClosingDetails.closing_cash_matched ? '✓' : '✗'}
+						</span>
+					</div>
+					<div style="margin-top: 0.2rem; border-top: 1px solid #86efac; padding-top: 0.2rem; color: #166534; font-size: 0.6rem; display: flex; flex-direction: column; gap: 0.1rem;">
+						{#if operation?.erp_counter_shift_id}
+							<div><strong>Shift ID:</strong> {operation.erp_counter_shift_id}</div>
+						{/if}
+						{#if erpShiftStart}
+							<div><strong>Shift Start:</strong> {erpShiftStart}</div>
+						{/if}
+						<div><strong>{erpClosingDetails.counter_status}</strong> · {erpClosingDetails.closed_at}</div>
+					</div>
 				</div>
+			{:else}
+				<div style="font-size: 0.65rem; color: #6b7280; width: 100%; margin-bottom: 0.3rem;">No ERP closing data available</div>
+				<button
+					class="save-button"
+					style="background: #16a34a; border: 1px solid #15803d; width: 100%; font-size: 0.65rem; padding: 0.3rem;"
+					disabled={loadingErpClosingDetails}
+					on:click={fetchErpClosingDetails}
+				>
+					{loadingErpClosingDetails ? '⏳ Fetching...' : '📡 Get Details'}
+				</button>
+				{#if erpClosingDetailsError}
+					<div style="font-size: 0.6rem; color: #dc2626; width: 100%; margin-top: 0.2rem;">{erpClosingDetailsError}</div>
+				{/if}
 			{/if}
+		</div>
 
-			{#if entryToPassData.adjustments.length > 0}
-				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
-					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">⚙️ Adjustments:</div>
-					{#each entryToPassData.adjustments as adjustment}
-						<div style="margin-bottom: 0.3rem; padding: 0.2rem; background: #ffedd5; border-radius: 3px; width: 100%; font-size: 0.65rem;">
-							{#if adjustment.note}
-								<div style="color: #dc2626; font-weight: 600; background: #fee2e2; padding: 0.3rem; border-radius: 3px; border-left: 3px solid #dc2626;">{adjustment.note}</div>
-							{:else}
-								<div style="margin-bottom: 0.1rem;"><strong>Dr {adjustment.debitAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : (adjustment.debitAccount === 'POS Cash' ? `POS ${selectedPosNumber}` : adjustment.debitAccount)}:</strong> {adjustment.debitAmount.toFixed(2)}</div>
-								<div><strong>Cr {adjustment.creditAccount === 'Employee Salary Account' ? (cashierName || 'Cashier') : (adjustment.creditAccount === 'POS Cash' ? `POS ${selectedPosNumber}` : adjustment.creditAccount)}:</strong> {adjustment.creditAmount.toFixed(2)}</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{/if}
-
-			<div class="blank-card" style="background: #f0fdf4; border: 2px solid #22c55e; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15); padding: 0.5rem; width: 100%;">
-				<div style="font-weight: 600; color: #15803d; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">💵 Cash Receipt</div>
-				<div style="font-weight: 600; color: #15803d; margin-top: 0.2rem; border-top: 2px solid #22c55e; padding-top: 0.2rem; width: 100%; font-size: 0.65rem;"><strong>Total Cash Receipt:</strong> {entryToPassData.cashReceipt.total.toFixed(2)}</div>
-			</div>
-
-		{#if entryToPassData.transfers.length === 0 && entryToPassData.adjustments.length === 0}
-			<div style="font-size: 0.65rem; color: #6b7280; text-align: center; width: 100%;">Ready for posting</div>
+		<!-- AI-Generated Entry to Pass (Gemini) — needs the ERP closing snapshot to work from -->
+		{#if erpClosingDetails}
+			<button
+				class="save-button"
+				style="background: #4338ca; border: 1px solid #3730a3; width: 100%; margin-top: 0.3rem;"
+				disabled={isGeneratingEntries}
+				on:click={generatePosEntries}
+			>
+				{#if isGeneratingEntries}
+					⏳ {$currentLocale === 'ar' ? 'جارٍ التوليد...' : 'Generating...'}
+				{:else}
+					🤖 {$currentLocale === 'ar' ? 'توليد القيود' : 'Generate Entries'}
+				{/if}
+			</button>
 		{/if}
 
-		<!-- Net Short/Excess Card -->
-		<div class="blank-card" style="background: #fef2f2; border: 2px solid #ef4444; min-height: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15); padding: 0.5rem; width: 100%;">
-			<div style="font-weight: 600; color: #dc2626; font-size: 0.7rem;">📊 Net Position</div>
-			<div style="font-size: 0.65rem; color: #991b1b; margin-top: 0.3rem;">
-				{#if totalDifference < 0}
-					<strong>Net Short:</strong> {Math.abs(totalDifference).toFixed(2)}
-				{:else if totalDifference > 0}
-					<strong>Net Excess:</strong> {totalDifference.toFixed(2)}
-				{:else}
-					<strong>Balanced:</strong> 0.00
-				{/if}
+		{#if generateEntriesError}
+			<div class="blank-card" style="background: #fef2f2; border: 2px solid #ef4444; min-height: auto; padding: 0.5rem; width: 100%; font-size: 0.65rem; color: #991b1b;">
+				⚠️ {generateEntriesError}
 			</div>
-		</div>
+		{/if}
+
+		{#if generatedEntries}
+			<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 1rem; width: 100%; gap: 0.75rem;">
+				<div style="font-weight: 700; color: #3730a3; width: 100%; font-size: 1rem;">🤖 AI-Generated Entry to Pass</div>
+				{#each generatedEntries.entries || [] as entry, i}
+					<div style="padding: 0.85rem; background: white; border: 2px solid #c7d2fe; border-radius: 8px; box-shadow: 0 2px 6px rgba(67, 56, 202, 0.12); width: 100%; font-size: 0.85rem;">
+						<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem;">
+							<div style="color: #3730a3; font-weight: 700; font-size: 0.95rem;">{#if entry.form_name}<span style="background:#4338ca; color:white; border-radius:4px; padding:0.15rem 0.5rem; margin-right:0.5rem; font-size:0.8rem; font-weight:700;">{entry.form_name}</span>{/if}{entry.description}</div>
+							<button
+								style="background: #eef2ff; border: 1px solid #a5b4fc; border-radius: 5px; color: #4338ca; font-size: 0.8rem; font-weight: 600; padding: 0.3rem 0.7rem; cursor: pointer; white-space: nowrap;"
+								on:click={() => copyEntryText(entry, i)}
+							>
+								{copiedEntryIndex === i ? '✅ Copied' : '📋 Copy'}
+							</button>
+						</div>
+						<div style="margin-bottom: 0.25rem;"><strong>Dr {accountLabel(entry.debit_account)}:</strong> {Number(entry.debit_amount).toFixed(2)}</div>
+						<div><strong>Cr {accountLabel(entry.credit_account)}:</strong> {Number(entry.credit_amount).toFixed(2)}</div>
+						{#if entry.narration}
+							<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed #c7d2fe; color: #4338ca; font-style: italic; font-size: 0.8rem;">{entry.narration}</div>
+						{/if}
+					</div>
+				{/each}
+				<div style="margin-top: 0.25rem; border-top: 1px solid #a5b4fc; padding-top: 0.5rem; width: 100%; font-size: 0.85rem; color: #3730a3; display: flex; flex-direction: column; gap: 0.3rem;">
+					<div><strong>Final POS Cash:</strong> {Number(generatedEntries.final_balances?.pos_cash ?? 0).toFixed(2)} · <strong>Final POS Bank:</strong> {Number(generatedEntries.final_balances?.pos_bank ?? 0).toFixed(2)}</div>
+					{#if generatedEntries.employee_charged}
+						<div style="color: #dc2626;"><strong>Employee charged:</strong> {Number(generatedEntries.employee_charge_amount ?? 0).toFixed(2)}</div>
+					{:else}
+						<div style="color: #15803d;"><strong>Employee charged:</strong> No</div>
+					{/if}
+					{#if generatedEntries.notes}
+						<div style="margin-top: 0.25rem; font-size: 0.8rem;">{generatedEntries.notes}</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
 	</div>
 	</div>
 	{/if}

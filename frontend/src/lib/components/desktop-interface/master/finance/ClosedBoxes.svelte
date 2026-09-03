@@ -728,7 +728,7 @@ async function loadBranches() {
 						<th>{$currentLocale === 'ar' ? 'إجمالي المبيعات' : 'Total Sales'}</th>
 						<th>{$currentLocale === 'ar' ? 'الإجمالي قبل' : 'Total Before'}</th>
 						<th>{$currentLocale === 'ar' ? 'الإجمالي بعد' : 'Total After'}</th>
-						<th>{$currentLocale === 'ar' ? 'الفرق' : 'Difference'}</th>					<th>{$currentLocale === 'ar' ? 'خصم نقطة البيع' : 'POS Deduction Transfer'}</th>						<th>{$currentLocale === 'ar' ? 'تاريخ الإغلاق' : 'Closed At'}</th>
+						<th>{$currentLocale === 'ar' ? 'الفرق' : 'Difference'}</th>					<th>{$currentLocale === 'ar' ? 'خصم نقطة البيع' : 'POS Deduction Transfer'}</th>						<th>{$currentLocale === 'ar' ? 'وقت البدء' : 'Start Time'}</th>						<th>{$currentLocale === 'ar' ? 'تاريخ الإغلاق' : 'Closed At'}</th>
 						<th>{$currentLocale === 'ar' ? 'الإجراءات' : 'Actions'}</th>
 					</tr>
 				</thead>
@@ -775,6 +775,10 @@ async function loadBranches() {
 						{:else}
 							<span class="na-text">N/A</span>
 						{/if}
+					</td>
+					<td class="datetime">
+						<span class="date-line">{formatDateOnly(box.start_time)}</span>
+						<span class="time-line">{formatTimeOnly(box.start_time)}</span>
 					</td>
 					<td class="datetime">
 						<span class="date-line">{formatDateOnly(box.updated_at)}</span>

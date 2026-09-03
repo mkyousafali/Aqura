@@ -4677,6 +4677,7 @@ export const arabicLocale: LocaleData = {
       noBoxesWithBalance: "لا توجد صناديق بها رصيد",
       counterCheck: "التحقق من العداد",
       enterRealCount: "إدخال العد الفعلي",
+      totals: "إجمالي نقطة البيع",
       realTotal: "الإجمالي الفعلي",
       matched: "متطابق",
       notMatched: "غير متطابق",
