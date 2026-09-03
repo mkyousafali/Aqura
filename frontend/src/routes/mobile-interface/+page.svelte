@@ -604,6 +604,19 @@
 				</div>
 			</div>
 
+			<!-- Scan Request Card -->
+			<div class="stat-card blank clickable scan-request-card" on:click={() => goto('/mobile-interface/scan-request')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/>
+						<line x1="4" y1="12" x2="20" y2="12"/>
+					</svg>
+				</div>
+				<div class="stat-info">
+					<p>{$localeData.code === 'ar' ? 'طلب مسح' : 'Scan Request'}</p>
+				</div>
+			</div>
+
 			<div class="stat-card date-time">
 				<div class="stat-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

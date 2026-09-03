@@ -1,0 +1,127 @@
+import { json } from "@sveltejs/kit";
+import { env } from '$env/dynamic/private';
+
+// Endpoint for the mobile "Scan Request" flow (Bank Reconciliation card in
+// CloseBox.svelte). Takes a photo of a card-terminal (mada) reconciliation
+// slip and asks Gemini to extract exactly: Date, Time, Terminal ID, and
+// Statement/Batch match number — nothing else. The mobile UI shows these as
+// editable fields; nothing is written to the database here.
+//
+// Reuses the same system_api_keys ('google_gemini') lookup and inlineData
+// image request shape as /api/check-original-bill.
+
+async function getGeminiKey() {
+  try {
+    const supabaseUrl = env.VITE_SUPABASE_URL || '';
+    const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in env');
+      return null;
+    }
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key&limit=1`,
+      { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
+    );
+    const rows = await res.json();
+    return rows?.[0]?.api_key || null;
+  } catch (e) {
+    console.error('Failed to fetch Gemini key:', e);
+    return null;
+  }
+}
+
+export async function POST({ request }) {
+  try {
+    const GEMINI_KEY = await getGeminiKey();
+    if (!GEMINI_KEY) {
+      return json({ error: "Google AI API key not configured. Set it in API Keys Manager." }, { status: 500 });
+    }
+
+    const body = await request.json();
+    const { imageBase64, mimeType } = body;
+
+    if (!imageBase64) {
+      return json({ error: "No image provided" }, { status: 400 });
+    }
+
+    const prompt = `You are extracting information from a photo of a card payment terminal (mada/POS) reconciliation/settlement slip. Read the document carefully and extract exactly these fields, as printed on the slip:
+
+1. Date — the date printed on the slip.
+2. Date (normalized) — the same date, converted to ISO format YYYY-MM-DD. This business is in Saudi Arabia, so when the printed format is ambiguous (e.g. DD/MM vs MM/DD), assume DD/MM/YYYY.
+3. Time — the time printed on the slip, in 24-hour HH:MM:SS format if seconds are shown, otherwise HH:MM.
+4. Terminal ID — the terminal identifier printed on the slip (may be labeled e.g. "RYDB" followed by a long numeric code, or a separate terminal ID field). Extract just the ID value.
+5. Statement/Batch match number — the batch/reconciliation match number printed on the slip (often a short numeric code near a line like "5411 <number> ..." — extract just that number).
+
+If a field cannot be found, return an empty string for that field. Do not guess or invent values.`;
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: mimeType || 'image/jpeg', data: imageBase64 } }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 500,
+            thinkingConfig: { thinkingBudget: 0 },
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                date: { type: 'STRING' },
+                date_iso: { type: 'STRING' },
+                time: { type: 'STRING' },
+                terminal_id: { type: 'STRING' },
+                statement_match_number: { type: 'STRING' }
+              },
+              required: ['date', 'date_iso', 'time', 'terminal_id', 'statement_match_number']
+            }
+          }
+        })
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
+    }
+
+    const geminiData = await geminiRes.json();
+    const candidate = geminiData.candidates?.[0];
+    const rawText = candidate?.content?.parts?.[0]?.text || '';
+
+    if (!rawText.trim()) {
+      console.error('Empty Gemini response. finishReason:', candidate?.finishReason);
+      throw new Error(`AI returned an empty response (finishReason: ${candidate?.finishReason || 'unknown'})`);
+    }
+
+    let extracted;
+    try {
+      extracted = JSON.parse(rawText);
+    } catch (e) {
+      console.error('Failed to parse Gemini JSON response:', rawText);
+      throw new Error('AI response was not valid JSON');
+    }
+
+    return json({
+      success: true,
+      date: extracted.date_iso || extracted.date || '',
+      time: extracted.time || '',
+      terminalId: extracted.terminal_id || '',
+      statementMatchNumber: extracted.statement_match_number || ''
+    });
+  } catch (error) {
+    console.error("Error extracting scan request data:", error);
+    return json(
+      { error: error instanceof Error ? error.message : "Failed to extract scan data" },
+      { status: 500 }
+    );
+  }
+}

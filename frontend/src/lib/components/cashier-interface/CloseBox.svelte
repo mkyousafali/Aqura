@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
@@ -223,19 +223,19 @@
 	let otherAmount: number | '' = '';
 
 	// Multiple reconciliations list
-	let reconciliations: Array<{id?: number, reconciliation_number: string, mada: number, visa: number, mastercard: number, google_pay: number, other: number}> = [];
+	let reconciliations: Array<{id?: number, recon_date: string, recon_time: string, terminal_id: string, statement_match_number: string, mada: number, visa: number, mastercard: number, google_pay: number, other: number}> = [];
 	let showReconPopup = false;
-	let reconForm = { reconciliation_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
+	let reconForm = { recon_date: '', recon_time: '', terminal_id: '', statement_match_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
 	let editingReconIndex: number | null = null;
 
 	function openReconPopup(index?: number) {
 		if (index !== undefined && index !== null) {
 			editingReconIndex = index;
 			const r = reconciliations[index];
-			reconForm = { reconciliation_number: r.reconciliation_number, mada: r.mada, visa: r.visa, mastercard: r.mastercard, google_pay: r.google_pay, other: r.other };
+			reconForm = { recon_date: r.recon_date || '', recon_time: r.recon_time || '', terminal_id: r.terminal_id || '', statement_match_number: r.statement_match_number || '', mada: r.mada, visa: r.visa, mastercard: r.mastercard, google_pay: r.google_pay, other: r.other };
 		} else {
 			editingReconIndex = null;
-			reconForm = { reconciliation_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
+			reconForm = { recon_date: '', recon_time: '', terminal_id: '', statement_match_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
 		}
 		showReconPopup = true;
 	}
@@ -247,7 +247,10 @@
 
 	function saveRecon() {
 		const entry = {
-			reconciliation_number: reconForm.reconciliation_number,
+			recon_date: reconForm.recon_date,
+			recon_time: reconForm.recon_time,
+			terminal_id: reconForm.terminal_id,
+			statement_match_number: reconForm.statement_match_number,
 			mada: money(reconForm.mada),
 			visa: money(reconForm.visa),
 			mastercard: money(reconForm.mastercard),
@@ -280,6 +283,85 @@
 
 	function getReconTotal(r: any): number {
 		return addMoney(r.mada, r.visa, r.mastercard, r.google_pay, r.other);
+	}
+
+	// Send Scan Request: hands a reconciliation slip off to a mobile user to photograph.
+	// Each request is its own pos_scan_requests row (tracked by id), so several requests
+	// for the same box never overwrite or mix with each other.
+	let scanRequests: Array<{ id: string; status: string; created_at: string }> = [];
+	let sendingScanRequest = false;
+	let scanRequestsError = '';
+	const appliedScanRequestIds = new Set<string>();
+	let scanRequestChannel: ReturnType<typeof supabase.channel> | null = null;
+
+	async function sendScanRequest() {
+		if (sendingScanRequest || !operation?.id) return;
+		sendingScanRequest = true;
+		scanRequestsError = '';
+		try {
+			const { data, error } = await supabase
+				.from('pos_scan_requests')
+				.insert({
+					box_operation_id: operation.id,
+					branch_id: branch?.id || null,
+					box_number: operation.box_number || null,
+					pos_number: selectedPosNumber || null,
+					requested_by: operation.user_id || null,
+					status: 'pending'
+				})
+				.select('id, status, created_at')
+				.single();
+
+			if (error) throw error;
+			if (data) scanRequests = [...scanRequests, data];
+		} catch (error) {
+			console.error('Error sending scan request:', error);
+			scanRequestsError = $currentLocale === 'ar' ? 'حدث خطأ أثناء إرسال طلب المسح' : 'Error sending scan request';
+		} finally {
+			sendingScanRequest = false;
+		}
+	}
+
+	// A completed request becomes a normal reconciliation entry, same shape saveRecon() builds.
+	function applyCompletedScanRequest(row: any) {
+		if (!row || appliedScanRequestIds.has(row.id)) return;
+		appliedScanRequestIds.add(row.id);
+		reconciliations = [...reconciliations, {
+			recon_date: row.final_date || '',
+			recon_time: row.final_time || '',
+			terminal_id: row.final_terminal_id || '',
+			statement_match_number: row.final_statement_match_number || '',
+			mada: money(row.final_mada || 0),
+			visa: money(row.final_visa || 0),
+			mastercard: money(row.final_mastercard || 0),
+			google_pay: money(row.final_google_pay || 0),
+			other: money(row.final_other || 0)
+		}];
+		syncLegacyAmounts();
+		scanRequests = scanRequests.filter(r => r.id !== row.id);
+	}
+
+	function setupScanRequestRealtime() {
+		if (!operation?.id) return;
+		scanRequestChannel = supabase
+			.channel(`pos-scan-requests-${operation.id}`)
+			.on('postgres_changes', {
+				event: '*',
+				schema: 'public',
+				table: 'pos_scan_requests',
+				filter: `box_operation_id=eq.${operation.id}`
+			}, (payload) => {
+				const row: any = payload.new;
+				if (!row) return;
+				if (row.status === 'completed') {
+					applyCompletedScanRequest(row);
+				} else {
+					scanRequests = scanRequests.some(r => r.id === row.id)
+						? scanRequests.map(r => (r.id === row.id ? { id: row.id, status: row.status, created_at: row.created_at } : r))
+						: [...scanRequests, { id: row.id, status: row.status, created_at: row.created_at }];
+				}
+			})
+			.subscribe();
 	}
 
 	// Calculate bank reconciliation total
@@ -538,6 +620,90 @@
 		}
 	}
 
+	// Fallback for legacy operations that have no saved erp_counter_shift_id (opened before that
+	// column was captured at open time, or before "Get Opening Details" was run) — looks up the
+	// cashier's latest ERP shift for this operation's POS counter directly by user + counter name,
+	// same query shape as fetchOpeningDetails()/CounterCheck's fetchCounterDetails() but without the
+	// OpenCloseStatus = 'O' filter, since by the time we're closing the box the ERP shift may
+	// already be closed. Backfills the same erp_* columns so this lookup only runs once.
+	async function lookupLatestErpShift(): Promise<{ shiftId: number; erpBranchId: number } | null> {
+		if (!operation?.user_id || !selectedPosNumber) return null;
+
+		const { data: credData, error: credError } = await supabase
+			.from('user_erp_credentials')
+			.select('erp_user_id, erp_branch_id')
+			.eq('user_id', operation.user_id)
+			.eq('aqura_branch_id', branch.id)
+			.single();
+
+		if (credError || !credData?.erp_user_id || !credData?.erp_branch_id) return null;
+
+		const erpUserId = parseInt(credData.erp_user_id, 10);
+		if (!erpUserId) return null;
+
+		const tunnelUrlMap: Record<number, string> = {
+			1: 'https://erp-branch1.urbanaqura.com',
+			2: 'https://erp-branch2.urbanaqura.com',
+			3: 'https://erp-branch3.urbanaqura.com'
+		};
+		const tunnelUrl = tunnelUrlMap[branch?.id];
+		if (!tunnelUrl) return null;
+
+		const posName = `POS-${selectedPosNumber}`;
+		const sql = `
+			SELECT TOP 1 cs.CounterID, cs.CounterShiftID, cs.ShiftName, cs.TransactionDate, cs.OpenTime,
+			       cs.OpenCashPhysical, cs.OpeningCashBySystem, c.CounterName
+			FROM CounterShift cs
+			LEFT JOIN Counter c ON cs.CounterID = c.CounterID AND cs.BranchID = c.BranchID
+			WHERE cs.BranchID = ${credData.erp_branch_id}
+			  AND cs.OpenUserID = ${erpUserId}
+			  AND c.CounterName = '${posName}'
+			ORDER BY cs.TransactionDate DESC, cs.OpenTime DESC
+		`;
+
+		try {
+			const response = await fetch(`${tunnelUrl}/query`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'x-api-secret': 'aqura-erp-bridge-2026' },
+				body: JSON.stringify({ sql })
+			});
+			if (!response.ok) return null;
+
+			const result = await response.json();
+			const records = result.recordset || result || [];
+			const shift = records[0];
+			if (!shift) return null;
+
+			let shiftStartTime: string | null = null;
+			if (shift.OpenTime) {
+				const match = String(shift.OpenTime).match(/T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/);
+				shiftStartTime = match ? match[1] : null;
+			}
+
+			await supabase
+				.from('box_operations')
+				.update({
+					erp_counter_id: shift.CounterID ?? null,
+					erp_counter_shift_id: shift.CounterShiftID ?? null,
+					erp_counter_name: shift.CounterName ?? null,
+					erp_shift_name: shift.ShiftName ?? null,
+					erp_shift_start_date: shift.TransactionDate ?? null,
+					erp_shift_start_time: shiftStartTime,
+					erp_opening_cash_physical: shift.OpenCashPhysical ?? null,
+					erp_opening_cash_system: shift.OpeningCashBySystem ?? null,
+					erp_branch_id: credData.erp_branch_id
+				})
+				.eq('id', operation.id);
+
+			hasOpeningDetails = true;
+
+			return { shiftId: shift.CounterShiftID, erpBranchId: credData.erp_branch_id };
+		} catch (error) {
+			console.error('Error looking up latest ERP shift:', error);
+			return null;
+		}
+	}
+
 	async function fetchErpSalesDetails() {
 		loadingErpSales = true;
 		erpSalesError = '';
@@ -561,13 +727,23 @@
 				throw new Error($currentLocale === 'ar' ? 'تعذر تحميل بيانات عملية الصندوق' : 'Could not load box operation data');
 			}
 
-			const shiftId = freshOp.erp_counter_shift_id;
-			const erpBranchId = freshOp.erp_branch_id;
+			let shiftId = freshOp.erp_counter_shift_id;
+			let erpBranchId = freshOp.erp_branch_id;
+
+			// Legacy operation with no saved shift id — look it up directly from ERP instead of
+			// giving up, so "Get Closing Details" still works for boxes opened before this feature.
+			if (!shiftId || !erpBranchId) {
+				const found = await lookupLatestErpShift();
+				if (found) {
+					shiftId = found.shiftId;
+					erpBranchId = found.erpBranchId;
+				}
+			}
 
 			if (!shiftId || !erpBranchId) {
 				throw new Error($currentLocale === 'ar'
-					? 'لا توجد بيانات ERP محفوظة لهذه الوردية (تم فتحها قبل إضافة هذه الميزة)'
-					: 'No ERP shift data saved for this operation (opened before this feature existed)');
+					? 'لم يتم العثور على وردية ERP لهذا الكاشير على هذه النقطة'
+					: 'No ERP shift found for this cashier on this POS counter');
 			}
 
 			const tunnelUrlMap: Record<number, string> = {
@@ -1186,7 +1362,10 @@
 				if (reconData && reconData.length > 0) {
 					reconciliations = reconData.map((r: any) => ({
 						id: r.id,
-						reconciliation_number: r.reconciliation_number || '',
+						recon_date: r.recon_date || '',
+						recon_time: r.recon_time || '',
+						terminal_id: r.terminal_id || '',
+						statement_match_number: r.statement_match_number || '',
 						mada: r.mada_amount || 0,
 						visa: r.visa_amount || 0,
 						mastercard: r.mastercard_amount || 0,
@@ -1207,7 +1386,35 @@
 	onMount(() => {
 		loadClosingDetails();
 		checkHasOpeningDetails();
+		loadScanRequests();
+		setupScanRequestRealtime();
 	});
+
+	onDestroy(() => {
+		if (scanRequestChannel) supabase.removeChannel(scanRequestChannel);
+	});
+
+	async function loadScanRequests() {
+		if (!operation?.id) return;
+		try {
+			const { data, error } = await supabase
+				.from('pos_scan_requests')
+				.select('*')
+				.eq('box_operation_id', operation.id)
+				.order('created_at');
+			if (error) throw error;
+			for (const row of data || []) {
+				if (row.status === 'completed') {
+					applyCompletedScanRequest(row);
+				} else {
+					scanRequests.push({ id: row.id, status: row.status, created_at: row.created_at });
+				}
+			}
+			scanRequests = scanRequests;
+		} catch (error) {
+			console.error('Error loading scan requests:', error);
+		}
+	}
 
 	// Real-time auto-save function
 	let autoSaveTimeout: any;
@@ -1396,7 +1603,10 @@
 					pos_number: selectedPosNumber,
 					supervisor_id: supervisorUserId || null,
 					cashier_id: cashierUserId,
-					reconciliation_number: r.reconciliation_number || '',
+					recon_date: r.recon_date || null,
+					recon_time: r.recon_time || null,
+					terminal_id: r.terminal_id || null,
+					statement_match_number: r.statement_match_number || null,
 					mada_amount: money(r.mada),
 					visa_amount: money(r.visa),
 					mastercard_amount: money(r.mastercard),
@@ -1775,12 +1985,104 @@
 					<button class="add-voucher-btn" on:click={() => openReconPopup()} style="width: 22px; height: 22px; font-size: 14px; padding: 0; line-height: 1;">
 						<span>+</span>
 					</button>
+					<button
+						class="btn-scan-request"
+						on:click={sendScanRequest}
+						disabled={sendingScanRequest}
+						title={$currentLocale === 'ar' ? 'إرسال طلب مسح' : 'Send Scan Request'}
+					>
+						📷 {$currentLocale === 'ar' ? 'طلب مسح' : 'Send Scan Request'}
+					</button>
 					<label class="checkbox-container">
 						<span class="checkbox-number">5</span>
 						<input type="checkbox" class="closing-checkbox" bind:checked={checkbox5} />
 						<span class="checkmark"></span>
 					</label>
 				</div>
+
+				{#if scanRequestsError}
+					<div class="difference-label badge-short" style="margin-bottom: 8px;">{scanRequestsError}</div>
+				{/if}
+				{#if scanRequests.length > 0}
+					<div class="scan-requests-pending">
+						{#each scanRequests as req (req.id)}
+							<div class="scan-request-pending-row">
+								<span class="scan-request-spinner"></span>
+								<span>{$currentLocale === 'ar' ? 'بانتظار مسح الموظف عبر الجوال...' : 'Waiting for mobile scan...'}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<!-- Add/Edit Reconciliation inline card -->
+				{#if showReconPopup}
+					<div class="recon-inline-card">
+						<div class="recon-inline-card-header">
+							<span>{editingReconIndex !== null ? ($currentLocale === 'ar' ? 'تعديل التسوية' : 'Edit Reconciliation') : ($currentLocale === 'ar' ? 'إضافة تسوية' : 'Add Reconciliation')}</span>
+						</div>
+						<div class="recon-inline-card-body" style="display: flex; flex-direction: column; gap: 12px;">
+							<div class="bank-fields-row" style="flex-wrap: wrap;">
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'التاريخ' : 'Date'}</label>
+									<input type="date" bind:value={reconForm.recon_date} class="bank-input" />
+								</div>
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'الوقت' : 'Time'}</label>
+									<input type="time" step="1" bind:value={reconForm.recon_time} class="bank-input" />
+								</div>
+							</div>
+							<div class="bank-fields-row" style="flex-wrap: wrap;">
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'رقم الجهاز' : 'Terminal ID'}</label>
+									<input type="text" bind:value={reconForm.terminal_id} class="bank-input" placeholder={$currentLocale === 'ar' ? 'أدخل رقم الجهاز' : 'Enter terminal ID'} />
+								</div>
+							</div>
+							<div class="bank-fields-row" style="flex-wrap: wrap;">
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'رقم مطابقة الكشف' : 'Statement match number'}</label>
+									<input type="text" bind:value={reconForm.statement_match_number} class="bank-input" placeholder={$currentLocale === 'ar' ? 'أدخل رقم المطابقة' : 'Enter statement match number'} />
+								</div>
+							</div>
+							<div class="bank-fields-row" style="flex-wrap: wrap;">
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
+									<input type="text" inputmode="decimal" bind:value={reconForm.mada} class="bank-input" placeholder="0.00" />
+								</div>
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
+									<input type="text" inputmode="decimal" bind:value={reconForm.visa} class="bank-input" placeholder="0.00" />
+								</div>
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
+									<input type="text" inputmode="decimal" bind:value={reconForm.mastercard} class="bank-input" placeholder="0.00" />
+								</div>
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
+									<input type="text" inputmode="decimal" bind:value={reconForm.google_pay} class="bank-input" placeholder="0.00" />
+								</div>
+								<div class="bank-input-group">
+									<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
+									<input type="text" inputmode="decimal" bind:value={reconForm.other} class="bank-input" placeholder="0.00" />
+								</div>
+							</div>
+							<div class="bank-total" style="margin-top: 4px;">
+								<span class="label">{$currentLocale === 'ar' ? 'المجموع:' : 'Total:'}</span>
+								<div class="amount">
+									<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+									<span>{addMoney(reconForm.mada, reconForm.visa, reconForm.mastercard, reconForm.google_pay, reconForm.other).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+								</div>
+							</div>
+						</div>
+						<div class="recon-inline-card-actions" style="display: flex; gap: 8px; justify-content: flex-end;">
+							<button class="btn-close-erp" on:click={saveRecon} style="background: #2563eb; color: white;">
+								{$currentLocale === 'ar' ? 'حفظ' : 'Save'}
+							</button>
+							<button class="btn-close-erp" on:click={closeReconPopup}>
+								{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
+							</button>
+						</div>
+					</div>
+				{/if}
 
 				<!-- Reconciliations list -->
 				{#if reconciliations.length > 0}
@@ -1792,7 +2094,7 @@
 										style="background: none; border: none; color: #2563eb; cursor: pointer; text-decoration: underline; font-size: 13px; font-weight: 700; padding: 0;"
 										on:click={() => openReconPopup(index)}
 									>
-										{recon.reconciliation_number || `#${index + 1}`}
+										{recon.terminal_id || `#${index + 1}`}
 									</button>
 									<button class="remove-btn" on:click={() => removeRecon(index)}>×</button>
 								</div>
@@ -2084,7 +2386,6 @@
 					</div>
 					{/if}
 
-					{#if checkbox3}
 					<div class="sub-card">
 						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #166534; letter-spacing: 0.5px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #86efac; padding-bottom: 0.1rem;">
 							{$currentLocale === 'ar' ? 'مبيعات ERP' : 'ERP SALES'}
@@ -2150,7 +2451,6 @@
 							</button>
 						</div>
 					</div>
-					{/if}
 
 					{#if !hasOpeningDetails}
 					<div class="sub-card">
@@ -2742,61 +3042,6 @@
 						</div>
 					</div>
 				{/if}
-			</div>
-		</div>
-	</div>
-{/if}
-
-{#if showReconPopup}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="erp-popup-overlay" on:click={closeReconPopup} on:keydown={(e) => { if (e.key === 'Escape') closeReconPopup(); }}>
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="erp-popup-modal recon-popup-modal" on:click|stopPropagation style="max-width: 640px;">
-			<div class="erp-popup-header">
-				<h3>{editingReconIndex !== null ? ($currentLocale === 'ar' ? 'تعديل التسوية' : 'Edit Reconciliation') : ($currentLocale === 'ar' ? 'إضافة تسوية' : 'Add Reconciliation')}</h3>
-			</div>
-			<div class="erp-popup-content" style="display: flex; flex-direction: column; gap: 18px;">
-				<div class="bank-input-group">
-					<label>{$currentLocale === 'ar' ? 'رقم التسوية' : 'Reconciliation #'}</label>
-					<input type="text" bind:value={reconForm.reconciliation_number} class="bank-input" placeholder={$currentLocale === 'ar' ? 'أدخل رقم التسوية' : 'Enter reconciliation number'} />
-				</div>
-				<div class="bank-fields-row" style="flex-wrap: wrap;">
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
-						<input type="text" inputmode="decimal" bind:value={reconForm.mada} class="bank-input" placeholder="0.00" />
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
-						<input type="text" inputmode="decimal" bind:value={reconForm.visa} class="bank-input" placeholder="0.00" />
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
-						<input type="text" inputmode="decimal" bind:value={reconForm.mastercard} class="bank-input" placeholder="0.00" />
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
-						<input type="text" inputmode="decimal" bind:value={reconForm.google_pay} class="bank-input" placeholder="0.00" />
-					</div>
-					<div class="bank-input-group">
-						<label>{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
-						<input type="text" inputmode="decimal" bind:value={reconForm.other} class="bank-input" placeholder="0.00" />
-					</div>
-				</div>
-				<div class="bank-total" style="margin-top: 4px;">
-					<span class="label">{$currentLocale === 'ar' ? 'المجموع:' : 'Total:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{addMoney(reconForm.mada, reconForm.visa, reconForm.mastercard, reconForm.google_pay, reconForm.other).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-			</div>
-			<div class="erp-popup-actions" style="display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px;">
-				<button class="btn-close-erp" on:click={saveRecon} style="background: #2563eb; color: white;">
-					{$currentLocale === 'ar' ? 'حفظ' : 'Save'}
-				</button>
-				<button class="btn-close-erp" on:click={closeReconPopup}>
-					{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
-				</button>
 			</div>
 		</div>
 	</div>
@@ -5127,6 +5372,74 @@
 		border: 1px solid #e2e8f0;
 		border-radius: 8px;
 		overflow: hidden;
+	}
+
+	.recon-inline-card {
+		background: #fff7ed;
+		border: 1px solid #fdba74;
+		border-radius: 8px;
+		padding: 10px;
+		margin-bottom: 10px;
+	}
+
+	.recon-inline-card-header {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: #c2410c;
+		margin-bottom: 10px;
+	}
+
+	.btn-scan-request {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 0.65rem;
+		font-weight: 700;
+		color: #fff;
+		background: #7c3aed;
+		border: none;
+		border-radius: 6px;
+		padding: 4px 8px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.btn-scan-request:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.scan-requests-pending {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-bottom: 10px;
+	}
+
+	.scan-request-pending-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #7c3aed;
+		background: #f5f3ff;
+		border: 1px solid #ddd6fe;
+		border-radius: 6px;
+		padding: 6px 10px;
+	}
+
+	.scan-request-spinner {
+		width: 12px;
+		height: 12px;
+		border: 2px solid #ddd6fe;
+		border-top-color: #7c3aed;
+		border-radius: 50%;
+		animation: scan-request-spin 0.8s linear infinite;
+	}
+
+	@keyframes scan-request-spin {
+		to { transform: rotate(360deg); }
 	}
 
 	.recon-card-header {

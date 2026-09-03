@@ -701,6 +701,7 @@
 		if (path === '/mobile-interface/vendor-payments' || path === '/mobile-interface/vendor-payments/') return locale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments';
 		if (path === '/mobile-interface/planner' || path === '/mobile-interface/planner/') return locale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner';
 		if (path === '/mobile-interface/follow-ups' || path === '/mobile-interface/follow-ups/') return locale === 'ar' ? 'المتابعات' : 'Follow-Ups';
+		if (path === '/mobile-interface/scan-request' || path === '/mobile-interface/scan-request/') return locale === 'ar' ? 'طلبات المسح' : 'Scan Requests';
 		
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
