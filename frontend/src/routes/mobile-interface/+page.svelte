@@ -18,7 +18,8 @@
 		pendingToClose: 0,
 		closedBoxes: 0,
 		inUseBoxes: 0,
-		pendingChecklists: 0
+		pendingChecklists: 0,
+		scanRequests: 0
 	};
 	let hasAssignedChecklists = false;
 	let expiringProductsCount = 0;
@@ -185,6 +186,8 @@
 		if (currentUserData) {
 			// Load dashboard data from Go backend (combines tasks + punches)
 			await loadDashboardData();
+			await loadScanRequestCount();
+			setupScanRequestCountRealtime();
 		}
 		isLoading = false;
 		
@@ -201,6 +204,7 @@
 				console.log('🔌 Cleaning up fingerprint realtime subscription');
 				unsubscribeFingerprint();
 			}
+			if (scanRequestCountChannel) supabase.removeChannel(scanRequestCountChannel);
 		};
 	});
 	
@@ -208,7 +212,42 @@
 		if (unsubscribeFingerprint) {
 			unsubscribeFingerprint();
 		}
+		if (scanRequestCountChannel) supabase.removeChannel(scanRequestCountChannel);
 	});
+	
+	let scanRequestCountChannel: ReturnType<typeof supabase.channel> | null = null;
+
+	async function loadScanRequestCount() {
+		const userId = currentUserData?.id;
+		if (!userId) return;
+		try {
+			const { count, error } = await supabase
+				.from('pos_scan_requests')
+				.select('id', { count: 'exact', head: true })
+				.eq('requested_by', userId)
+				.eq('status', 'pending');
+			if (error) throw error;
+			stats.scanRequests = count || 0;
+		} catch (e) {
+			console.error('Error loading scan request count:', e);
+		}
+	}
+
+	function setupScanRequestCountRealtime() {
+		const userId = currentUserData?.id;
+		if (!userId) return;
+		scanRequestCountChannel = supabase
+			.channel(`mobile-home-scan-requests-${userId}`)
+			.on('postgres_changes', {
+				event: '*',
+				schema: 'public',
+				table: 'pos_scan_requests',
+				filter: `requested_by=eq.${userId}`
+			}, () => {
+				loadScanRequestCount();
+			})
+			.subscribe();
+	}
 	
 
 
@@ -611,6 +650,9 @@
 						<path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/>
 						<line x1="4" y1="12" x2="20" y2="12"/>
 					</svg>
+					{#if stats.scanRequests > 0}
+						<span class="count-badge">{stats.scanRequests}</span>
+					{/if}
 				</div>
 				<div class="stat-info">
 					<p>{$localeData.code === 'ar' ? 'طلب مسح' : 'Scan Request'}</p>
@@ -1079,6 +1121,23 @@
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
+		position: relative;
+	}
+	.count-badge {
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 4px;
+		border-radius: 9px;
+		background: #ef4444;
+		color: #fff;
+		font-size: 0.65rem;
+		font-weight: 700;
+		line-height: 18px;
+		text-align: center;
+		box-shadow: 0 0 0 2px #fff;
 	}
 	.stat-card.date-time .stat-icon {
 		background: rgba(139, 92, 246, 0.1);

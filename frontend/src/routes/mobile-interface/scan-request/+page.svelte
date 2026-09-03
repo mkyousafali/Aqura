@@ -30,6 +30,11 @@
 	let photoDataUrl: string | null = null;
 	let saving = false;
 
+	// When set, the next camera/gallery capture fills just this one amount field (Mada/Visa/
+	// MasterCard/Google Pay/Other) instead of the main Date/Time/Terminal ID/Statement scan.
+	let activeAmountField: string | null = null;
+	let amountFieldExtracting: string | null = null;
+
 	let form = {
 		date: '',
 		time: '',
@@ -137,6 +142,8 @@
 		errorMessage = '';
 		cameraError = '';
 		photoDataUrl = null;
+		activeAmountField = null;
+		amountFieldExtracting = null;
 		form = { date: '', time: '', terminal_id: '', statement_match_number: '', mada: '', visa: '', mastercard: '', google_pay: '', other: '' };
 		startCamera();
 	}
@@ -145,6 +152,7 @@
 		stopCamera();
 		activeRequestId = null;
 		photoDataUrl = null;
+		activeAmountField = null;
 	}
 
 	function capturePhoto() {
@@ -155,15 +163,22 @@
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		ctx.drawImage(videoEl, 0, 0);
-		photoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+		const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 		stopCamera();
-		extractFromPhoto();
+		if (activeAmountField) {
+			const field = activeAmountField;
+			activeAmountField = null;
+			extractAmountForField(field, dataUrl);
+		} else {
+			photoDataUrl = dataUrl;
+			extractFromPhoto();
+		}
 	}
 
 	// Alternative to the live camera above — lets the user pick an existing photo of the slip
 	// instead of taking a new one. Plain file picker (no capture attribute), so it doesn't hand
 	// off to the OS camera app the way <input capture="environment"> did.
-	function openGalleryPicker() {
+	function triggerGalleryInput() {
 		stopCamera();
 		cameraError = '';
 		errorMessage = '';
@@ -173,23 +188,57 @@
 		}
 	}
 
+	function openGalleryPicker() {
+		activeAmountField = null;
+		triggerGalleryInput();
+	}
+
+	// Camera/gallery buttons next to each payment amount field (Mada, Visa, MasterCard, Google
+	// Pay, Other) — same capture flow as the main slip scan, but only the closing/TOTALS amount
+	// is extracted and it fills just that one field, once the main Date/Time/Terminal ID/
+	// Statement match number scan has already been done.
+	function openAmountCamera(field: string) {
+		activeAmountField = field;
+		errorMessage = '';
+		startCamera();
+	}
+
+	function openAmountGallery(field: string) {
+		activeAmountField = field;
+		triggerGalleryInput();
+	}
+
+	function cancelAmountCapture() {
+		stopCamera();
+		activeAmountField = null;
+	}
+
 	async function handleGallerySelected(event: Event) {
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file || !activeRequestId) return;
 
 		errorMessage = '';
+		let dataUrl: string;
 		try {
-			photoDataUrl = await compressImage(file);
+			dataUrl = await compressImage(file);
 		} catch (e) {
 			const reader = new FileReader();
-			photoDataUrl = await new Promise<string>((resolve, reject) => {
+			dataUrl = await new Promise<string>((resolve, reject) => {
 				reader.onload = (ev) => resolve(ev.target?.result as string);
 				reader.onerror = reject;
 				reader.readAsDataURL(file);
 			});
 		}
-		await extractFromPhoto();
+
+		if (activeAmountField) {
+			const field = activeAmountField;
+			activeAmountField = null;
+			await extractAmountForField(field, dataUrl);
+		} else {
+			photoDataUrl = dataUrl;
+			await extractFromPhoto();
+		}
 	}
 
 	async function extractFromPhoto() {
@@ -220,6 +269,33 @@
 				: 'Could not auto-extract data — you can fill it in manually';
 		} finally {
 			extracting = false;
+		}
+	}
+
+	async function extractAmountForField(field: string, dataUrl: string) {
+		amountFieldExtracting = field;
+		errorMessage = '';
+		try {
+			const base64 = dataUrl.split(',')[1];
+			const mimeMatch = dataUrl.match(/^data:([^;]+);/);
+			const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+
+			const res = await fetch('/api/scan-request-extract', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ imageBase64: base64, mimeType, mode: 'amount' })
+			});
+			const data = await res.json();
+			if (!res.ok || data.error) throw new Error(data.error || 'Extraction failed');
+
+			(form as any)[field] = data.amount || '';
+		} catch (e) {
+			console.error('Error extracting amount:', e);
+			errorMessage = $currentLocale === 'ar'
+				? 'تعذر استخراج المبلغ تلقائيًا، يمكنك تعبئته يدويًا'
+				: 'Could not auto-extract the amount — you can fill it in manually';
+		} finally {
+			amountFieldExtracting = null;
 		}
 	}
 
@@ -330,22 +406,32 @@
 			<h2>{$currentLocale === 'ar' ? 'مسح التسوية' : 'Scan Reconciliation'}</h2>
 		</div>
 
-		{#if !photoDataUrl && scanning}
+		{#if scanning}
 			<div class="camera-wrap">
 				<video bind:this={videoEl} playsinline autoplay muted class="camera-video"></video>
 				<button class="capture-btn" on:click={capturePhoto} aria-label="Capture">
 					<span class="capture-btn-ring"></span>
 				</button>
 			</div>
-			<button class="gallery-btn" on:click={openGalleryPicker}>
+			<button class="gallery-btn" on:click={triggerGalleryInput}>
 				{$currentLocale === 'ar' ? 'اختيار من المعرض' : 'Choose from Gallery'}
 			</button>
-		{:else if !photoDataUrl && cameraError}
+			{#if activeAmountField}
+				<button class="gallery-btn" on:click={cancelAmountCapture}>
+					{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
+				</button>
+			{/if}
+		{:else if cameraError}
 			<div class="error-banner">{cameraError}</div>
 			<button class="retake-btn" on:click={startCamera}>{$currentLocale === 'ar' ? 'إعادة المحاولة' : 'Try again'}</button>
-			<button class="gallery-btn" on:click={openGalleryPicker}>
+			<button class="gallery-btn" on:click={triggerGalleryInput}>
 				{$currentLocale === 'ar' ? 'اختيار من المعرض' : 'Choose from Gallery'}
 			</button>
+			{#if activeAmountField}
+				<button class="gallery-btn" on:click={cancelAmountCapture}>
+					{$currentLocale === 'ar' ? 'إلغاء' : 'Cancel'}
+				</button>
+			{/if}
 		{:else if !photoDataUrl}
 			<div class="empty-state">{$currentLocale === 'ar' ? 'جاري فتح الكاميرا...' : 'Opening camera...'}</div>
 		{:else if photoDataUrl}
@@ -386,26 +472,51 @@
 					<div class="form-row">
 						<div class="form-group">
 							<label for="sr-mada">{$currentLocale === 'ar' ? 'مدى' : 'Mada'}</label>
-							<input id="sr-mada" type="text" inputmode="decimal" bind:value={form.mada} placeholder="0.00" class="form-input" />
+							<div class="amount-input-row">
+								<input id="sr-mada" type="text" inputmode="decimal" bind:value={form.mada} placeholder="0.00" class="form-input" />
+								<button type="button" class="icon-btn" on:click={() => openAmountCamera('mada')} title="Camera" aria-label="Camera">📷</button>
+								<button type="button" class="icon-btn" on:click={() => openAmountGallery('mada')} title="Gallery" aria-label="Gallery">🖼️</button>
+							</div>
+							{#if amountFieldExtracting === 'mada'}<span class="field-extracting">{$currentLocale === 'ar' ? 'جاري الاستخراج...' : 'Extracting...'}</span>{/if}
 						</div>
 						<div class="form-group">
 							<label for="sr-visa">{$currentLocale === 'ar' ? 'فيزا' : 'Visa'}</label>
-							<input id="sr-visa" type="text" inputmode="decimal" bind:value={form.visa} placeholder="0.00" class="form-input" />
+							<div class="amount-input-row">
+								<input id="sr-visa" type="text" inputmode="decimal" bind:value={form.visa} placeholder="0.00" class="form-input" />
+								<button type="button" class="icon-btn" on:click={() => openAmountCamera('visa')} title="Camera" aria-label="Camera">📷</button>
+								<button type="button" class="icon-btn" on:click={() => openAmountGallery('visa')} title="Gallery" aria-label="Gallery">🖼️</button>
+							</div>
+							{#if amountFieldExtracting === 'visa'}<span class="field-extracting">{$currentLocale === 'ar' ? 'جاري الاستخراج...' : 'Extracting...'}</span>{/if}
 						</div>
 					</div>
 					<div class="form-row">
 						<div class="form-group">
 							<label for="sr-mc">{$currentLocale === 'ar' ? 'ماستر كارد' : 'MasterCard'}</label>
-							<input id="sr-mc" type="text" inputmode="decimal" bind:value={form.mastercard} placeholder="0.00" class="form-input" />
+							<div class="amount-input-row">
+								<input id="sr-mc" type="text" inputmode="decimal" bind:value={form.mastercard} placeholder="0.00" class="form-input" />
+								<button type="button" class="icon-btn" on:click={() => openAmountCamera('mastercard')} title="Camera" aria-label="Camera">📷</button>
+								<button type="button" class="icon-btn" on:click={() => openAmountGallery('mastercard')} title="Gallery" aria-label="Gallery">🖼️</button>
+							</div>
+							{#if amountFieldExtracting === 'mastercard'}<span class="field-extracting">{$currentLocale === 'ar' ? 'جاري الاستخراج...' : 'Extracting...'}</span>{/if}
 						</div>
 						<div class="form-group">
 							<label for="sr-gpay">{$currentLocale === 'ar' ? 'جوجل باي' : 'Google Pay'}</label>
-							<input id="sr-gpay" type="text" inputmode="decimal" bind:value={form.google_pay} placeholder="0.00" class="form-input" />
+							<div class="amount-input-row">
+								<input id="sr-gpay" type="text" inputmode="decimal" bind:value={form.google_pay} placeholder="0.00" class="form-input" />
+								<button type="button" class="icon-btn" on:click={() => openAmountCamera('google_pay')} title="Camera" aria-label="Camera">📷</button>
+								<button type="button" class="icon-btn" on:click={() => openAmountGallery('google_pay')} title="Gallery" aria-label="Gallery">🖼️</button>
+							</div>
+							{#if amountFieldExtracting === 'google_pay'}<span class="field-extracting">{$currentLocale === 'ar' ? 'جاري الاستخراج...' : 'Extracting...'}</span>{/if}
 						</div>
 					</div>
 					<div class="form-group">
 						<label for="sr-other">{$currentLocale === 'ar' ? 'أخرى' : 'Other'}</label>
-						<input id="sr-other" type="text" inputmode="decimal" bind:value={form.other} placeholder="0.00" class="form-input" />
+						<div class="amount-input-row">
+							<input id="sr-other" type="text" inputmode="decimal" bind:value={form.other} placeholder="0.00" class="form-input" />
+							<button type="button" class="icon-btn" on:click={() => openAmountCamera('other')} title="Camera" aria-label="Camera">📷</button>
+							<button type="button" class="icon-btn" on:click={() => openAmountGallery('other')} title="Gallery" aria-label="Gallery">🖼️</button>
+						</div>
+						{#if amountFieldExtracting === 'other'}<span class="field-extracting">{$currentLocale === 'ar' ? 'جاري الاستخراج...' : 'Extracting...'}</span>{/if}
 					</div>
 
 					<div class="total-row">
@@ -623,6 +734,38 @@
 		border-radius: 8px;
 		padding: 8px 10px;
 		font-size: 0.9rem;
+	}
+
+	.amount-input-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.amount-input-row .form-input {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.icon-btn {
+		flex-shrink: 0;
+		width: 34px;
+		height: 34px;
+		border-radius: 8px;
+		border: 1px solid #d1d5db;
+		background: #f9fafb;
+		font-size: 1rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		padding: 0;
+	}
+
+	.field-extracting {
+		font-size: 0.7rem;
+		color: #6b7280;
+		font-style: italic;
 	}
 
 	.total-row {

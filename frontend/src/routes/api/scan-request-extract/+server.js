@@ -7,6 +7,11 @@ import { env } from '$env/dynamic/private';
 // Statement/Batch match number — nothing else. The mobile UI shows these as
 // editable fields; nothing is written to the database here.
 //
+// Also supports mode: 'amount' — a second, per-payment-method pass (Mada,
+// Visa, MasterCard, Google Pay, Other) where the mobile user photographs just
+// that network's closing/TOTALS section and only the final amount is
+// extracted, to auto-fill that one field.
+//
 // Reuses the same system_api_keys ('google_gemini') lookup and inlineData
 // image request shape as /api/check-original-bill.
 
@@ -38,10 +43,14 @@ export async function POST({ request }) {
     }
 
     const body = await request.json();
-    const { imageBase64, mimeType } = body;
+    const { imageBase64, mimeType, mode } = body;
 
     if (!imageBase64) {
       return json({ error: "No image provided" }, { status: 400 });
+    }
+
+    if (mode === 'amount') {
+      return await extractAmount(GEMINI_KEY, imageBase64, mimeType);
     }
 
     const prompt = `You are extracting information from a photo of a card payment terminal (mada/POS) reconciliation/settlement slip. These slips have a well-known layout near the top:
@@ -127,6 +136,70 @@ If a field cannot be found, return an empty string for that field. Do not guess 
     console.error("Error extracting scan request data:", error);
     return json(
       { error: error instanceof Error ? error.message : "Failed to extract scan data" },
+      { status: 500 }
+    );
+  }
+}
+
+async function extractAmount(GEMINI_KEY, imageBase64, mimeType) {
+  try {
+    const prompt = `You are extracting a single amount from a photo of a card payment terminal (mada/POS/GCCNET/etc.) closing/settlement slip section (e.g. a "TOTALS" row, or a "P/ON" purchase total row, shown in SAR). Find the final total amount for this payment network on the slip and return just the plain numeric value (e.g. "639.02"), with no currency symbol, no commas, no letters. If several totals are shown, use the one on the "TOTALS" row (or the "P/ON"/purchase row if there is no separate TOTALS row). If it cannot be found, return an empty string.`;
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: mimeType || 'image/jpeg', data: imageBase64 } }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 200,
+            thinkingConfig: { thinkingBudget: 0 },
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: { amount: { type: 'STRING' } },
+              required: ['amount']
+            }
+          }
+        })
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
+    }
+
+    const geminiData = await geminiRes.json();
+    const candidate = geminiData.candidates?.[0];
+    const rawText = candidate?.content?.parts?.[0]?.text || '';
+
+    if (!rawText.trim()) {
+      console.error('Empty Gemini response (amount mode). finishReason:', candidate?.finishReason);
+      throw new Error(`AI returned an empty response (finishReason: ${candidate?.finishReason || 'unknown'})`);
+    }
+
+    let extracted;
+    try {
+      extracted = JSON.parse(rawText);
+    } catch (e) {
+      console.error('Failed to parse Gemini JSON response (amount mode):', rawText);
+      throw new Error('AI response was not valid JSON');
+    }
+
+    return json({ success: true, amount: (extracted.amount || '').replace(/[^0-9.]/g, '') });
+  } catch (error) {
+    console.error("Error extracting amount:", error);
+    return json(
+      { error: error instanceof Error ? error.message : "Failed to extract amount" },
       { status: 500 }
     );
   }
