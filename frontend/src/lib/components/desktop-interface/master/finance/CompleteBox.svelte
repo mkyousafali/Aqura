@@ -1222,6 +1222,18 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let generatedEntries: any = null;
 	let generateEntriesError: string = '';
 
+	// Load previously-generated entries from box_operations.ai_generated_entries as soon as the
+	// operation carries them, so reopening CompleteBox shows the saved result instead of requiring
+	// a fresh (billed) Gemini call. Guarded so it only seeds once — generatePosEntries() below is
+	// the only thing allowed to replace generatedEntries after that.
+	let hasLoadedSavedEntries = false;
+	$: if (!hasLoadedSavedEntries && operation?.ai_generated_entries) {
+		hasLoadedSavedEntries = true;
+		generatedEntries = typeof operation.ai_generated_entries === 'string'
+			? JSON.parse(operation.ai_generated_entries)
+			: operation.ai_generated_entries;
+	}
+
 	async function generatePosEntries() {
 		isGeneratingEntries = true;
 		generateEntriesError = '';
@@ -1277,6 +1289,22 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			}
 
 			generatedEntries = data.result;
+			hasLoadedSavedEntries = true; // this result is now the source of truth, not a load-from-DB
+
+			// Persist so reopening this window (or a later Regenerate) has something to load from
+			// instead of only living in this component's memory. Overwrites any prior result —
+			// this same call handles both the first Generate and every subsequent Regenerate.
+			if (operation?.id) {
+				const { error: saveError } = await supabase
+					.from('box_operations')
+					.update({ ai_generated_entries: data.result })
+					.eq('id', operation.id);
+				if (saveError) {
+					console.error('Error saving AI-generated entries:', saveError);
+				} else {
+					operation = { ...operation, ai_generated_entries: data.result };
+				}
+			}
 		} catch (error: any) {
 			console.error('Error generating POS entries:', error);
 			generateEntriesError = error?.message || 'Failed to generate entries';
@@ -1289,6 +1317,30 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	// salary is being deducted, without depending on Gemini to format the name consistently.
 	function accountLabel(name: string): string {
 		return name === 'Employee Salary Account' ? `${cashierName || 'Cashier'}'s Salary Account` : name;
+	}
+
+	// Per-entry posting status — a plain checkbox on each generated entry card marking whether it's
+	// been posted to ERP yet. Toggling it patches that one entry's `posted` flag inside the same
+	// generatedEntries object and saves the whole thing straight back to ai_generated_entries,
+	// same column/save path generatePosEntries() already writes to.
+	async function toggleEntryPosted(index: number) {
+		if (!generatedEntries?.entries?.[index]) return;
+		const updatedEntries = generatedEntries.entries.map((e: any, i: number) =>
+			i === index ? { ...e, posted: !e.posted } : e
+		);
+		generatedEntries = { ...generatedEntries, entries: updatedEntries };
+
+		if (operation?.id) {
+			const { error } = await supabase
+				.from('box_operations')
+				.update({ ai_generated_entries: generatedEntries })
+				.eq('id', operation.id);
+			if (error) {
+				console.error('Error saving entry posted status:', error);
+			} else {
+				operation = { ...operation, ai_generated_entries: generatedEntries };
+			}
+		}
 	}
 
 	let copiedEntryIndex: number | null = null;
@@ -3424,6 +3476,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			>
 				{#if isGeneratingEntries}
 					⏳ {$currentLocale === 'ar' ? 'جارٍ التوليد...' : 'Generating...'}
+				{:else if generatedEntries}
+					🔄 {$currentLocale === 'ar' ? 'إعادة التوليد' : 'Regenerate'}
 				{:else}
 					🤖 {$currentLocale === 'ar' ? 'توليد القيود' : 'Generate Entries'}
 				{/if}
@@ -3440,15 +3494,23 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 1rem; width: 100%; gap: 0.75rem;">
 				<div style="font-weight: 700; color: #3730a3; width: 100%; font-size: 1rem;">🤖 AI-Generated Entry to Pass</div>
 				{#each generatedEntries.entries || [] as entry, i}
-					<div style="padding: 0.85rem; background: white; border: 2px solid #c7d2fe; border-radius: 8px; box-shadow: 0 2px 6px rgba(67, 56, 202, 0.12); width: 100%; font-size: 0.85rem;">
+					<div style="padding: 0.85rem; background: {entry.posted ? '#f0fdf4' : 'white'}; border: 2px solid {entry.posted ? '#16a34a' : '#c7d2fe'}; border-radius: 8px; box-shadow: 0 2px 6px rgba(67, 56, 202, 0.12); width: 100%; font-size: 0.85rem;">
 						<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem;">
 							<div style="color: #3730a3; font-weight: 700; font-size: 0.95rem;">{#if entry.form_name}<span style="background:#4338ca; color:white; border-radius:4px; padding:0.15rem 0.5rem; margin-right:0.5rem; font-size:0.8rem; font-weight:700;">{entry.form_name}</span>{/if}{entry.description}</div>
-							<button
-								style="background: #eef2ff; border: 1px solid #a5b4fc; border-radius: 5px; color: #4338ca; font-size: 0.8rem; font-weight: 600; padding: 0.3rem 0.7rem; cursor: pointer; white-space: nowrap;"
-								on:click={() => copyEntryText(entry, i)}
-							>
-								{copiedEntryIndex === i ? '✅ Copied' : '📋 Copy'}
-							</button>
+							<div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+								<label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; font-weight: 700; color: {entry.posted ? '#15803d' : '#6b7280'}; cursor: pointer; white-space: nowrap;">
+									<input type="checkbox" checked={!!entry.posted} on:change={() => toggleEntryPosted(i)} />
+									{entry.posted
+										? ($currentLocale === 'ar' ? '✓ تم الترحيل' : '✓ Posted')
+										: ($currentLocale === 'ar' ? 'تم الترحيل؟' : 'Posted?')}
+								</label>
+								<button
+									style="background: #eef2ff; border: 1px solid #a5b4fc; border-radius: 5px; color: #4338ca; font-size: 0.8rem; font-weight: 600; padding: 0.3rem 0.7rem; cursor: pointer; white-space: nowrap;"
+									on:click={() => copyEntryText(entry, i)}
+								>
+									{copiedEntryIndex === i ? '✅ Copied' : '📋 Copy'}
+								</button>
+							</div>
 						</div>
 						<div style="margin-bottom: 0.25rem;"><strong>Dr {accountLabel(entry.debit_account)}:</strong> {Number(entry.debit_amount).toFixed(2)}</div>
 						<div><strong>Cr {accountLabel(entry.credit_account)}:</strong> {Number(entry.credit_amount).toFixed(2)}</div>
