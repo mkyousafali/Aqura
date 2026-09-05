@@ -60,7 +60,7 @@ async function toImageBlob(urlOrDataUrl) {
   return new Blob([arrayBuffer], { type: contentType });
 }
 
-function buildPrompt({ offerDescriptionAr, colorTheme, cardCount, cardPositions, canvasWidth, canvasHeight }) {
+function buildPrompt({ offerDescriptionAr, colorTheme, cardCount, cardPositions, canvasWidth, canvasHeight, hasTemplateReference }) {
   const hasPositions = Array.isArray(cardPositions) && cardPositions.length === cardCount;
   const positionsList = hasPositions
     ? cardPositions
@@ -75,23 +75,34 @@ ${positionsList}
 Reproduce a blank card at each of these exact bounding boxes — matching left/top/width/height/length to the pixel, in the same order — layered on top of the new background/header art. The card's border must sit exactly on the given box (do not add outer padding/margin that shrinks or shifts the effective box). Do not add, remove, merge, resize, or reposition any card, and do not invent extra cards beyond this list.`
     : `Include exactly ${cardCount} product card placeholders, matching the fixed card height established in the reference image. Columns/card width may adjust to fit ${cardCount} cards, but card height must stay fixed.`;
 
+  const referenceIntro = hasTemplateReference
+    ? `Two reference images are attached:
+1. "template-reference" — the PRIMARY structural reference. Study its header structure, logo position, offer-title position, product-card style, spacing, margins, footer, and overall proportions.
+2. "brand-logo" — the exact brand logo. Use it exactly as provided: never redraw, recreate, recolor, restyle, distort, stretch, imitate, or crop important parts of it.`
+    : `One reference image is attached: "brand-logo" — the exact brand logo. Use it exactly as provided: never redraw, recreate, recolor, restyle, distort, stretch, imitate, or crop important parts of it.
+
+There is no existing template image to copy from — this is a brand-new template. Design an original A4 promotional flyer background from scratch, following standard retail-flyer conventions: decorative header/occasion artwork across the top, a clean grid of blank product cards in the middle, and a thin footer strip at the bottom.`;
+
+  const structureLine = hasTemplateReference
+    ? `Generate a new A4 Portrait flyer background (print-suitable proportions, matching the reference's aspect ratio) that follows the structural logic of the template reference, but with fresh header artwork, background, typography, lighting, and decorations suited to a "${colorTheme}" color theme.`
+    : `Generate a new A4 Portrait flyer background (${canvasWidth}×${canvasHeight}px proportions, print-suitable) with header artwork, background, typography, lighting, and decorations suited to a "${colorTheme}" color theme.`;
+
   return `You are generating a fresh background/header design for a promotional flyer template.
 
-Two reference images are attached:
-1. "template-reference" — the PRIMARY structural reference. Study its header structure, logo position, offer-title position, product-card style, spacing, margins, footer, and overall proportions.
-2. "brand-logo" — the exact brand logo. Use it exactly as provided: never redraw, recreate, recolor, restyle, distort, stretch, imitate, or crop important parts of it.
+${referenceIntro}
 
 This template's description (in Arabic) is: "${offerDescriptionAr}"
 Read it and determine which offer/occasion it refers to, then compose a short, accurate Arabic offer-title text from it to use as the flyer's headline. Do not invent an unrelated offer, and do not add random Arabic phrases that aren't supported by this description.
 
-Generate a new A4 Portrait flyer background (print-suitable proportions, matching the reference's aspect ratio) that follows the structural logic of the template reference, but with fresh header artwork, background, typography, lighting, and decorations suited to a "${colorTheme}" color theme.
+${structureLine}
 
 Strict requirements:
 - ${layoutSection}
 - Cards are BLANK placeholders only: clean blank interior, thin visible border, rounded corners where suitable, enough room for later product insertion. Never add product images, product names, prices, price strips, price boxes, currency symbols, or extra information inside the cards.
-- Keep the composed Arabic offer-title text accurate and legible; creative typography is fine as long as the wording stays true to the description.
-- Do not add a date section, branch names/addresses/location info, or a secondary logo unless the reference image already includes one that must be preserved.
+- Render the composed Arabic offer-title text as bold 3D typography — extruded/dimensional lettering with depth, shading, and a highlight, not flat 2D text. This 3D treatment is mandatory for every generation, not optional. Keep it accurate and legible; creative styling is fine as long as the wording stays true to the description.
+- Include one blank date-field placeholder in the footer strip (a plain empty box/bar with a thin border, no text or numbers pre-filled in it — it will be filled in later). Do not put any other text, labels, slogans, or decorative wording anywhere in the footer strip besides this blank date placeholder. Do not add branch names/addresses/location info, or a secondary logo unless the reference image already includes one that must be preserved.
 - Keep the product-card area clean and ready for later editing; never let decorations overlap the product cards.
+- Pick up at least one of the brand logo's own colors and use it somewhere in the background/header design (an accent, a gradient stop, a border, a decorative shape, etc.) so the flyer visibly ties back to the brand — every generation must do this, not just when it happens to suit the theme. Do this without altering the logo image itself.
 - The header should creatively represent the offer/occasion implied by the description, using suitable scene elements, seasonal graphics, cultural motifs, or decorative artwork, without interfering with the product-card area.`;
 }
 
@@ -107,9 +118,6 @@ export async function POST({ request }) {
       canvasHeight
     } = await request.json();
 
-    if (!templateImageUrl) {
-      return json({ error: 'Missing template reference image' }, { status: 400 });
-    }
     if (!offerDescriptionAr || !offerDescriptionAr.trim()) {
       return json({ error: 'Arabic offer name/description is required (fill in the template Description field)' }, { status: 400 });
     }
@@ -136,7 +144,7 @@ export async function POST({ request }) {
     }
 
     const [templateBlob, logoBlob] = await Promise.all([
-      toImageBlob(templateImageUrl),
+      templateImageUrl ? toImageBlob(templateImageUrl) : Promise.resolve(null),
       toImageBlob(logoUrl)
     ]);
 
@@ -146,12 +154,13 @@ export async function POST({ request }) {
       cardCount,
       cardPositions,
       canvasWidth: canvasWidth || 794,
-      canvasHeight: canvasHeight || 1123
+      canvasHeight: canvasHeight || 1123,
+      hasTemplateReference: !!templateBlob
     });
 
     const form = new FormData();
     form.append('model', 'gpt-image-2');
-    form.append('image[]', templateBlob, 'template-reference.png');
+    if (templateBlob) form.append('image[]', templateBlob, 'template-reference.png');
     form.append('image[]', logoBlob, 'brand-logo.png');
     form.append('prompt', prompt);
     form.append('size', '1024x1536');

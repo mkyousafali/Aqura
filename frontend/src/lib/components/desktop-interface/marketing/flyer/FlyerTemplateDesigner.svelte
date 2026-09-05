@@ -115,10 +115,61 @@
   let showGenerateBgModal = false;
   let showGenerateBgResultModal = false;
   let generateBgColorTheme = '';
+  let generateBgThemeOptions: string[] = [];
+  let isLoadingThemeOptions = false;
+  let generateBgCardCount = 6;
   let isGeneratingBg = false;
   let generateBgError = '';
   let generatedBgImageUrl: string | null = null;
-  
+  let generatedBgCardFields: ProductField[] | null = null;
+  let generatedBgWasFresh = false;
+
+  // For a fresh template with no background yet: lay out `count` equal-sized cards evenly
+  // filling a standard product area of the 794×1123 canvas (header art up top, thin footer strip
+  // at the bottom), so the AI has something concrete to generate the background around.
+  const GRID_CANVAS_WIDTH = 794;
+  const GRID_CANVAS_HEIGHT = 1123;
+  const GRID_MARGIN_X = 40;
+  const GRID_HEADER_RESERVED = 420;
+  const GRID_FOOTER_RESERVED = 100;
+  const GRID_GAP = 16;
+
+  function computeEqualCardGrid(count: number): ProductField[] {
+    const areaLeft = GRID_MARGIN_X;
+    const areaRight = GRID_CANVAS_WIDTH - GRID_MARGIN_X;
+    const areaTop = GRID_HEADER_RESERVED;
+    const areaBottom = GRID_CANVAS_HEIGHT - GRID_FOOTER_RESERVED;
+    const areaWidth = areaRight - areaLeft;
+    const areaHeight = areaBottom - areaTop;
+
+    const columns = Math.max(1, Math.min(count, Math.round(Math.sqrt((count * areaWidth) / areaHeight))));
+    const rows = Math.ceil(count / columns);
+
+    const cardWidth = (areaWidth - (columns - 1) * GRID_GAP) / columns;
+    const cardHeight = (areaHeight - (rows - 1) * GRID_GAP) / rows;
+
+    const fields: ProductField[] = [];
+    for (let i = 0; i < count; i++) {
+      const row = Math.floor(i / columns);
+      const col = i % columns;
+      const itemsInRow = row === rows - 1 ? count - row * columns : columns;
+      const rowWidth = itemsInRow * cardWidth + (itemsInRow - 1) * GRID_GAP;
+      const rowStartX = areaLeft + (areaWidth - rowWidth) / 2;
+      fields.push({
+        id: `auto-card-${Date.now()}-${i}`,
+        number: i + 1,
+        x: rowStartX + col * (cardWidth + GRID_GAP),
+        y: areaTop + row * (cardHeight + GRID_GAP),
+        width: cardWidth,
+        height: cardHeight,
+        fields: [],
+        pageNumber: 1,
+        pageOrder: i
+      });
+    }
+    return fields;
+  }
+
   function handleFirstPageUpload(event: Event) {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
@@ -134,14 +185,38 @@
   }
   
   function generateNewBackground() {
-    if (!firstPageImage) return;
     if (!templateDescription.trim()) {
       alert('Please fill in the Arabic offer name in the template Description field first, then press Generate New Background.');
       return;
     }
     generateBgColorTheme = '';
     generateBgError = '';
+    generateBgCardCount = firstPageFields.length || 6;
     showGenerateBgModal = true;
+
+    // Always ask the AI to propose theme options tailored to the offer description
+    // (for both a fresh, unsaved template and one that already has a saved background).
+    fetchThemeOptions();
+  }
+
+  async function fetchThemeOptions() {
+    isLoadingThemeOptions = true;
+    generateBgThemeOptions = [];
+    try {
+      const res = await fetch('/api/generate-flyer-theme-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offerDescriptionAr: templateDescription.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to get theme options');
+      generateBgThemeOptions = data.themes && data.themes.length ? data.themes : [...BG_COLOR_THEMES];
+    } catch (e: any) {
+      generateBgError = e?.message || 'Failed to get theme suggestions — showing the generic list instead.';
+      generateBgThemeOptions = [...BG_COLOR_THEMES];
+    } finally {
+      isLoadingThemeOptions = false;
+    }
   }
 
   function closeGenerateBgModal() {
@@ -153,42 +228,26 @@
     // Discard: just close the preview, the existing background is left untouched.
     showGenerateBgResultModal = false;
     generatedBgImageUrl = null;
-  }
-
-  // True only if both pages have the exact same number of product cards at the exact same
-  // boxes (x/y/width/height) — i.e. the generated image (built to match `a`'s layout) is
-  // still faithful to `b`'s configured product-field positions/sizes.
-  function sameCardLayout(a: ProductField[], b: ProductField[]): boolean {
-    if (a.length !== b.length) return false;
-    return a.every((cardA, i) => {
-      const cardB = b[i];
-      return (
-        Math.round(cardA.x) === Math.round(cardB.x) &&
-        Math.round(cardA.y) === Math.round(cardB.y) &&
-        Math.round(cardA.width) === Math.round(cardB.width) &&
-        Math.round(cardA.height) === Math.round(cardB.height)
-      );
-    });
+    generatedBgCardFields = null;
   }
 
   async function confirmGenerateBackground() {
-    // Only now — on explicit "Done" — replace the background and persist it.
+    // Only now — on explicit "Done" — replace the background (on every page) and persist it.
     if (!generatedBgImageUrl) return;
     firstPageImage = generatedBgImageUrl;
     firstPageFile = null;
 
-    // Only apply to sub pages whose configured product-card layout exactly matches the first
-    // page's (the layout the image was generated against) — otherwise the cards on that sub
-    // page wouldn't line up with the image, so leave it untouched.
-    const skippedPages: number[] = [];
-    subPageImages = subPageImages.map((existingUrl, i) => {
-      if (sameCardLayout(subPageFieldsArray[i] || [], firstPageFields)) {
-        subPageFiles[i] = undefined as unknown as File;
-        return generatedBgImageUrl as string;
-      }
-      skippedPages.push(i + 1);
-      return existingUrl;
-    });
+    // Fresh template only: adopt the auto-planned card grid as the real product-field layout,
+    // so the fields it's built on now exist for the user to configure (name/price/image, etc.).
+    // Existing template: the card count here was only used to guide the image — the actual
+    // configured fields are left completely untouched, only the background image changes.
+    if (generatedBgWasFresh && generatedBgCardFields) {
+      firstPageFields = generatedBgCardFields;
+    }
+
+    // Apply the same generated background to every sub page too — no per-page configuration.
+    subPageImages = subPageImages.map(() => generatedBgImageUrl as string);
+    subPageFiles = new Array(subPageImages.length) as File[];
 
     if (selectedTemplateId) {
       const { error: updateError } = await supabase
@@ -201,14 +260,9 @@
       if (updateError) console.error('Failed to persist generated background:', updateError);
     }
 
-    if (skippedPages.length > 0) {
-      alert(
-        `Applied to the first page and matching sub pages. Sub page(s) ${skippedPages.join(', ')} have a different product-card layout and were left unchanged so their fields still line up.`
-      );
-    }
-
     showGenerateBgResultModal = false;
     generatedBgImageUrl = null;
+    generatedBgCardFields = null;
   }
 
   async function submitGenerateBackground() {
@@ -216,26 +270,37 @@
       generateBgError = 'Please choose a color theme.';
       return;
     }
+    if (!generateBgCardCount || generateBgCardCount < 1) {
+      generateBgError = 'Please enter how many product cards you need.';
+      return;
+    }
 
     isGeneratingBg = true;
     generateBgError = '';
     try {
+      // Always auto-plan an equal-sized grid filling the product area, just to guide the image
+      // generation's card count/layout. For an existing template this is only used for the
+      // picture — the actual configured product fields are left untouched (see confirm below).
+      const cardFields = computeEqualCardGrid(generateBgCardCount);
+      generatedBgCardFields = cardFields;
+      generatedBgWasFresh = !firstPageImage;
+
       const res = await fetch('/api/generate-flyer-background', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          templateImageUrl: firstPageImage,
+          templateImageUrl: firstPageImage, // null for a fresh template — no reference image yet
           offerDescriptionAr: templateDescription.trim(),
           colorTheme: generateBgColorTheme,
-          cardCount: firstPageFields.length,
-          cardPositions: firstPageFields.map((f) => ({
+          cardCount: cardFields.length,
+          cardPositions: cardFields.map((f) => ({
             x: Math.round(f.x),
             y: Math.round(f.y),
             width: Math.round(f.width),
             height: Math.round(f.height)
           })),
-          canvasWidth: 794,
-          canvasHeight: 1123
+          canvasWidth: GRID_CANVAS_WIDTH,
+          canvasHeight: GRID_CANVAS_HEIGHT
         })
       });
       const data = await res.json();
@@ -1220,7 +1285,7 @@
             rows="3"
           ></textarea>
         </label>
-        <button class="generate-bg-btn" on:click={generateNewBackground} disabled={!firstPageImage}>
+        <button class="generate-bg-btn" on:click={generateNewBackground}>
           ✨ Generate New Background
         </button>
       </div>
@@ -1879,14 +1944,36 @@
         <button class="modal-close-btn" on:click={closeGenerateBgModal} disabled={isGeneratingBg}>✕</button>
       </div>
       <div class="modal-body">
-        <p class="modal-description">
-          Uses the current first page as the structural reference, your brand's top bar logo, and the Arabic offer name
-          from this template's Description field. Just pick a theme — everything else is pulled automatically.
-        </p>
+        {#if firstPageImage}
+          <p class="modal-description">
+            Uses the current first page as the structural reference, your brand's top bar logo, and the Arabic offer name
+            from this template's Description field. This only changes the background image — your already-configured
+            product fields are left untouched.
+          </p>
+        {:else}
+          <p class="modal-description">
+            No background yet — the AI will design one from scratch using your brand's top bar logo and the Arabic offer
+            name from the Description field.
+          </p>
+        {/if}
+        <label class="generate-bg-field">
+          <span>How many product cards do you need?</span>
+          <input
+            type="number"
+            min="1"
+            max="20"
+            class="text-input"
+            bind:value={generateBgCardCount}
+            disabled={isGeneratingBg}
+          />
+        </label>
         <label class="generate-bg-field">
           <span>Color theme</span>
+          {#if isLoadingThemeOptions}
+            <p class="generate-bg-theme-loading">✨ Asking the AI for theme ideas that fit this offer…</p>
+          {/if}
           <div class="generate-bg-theme-list">
-            {#each BG_COLOR_THEMES as theme}
+            {#each generateBgThemeOptions as theme}
               <label class="generate-bg-theme-option" class:selected={generateBgColorTheme === theme}>
                 <input
                   type="radio"
@@ -2412,6 +2499,13 @@
     font-size: 0.875rem;
     font-weight: 600;
     color: #374151;
+  }
+
+  .generate-bg-theme-loading {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #6366f1;
+    margin: 0 0 0.5rem;
   }
 
   .generate-bg-theme-list {
