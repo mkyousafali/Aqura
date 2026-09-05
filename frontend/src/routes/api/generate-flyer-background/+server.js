@@ -69,10 +69,10 @@ function buildPrompt({ offerDescriptionAr, colorTheme, cardCount, cardPositions,
     : null;
 
   const layoutSection = hasPositions
-    ? `The canvas is exactly ${canvasWidth}×${canvasHeight}px. There are EXACTLY ${cardCount} product card placeholders, at these precise pixel positions (origin top-left):
+    ? `The canvas is exactly ${canvasWidth}×${canvasHeight}px. There are EXACTLY ${cardCount} product card placeholders, at these precise pixel positions (origin top-left, no rotation):
 ${positionsList}
 
-Reproduce a blank card at each of these exact bounding boxes — same left/top/width/height, in the same order — layered on top of the new background/header art. Do not add, remove, merge, resize, or reposition any card. Do not invent extra cards beyond this list.`
+Reproduce a blank card at each of these exact bounding boxes — matching left/top/width/height/length to the pixel, in the same order — layered on top of the new background/header art. The card's border must sit exactly on the given box (do not add outer padding/margin that shrinks or shifts the effective box). Do not add, remove, merge, resize, or reposition any card, and do not invent extra cards beyond this list.`
     : `Include exactly ${cardCount} product card placeholders, matching the fixed card height established in the reference image. Columns/card width may adjust to fit ${cardCount} cards, but card height must stay fixed.`;
 
   return `You are generating a fresh background/header design for a promotional flyer template.

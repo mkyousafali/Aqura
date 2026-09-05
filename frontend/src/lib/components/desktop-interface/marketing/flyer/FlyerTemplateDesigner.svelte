@@ -155,13 +155,41 @@
     generatedBgImageUrl = null;
   }
 
+  // True only if both pages have the exact same number of product cards at the exact same
+  // boxes (x/y/width/height) — i.e. the generated image (built to match `a`'s layout) is
+  // still faithful to `b`'s configured product-field positions/sizes.
+  function sameCardLayout(a: ProductField[], b: ProductField[]): boolean {
+    if (a.length !== b.length) return false;
+    return a.every((cardA, i) => {
+      const cardB = b[i];
+      return (
+        Math.round(cardA.x) === Math.round(cardB.x) &&
+        Math.round(cardA.y) === Math.round(cardB.y) &&
+        Math.round(cardA.width) === Math.round(cardB.width) &&
+        Math.round(cardA.height) === Math.round(cardB.height)
+      );
+    });
+  }
+
   async function confirmGenerateBackground() {
-    // Only now — on explicit "Done" — replace the background (on every page) and persist it.
+    // Only now — on explicit "Done" — replace the background and persist it.
     if (!generatedBgImageUrl) return;
     firstPageImage = generatedBgImageUrl;
     firstPageFile = null;
-    subPageImages = subPageImages.map(() => generatedBgImageUrl as string);
-    subPageFiles = new Array(subPageImages.length) as File[];
+
+    // Only apply to sub pages whose configured product-card layout exactly matches the first
+    // page's (the layout the image was generated against) — otherwise the cards on that sub
+    // page wouldn't line up with the image, so leave it untouched.
+    const skippedPages: number[] = [];
+    subPageImages = subPageImages.map((existingUrl, i) => {
+      if (sameCardLayout(subPageFieldsArray[i] || [], firstPageFields)) {
+        subPageFiles[i] = undefined as unknown as File;
+        return generatedBgImageUrl as string;
+      }
+      skippedPages.push(i + 1);
+      return existingUrl;
+    });
+
     if (selectedTemplateId) {
       const { error: updateError } = await supabase
         .from('flyer_templates')
@@ -172,6 +200,13 @@
         .eq('id', selectedTemplateId);
       if (updateError) console.error('Failed to persist generated background:', updateError);
     }
+
+    if (skippedPages.length > 0) {
+      alert(
+        `Applied to the first page and matching sub pages. Sub page(s) ${skippedPages.join(', ')} have a different product-card layout and were left unchanged so their fields still line up.`
+      );
+    }
+
     showGenerateBgResultModal = false;
     generatedBgImageUrl = null;
   }
