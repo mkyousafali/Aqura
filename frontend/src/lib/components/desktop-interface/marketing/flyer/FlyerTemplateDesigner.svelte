@@ -103,6 +103,21 @@
   let confirmDialogTitle = '';
   let confirmDialogMessage = '';
   let confirmDialogAction: (() => void) | null = null;
+
+  // Generate New Background (AI) Modal State
+  const BG_COLOR_THEMES = [
+    'Warm & Festive — gold, red, orange',
+    'Fresh & Vibrant — green, yellow',
+    'Bold Sale — red, black, white',
+    'Elegant — purple, navy, gold accents',
+    'Bright & Playful — multicolor, kids-style'
+  ];
+  let showGenerateBgModal = false;
+  let showGenerateBgResultModal = false;
+  let generateBgColorTheme = '';
+  let isGeneratingBg = false;
+  let generateBgError = '';
+  let generatedBgImageUrl: string | null = null;
   
   function handleFirstPageUpload(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -118,6 +133,90 @@
     }
   }
   
+  function generateNewBackground() {
+    if (!firstPageImage) return;
+    if (!templateDescription.trim()) {
+      alert('Please fill in the Arabic offer name in the template Description field first, then press Generate New Background.');
+      return;
+    }
+    generateBgColorTheme = '';
+    generateBgError = '';
+    showGenerateBgModal = true;
+  }
+
+  function closeGenerateBgModal() {
+    if (isGeneratingBg) return;
+    showGenerateBgModal = false;
+  }
+
+  function closeGenerateBgResultModal() {
+    // Discard: just close the preview, the existing background is left untouched.
+    showGenerateBgResultModal = false;
+    generatedBgImageUrl = null;
+  }
+
+  async function confirmGenerateBackground() {
+    // Only now — on explicit "Done" — replace the background (on every page) and persist it.
+    if (!generatedBgImageUrl) return;
+    firstPageImage = generatedBgImageUrl;
+    firstPageFile = null;
+    subPageImages = subPageImages.map(() => generatedBgImageUrl as string);
+    subPageFiles = new Array(subPageImages.length) as File[];
+    if (selectedTemplateId) {
+      const { error: updateError } = await supabase
+        .from('flyer_templates')
+        .update({
+          first_page_image_url: generatedBgImageUrl,
+          sub_page_image_urls: subPageImages
+        })
+        .eq('id', selectedTemplateId);
+      if (updateError) console.error('Failed to persist generated background:', updateError);
+    }
+    showGenerateBgResultModal = false;
+    generatedBgImageUrl = null;
+  }
+
+  async function submitGenerateBackground() {
+    if (!generateBgColorTheme) {
+      generateBgError = 'Please choose a color theme.';
+      return;
+    }
+
+    isGeneratingBg = true;
+    generateBgError = '';
+    try {
+      const res = await fetch('/api/generate-flyer-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateImageUrl: firstPageImage,
+          offerDescriptionAr: templateDescription.trim(),
+          colorTheme: generateBgColorTheme,
+          cardCount: firstPageFields.length,
+          cardPositions: firstPageFields.map((f) => ({
+            x: Math.round(f.x),
+            y: Math.round(f.y),
+            width: Math.round(f.width),
+            height: Math.round(f.height)
+          })),
+          canvasWidth: 794,
+          canvasHeight: 1123
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to generate background');
+
+      // Just show the preview — nothing is replaced/saved until "Done" is pressed.
+      generatedBgImageUrl = data.imageUrl;
+      showGenerateBgModal = false;
+      showGenerateBgResultModal = true;
+    } catch (e: any) {
+      generateBgError = e?.message || 'Failed to generate background';
+    } finally {
+      isGeneratingBg = false;
+    }
+  }
+
   function handleSubPageUpload(event: Event, pageIndex: number) {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
@@ -1079,13 +1178,16 @@
         </label>
         <label class="input-label">
           Description
-          <textarea 
-            bind:value={templateDescription} 
+          <textarea
+            bind:value={templateDescription}
             placeholder="Optional description for this template"
             class="text-input"
             rows="3"
           ></textarea>
         </label>
+        <button class="generate-bg-btn" on:click={generateNewBackground} disabled={!firstPageImage}>
+          ✨ Generate New Background
+        </button>
       </div>
 
       <!-- Template Image - First Page -->
@@ -1731,6 +1833,76 @@
   </div>
 {/if}
 
+<!-- Generate New Background (AI) - Input Modal -->
+{#if showGenerateBgModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeGenerateBgModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content generate-bg-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>✨ Generate New Background</h3>
+        <button class="modal-close-btn" on:click={closeGenerateBgModal} disabled={isGeneratingBg}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">
+          Uses the current first page as the structural reference, your brand's top bar logo, and the Arabic offer name
+          from this template's Description field. Just pick a theme — everything else is pulled automatically.
+        </p>
+        <label class="generate-bg-field">
+          <span>Color theme</span>
+          <div class="generate-bg-theme-list">
+            {#each BG_COLOR_THEMES as theme}
+              <label class="generate-bg-theme-option" class:selected={generateBgColorTheme === theme}>
+                <input
+                  type="radio"
+                  name="generate-bg-theme"
+                  value={theme}
+                  bind:group={generateBgColorTheme}
+                  disabled={isGeneratingBg}
+                />
+                <span>{theme}</span>
+              </label>
+            {/each}
+          </div>
+        </label>
+        {#if generateBgError}
+          <p class="generate-bg-error">⚠️ {generateBgError}</p>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeGenerateBgModal} disabled={isGeneratingBg}>Cancel</button>
+        <button class="save-btn" on:click={submitGenerateBackground} disabled={isGeneratingBg}>
+          {isGeneratingBg ? '✨ Generating…' : '✨ Generate'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Generate New Background (AI) - Result Modal -->
+{#if showGenerateBgResultModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeGenerateBgResultModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content generate-bg-result-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>✨ Background Generated</h3>
+        <button class="modal-close-btn" on:click={closeGenerateBgResultModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">Nothing is saved yet — press Done to replace the background on the first page AND every sub page with this one, or Discard to keep the existing ones.</p>
+        {#if generatedBgImageUrl}
+          <img class="generate-bg-result-image" src={generatedBgImageUrl} alt="Generated background" />
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeGenerateBgResultModal}>✖ Discard</button>
+        <button class="save-btn" on:click={confirmGenerateBackground}>✅ Done</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <!-- Page Selection Modal -->
 {#if showPageSelectionModal}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -2164,6 +2336,94 @@
     border-color: #3b82f6;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .generate-bg-btn {
+    width: 100%;
+    margin-top: 0.75rem;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: white;
+    border: none;
+    padding: 0.625rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  .generate-bg-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+    filter: brightness(1.05);
+  }
+
+  .generate-bg-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .generate-bg-modal {
+    max-width: 480px;
+    width: 100%;
+  }
+
+  .generate-bg-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .generate-bg-theme-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .generate-bg-theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .generate-bg-theme-option:hover {
+    border-color: #a5b4fc;
+  }
+
+  .generate-bg-theme-option.selected {
+    border-color: #6366f1;
+    background: #eef2ff;
+  }
+
+  .generate-bg-theme-option input {
+    accent-color: #6366f1;
+  }
+
+  .generate-bg-error {
+    margin-top: 0.75rem;
+    color: #b91c1c;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .generate-bg-result-image {
+    width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    border-radius: 8px;
+    display: block;
+    margin: 0 auto;
   }
 
   .action-buttons {
