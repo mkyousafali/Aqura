@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
+
+	// Escape the mobile window's stacking context and overflow clipping.
+	function portal(node: HTMLElement) {
+		document.body.appendChild(node);
+		return { destroy: () => node.remove() };
+	}
 	
 	export let parentProduct: any;
 	export let variations: any[] = [];
@@ -90,14 +95,14 @@
 	}
 </script>
 
-<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-	<div class="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+<div use:portal class="variation-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+	<div class="variation-dialog bg-white rounded-lg shadow-xl max-w-5xl w-full overflow-hidden flex flex-col">
 		<!-- Header -->
-		<div class="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50">
+		<div class="variation-header shrink-0 p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50">
 			<div class="flex items-start justify-between">
-				<div class="flex-1">
-					<h2 class="text-2xl font-bold text-gray-800 mb-2">Select Variations</h2>
-					<div class="flex items-center gap-4">
+				<div class="min-w-0 flex-1 break-words">
+					<h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-2">Select Variations</h2>
+					<div class="flex items-center gap-2 sm:gap-4">
 						<div class="flex items-center gap-2">
 							{#if parentProduct.variation_image_override || parentProduct.image_url}
 								<img
@@ -112,13 +117,14 @@
 								<div class="text-sm text-gray-600 font-arabic">{parentProduct.variation_group_name_ar}</div>
 							</div>
 						</div>
-						<div class="bg-white px-3 py-1 rounded-full border border-blue-200">
+						<div class="shrink-0 bg-white px-3 py-1 rounded-full border border-blue-200">
 							<span class="text-sm font-semibold text-blue-700">{selectedCount} / {totalCount} selected</span>
 						</div>
 					</div>
 				</div>
 				<button
 					on:click={cancel}
+					aria-label="Close variation selector"
 					class="text-gray-400 hover:text-gray-600 transition-colors"
 				>
 					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -129,10 +135,10 @@
 		</div>
 		
 		<!-- Toolbar -->
-		<div class="p-4 border-b border-gray-200 bg-gray-50">
-			<div class="flex items-center justify-between gap-4">
+		<div class="shrink-0 p-3 sm:p-4 border-b border-gray-200 bg-gray-50">
+			<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
 				<!-- Search -->
-				<div class="flex-1 max-w-md">
+				<div class="min-w-0 w-full sm:flex-1 sm:max-w-md">
 					<input
 						type="text"
 						bind:value={searchQuery}
@@ -160,24 +166,24 @@
 		</div>
 		
 		<!-- Content -->
-		<div class="flex-1 overflow-auto p-6">
+		<div class="variation-list min-h-0 flex-1 overflow-y-auto p-3 sm:p-6">
 			<div class="space-y-3">
 				<!-- Parent Product (Always first) -->
 				<div
-					class="border-2 rounded-lg p-4 cursor-pointer transition-all
+					class="border-2 rounded-lg p-3 sm:p-4 cursor-pointer transition-all
 						{selectedVariations.has(parentProduct.barcode) ? 'border-blue-500 bg-blue-50' : 'border-blue-300 bg-blue-50'}"
 					on:click={() => toggleVariation(parentProduct.barcode)}
 				>
-					<div class="flex items-center gap-4">
+					<div class="flex items-center gap-2 sm:gap-4">
 						<input
 							type="checkbox"
 							checked={selectedVariations.has(parentProduct.barcode)}
 							on:click|stopPropagation
 							on:change={() => toggleVariation(parentProduct.barcode)}
-							class="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+							class="shrink-0 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
 						/>
 						
-						<div class="w-16 h-16 bg-white rounded border border-gray-300 flex items-center justify-center overflow-hidden">
+						<div class="shrink-0 w-12 h-12 sm:w-16 sm:h-16 bg-white rounded border border-gray-300 flex items-center justify-center overflow-hidden">
 							{#if parentProduct.image_url}
 								<img
 									src={parentProduct.image_url}
@@ -192,8 +198,8 @@
 							{/if}
 						</div>
 						
-						<div class="flex-1">
-							<div class="flex items-center gap-2 mb-1">
+						<div class="min-w-0 flex-1 break-words">
+							<div class="flex flex-wrap items-center gap-2 mb-1">
 								<span class="px-2 py-0.5 text-xs bg-blue-600 text-white rounded font-semibold">PARENT</span>
 								{#if parentProduct.out_of_stock}
 									<span class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded font-semibold">OUT OF STOCK</span>
@@ -209,20 +215,20 @@
 				<!-- Variation Products -->
 				{#each filteredVariations as variation (variation.barcode)}
 					<div
-						class="border-2 rounded-lg p-4 cursor-pointer transition-all
+						class="border-2 rounded-lg p-3 sm:p-4 cursor-pointer transition-all
 							{selectedVariations.has(variation.barcode) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}"
 						on:click={() => toggleVariation(variation.barcode)}
 					>
-						<div class="flex items-center gap-4">
+						<div class="flex items-center gap-2 sm:gap-4">
 							<input
 								type="checkbox"
 								checked={selectedVariations.has(variation.barcode)}
 								on:click|stopPropagation
 								on:change={() => toggleVariation(variation.barcode)}
-								class="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+								class="shrink-0 w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
 							/>
 							
-							<div class="w-16 h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden">
+							<div class="shrink-0 w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden">
 								{#if variation.image_url}
 									<img
 										src={variation.image_url}
@@ -237,8 +243,8 @@
 								{/if}
 							</div>
 							
-							<div class="flex-1">
-								<div class="flex items-center gap-2 mb-1">
+							<div class="min-w-0 flex-1 break-words">
+								<div class="flex flex-wrap items-center gap-2 mb-1">
 									<span class="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded font-semibold">Order: {variation.variation_order}</span>
 									{#if variation.out_of_stock}
 										<span class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded font-semibold">OUT OF STOCK</span>
@@ -255,21 +261,22 @@
 		</div>
 		
 		<!-- Footer -->
-		<div class="p-6 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+		<div class="variation-footer shrink-0 p-3 sm:p-6 border-t border-gray-200 bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
 			<div class="text-sm text-gray-600">
 				<strong>{selectedCount} variations</strong> will be added to this template
 			</div>
-			<div class="flex items-center gap-3">
+			<div class="flex items-center justify-end gap-2 sm:gap-3">
 				<button
 					on:click={cancel}
-					class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+					aria-label="Close variation selector"
+					class="px-3 sm:px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors font-medium"
 				>
 					Cancel
 				</button>
 				<button
 					on:click={confirm}
 					disabled={selectedCount === 0}
-					class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+					class="px-3 sm:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
 				>
 					Add Selected ({selectedCount})
 				</button>
@@ -281,7 +288,8 @@
 <!-- Image Preview Modal -->
 {#if showImagePreview}
 	<div
-		class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[60] p-4"
+		use:portal
+		class="variation-preview fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4"
 		on:click={() => showImagePreview = false}
 	>
 		<div class="max-w-4xl max-h-[90vh]" on:click|stopPropagation>
@@ -295,6 +303,36 @@
 {/if}
 
 <style>
+	.variation-overlay {
+		z-index: 10000;
+		height: 100vh;
+		height: 100dvh;
+		padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+	}
+
+	.variation-dialog {
+		max-height: 100%;
+		min-height: 0;
+	}
+
+	.variation-list {
+		overscroll-behavior-y: contain;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.variation-preview {
+		z-index: 10001;
+	}
+
+	@media (min-width: 640px) {
+		.variation-overlay { padding: 16px; }
+		.variation-dialog { max-height: 90vh; max-height: 90dvh; }
+	}
+
+	@media (max-height: 500px) {
+		.variation-header, .variation-footer { padding: 8px 12px; }
+	}
+
 	.font-arabic {
 		font-family: 'Noto Sans Arabic', sans-serif;
 	}
