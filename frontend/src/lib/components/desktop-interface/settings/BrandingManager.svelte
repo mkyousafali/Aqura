@@ -4,7 +4,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { formatPolicyContent } from '$lib/utils/formatPolicyContent';
 
-	type BrandingTab = 'login-page' | 'app-logos' | 'privacy-policy';
+	type BrandingTab = 'login-page' | 'app-logos' | 'privacy-policy' | 'brand-colors';
 
 	let activeTab: BrandingTab = 'login-page';
 
@@ -33,6 +33,7 @@
 		loadLoginLayout();
 		loadJobVacancies();
 		loadCvApplications();
+		loadBrandColors();
 
 		const vacanciesChannel = supabase
 			.channel('branding:career_job_vacancies')
@@ -1562,6 +1563,123 @@
 
 	// Main Layout (overall page background + shared Home accent colors)
 	let mainLayoutBgColor = '#f7f2e9';
+
+	// ===== Brand Colors tab: the company's saved color palette (own `brand_colors` table). =====
+	// Used as branding context by AI flyer/template generation (see FlyerTemplateDesigner.svelte).
+	interface BrandColor {
+		id: string;
+		hex_code: string;
+		label: string | null;
+		sort_order: number;
+	}
+	const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
+	let brandColors: BrandColor[] = [];
+	let brandColorsLoading = false;
+	let brandColorsError = '';
+	let addingBrandColor = false;
+	let savingBrandColorId: string | null = null;
+	let deletingBrandColorId: string | null = null;
+	// Per-row draft hex text (lets the user type freely before it's validated on blur, without
+	// fighting the color-picker's own binding).
+	let brandColorHexDrafts: Record<string, string> = {};
+	let brandColorHexErrors: Record<string, string> = {};
+
+	async function loadBrandColors() {
+		brandColorsLoading = true;
+		brandColorsError = '';
+		try {
+			const { data, error } = await supabase
+				.from('brand_colors')
+				.select('id, hex_code, label, sort_order')
+				.order('sort_order', { ascending: true })
+				.order('created_at', { ascending: true });
+			if (error) throw error;
+			brandColors = data || [];
+			brandColorHexDrafts = Object.fromEntries(brandColors.map((c) => [c.id, c.hex_code]));
+		} catch (e: any) {
+			console.error('Failed to load brand colors:', e);
+			brandColorsError = e?.message || 'Failed to load brand colors';
+		} finally {
+			brandColorsLoading = false;
+		}
+	}
+
+	async function addBrandColor() {
+		addingBrandColor = true;
+		try {
+			const nextOrder = brandColors.length
+				? Math.max(...brandColors.map((c) => c.sort_order)) + 1
+				: 0;
+			const { data, error } = await supabase
+				.from('brand_colors')
+				.insert({ hex_code: '#000000', sort_order: nextOrder })
+				.select('id, hex_code, label, sort_order')
+				.single();
+			if (error) throw error;
+			brandColors = [...brandColors, data];
+			brandColorHexDrafts = { ...brandColorHexDrafts, [data.id]: data.hex_code };
+		} catch (e: any) {
+			console.error('Failed to add brand color:', e);
+			brandColorsError = e?.message || 'Failed to add a new color';
+		} finally {
+			addingBrandColor = false;
+		}
+	}
+
+	// Called on the text input's blur/Enter, and immediately from the <input type="color"> picker.
+	async function commitBrandColorHex(color: BrandColor, rawValue: string) {
+		const value = rawValue.trim().toUpperCase();
+		const normalized = value.startsWith('#') ? value : `#${value}`;
+		if (!HEX_COLOR_RE.test(normalized)) {
+			brandColorHexErrors = { ...brandColorHexErrors, [color.id]: 'Enter a valid hex color, e.g. #F08300' };
+			return;
+		}
+		brandColorHexErrors = { ...brandColorHexErrors, [color.id]: '' };
+		brandColorHexDrafts = { ...brandColorHexDrafts, [color.id]: normalized };
+		if (normalized === color.hex_code) return; // no change, skip the write
+
+		savingBrandColorId = color.id;
+		try {
+			const { error } = await supabase.from('brand_colors').update({ hex_code: normalized }).eq('id', color.id);
+			if (error) throw error;
+			brandColors = brandColors.map((c) => (c.id === color.id ? { ...c, hex_code: normalized } : c));
+		} catch (e: any) {
+			console.error('Failed to update brand color:', e);
+			brandColorHexErrors = {
+				...brandColorHexErrors,
+				[color.id]: e?.message?.includes('duplicate') ? 'That color is already saved' : 'Failed to save'
+			};
+		} finally {
+			savingBrandColorId = null;
+		}
+	}
+
+	async function updateBrandColorLabel(color: BrandColor, newLabel: string) {
+		const trimmed = newLabel.trim() || null;
+		if (trimmed === color.label) return;
+		try {
+			const { error } = await supabase.from('brand_colors').update({ label: trimmed }).eq('id', color.id);
+			if (error) throw error;
+			brandColors = brandColors.map((c) => (c.id === color.id ? { ...c, label: trimmed } : c));
+		} catch (e: any) {
+			console.error('Failed to update brand color label:', e);
+		}
+	}
+
+	async function deleteBrandColor(color: BrandColor) {
+		if (!confirm(`Delete this brand color (${color.hex_code})? This cannot be undone.`)) return;
+		deletingBrandColorId = color.id;
+		try {
+			const { error } = await supabase.from('brand_colors').delete().eq('id', color.id);
+			if (error) throw error;
+			brandColors = brandColors.filter((c) => c.id !== color.id);
+		} catch (e: any) {
+			console.error('Failed to delete brand color:', e);
+			brandColorsError = e?.message || 'Failed to delete color';
+		} finally {
+			deletingBrandColorId = null;
+		}
+	}
 </script>
 
 <div class="branding-manager">
@@ -1599,6 +1717,14 @@
 		>
 			<span class="tab-icon">📜</span>
 			Privacy Policy
+		</button>
+		<button
+			class="tab-btn"
+			class:active={activeTab === 'brand-colors'}
+			on:click={() => (activeTab = 'brand-colors')}
+		>
+			<span class="tab-icon">🎨</span>
+			Brand Colors
 		</button>
 	</div>
 
@@ -3891,6 +4017,77 @@
 					</div>
 				</div>
 			</div>
+		{:else if activeTab === 'brand-colors'}
+			<div class="content-panel">
+				<div class="brand-colors-panel">
+					<p class="block-hint">
+						Your saved brand palette — used as branding context when AI generates flyer templates and
+						backgrounds (Marketing → Flyer Templates → Generate New Background).
+					</p>
+					{#if brandColorsError}
+						<p class="brand-colors-error">⚠️ {brandColorsError}</p>
+					{/if}
+					{#if brandColorsLoading}
+						<p class="brand-colors-loading">Loading…</p>
+					{:else}
+						<div class="brand-colors-grid">
+							{#each brandColors as color (color.id)}
+								<div class="brand-color-card">
+									<button
+										type="button"
+										class="brand-color-delete"
+										title="Delete this color"
+										disabled={deletingBrandColorId === color.id}
+										on:click={() => deleteBrandColor(color)}
+									>
+										✕
+									</button>
+									<label
+										class="brand-color-swatch"
+										style="background: {HEX_COLOR_RE.test(color.hex_code) ? color.hex_code : '#ffffff'}"
+									>
+										<input
+											type="color"
+											value={HEX_COLOR_RE.test(color.hex_code) ? color.hex_code : '#000000'}
+											on:change={(e) => commitBrandColorHex(color, (e.target as HTMLInputElement).value)}
+										/>
+									</label>
+									<input
+										type="text"
+										class="brand-color-hex-input"
+										value={brandColorHexDrafts[color.id] ?? color.hex_code}
+										placeholder="#RRGGBB"
+										on:input={(e) =>
+											(brandColorHexDrafts = {
+												...brandColorHexDrafts,
+												[color.id]: (e.target as HTMLInputElement).value
+											})}
+										on:blur={(e) => commitBrandColorHex(color, (e.target as HTMLInputElement).value)}
+										on:keydown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+									/>
+									<input
+										type="text"
+										class="brand-color-label-input"
+										value={color.label || ''}
+										placeholder="Label (optional)"
+										on:blur={(e) => updateBrandColorLabel(color, (e.target as HTMLInputElement).value)}
+									/>
+									{#if brandColorHexErrors[color.id]}
+										<span class="brand-color-error">{brandColorHexErrors[color.id]}</span>
+									{/if}
+									{#if savingBrandColorId === color.id}
+										<span class="brand-color-saving">Saving…</span>
+									{/if}
+								</div>
+							{/each}
+							<button type="button" class="brand-color-add-card" on:click={addBrandColor} disabled={addingBrandColor}>
+								<span class="brand-color-add-icon">{addingBrandColor ? '…' : '+'}</span>
+								<span>Add Color</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+			</div>
 		{/if}
 	</div>
 </div>
@@ -5053,5 +5250,139 @@
 		.mirror-card-grid {
 			grid-template-columns: 1fr;
 		}
+	}
+
+	/* ===== Brand Colors tab ===== */
+	.brand-colors-panel {
+		width: 100%;
+	}
+
+	.brand-colors-loading {
+		font-size: 0.8rem;
+		color: #6b7280;
+	}
+
+	.brand-colors-error {
+		font-size: 0.8rem;
+		color: #b91c1c;
+		font-weight: 600;
+		margin: 0 0 0.75rem;
+	}
+
+	.brand-colors-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+		gap: 1rem;
+	}
+
+	.brand-color-card {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.75rem;
+		border: 1px solid rgba(31, 61, 47, 0.12);
+		border-radius: 12px;
+		background: rgba(255, 255, 255, 0.7);
+	}
+
+	.brand-color-delete {
+		position: absolute;
+		top: 0.4rem;
+		right: 0.4rem;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		border: none;
+		background: rgba(0, 0, 0, 0.06);
+		color: #6b7280;
+		font-size: 0.7rem;
+		line-height: 1;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.brand-color-delete:hover:not(:disabled) {
+		background: #fee2e2;
+		color: #b91c1c;
+	}
+
+	.brand-color-delete:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.brand-color-swatch {
+		display: block;
+		width: 100%;
+		height: 3.25rem;
+		border-radius: 8px;
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		cursor: pointer;
+		overflow: hidden;
+	}
+
+	.brand-color-swatch input[type='color'] {
+		width: 100%;
+		height: 100%;
+		opacity: 0;
+		cursor: pointer;
+	}
+
+	.brand-color-hex-input,
+	.brand-color-label-input {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 0.4rem 0.5rem;
+		border: 1px solid rgba(31, 61, 47, 0.18);
+		border-radius: 6px;
+		font-size: 0.8rem;
+	}
+
+	.brand-color-hex-input {
+		font-family: 'SFMono-Regular', Consolas, monospace;
+		text-transform: uppercase;
+	}
+
+	.brand-color-error {
+		font-size: 0.7rem;
+		color: #b91c1c;
+	}
+
+	.brand-color-saving {
+		font-size: 0.7rem;
+		color: #6b7280;
+	}
+
+	.brand-color-add-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+		min-height: 8.5rem;
+		border: 2px dashed rgba(31, 61, 47, 0.25);
+		border-radius: 12px;
+		background: transparent;
+		color: #1f3d2f;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.brand-color-add-card:hover:not(:disabled) {
+		border-color: #1f3d2f;
+		background: rgba(31, 61, 47, 0.05);
+	}
+
+	.brand-color-add-card:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.brand-color-add-icon {
+		font-size: 1.5rem;
+		line-height: 1;
 	}
 </style>

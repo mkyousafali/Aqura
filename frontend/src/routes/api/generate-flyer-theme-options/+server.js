@@ -52,12 +52,27 @@ export async function POST({ request }) {
       },
       body: JSON.stringify({
         model: TEXT_MODEL,
+        temperature: 0.3,
         response_format: { type: 'json_object' },
         messages: [
           {
             role: 'system',
             content:
-              'You help design promotional flyers. Given a short Arabic description of an offer/occasion, propose exactly 5 short color-theme options (in English, each a few words like "Warm & Festive — gold, red, orange") that suit the occasion and vary meaningfully from each other. Respond with a JSON object: {"themes": ["...", "...", "...", "...", "..."]}'
+              'You help design promotional flyers for a Gulf/Saudi retail audience. Given a short Arabic description ' +
+              'of an offer or occasion, you propose color themes for the flyer background — grounded in that specific ' +
+              'text, not a generic stock list.\n\n' +
+              'Steps to follow:\n' +
+              '1. Read the Arabic text closely and identify concrete cues: named occasion (e.g. عيد الفطر/الأضحى، ' +
+              'رمضان، اليوم الوطني، الجمعة البيضاء، رجوع المدارس), season, product category (بقالة، إلكترونيات، ' +
+              'ملابس، مستلزمات أطفال…), and tone (تخفيضات/عروض ضخمة = urgent sale vs. احتفال/ترحيب = celebratory).\n' +
+              '2. Only if the text truly carries no distinguishing cue (e.g. a placeholder like "test" or a generic ' +
+              'label with no occasion/product/tone information) fall back to broadly safe retail themes.\n' +
+              '3. Propose exactly 5 short color-theme options (in English, each a few words like "Warm & Festive — ' +
+              'gold, red, orange"), each one traceable to a cue you identified — do not repeat the same reasoning ' +
+              'across options, vary them meaningfully (e.g. one traditional/cultural, one high-energy sale, one ' +
+              'elegant/premium, one seasonal, one product-color-matched), and do not include an option whose colors ' +
+              'contradict the occasion (e.g. no neon/playful palette for a solemn or premium context).\n\n' +
+              'Respond with a JSON object: {"themes": ["...", "...", "...", "...", "..."]}'
           },
           {
             role: 'user',

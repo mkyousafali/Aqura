@@ -244,3 +244,6 @@ Aqura Erp Psd Manager/
 .claude/
 
 .vercel
+
+# Local npm cache artifact, not project files
+.npm-cache/

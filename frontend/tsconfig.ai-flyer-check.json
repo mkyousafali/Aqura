@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    ".svelte-kit/ambient.d.ts",
+    ".svelte-kit/non-ambient.d.ts",
+    "src/lib/utils/aiFlyer.ts",
+    "src/lib/utils/aiFlyer.test.ts",
+    "src/lib/components/desktop-interface/marketing/flyer/AiFlyerGenerator.svelte",
+    "src/lib/components/desktop-interface/marketing/flyer/AiFlyerPage.svelte",
+    "src/routes/api/ai-flyers/design/*.ts",
+    "src/routes/api/ai-flyers/artwork/*.ts"
+  ]
+}

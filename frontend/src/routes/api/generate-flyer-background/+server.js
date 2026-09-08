@@ -43,6 +43,23 @@ async function getBrandLogoUrl() {
   }
 }
 
+// The company's saved brand palette (Branding > Brand Colors), used as general branding context
+// for every generation, regardless of whether the user explicitly picked specific colors below.
+async function getBrandColors() {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('brand_colors')
+      .select('hex_code, label')
+      .order('sort_order', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('Failed to fetch brand colors:', e);
+    return [];
+  }
+}
+
 // Accepts either a data: URL or a remote http(s) URL and returns a Blob for multipart upload.
 async function toImageBlob(urlOrDataUrl) {
   if (!urlOrDataUrl) return null;
@@ -60,7 +77,37 @@ async function toImageBlob(urlOrDataUrl) {
   return new Blob([arrayBuffer], { type: contentType });
 }
 
-function buildPrompt({ offerDescriptionAr, colorTheme, cardCount, cardPositions, canvasWidth, canvasHeight, hasTemplateReference }) {
+// Selected colors (explicitly chosen by the user in the "Branding" section of the Generate New
+// Background modal) are a hard requirement; the full saved palette is offered as softer fallback
+// context so brand consistency still applies even when nothing was explicitly picked.
+function buildBrandColorSection(allBrandColors, selectedBrandColors) {
+  const describe = (hex) => {
+    const match = (allBrandColors || []).find((c) => c.hex_code?.toUpperCase() === hex.toUpperCase());
+    return match?.label ? `${hex} (${match.label})` : hex;
+  };
+
+  if (selectedBrandColors && selectedBrandColors.length) {
+    const list = selectedBrandColors.map(describe).join(', ');
+    return `- The background's color palette MUST closely follow these exact brand colors, specifically selected for this generation: ${list}. Use them as the dominant colors across the background, header art, and decorative elements — the overall palette must clearly read as these colors, taking priority over the color-theme description below if the two would otherwise conflict.`;
+  }
+  if (allBrandColors && allBrandColors.length) {
+    const list = allBrandColors.map((c) => (c.label ? `${c.hex_code} (${c.label})` : c.hex_code)).join(', ');
+    return `- For overall brand consistency, the company's saved brand palette is: ${list}. Where it fits the requested color theme, lean on these colors rather than unrelated ones.`;
+  }
+  return '';
+}
+
+function buildPrompt({
+  offerDescriptionAr,
+  colorTheme,
+  cardCount,
+  cardPositions,
+  canvasWidth,
+  canvasHeight,
+  hasTemplateReference,
+  allBrandColors,
+  selectedBrandColors
+}) {
   const hasPositions = Array.isArray(cardPositions) && cardPositions.length === cardCount;
   const positionsList = hasPositions
     ? cardPositions
@@ -103,6 +150,7 @@ Strict requirements:
 - Include one blank date-field placeholder in the footer strip (a plain empty box/bar with a thin border, no text or numbers pre-filled in it — it will be filled in later). Do not put any other text, labels, slogans, or decorative wording anywhere in the footer strip besides this blank date placeholder. Do not add branch names/addresses/location info, or a secondary logo unless the reference image already includes one that must be preserved.
 - Keep the product-card area clean and ready for later editing; never let decorations overlap the product cards.
 - Pick up at least one of the brand logo's own colors and use it somewhere in the background/header design (an accent, a gradient stop, a border, a decorative shape, etc.) so the flyer visibly ties back to the brand — every generation must do this, not just when it happens to suit the theme. Do this without altering the logo image itself.
+${buildBrandColorSection(allBrandColors, selectedBrandColors)}
 - The header should creatively represent the offer/occasion implied by the description, using suitable scene elements, seasonal graphics, cultural motifs, or decorative artwork, without interfering with the product-card area.`;
 }
 
@@ -115,7 +163,8 @@ export async function POST({ request }) {
       cardCount,
       cardPositions,
       canvasWidth,
-      canvasHeight
+      canvasHeight,
+      brandColors: selectedBrandColors
     } = await request.json();
 
     if (!offerDescriptionAr || !offerDescriptionAr.trim()) {
@@ -128,7 +177,11 @@ export async function POST({ request }) {
       return json({ error: 'Invalid product card count' }, { status: 400 });
     }
 
-    const [openAiKey, logoUrl] = await Promise.all([getOpenAiKey(), getBrandLogoUrl()]);
+    const [openAiKey, logoUrl, allBrandColors] = await Promise.all([
+      getOpenAiKey(),
+      getBrandLogoUrl(),
+      getBrandColors()
+    ]);
 
     if (!openAiKey) {
       return json(
@@ -155,7 +208,9 @@ export async function POST({ request }) {
       cardPositions,
       canvasWidth: canvasWidth || 794,
       canvasHeight: canvasHeight || 1123,
-      hasTemplateReference: !!templateBlob
+      hasTemplateReference: !!templateBlob,
+      allBrandColors,
+      selectedBrandColors: Array.isArray(selectedBrandColors) ? selectedBrandColors.filter(Boolean) : []
     });
 
     const form = new FormData();

@@ -104,6 +104,54 @@
   let confirmDialogMessage = '';
   let confirmDialogAction: (() => void) | null = null;
 
+  // Generate Offer Names (AI) Modal State
+  let showGenerateNamesModal = false;
+  let offerNameEnInput = '';
+  let isGeneratingNames = false;
+  let generateNamesError = '';
+  let generatedNameOptions: string[] = [];
+
+  function openGenerateNamesModal() {
+    offerNameEnInput = '';
+    generateNamesError = '';
+    generatedNameOptions = [];
+    showGenerateNamesModal = true;
+  }
+
+  function closeGenerateNamesModal() {
+    if (isGeneratingNames) return;
+    showGenerateNamesModal = false;
+  }
+
+  async function submitGenerateNames() {
+    if (!offerNameEnInput.trim()) {
+      generateNamesError = 'Please enter an offer name in English.';
+      return;
+    }
+    isGeneratingNames = true;
+    generateNamesError = '';
+    generatedNameOptions = [];
+    try {
+      const res = await fetch('/api/generate-offer-names', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offerNameEn: offerNameEnInput.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to generate offer names');
+      generatedNameOptions = data.names || [];
+    } catch (e: any) {
+      generateNamesError = e?.message || 'Failed to generate offer names';
+    } finally {
+      isGeneratingNames = false;
+    }
+  }
+
+  function selectGeneratedName(name: string) {
+    templateDescription = name;
+    showGenerateNamesModal = false;
+  }
+
   // Generate New Background (AI) Modal State
   const BG_COLOR_THEMES = [
     'Warm & Festive — gold, red, orange',
@@ -123,6 +171,55 @@
   let generatedBgImageUrl: string | null = null;
   let generatedBgCardFields: ProductField[] | null = null;
   let generatedBgWasFresh = false;
+
+  // Branding section inside the Generate New Background modal — lets the user pick specific
+  // saved brand colors (Branding > Brand Colors) to steer the generated palette.
+  interface BrandColorOption {
+    id: string;
+    hex_code: string;
+    label: string | null;
+  }
+  let brandColorOptions: BrandColorOption[] = [];
+  let selectedBrandColorHexes: string[] = [];
+
+  async function loadBrandColorOptions() {
+    try {
+      const { data, error } = await supabase
+        .from('brand_colors')
+        .select('id, hex_code, label')
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      brandColorOptions = data || [];
+    } catch (e) {
+      console.error('Failed to load brand colors:', e);
+    }
+  }
+
+  function toggleBrandColorSelection(hex: string) {
+    selectedBrandColorHexes = selectedBrandColorHexes.includes(hex)
+      ? selectedBrandColorHexes.filter((h) => h !== hex)
+      : [...selectedBrandColorHexes, hex];
+  }
+
+  // Saving a generated background into the dedicated AI-backgrounds library
+  // (separate `ai-generated-backgrounds` bucket + `ai_generated_backgrounds` table).
+  let isSavingToLibrary = false;
+  let libraryError = '';
+  let savedLibraryEntryId: string | null = null;
+
+  // "Get from Library" — browse and re-use previously saved AI-generated backgrounds.
+  interface LibraryBackground {
+    id: string;
+    image_url: string;
+    offer_description_ar: string | null;
+    color_theme: string | null;
+    card_count: number | null;
+    created_at: string;
+  }
+  let showLibraryModal = false;
+  let libraryBackgrounds: LibraryBackground[] = [];
+  let isLoadingLibrary = false;
+  let libraryLoadError = '';
 
   // For a fresh template with no background yet: lay out `count` equal-sized cards evenly
   // filling a standard product area of the 794×1123 canvas (header art up top, thin footer strip
@@ -192,11 +289,13 @@
     generateBgColorTheme = '';
     generateBgError = '';
     generateBgCardCount = firstPageFields.length || 6;
+    selectedBrandColorHexes = [];
     showGenerateBgModal = true;
 
     // Always ask the AI to propose theme options tailored to the offer description
     // (for both a fresh, unsaved template and one that already has a saved background).
     fetchThemeOptions();
+    if (!brandColorOptions.length) loadBrandColorOptions();
   }
 
   async function fetchThemeOptions() {
@@ -229,11 +328,74 @@
     showGenerateBgResultModal = false;
     generatedBgImageUrl = null;
     generatedBgCardFields = null;
+    savedLibraryEntryId = null;
+    libraryError = '';
+  }
+
+  // Copies the just-generated background (currently only living in the `flyer-templates` bucket
+  // as this template's working image) into the dedicated `ai-generated-backgrounds` bucket and
+  // records it in `ai_generated_backgrounds`, so it can be reused later via "Get from Library"
+  // without regenerating. Safe to call more than once — only uploads/inserts the first time.
+  async function persistGeneratedBackgroundToLibrary(): Promise<boolean> {
+    if (!generatedBgImageUrl) return false;
+    if (savedLibraryEntryId) return true; // already saved this generation
+
+    isSavingToLibrary = true;
+    libraryError = '';
+    try {
+      const imageRes = await fetch(generatedBgImageUrl);
+      if (!imageRes.ok) throw new Error('Failed to read the generated image');
+      const imageBlob = await imageRes.blob();
+      const fileName = `bg-${Date.now()}.png`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('ai-generated-backgrounds')
+        .upload(fileName, imageBlob, { contentType: 'image/png', upsert: false });
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('ai-generated-backgrounds')
+        .getPublicUrl(fileName);
+
+      const { data: row, error: insertError } = await supabase
+        .from('ai_generated_backgrounds')
+        .insert({
+          image_url: publicUrl,
+          storage_path: fileName,
+          offer_description_ar: templateDescription.trim() || null,
+          color_theme: generateBgColorTheme || null,
+          card_count: generateBgCardCount || null,
+          canvas_width: GRID_CANVAS_WIDTH,
+          canvas_height: GRID_CANVAS_HEIGHT,
+          source_template_id: selectedTemplateId || null
+        })
+        .select('id')
+        .single();
+      if (insertError) throw insertError;
+
+      savedLibraryEntryId = row.id;
+      return true;
+    } catch (e: any) {
+      console.error('Failed to save generated background to library:', e);
+      libraryError = e?.message || 'Failed to save this background to the library';
+      return false;
+    } finally {
+      isSavingToLibrary = false;
+    }
+  }
+
+  // "Save" button — banks this background in the library without applying/closing.
+  async function saveGeneratedBackgroundToLibraryOnly() {
+    await persistGeneratedBackgroundToLibrary();
   }
 
   async function confirmGenerateBackground() {
     // Only now — on explicit "Done" — replace the background (on every page) and persist it.
     if (!generatedBgImageUrl) return;
+
+    // Every background that actually gets used should end up in the library too.
+    await persistGeneratedBackgroundToLibrary();
+
     firstPageImage = generatedBgImageUrl;
     firstPageFile = null;
 
@@ -263,6 +425,66 @@
     showGenerateBgResultModal = false;
     generatedBgImageUrl = null;
     generatedBgCardFields = null;
+    savedLibraryEntryId = null;
+    libraryError = '';
+  }
+
+  // "Get from Library" — browse previously saved AI-generated backgrounds and reuse one directly,
+  // no regeneration/re-upload needed.
+  function openLibraryModal() {
+    showLibraryModal = true;
+    loadLibraryBackgrounds();
+  }
+
+  function closeLibraryModal() {
+    showLibraryModal = false;
+  }
+
+  async function loadLibraryBackgrounds() {
+    isLoadingLibrary = true;
+    libraryLoadError = '';
+    try {
+      const { data, error } = await supabase
+        .from('ai_generated_backgrounds')
+        .select('id, image_url, offer_description_ar, color_theme, card_count, created_at')
+        .order('created_at', { ascending: false })
+        .limit(60);
+      if (error) throw error;
+      libraryBackgrounds = data || [];
+    } catch (e: any) {
+      console.error('Failed to load background library:', e);
+      libraryLoadError = e?.message || 'Failed to load saved backgrounds';
+    } finally {
+      isLoadingLibrary = false;
+    }
+  }
+
+  async function selectFromLibrary(entry: LibraryBackground) {
+    const wasFresh = !firstPageImage;
+    firstPageImage = entry.image_url;
+    firstPageFile = null;
+
+    // Same fresh-template convenience as a fresh generation: lay out the product-card fields
+    // this background was planned around, so there's something to configure right away.
+    if (wasFresh && entry.card_count) {
+      firstPageFields = computeEqualCardGrid(entry.card_count);
+    }
+
+    subPageImages = subPageImages.map(() => entry.image_url);
+    subPageFiles = new Array(subPageImages.length) as File[];
+
+    if (selectedTemplateId) {
+      const { error: updateError } = await supabase
+        .from('flyer_templates')
+        .update({
+          first_page_image_url: entry.image_url,
+          sub_page_image_urls: subPageImages
+        })
+        .eq('id', selectedTemplateId);
+      if (updateError) console.error('Failed to persist background chosen from library:', updateError);
+    }
+
+    showLibraryModal = false;
   }
 
   async function submitGenerateBackground() {
@@ -300,7 +522,8 @@
             height: Math.round(f.height)
           })),
           canvasWidth: GRID_CANVAS_WIDTH,
-          canvasHeight: GRID_CANVAS_HEIGHT
+          canvasHeight: GRID_CANVAS_HEIGHT,
+          brandColors: selectedBrandColorHexes
         })
       });
       const data = await res.json();
@@ -1276,6 +1499,9 @@
             class="text-input"
           />
         </label>
+        <button type="button" class="generate-names-btn" on:click={openGenerateNamesModal}>
+          ✨ Generate Offer Names
+        </button>
         <label class="input-label">
           Description
           <textarea
@@ -1285,6 +1511,9 @@
             rows="3"
           ></textarea>
         </label>
+        <button type="button" class="library-btn" on:click={openLibraryModal}>
+          🗂️ Get from Library
+        </button>
         <button class="generate-bg-btn" on:click={generateNewBackground}>
           ✨ Generate New Background
         </button>
@@ -1933,6 +2162,109 @@
   </div>
 {/if}
 
+<!-- Generate Offer Names (AI) Modal -->
+{#if showGenerateNamesModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeGenerateNamesModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content generate-names-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>✨ Generate Offer Names</h3>
+        <button class="modal-close-btn" on:click={closeGenerateNamesModal} disabled={isGeneratingNames}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">
+          Type the offer name/occasion in English and the AI will suggest Arabic offer-name options for the
+          Description field — pick one to fill it in automatically.
+        </p>
+        <label class="generate-bg-field">
+          <span>Offer name (English)</span>
+          <input
+            type="text"
+            class="text-input"
+            placeholder="e.g. Eid Special Offer"
+            bind:value={offerNameEnInput}
+            disabled={isGeneratingNames}
+            on:keydown={(e) => e.key === 'Enter' && submitGenerateNames()}
+          />
+        </label>
+        {#if generateNamesError}
+          <p class="generate-bg-error">⚠️ {generateNamesError}</p>
+        {/if}
+        {#if generatedNameOptions.length}
+          <label class="generate-bg-field">
+            <span>Select an offer name</span>
+            <div class="generate-bg-theme-list">
+              {#each generatedNameOptions as name}
+                <button
+                  type="button"
+                  class="generate-bg-theme-option generate-name-option"
+                  on:click={() => selectGeneratedName(name)}
+                >
+                  <span dir="rtl">{name}</span>
+                </button>
+              {/each}
+            </div>
+          </label>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeGenerateNamesModal} disabled={isGeneratingNames}>Cancel</button>
+        <button class="save-btn" on:click={submitGenerateNames} disabled={isGeneratingNames}>
+          {isGeneratingNames ? '✨ Generating…' : generatedNameOptions.length ? '🔄 Regenerate' : '✨ Generate'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Get from Library Modal -->
+{#if showLibraryModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click={closeLibraryModal}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="modal-content library-modal" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3>🗂️ Get from Library</h3>
+        <button class="modal-close-btn" on:click={closeLibraryModal}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">
+          Pick a previously generated background to use it directly — it's inserted on the first page and every sub
+          page right away, no regenerating or re-uploading needed.
+        </p>
+        {#if isLoadingLibrary}
+          <p class="generate-bg-theme-loading">Loading saved backgrounds…</p>
+        {:else if libraryLoadError}
+          <p class="generate-bg-error">⚠️ {libraryLoadError}</p>
+        {:else if libraryBackgrounds.length === 0}
+          <p class="library-empty">No saved backgrounds yet — generate one and press Save to start your library.</p>
+        {:else}
+          <div class="library-grid">
+            {#each libraryBackgrounds as entry}
+              <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+              <div class="library-card" on:click={() => selectFromLibrary(entry)}>
+                <img src={entry.image_url} alt={entry.offer_description_ar || 'Saved background'} />
+                <div class="library-card-info">
+                  {#if entry.offer_description_ar}
+                    <span class="library-card-desc" dir="rtl">{entry.offer_description_ar}</span>
+                  {/if}
+                  {#if entry.color_theme}
+                    <span class="library-card-theme">{entry.color_theme}</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" on:click={closeLibraryModal}>Close</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <!-- Generate New Background (AI) - Input Modal -->
 {#if showGenerateBgModal}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -1987,6 +2319,30 @@
             {/each}
           </div>
         </label>
+        {#if brandColorOptions.length}
+          <label class="generate-bg-field">
+            <span>Branding — brand colors to follow (optional)</span>
+            <p class="brand-color-picker-hint">
+              Select one or more saved brand colors and the AI will closely follow this palette. Leave none selected
+              to just use the color theme above.
+            </p>
+            <div class="brand-color-picker">
+              {#each brandColorOptions as color}
+                <button
+                  type="button"
+                  class="brand-color-chip"
+                  class:selected={selectedBrandColorHexes.includes(color.hex_code)}
+                  style="background: {color.hex_code}"
+                  title={color.label || color.hex_code}
+                  disabled={isGeneratingBg}
+                  on:click={() => toggleBrandColorSelection(color.hex_code)}
+                >
+                  {#if selectedBrandColorHexes.includes(color.hex_code)}✓{/if}
+                </button>
+              {/each}
+            </div>
+          </label>
+        {/if}
         {#if generateBgError}
           <p class="generate-bg-error">⚠️ {generateBgError}</p>
         {/if}
@@ -2012,14 +2368,30 @@
         <button class="modal-close-btn" on:click={closeGenerateBgResultModal}>✕</button>
       </div>
       <div class="modal-body">
-        <p class="modal-description">Nothing is saved yet — press Done to replace the background on the first page AND every sub page with this one, or Discard to keep the existing ones.</p>
+        <p class="modal-description">
+          Press Done to replace the background on the first page AND every sub page with this one, Save to add it to
+          your background library without replacing anything yet, or Discard to throw it away.
+        </p>
         {#if generatedBgImageUrl}
           <img class="generate-bg-result-image" src={generatedBgImageUrl} alt="Generated background" />
         {/if}
+        {#if savedLibraryEntryId}
+          <p class="library-saved-note">✅ Saved to your background library</p>
+        {/if}
+        {#if libraryError}
+          <p class="generate-bg-error">⚠️ {libraryError}</p>
+        {/if}
       </div>
       <div class="modal-footer">
-        <button class="cancel-btn" on:click={closeGenerateBgResultModal}>✖ Discard</button>
-        <button class="save-btn" on:click={confirmGenerateBackground}>✅ Done</button>
+        <button class="cancel-btn" on:click={closeGenerateBgResultModal} disabled={isSavingToLibrary}>✖ Discard</button>
+        <button
+          class="library-save-btn"
+          on:click={saveGeneratedBackgroundToLibraryOnly}
+          disabled={isSavingToLibrary || !!savedLibraryEntryId}
+        >
+          {isSavingToLibrary ? '💾 Saving…' : savedLibraryEntryId ? '✅ Saved' : '💾 Save'}
+        </button>
+        <button class="save-btn" on:click={confirmGenerateBackground} disabled={isSavingToLibrary}>✅ Done</button>
       </div>
     </div>
   </div>
@@ -2460,6 +2832,161 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
   }
 
+  .generate-names-btn {
+    width: 100%;
+    margin-top: 0.75rem;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #f59e0b, #ea580c);
+    color: white;
+    border: none;
+    padding: 0.625rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  .generate-names-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+    filter: brightness(1.05);
+  }
+
+  .generate-names-modal {
+    max-width: 480px;
+    width: 100%;
+  }
+
+  .generate-name-option {
+    width: 100%;
+    background: white;
+    text-align: right;
+    font-size: 0.9375rem;
+  }
+
+  .library-btn {
+    width: 100%;
+    margin-top: 0.75rem;
+    background: linear-gradient(135deg, #0ea5e9, #0284c7);
+    color: white;
+    border: none;
+    padding: 0.625rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  .library-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+    filter: brightness(1.05);
+  }
+
+  .library-modal {
+    max-width: 720px;
+    width: 100%;
+  }
+
+  .library-empty {
+    font-size: 0.875rem;
+    color: #6b7280;
+    padding: 1.5rem 0;
+    text-align: center;
+  }
+
+  .library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+    max-height: 55vh;
+    overflow-y: auto;
+  }
+
+  .library-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: white;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .library-card:hover {
+    border-color: #6366f1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+
+  .library-card img {
+    width: 100%;
+    aspect-ratio: 794 / 1123;
+    object-fit: cover;
+    display: block;
+    background: #f3f4f6;
+  }
+
+  .library-card-info {
+    padding: 0.5rem 0.5rem 0.625rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .library-card-desc {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #374151;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .library-card-theme {
+    font-size: 0.6875rem;
+    color: #6366f1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .library-save-btn {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    padding: 0.625rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .library-save-btn:hover:not(:disabled) {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+  }
+
+  .library-save-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .library-saved-note {
+    margin-top: 0.5rem;
+    color: #059669;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
   .generate-bg-btn {
     width: 100%;
     margin-top: 0.75rem;
@@ -2544,6 +3071,49 @@
     color: #b91c1c;
     font-size: 0.8125rem;
     font-weight: 600;
+  }
+
+  .brand-color-picker-hint {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: #6b7280;
+    margin: 0;
+  }
+
+  .brand-color-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .brand-color-chip {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 8px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    transition: all 0.15s;
+  }
+
+  .brand-color-chip:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .brand-color-chip.selected {
+    border-color: #1f3d2f;
+    box-shadow: 0 0 0 2px rgba(31, 61, 47, 0.3);
+  }
+
+  .brand-color-chip:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .generate-bg-result-image {
