@@ -6,9 +6,10 @@
 credential it doesn't strictly need.** On 2026-09-08 this repo went through a full
 security remediation after a public-repo audit found hardcoded credentials in 15+
 files and browser code calling third-party/internal services directly with real
-keys. See `AQURA_Secret_Exposure_Audit_2026-09-08.md` for the full history if you
-need context on *why* these rules exist — but follow the patterns below rather than
-re-reading that file each time.
+keys. For the full status — what's fixed, what was deliberately left open, and
+what's still not actually rotated — see
+`Do not delete/SECURITY_REMEDIATION_STATUS_2026-09-08.md` (gitignored, local only).
+Everyone else just needs the patterns below.
 
 If a task involves a password, API key, tunnel URL, or anything that authenticates
 to another system, stop and use one of the patterns below instead of typing the
