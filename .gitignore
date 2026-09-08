@@ -235,3 +235,12 @@ aqura-designer-standalone/
 
 # Standalone Hikvision player app - contains hardcoded secrets, not for main repo
 hikvision-player/
+
+# Aqura ERP Password Manager - entire folder is local-only (views/rotates live
+# ERP credentials per branch, hardcoded service keys, must never be committed)
+Aqura Erp Psd Manager/
+
+# Copilot worktree metadata - local workspace only
+.claude/
+
+.vercel
