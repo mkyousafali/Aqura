@@ -1,0 +1,433 @@
+<script lang="ts">
+	import { onMount, createEventDispatcher } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { t, switchLocale, currentLocale } from '$lib/i18n';
+	import WindowManager from '$lib/components/common/WindowManager.svelte';
+	import CashierTaskbar from '$lib/components/cashier-interface/CashierTaskbar.svelte';
+	import DancingCharacter from '$lib/components/desktop-interface/common/DancingCharacter.svelte';
+	import { windowManager } from '$lib/stores/windowManager';
+	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
+	import POS from '$lib/components/cashier-interface/POS.svelte';
+	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+	import { iconUrlMap } from '$lib/stores/iconStore';
+
+	async function handleUpdateClick() {
+		const fn = $triggerUpdate;
+		if (fn) await fn();
+	}
+
+	const dispatch = createEventDispatcher();
+
+	export let user: any;
+	export let branch: any;
+
+	let currentTime = '';
+
+	// Cashier interface version
+	let cashierVersion = 'AQ6';
+
+	// name_en/name_ar are the raw hr_employee_master values (locale-independent) — pick between
+	// them reactively so the name follows language switches, rather than trusting user.full_name/
+	// .name/.employeeName which were baked in once at login time from whichever locale was active
+	// then (see CashierLogin.svelte).
+	$: displayUserName = ($currentLocale === 'ar'
+		? (user?.name_ar || user?.name_en)
+		: (user?.name_en || user?.name_ar))
+		|| user?.full_name || user?.name || user?.employeeName || user?.username || '';
+
+	function updateTime() {
+		const locale = $currentLocale === 'ar' ? 'ar-SA' : 'en-US';
+		currentTime = new Date().toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+	}
+
+	// Initial time update
+	updateTime();
+
+	// Update time every minute
+	setInterval(() => {
+		updateTime();
+	}, 60000);
+
+	// Update time when locale changes
+	$: if ($currentLocale) {
+		updateTime();
+	}
+
+	function openCouponRedemption() {
+		const windowId = `coupon-redemption-${Date.now()}`;
+		
+		openWindow({
+			id: windowId,
+			title: t('coupon.redeemCoupon') || 'Redeem Coupon',
+			component: CouponRedemption,
+			props: { user, branch },
+			icon: '🎁',
+			size: { width: 700, height: 600 },
+			position: { x: 100, y: 50 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openPOS() {
+		const windowId = `pos-${Date.now()}`;
+		
+		openWindow({
+			id: windowId,
+			title: t('pos.title') || 'POS',
+			component: POS,
+			props: { user, branch },
+			icon: '🛒',
+			size: { width: 1000, height: 700 },
+			position: { x: 100, y: 50 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function toggleLanguage() {
+		const newLocale = $currentLocale === 'en' ? 'ar' : 'en';
+		switchLocale(newLocale);
+		// Reload the page to apply language changes throughout the app
+		window.location.reload();
+	}
+
+	function handleLogout() {
+		// Dispatch logout event to parent component
+		dispatch('logout');
+	}
+</script>
+
+<div class="cashier-desktop">
+	<!-- Main Desktop Area -->
+	<main class="cashier-main">
+		<!-- Welcome Screen Background -->
+		<div class="desktop-background">
+			<div class="welcome-screen">
+				<div class="app-branding">
+					{#if $updateAvailable}
+						<button class="cashier-update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
+							🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
+						</button>
+					{:else}
+						<span class="cashier-update-badge up-to-date">
+							✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
+						</span>
+					{/if}
+					<div class="app-logo">
+						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" />
+					</div>
+					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
+					<span class="version-badge">{cashierVersion}</span>
+				</div>
+				<div class="logout-container">
+					<span class="current-user-name">{displayUserName}</span>
+					<span class="user-bar-divider"></span>
+					<button class="panel-logout-btn" on:click={handleLogout} title={t('auth.logout') || 'Logout'} aria-label={t('auth.logout') || 'Logout'}>
+						<svg class="panel-logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 3v9" />
+							<path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+						</svg>
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Window System -->
+		<WindowManager />
+	</main>
+
+	<!-- Dancing Character -->
+	<div class="cashier-dancing-character">
+		<DancingCharacter />
+	</div>
+
+	<!-- Cashier Taskbar -->
+	<CashierTaskbar 
+		{user} 
+		{branch}
+		{currentTime}
+		on:logout={handleLogout}
+	/>
+</div>
+
+<style>
+	.cashier-desktop {
+		min-height: 100vh;
+		background: #fafaf8;
+		position: relative;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.cashier-dancing-character {
+		position: fixed;
+		bottom: 56px;
+		left: 16px;
+		z-index: 100;
+		pointer-events: auto;
+	}
+
+	/* Main Area */
+	.cashier-main {
+		flex: 1;
+		height: calc(100vh - 56px); /* Taskbar height */
+		position: relative;
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	/* Ensure windows stay within main area and respect boundaries */
+	.cashier-main :global(.window-manager) {
+		left: 0 !important;
+		width: 100% !important;
+		height: calc(100vh - 56px) !important;
+		bottom: 0 !important;
+		max-height: calc(100vh - 56px) !important;
+		overflow: hidden !important;
+	}
+
+	.cashier-main :global(.window.window-maximized),
+	.cashier-main :global(.window.maximized) {
+		left: 0 !important;
+		top: 0 !important;
+		width: 100% !important;
+		height: calc(100vh - 56px) !important;
+		max-height: calc(100vh - 56px) !important;
+		border-radius: 0 !important;
+	}
+
+	.cashier-main :global(.window) {
+		max-height: calc(100vh - 56px) !important;
+		bottom: auto !important;
+	}
+
+	/* Prevent any window from going below the taskbar */
+	.cashier-main :global(.window:not(.minimized)) {
+		max-height: calc(100vh - 56px) !important;
+	}
+
+	/* Allow minimized windows to move freely anywhere */
+	.cashier-main :global(.window.minimized) {
+		max-height: none !important;
+		max-width: none !important;
+		bottom: auto !important;
+	}
+
+	.desktop-background {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: absolute;
+		top: 0;
+		left: 0;
+		z-index: 1;
+		padding: 2rem;
+	}
+
+	.welcome-screen {
+		max-width: 600px;
+		width: 90%;
+	}
+
+	.app-branding {
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0;
+		padding: 3rem 2rem 2rem;
+		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
+		border-radius: 24px;
+		box-shadow: 0 25px 50px rgba(11, 18, 32, 0.1);
+		position: relative;
+		overflow: hidden;
+	}
+
+	.app-branding::after {
+		content: '';
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 4px;
+		background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%);
+	}
+
+	.logout-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		margin: 1.25rem 0 0;
+		padding: 0.5rem 0.75rem 0.5rem 1.1rem;
+		background: #ffffff;
+		border: 1px solid #e5e7eb;
+		border-radius: 9999px;
+		box-shadow: 0 2px 8px rgba(11, 18, 32, 0.06);
+		width: fit-content;
+		margin-left: auto;
+		margin-right: auto;
+	}
+
+	.current-user-name {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #1f2937;
+	}
+
+	.user-bar-divider {
+		width: 1px;
+		height: 1.4rem;
+		background: #e5e7eb;
+	}
+
+	.panel-logout-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		padding: 0;
+		background: #dc2626;
+		color: #ffffff;
+		border: none;
+		border-radius: 50%;
+		cursor: pointer;
+		box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+		transition: background 0.15s ease, transform 0.12s ease;
+	}
+	.panel-logout-btn:hover {
+		background: #b91c1c;
+		transform: translateY(-1px);
+	}
+	.panel-logout-btn:active {
+		transform: translateY(0);
+	}
+	.panel-logout-icon {
+		width: 1.15rem;
+		height: 1.15rem;
+	}
+
+	.app-logo {
+		width: 200px;
+		height: 120px;
+		margin: 0 auto 1.5rem;
+		background: #FFFFFF;
+		border: 6px solid #F59E0B;
+		border-radius: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 
+			0 0 25px rgba(245, 158, 11, 0.5),
+			0 0 50px rgba(245, 158, 11, 0.3),
+			inset 0 0 15px rgba(245, 158, 11, 0.15);
+		animation: ledGlow 2s ease-in-out infinite alternate;
+		overflow: hidden;
+	}
+
+	@keyframes ledGlow {
+		from {
+			box-shadow: 
+				0 0 25px rgba(245, 158, 11, 0.5),
+				0 0 50px rgba(245, 158, 11, 0.3),
+				inset 0 0 15px rgba(245, 158, 11, 0.15);
+		}
+		to {
+			box-shadow: 
+				0 0 40px rgba(245, 158, 11, 0.7),
+				0 0 80px rgba(245, 158, 11, 0.4),
+				inset 0 0 25px rgba(245, 158, 11, 0.25);
+		}
+	}
+
+	.app-logo img {
+		width: 840px;
+		height: 450px;
+		border-radius: 12px;
+		object-fit: contain;
+		margin-top: 20px;
+	}
+
+	.app-name {
+		font-size: 2.5rem;
+		font-weight: 700;
+		color: white;
+		margin: 0 0 0.5rem 0;
+		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		letter-spacing: -0.02em;
+	}
+
+	.app-tagline {
+		font-size: 1.1rem;
+		color: white;
+		opacity: 0.9;
+		font-weight: 300;
+		margin: 0;
+	}
+
+	.version-badge {
+		position: absolute;
+		top: 10px;
+		right: 12px;
+		background: rgba(255, 255, 255, 0.2);
+		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 12px;
+		padding: 3px 10px;
+		font-size: 0.7rem;
+		font-weight: 500;
+		z-index: 2;
+		letter-spacing: 0.5px;
+	}
+
+	.cashier-update-badge {
+		position: absolute;
+		top: 10px;
+		left: 12px;
+		border-radius: 12px;
+		padding: 3px 10px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		transition: all 0.3s;
+		z-index: 2;
+		letter-spacing: 0.5px;
+		border: none;
+	}
+
+	.cashier-update-badge.update-available {
+		background: rgba(34, 197, 94, 0.25);
+		color: #bbf7d0;
+		border: 1px solid rgba(34, 197, 94, 0.5);
+		cursor: pointer;
+		animation: pulse-update 2s ease-in-out infinite;
+	}
+
+	.cashier-update-badge.update-available:hover {
+		background: rgba(34, 197, 94, 0.45);
+		transform: scale(1.05);
+	}
+
+	.cashier-update-badge.up-to-date {
+		background: rgba(255, 255, 255, 0.15);
+		color: rgba(255, 255, 255, 0.7);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		cursor: default;
+	}
+
+	@keyframes pulse-update {
+		0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+		50% { box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.3); }
+	}
+</style>

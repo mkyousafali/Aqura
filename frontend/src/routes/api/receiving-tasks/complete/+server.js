@@ -1,0 +1,377 @@
+import { json } from "@sveltejs/kit";
+import { supabase } from "$lib/utils/supabase";
+
+export async function POST({ request }) {
+  try {
+    const requestData = await request.json();
+    console.log("🔥 [API] Received completion request:", requestData);
+
+    const {
+      receiving_task_id,
+      user_id,
+      erp_reference,
+      original_bill_file_path,
+      has_erp_purchase_invoice = false,
+      has_pr_excel_file = false,
+      has_original_bill = false,
+      completion_photo_url,
+      completion_notes,
+    } = requestData;
+
+    // Validate required fields
+    if (!receiving_task_id) {
+      console.log("❌ [API] Missing receiving_task_id");
+      return json({ error: "Receiving task ID is required" }, { status: 400 });
+    }
+
+    if (!user_id) {
+      console.log("❌ [API] Missing user_id");
+      return json({ error: "User ID is required" }, { status: 400 });
+    }
+
+    console.log("🔍 [API] Looking for task:", receiving_task_id);
+
+    // Get task details to check role type and requirements
+    const { data: taskData, error: taskError } = await supabase
+      .from("receiving_tasks")
+      .select(
+        "role_type, requires_erp_reference, requires_original_bill_upload",
+      )
+      .eq("id", receiving_task_id)
+      .single();
+
+    console.log("📊 [API] Task query result:", {
+      data: taskData,
+      error: taskError,
+    });
+
+    if (taskError || !taskData) {
+      console.log("❌ [API] Task not found:", taskError);
+      return json({ error: "Task not found" }, { status: 404 });
+    }
+
+    // Special validation for Inventory Manager
+    if (taskData.role_type === "inventory_manager") {
+      console.log("📦 [API] Validating Inventory Manager requirements...");
+      if (!has_erp_purchase_invoice) {
+        console.log("❌ [API] Missing ERP purchase invoice");
+        return json(
+          {
+            error:
+              "ERP Purchase Invoice Reference is required for Inventory Manager tasks",
+          },
+          { status: 400 },
+        );
+      }
+      if (!has_pr_excel_file) {
+        console.log("❌ [API] Missing PR Excel file");
+        return json(
+          {
+            error: "PR Excel file is required for Inventory Manager tasks",
+          },
+          { status: 400 },
+        );
+      }
+      if (!has_original_bill) {
+        console.log("❌ [API] Missing original bill");
+        return json(
+          {
+            error:
+              "Original bill upload is required for Inventory Manager tasks",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Special handling for Accountant
+    if (taskData.role_type === "accountant") {
+      console.log("🧾 [API] Processing Accountant task completion...");
+      
+      // Get the receiving record to check if required files are uploaded
+      const { data: receivingRecord, error: receivingError } = await supabase
+        .from("receiving_tasks")
+        .select("receiving_record_id")
+        .eq("id", receiving_task_id)
+        .single();
+
+      if (receivingError || !receivingRecord) {
+        console.log("❌ [API] Could not find receiving record for task");
+        return json(
+          { error: "Task record not found" },
+          { status: 404 },
+        );
+      }
+
+      // Check if required files exist by checking URLs
+      const { data: recordData, error: recordError } = await supabase
+        .from("receiving_records")
+        .select("original_bill_url, pr_excel_file_url")
+        .eq("id", receivingRecord.receiving_record_id)
+        .single();
+
+      if (recordError) {
+        console.log("❌ [API] Error fetching receiving record:", recordError);
+        return json(
+          { error: "Error checking file uploads" },
+          { status: 500 },
+        );
+      }
+
+      console.log("📋 [API] Received record data:", {
+        original_bill_url: recordData?.original_bill_url,
+        pr_excel_file_url: recordData?.pr_excel_file_url
+      });
+
+      const missingFiles = [];
+      if (!recordData?.original_bill_url || recordData.original_bill_url.trim() === '') {
+        missingFiles.push('Original Bill');
+        console.log("❌ [API] Original bill URL missing or empty");
+      } else {
+        console.log("✅ [API] Original bill URL exists:", recordData.original_bill_url.substring(0, 50) + "...");
+      }
+      if (!recordData?.pr_excel_file_url || recordData.pr_excel_file_url.trim() === '') {
+        missingFiles.push('PR Excel File');
+        console.log("❌ [API] PR Excel URL missing or empty");
+      } else {
+        console.log("✅ [API] PR Excel URL exists:", recordData.pr_excel_file_url.substring(0, 50) + "...");
+      }
+
+      if (missingFiles.length > 0) {
+        const errorMsg = `Missing required files: ${missingFiles.join(', ')}. Please ensure all files are uploaded before completing this task.`;
+        console.log("❌ [API] Accountant validation failed:", errorMsg);
+        return json(
+          {
+            error: errorMsg,
+            error_code: 'REQUIRED_FILES_NOT_UPLOADED',
+            message: errorMsg
+          },
+          { status: 400 },
+        );
+      }
+
+      console.log("✅ [API] Accountant validation passed - all required files present");
+    }
+
+    // Special handling for Purchase Manager
+    if (taskData.role_type === "purchase_manager") {
+      console.log("💰 [API] Processing Purchase Manager task completion...");
+      // Purchase manager validations are handled in the database function
+      // No additional client-side validation needed as it requires database queries
+    }
+
+    console.log("🚀 [API] Calling complete_receiving_task function...");
+
+    // For purchase managers, use the simplified function without payment schedule validation
+    const functionName =
+      taskData?.role_type === "purchase_manager"
+        ? "complete_receiving_task_simple"
+        : "complete_receiving_task";
+
+    console.log(
+      `📋 [API] Using function: ${functionName} for role: ${taskData?.role_type}`,
+    );
+
+    // Prepare function parameters
+    const functionParams = {
+      receiving_task_id_param: receiving_task_id,
+      user_id_param: user_id,
+      completion_photo_url_param: completion_photo_url || null,
+      completion_notes_param: completion_notes || null,
+    };
+
+    // Add inventory manager specific parameters if present
+    if (taskData.role_type === "inventory_manager") {
+      console.log("📦 [API] Adding inventory manager parameters...");
+      functionParams.erp_reference_param = erp_reference || null;
+      functionParams.has_erp_purchase_invoice = has_erp_purchase_invoice;
+      functionParams.has_pr_excel_file = has_pr_excel_file;
+      functionParams.has_original_bill = has_original_bill;
+    }
+
+    console.log("📋 [API] Function parameters:", functionParams);
+
+    // Call the appropriate database function to complete the receiving task
+    const { data, error } = await supabase.rpc(functionName, functionParams);
+
+    console.log("📊 [API] Database function result:", { data, error });
+
+    if (error) {
+      console.error("Database error completing receiving task:", error);
+
+      // Handle specific database table errors
+      if (
+        error.message &&
+        error.message.includes("vendor_payment_schedules") &&
+        error.message.includes("does not exist")
+      ) {
+        console.log(
+          "⚠️ [API] KNOWN ISSUE: Vendor payment schedules table naming error detected",
+        );
+        console.log("🔧 [API] Using fallback method for task completion");
+
+        // For purchase managers, try a simpler completion without payment schedule validation
+        try {
+          const { data: simpleResult, error: simpleError } = await supabase
+            .from("receiving_tasks")
+            .update({
+              task_completed: true,
+              completed_at: new Date().toISOString(),
+              completion_photo_url: completion_photo_url || null,
+              completion_notes: completion_notes || null,
+            })
+            .eq("id", receiving_task_id)
+            .eq("assigned_user_id", user_id)
+            .select();
+
+          if (simpleError) {
+            console.error("❌ [API] Simple update also failed:", simpleError);
+            return json(
+              {
+                error:
+                  "Failed to complete receiving task: " + simpleError.message,
+              },
+              { status: 500 },
+            );
+          }
+
+          console.log("✅ [API] Task completed with simple update method");
+          return json({
+            success: true,
+            message: "Task completed successfully",
+            taskId: receiving_task_id,
+          });
+        } catch (fallbackError) {
+          console.error("❌ [API] Fallback method failed:", fallbackError);
+          return json(
+            {
+              error:
+                "Failed to complete receiving task: " + fallbackError.message,
+            },
+            { status: 500 },
+          );
+        }
+      }
+
+      return json(
+        {
+          error: "Failed to complete receiving task: " + error.message,
+        },
+        { status: 500 },
+      );
+    }
+
+    // Check if the response indicates success
+    if (data && !data.success) {
+      // Handle specific error codes for better user experience
+      let errorMessage = data.error || "Unknown error occurred";
+
+      // Accountant specific error handling
+      if (data.error_code === "ORIGINAL_BILL_NOT_UPLOADED") {
+        console.log(
+          "❌ [API] Accountant: Original bill not uploaded by inventory manager",
+        );
+        errorMessage =
+          data.message ||
+          "Original bill not uploaded by the inventory manager – please follow up.";
+      } else if (data.error_code === "ORIGINAL_BILL_FILE_MISSING") {
+        console.log("❌ [API] Accountant: Original bill file missing");
+        errorMessage =
+          data.message ||
+          "Original bill file not uploaded by the inventory manager – please follow up.";
+      } else if (data.error_code === "INVENTORY_MANAGER_NOT_COMPLETED") {
+        console.log(
+          "❌ [API] Accountant: Inventory manager task not completed",
+        );
+        errorMessage =
+          data.message ||
+          "The Inventory Manager must complete their task before the Accountant can proceed.";
+        // Purchase Manager specific error handling
+      } else if (data.error_code === "PR_EXCEL_NOT_UPLOADED") {
+        console.log("❌ [API] Purchase Manager: PR Excel not uploaded");
+        errorMessage = "PR Excel not uploaded";
+      } else if (data.error_code === "VERIFICATION_NOT_FINISHED") {
+        console.log("❌ [API] Purchase Manager: Verification not finished");
+        errorMessage = "Verification not finished";
+      } else if (data.error_code === "PHOTO_UPLOAD_REQUIRED") {
+        console.log("❌ [API] Photo upload required");
+        errorMessage = "Photo upload is required for this task";
+      } else if (data.error_code === "DEPENDENCIES_NOT_MET") {
+        console.log("❌ [API] Task dependencies not met");
+        errorMessage = data.error; // Use the specific dependency message from database
+      }
+
+      return json(
+        {
+          error: errorMessage,
+          error_code: data.error_code,
+          message: data.message, // Include the detailed message for frontend use
+        },
+        { status: 400 },
+      );
+    }
+
+    return json({
+      success: true,
+      data: data,
+      message: "Task completed successfully",
+    });
+  } catch (error) {
+    console.error("Error completing receiving task:", error);
+    return json(
+      {
+        error: "Internal server error: " + error.message,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function GET({ url }) {
+  try {
+    const receiving_task_id = url.searchParams.get("receiving_task_id");
+    const user_id = url.searchParams.get("user_id");
+
+    if (!receiving_task_id || !user_id) {
+      return json(
+        {
+          error: "Both receiving_task_id and user_id are required",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Call the database function to validate completion requirements
+    const { data, error } = await supabase.rpc(
+      "validate_task_completion_requirements",
+      {
+        receiving_task_id_param: receiving_task_id,
+        user_id_param: user_id,
+      },
+    );
+
+    if (error) {
+      console.error("Database error validating task completion:", error);
+      return json(
+        {
+          error:
+            "Failed to validate task completion requirements: " + error.message,
+        },
+        { status: 500 },
+      );
+    }
+
+    return json({
+      success: true,
+      validation: data,
+    });
+  } catch (error) {
+    console.error("Error validating task completion:", error);
+    return json(
+      {
+        error: "Internal server error: " + error.message,
+      },
+      { status: 500 },
+    );
+  }
+}

@@ -1,0 +1,420 @@
+<script>
+  import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { onMount, onDestroy } from 'svelte';
+  import { cartCount } from '$lib/stores/cart.js';
+  import { t } from '$lib/i18n';
+  import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+  import { supabase } from '$lib/utils/supabase';
+  import { orderMaskEnabled } from '$lib/stores/orderMask';
+
+  async function handleUpdateClick() {
+    const fn = $triggerUpdate;
+    if (fn) await fn();
+  }
+
+  let currentLanguage = 'ar';
+  let notificationCount = 0;
+  let notifChannel = null;
+
+  // Subscribe to cart count updates using reactive syntax
+  $: cartItemCount = $cartCount;
+
+  // Load language from localStorage
+  onMount(() => {
+    const savedLanguage = localStorage.getItem('language');
+    if (savedLanguage) {
+      currentLanguage = savedLanguage;
+    }
+    fetchNotificationCount();
+    setupNotifRealtime();
+  });
+
+  onDestroy(() => {
+    if (notifChannel) {
+      supabase.removeChannel(notifChannel);
+    }
+  });
+
+  function getCustomerId() {
+    try {
+      const customerSessionRaw = localStorage.getItem('customer_session');
+      if (customerSessionRaw) {
+        const customerSession = JSON.parse(customerSessionRaw);
+        if (customerSession?.customer_id && customerSession?.registration_status === 'approved') {
+          return customerSession.customer_id;
+        }
+      }
+      const raw = localStorage.getItem('aqura-device-session');
+      if (!raw) return null;
+      const session = JSON.parse(raw);
+      const currentId = session?.currentUserId;
+      const user = Array.isArray(session?.users)
+        ? session.users.find((u) => u.id === currentId && u.isActive)
+        : null;
+      return user?.customerId || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function fetchNotificationCount() {
+    const customerId = getCustomerId();
+    if (!customerId) {
+      notificationCount = 0;
+      return;
+    }
+
+    try {
+      // Get customer's order IDs
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('customer_id', customerId);
+
+      if (!orders || orders.length === 0) {
+        notificationCount = 0;
+        return;
+      }
+
+      const orderIds = orders.map(o => o.id);
+
+      // Get read IDs from localStorage
+      let readIds = new Set();
+      try {
+        const raw = localStorage.getItem('customer_read_notifications');
+        readIds = new Set(raw ? JSON.parse(raw) : []);
+      } catch {}
+
+      // Count only status_change audit logs (customer-relevant notifications)
+      const { data: logs } = await supabase
+        .from('order_audit_logs')
+        .select('id')
+        .in('order_id', orderIds)
+        .eq('action_type', 'status_change');
+
+      // Unread = total - read
+      const unread = (logs || []).filter(l => !readIds.has(l.id)).length;
+      notificationCount = unread;
+    } catch (e) {
+      console.error('Error fetching notification count:', e);
+    }
+  }
+
+  function setupNotifRealtime() {
+    notifChannel = supabase
+      .channel('topbar-notif-count')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'order_audit_logs'
+      }, () => {
+        fetchNotificationCount();
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'order_audit_logs'
+      }, () => {
+        fetchNotificationCount();
+      })
+      .subscribe();
+  }
+
+  // Listen for language changes
+  function handleStorageChange(event) {
+    if (event.key === 'language') {
+      currentLanguage = event.newValue || 'ar';
+    }
+    if (event.key === 'customer_read_notifications') {
+      fetchNotificationCount();
+    }
+  }
+
+  function toggleLanguage() {
+    const newLanguage = currentLanguage === 'ar' ? 'en' : 'ar';
+    currentLanguage = newLanguage;
+    localStorage.setItem('language', newLanguage);
+    
+    // Update document direction
+    document.documentElement.dir = newLanguage === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = newLanguage;
+    
+    // Dispatch storage event for other components
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'language',
+      newValue: newLanguage
+    }));
+  }
+
+  function goToNotifications() {
+    goto('/customer-interface/notifications');
+  }
+
+  function goToCart() {
+    goto('/customer-interface/cart');
+  }
+  
+  function goToProfile() {
+    goto('/customer-interface/profile');
+  }
+
+  function goHome() {
+    goto('/customer-interface');
+  }
+
+  onMount(() => {
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  });
+
+  $: texts = currentLanguage === 'ar' ? {
+    appName: 'أكوا إكسبرس',
+    currentLang: 'العربية',
+    otherLang: 'English'
+  } : {
+    appName: 'Aqua Express',
+    currentLang: 'English',
+    otherLang: 'العربية'
+  };
+</script>
+
+<header class="top-bar">
+  <div class="top-bar-content">
+    <!-- Left side -->
+    <div class="left-section">
+      {#if $updateAvailable}
+        <button class="customer-update-btn update-available" on:click={handleUpdateClick} title={currentLanguage === 'ar' ? 'تحديث متاح' : 'Update Available'}>
+          🔄
+        </button>
+      {:else}
+        <span class="customer-update-btn up-to-date" title={currentLanguage === 'ar' ? 'محدّث' : 'Up to Date'}>
+          ✅
+        </span>
+      {/if}
+    </div>
+    
+    <!-- Right side actions -->
+    <div class="top-actions">
+      <!-- Home -->
+      <button class="action-btn" on:click={goHome} on:touchend|preventDefault={goHome}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+          </svg>
+        </div>
+      </button>
+
+      <!-- Language Toggle -->
+      <button class="action-btn lang-btn" on:click={toggleLanguage} on:touchend|preventDefault={toggleLanguage}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/>
+          </svg>
+        </div>
+      </button>
+
+      <!-- Profile -->
+      <button class="action-btn profile-btn" on:click={goToProfile} on:touchend|preventDefault={goToProfile}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+        </div>
+      </button>
+
+      <!-- Cart -->
+      {#if !$orderMaskEnabled}
+      <button class="action-btn cart-btn" on:click={goToCart} on:touchend|preventDefault={goToCart}>
+        <div class="icon-container">
+          <svg class="action-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
+          </svg>
+          {#if cartItemCount > 0}
+            <span class="action-badge">{cartItemCount}</span>
+          {/if}
+        </div>
+      </button>
+      {/if}
+
+      <!-- Notifications -->
+      <button class="action-btn" on:click={goToNotifications} on:touchend|preventDefault={goToNotifications}>
+        <div class="icon-container">
+          <span class="action-icon">🔔</span>
+          {#if notificationCount > 0}
+            <span class="action-badge">{notificationCount}</span>
+          {/if}
+        </div>
+      </button>
+    </div>
+  </div>
+</header>
+
+<style>
+  .top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-bottom: 1px solid var(--color-border-light);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    height: 45px;
+  }
+
+  .top-bar-content {
+    display: flex;
+    height: 100%;
+    padding: 0;
+    align-items: center;
+    gap: 0.38rem;
+  }
+  
+  .left-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .customer-update-btn {
+    border-radius: 6px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+    border: none;
+  }
+
+  .customer-update-btn.update-available {
+    background: #dcfce7;
+    border: 1px solid #86efac;
+    cursor: pointer;
+    animation: pulse-update 2s ease-in-out infinite;
+  }
+
+  .customer-update-btn.up-to-date {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  @keyframes pulse-update {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 6px 2px rgba(34, 197, 94, 0.3); }
+  }
+  
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.19rem;
+    margin-left: auto;
+    padding-right: 0.38rem;
+  }
+
+  .action-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    padding: 0.4rem 0.5rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--color-ink-light);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .action-btn:hover {
+    color: var(--color-primary);
+    transform: scale(1.1);
+  }
+
+  .action-btn:active {
+    transform: scale(0.95);
+  }
+
+  .profile-btn {
+    color: #16a34a;
+  }
+
+  .profile-btn:hover {
+    color: #22c55e;
+  }
+
+  .cart-btn {
+    color: #f59e0b;
+  }
+
+  .cart-btn:hover {
+    color: #fbbf24;
+  }
+
+  .lang-btn {
+    color: #d4af37;
+  }
+
+  .lang-btn:hover {
+    color: #f1c40f;
+  }
+
+  .action-icon-svg {
+    width: 1.8rem;
+    height: 1.8rem;
+    display: block;
+  }
+
+  .icon-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .action-icon {
+    font-size: 1.3rem;
+    display: block;
+    line-height: 1;
+  }
+
+  .action-badge {
+    position: absolute;
+    top: -0.3rem;
+    right: -0.3rem;
+    background: var(--color-primary);
+    color: white;
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 0.15rem 0.35rem;
+    border-radius: 10px;
+    min-width: 16px;
+    text-align: center;
+    line-height: 1;
+    z-index: 1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 480px) {
+    .action-btn {
+      padding: 0.35rem 0.45rem;
+    }
+
+    .action-icon {
+      font-size: 1.2rem;
+    }
+
+    .action-badge {
+      font-size: 0.55rem;
+      padding: 0.12rem 0.3rem;
+      min-width: 14px;
+    }
+  }
+</style>
+

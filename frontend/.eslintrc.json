@@ -1,0 +1,23 @@
+{
+  "root": true,
+  "extends": ["eslint:recommended", "prettier"],
+  "parserOptions": {
+    "sourceType": "module",
+    "ecmaVersion": 2020
+  },
+  "env": {
+    "browser": true,
+    "es2017": true,
+    "node": true,
+    "serviceworker": true
+  },
+  "globals": {
+    "workbox": "readonly",
+    "clients": "readonly",
+    "registration": "readonly",
+    "importScripts": "readonly",
+    "ExtendableEvent": "readonly",
+    "FetchEvent": "readonly"
+  },
+  "ignorePatterns": ["*.cjs", ".svelte-kit/**", "build/**", "dist/**", ".vercel/**", "dev-dist/**"]
+}

@@ -1,0 +1,2285 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
+	import { supabase, db, resolveStorageUrl } from '$lib/utils/supabase';
+	import { locale, getTranslation } from '$lib/i18n';
+	import { notifications } from '$lib/stores/notifications';
+
+	let currentUserData = null;
+	let tasks = [];
+	let filteredTasks = [];
+	let isLoading = true;
+	let searchTerm = '';
+	let filterStatus = 'active'; // Changed from 'all' to 'active' to hide completed by default
+	let filterPriority = 'all';
+	let showCompleted = false; // Toggle for showing/hiding completed tasks
+
+	// User cache for displaying usernames and employee names
+	let userCache = {};
+
+	// Incident attachments cache for quick tasks
+	let incidentAttachmentsCache = {};
+
+	// Image preview modal variables
+	let showImagePreview = false;
+	let previewImageSrc = '';
+	let previewImageAlt = '';
+
+	onMount(async () => {
+		currentUserData = $currentUser;
+		if (currentUserData) {
+			await loadTasks();
+		}
+		isLoading = false;
+	});
+
+	// Function to fetch and cache incident attachments
+	async function loadIncidentAttachments(incidentId) {
+		if (!incidentId) return [];
+		
+		// Return from cache if already loaded
+		if (incidentAttachmentsCache[incidentId]) {
+			return incidentAttachmentsCache[incidentId];
+		}
+
+		try {
+			const { data: incident, error } = await supabase
+				.from('incidents')
+				.select('attachments')
+				.eq('id', incidentId)
+				.single();
+			
+			if (error) {
+				console.warn('Failed to fetch incident attachments:', error);
+				incidentAttachmentsCache[incidentId] = [];
+				return [];
+			}
+
+			if (incident?.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0) {
+				incidentAttachmentsCache[incidentId] = incident.attachments;
+				return incident.attachments;
+			}
+		} catch (err) {
+			console.warn('Error loading incident attachments:', err);
+		}
+
+		incidentAttachmentsCache[incidentId] = [];
+		return [];
+	}
+
+	onMount(async () => {
+		currentUserData = $currentUser;
+		if (currentUserData) {
+			await loadTasks();
+		}
+		isLoading = false;
+	});
+
+	// Function to load and cache user information
+	async function loadUserCache() {
+		try {
+			// First, populate cache with existing data from tasks
+			for (const task of tasks) {
+				if (task.assigned_by && task.assigned_by_name) {
+					userCache[task.assigned_by] = task.assigned_by_name;
+				}
+				if (task.created_by && task.created_by_name) {
+					userCache[task.created_by] = task.created_by_name;
+				}
+			}
+			
+		// Add current user to cache
+		if (currentUserData?.id) {
+			userCache[currentUserData.id] = currentUserData.username || 'You';
+		}			// Extract all user IDs from tasks that we might need to display
+			const userIds = new Set();
+			
+			// Add current user to cache
+			if (currentUserData?.id) {
+				userIds.add(currentUserData.id);
+			}
+			
+			for (const task of tasks) {
+				// Add assigned_by user
+				if (task.assigned_by) {
+					userIds.add(task.assigned_by);
+				}
+				
+				// Add created_by user
+				if (task.created_by) {
+					userIds.add(task.created_by);
+				}
+			}
+			
+			// Fetch usernames for all these user IDs from both users and hr_employees tables
+			if (userIds.size > 0) {
+				const userIdArray = Array.from(userIds);
+				
+				// Try to get user data with employee information
+				try {
+					const { data: users, error } = await supabase
+						.from('users')
+						.select(`
+							id, 
+							username
+						`)
+						.in('id', userIdArray);
+					
+					if (error) {
+						console.warn('Error fetching users:', error);
+						// Fallback to using existing names from task data
+						for (const task of tasks) {
+							if (task.assigned_by && task.assigned_by_name) {
+								userCache[task.assigned_by] = task.assigned_by_name;
+							}
+							if (task.created_by && task.created_by_name) {
+								userCache[task.created_by] = task.created_by_name;
+							}
+						}
+						
+						// Add current user fallback
+						if (currentUserData?.id) {
+							userCache[currentUserData.id] = currentUserData.username || 'You';
+						}
+						return;
+					}
+					
+					if (users) {
+						// First populate basic user info
+						for (const user of users) {
+							let displayName = 'Unknown User';
+							
+							// Priority: username > user ID
+							if (user.username) {
+								displayName = user.username;
+							} else {
+								displayName = `User ${user.id.substring(0, 8)}`;
+							}
+							
+							userCache[user.id] = displayName;
+						}
+						
+						// Now try to get employee information separately
+						try {
+							const { data: employees } = await supabase
+								.from('hr_employees')
+								.select('id, name, employee_id')
+								.in('id', userIdArray);
+							
+							if (employees) {
+								// Update cache with employee names where available
+								for (const employee of employees) {
+									if (employee.name) {
+										userCache[employee.id] = employee.name;
+									}
+								}
+							}
+						} catch (employeeError) {
+							console.warn('Could not fetch employee data:', employeeError);
+							// Continue with user data only
+						}
+					}
+				} catch (userError) {
+					console.warn('Error in user cache loading:', userError);
+					// Fallback to using existing names from task data
+					for (const task of tasks) {
+						if (task.assigned_by && task.assigned_by_name) {
+							userCache[task.assigned_by] = task.assigned_by_name;
+						}
+						if (task.created_by && task.created_by_name) {
+							userCache[task.created_by] = task.created_by_name;
+						}
+					}
+					
+					// Add current user fallback
+					if (currentUserData?.id) {
+						userCache[currentUserData.id] = currentUserData.username || 'You';
+					}
+				}
+			}
+		} catch (error) {
+			console.warn('Failed to load user cache:', error);
+			// Add basic fallbacks
+			if (currentUserData?.id) {
+				userCache[currentUserData.id] = currentUserData.username || 'You';
+			}
+		}
+	}
+
+	// Helper function to get display name for a user
+	function getUserDisplayName(userId, fallbackName) {
+		// First check cache
+		if (userCache[userId]) {
+			return userCache[userId];
+		}
+		
+		// If no cache, use fallback name if available
+		if (fallbackName && fallbackName !== 'Unknown User') {
+			return fallbackName;
+		}
+		
+	// If userId matches current user, show current user info
+	if (userId === currentUserData?.id) {
+		return currentUserData?.username || 'You';
+	}		// Last resort fallback
+		return fallbackName || 'Unknown User';
+	}
+
+	function hideImage(e) {
+		e.target.style.display = 'none';
+	}
+
+	async function loadTasks() {
+		try {
+			const startTime = performance.now();
+			console.log('📋 Starting optimized task load...');
+			
+			// Load only active tasks (not completed) - much faster due to RLS
+			// Parallel loading for better performance
+			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
+				// Load regular task assignments with separated queries (no nested joins)
+				supabase
+					.from('task_assignments')
+					.select('id, status, assigned_at, deadline_date, deadline_time, task_id, assigned_by, assigned_by_name, require_task_finished, require_photo_upload, require_erp_reference')
+					.eq('assigned_to_user_id', currentUserData.id)
+					.neq('status', 'completed')
+					.neq('status', 'cancelled')
+					.order('assigned_at', { ascending: false })
+					.limit(100),
+
+				// Load quick task assignments with separated queries
+				supabase
+					.from('quick_task_assignments')
+					.select('id, status, created_at, quick_task_id, assigned_to_user_id')
+					.eq('assigned_to_user_id', currentUserData.id)
+					.neq('status', 'completed')
+					.neq('status', 'cancelled')
+					.order('created_at', { ascending: false })
+					.limit(100),
+
+				// Load receiving tasks - filter for active only
+				supabase
+					.from('receiving_tasks')
+					.select('id, title, description, priority, role_type, task_status, due_date, created_at, assigned_user_id, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
+					.eq('assigned_user_id', currentUserData.id)
+					.neq('task_status', 'completed')
+					.order('created_at', { ascending: false })
+					.limit(100)
+			]);
+
+			if (taskAssignmentsResult.error) throw taskAssignmentsResult.error;
+			if (quickTaskAssignmentsResult.error) throw quickTaskAssignmentsResult.error;
+			if (receivingTasksResult.error) throw receivingTasksResult.error;
+
+			const taskAssignments = taskAssignmentsResult.data || [];
+			const quickTaskAssignments = quickTaskAssignmentsResult.data || [];
+			const receivingTasks = receivingTasksResult.data || [];
+
+			// Now fetch task details separately (avoids nested JOINs with RLS)
+			const regularTaskIds = taskAssignments.map(a => a.task_id);
+			const quickTaskIds = quickTaskAssignments.map(a => a.quick_task_id);
+
+			// Fetch task and quick task details in parallel
+			const [tasksResult, quickTasksResult] = await Promise.all([
+				regularTaskIds.length > 0 
+					? supabase
+						.from('tasks')
+						.select('id, title, description, priority, due_date, due_time, status, created_at, created_by, created_by_name, require_task_finished, require_photo_upload, require_erp_reference')
+						.in('id', regularTaskIds)
+					: Promise.resolve({ data: [] }),
+				quickTaskIds.length > 0
+					? supabase
+						.from('quick_tasks')
+						.select('id, title, description, priority, deadline_datetime, status, created_at, assigned_by, incident_id')
+						.in('id', quickTaskIds)
+					: Promise.resolve({ data: [] })
+			]);
+
+			// Get all task IDs for batch loading attachments
+			const [regularAttachments, quickAttachments] = await Promise.all([
+				regularTaskIds.length > 0 
+					? supabase
+						.from('task_images')
+						.select('*')
+						.in('task_id', regularTaskIds)
+					: Promise.resolve({ data: [] }),
+				quickTaskIds.length > 0
+					? supabase
+						.from('quick_task_files')
+						.select('*')
+						.in('quick_task_id', quickTaskIds)
+					: Promise.resolve({ data: [] })
+			]);
+
+			// Create maps for O(1) lookup
+			const taskDetailsMap = new Map();
+			(tasksResult.data || []).forEach(task => {
+				taskDetailsMap.set(task.id, task);
+			});
+
+			const quickTaskDetailsMap = new Map();
+			(quickTasksResult.data || []).forEach(task => {
+				quickTaskDetailsMap.set(task.id, task);
+			});
+
+			const regularAttachmentsMap = new Map();
+			(regularAttachments.data || []).forEach(att => {
+				if (!regularAttachmentsMap.has(att.task_id)) {
+					regularAttachmentsMap.set(att.task_id, []);
+				}
+				regularAttachmentsMap.get(att.task_id).push(att);
+			});
+
+			const quickAttachmentsMap = new Map();
+			(quickAttachments.data || []).forEach(att => {
+				if (att.is_deleted !== true) {
+					if (!quickAttachmentsMap.has(att.quick_task_id)) {
+						quickAttachmentsMap.set(att.quick_task_id, []);
+					}
+					quickAttachmentsMap.get(att.quick_task_id).push(att);
+				}
+			});
+
+			// Process regular tasks with merged data
+			const processedTasks = taskAssignments.map(assignment => {
+				const taskDetails = taskDetailsMap.get(assignment.task_id) || { title: 'Unknown Task', description: '' };
+				const attachments = regularAttachmentsMap.get(assignment.task_id) || [];
+				return {
+					...taskDetails,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.assigned_at,
+					deadline_date: assignment.deadline_date,
+					deadline_time: assignment.deadline_time,
+					assigned_by: assignment.assigned_by,
+					assigned_by_name: assignment.assigned_by_name,
+					require_task_finished: assignment.require_task_finished ?? true,
+					require_photo_upload: assignment.require_photo_upload ?? false,
+					require_erp_reference: assignment.require_erp_reference ?? false,
+					hasAttachments: attachments.length > 0,
+					attachments: attachments,
+					task_type: 'regular'
+				};
+			});
+
+			// Process quick tasks with merged data
+			const processedQuickTasks = quickTaskAssignments.map(assignment => {
+				const quickTaskDetails = quickTaskDetailsMap.get(assignment.quick_task_id) || { title: 'Unknown Quick Task', description: '' };
+				const attachments = quickAttachmentsMap.get(assignment.quick_task_id) || [];
+				return {
+					...quickTaskDetails,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.created_at,
+					deadline_date: quickTaskDetails.deadline_datetime 
+						? quickTaskDetails.deadline_datetime.split('T')[0] 
+						: null,
+					deadline_time: quickTaskDetails.deadline_datetime 
+						? quickTaskDetails.deadline_datetime.split('T')[1]?.substring(0, 5) 
+						: null,
+					assigned_by: quickTaskDetails.assigned_by,
+					assigned_by_name: 'Quick Task Creator',
+					created_by: quickTaskDetails.assigned_by,
+					created_by_name: 'Quick Task Creator',
+					require_task_finished: true,
+					require_photo_upload: false,
+					require_erp_reference: false,
+					hasAttachments: attachments.length > 0,
+					attachments: attachments,
+					task_type: 'quick',
+					incident_id: quickTaskDetails.incident_id
+				};
+			});
+
+			// Process receiving tasks
+			const processedReceivingTasks = receivingTasks.map(task => {
+				return {
+					id: task.id,
+					title: task.title,
+					description: task.description,
+					priority: task.priority,
+					status: task.task_status,
+					assignment_id: task.id,
+					assignment_status: task.task_status,
+					assigned_at: task.created_at,
+					deadline_date: task.due_date ? task.due_date.split('T')[0] : null,
+					deadline_time: task.due_date ? task.due_date.split('T')[1]?.substring(0, 5) : null,
+					assigned_by: null,
+					assigned_by_name: 'System (Receiving)',
+					created_by: null,
+					created_by_name: 'System (Receiving)',
+					require_task_finished: true,
+					require_photo_upload: task.requires_original_bill_upload || false,
+					require_erp_reference: task.requires_erp_reference || false,
+					hasAttachments: false,
+					attachments: [],
+					task_type: 'receiving',
+					role_type: task.role_type,
+					receiving_record_id: task.receiving_record_id,
+					clearance_certificate_url: task.clearance_certificate_url
+				};
+			});
+
+			// Fetch parent task price info for shelf tag tasks (linked_parent_task:UUID in description)
+			const parentTaskIds = [];
+			const taskToParentMap = new Map();
+			[...processedQuickTasks].forEach(t => {
+				const desc = t.description || '';
+				const parentMatch = desc.match(/linked_parent_task:([a-f0-9-]{36})/i);
+				if (parentMatch) {
+					parentTaskIds.push(parentMatch[1]);
+					taskToParentMap.set(t.id || t.assignment_id, parentMatch[1]);
+				}
+			});
+
+			if (parentTaskIds.length > 0) {
+				const { data: parentTasks } = await supabase
+					.from('quick_tasks')
+					.select('id, title, description, price_tag')
+					.in('id', [...new Set(parentTaskIds)]);
+
+				if (parentTasks) {
+					const parentMap = new Map();
+					const barcodesToLookup = new Set();
+					parentTasks.forEach(pt => {
+						parentMap.set(pt.id, pt);
+						// Extract barcode from description or title
+						const barcodeMatch = (pt.description || '').match(/Barcode:\s*(\S+)/i) || (pt.description || '').match(/باركود:\s*(\S+)/);
+						const titleBarcodeMatch = (pt.title || '').match(/:\s*(\d{4,})/);
+						const barcode = barcodeMatch ? barcodeMatch[1] : (titleBarcodeMatch ? titleBarcodeMatch[1] : null);
+						if (barcode) {
+							pt._barcode = barcode;
+							barcodesToLookup.add(barcode);
+						}
+					});
+
+					// Batch lookup product names from erp_synced_products (check both barcode and auto_barcode)
+					let productNameMap = new Map();
+					if (barcodesToLookup.size > 0) {
+						const barcodeArr = [...barcodesToLookup];
+						const [byBarcode, byAutoBarcode] = await Promise.all([
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('barcode', barcodeArr),
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('auto_barcode', barcodeArr)
+						]);
+						if (byBarcode.data) {
+							byBarcode.data.forEach(p => productNameMap.set(p.barcode, p));
+						}
+						if (byAutoBarcode.data) {
+							byAutoBarcode.data.forEach(p => productNameMap.set(p.auto_barcode, p));
+						}
+					}
+
+					processedQuickTasks.forEach(t => {
+						const parentId = taskToParentMap.get(t.id || t.assignment_id);
+						if (parentId && parentMap.has(parentId)) {
+							const parent = parentMap.get(parentId);
+							const parentDesc = parent.description || '';
+							const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+							const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+							const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+							t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
+							t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
+							t.parent_title = parent.title;
+							// Map barcode to product name
+							if (parent._barcode && productNameMap.has(parent._barcode)) {
+								const prod = productNameMap.get(parent._barcode);
+								t.product_name = prod.product_name_en || prod.product_name_ar || '';
+								t.product_name_ar = prod.product_name_ar || '';
+								t.product_barcode = parent._barcode;
+								// If matched via auto_barcode, also show the real barcode
+								if (prod.auto_barcode === parent._barcode && prod.barcode !== parent._barcode) {
+									t.product_real_barcode = prod.barcode;
+								}
+							}
+						}
+					});
+				}
+			}
+
+			// Combine and sort all tasks
+			tasks = [...processedTasks, ...processedQuickTasks, ...processedReceivingTasks]
+				.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
+			
+			// Load user cache after loading tasks
+			await loadUserCache();
+			
+			const endTime = performance.now();
+			console.log(`✅ Active tasks loaded in ${(endTime - startTime).toFixed(0)}ms (${tasks.length} tasks)`);
+			
+			filterTasks();
+		} catch (error) {
+			console.error('Error loading tasks:', error);
+		}
+	}
+
+	function filterTasks() {
+		filteredTasks = tasks.filter(task => {
+			// Hide completed tasks unless showCompleted is true
+			if (!showCompleted && task.assignment_status === 'completed') {
+				return false;
+			}
+
+	// Function to handle task navigation based on task type
+	function navigateToTask(task) {
+		if (task.task_type === 'receiving') {
+			// For receiving tasks, go to receiving task details page
+			goto(`/mobile-interface/receiving-tasks/${task.id}`);
+		} else if (task.task_type === 'quick') {
+			// For quick tasks, we might need a quick task details page
+			goto(`/mobile-interface/quick-tasks/${task.id}`);
+		} else {
+			// For regular tasks, go to task details
+			goto(`/mobile-interface/tasks/${task.id}`);
+		}
+	}
+
+			// Safe search - handle null/undefined values
+			const title = task.title || '';
+			const description = task.description || '';
+			const matchesSearch = searchTerm === '' || 
+				title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+				description.toLowerCase().includes(searchTerm.toLowerCase());
+			
+			// Update status filter to handle 'active' option
+			let matchesStatus = true;
+			if (filterStatus === 'active') {
+				matchesStatus = task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled';
+			} else if (filterStatus !== 'all') {
+				matchesStatus = task.assignment_status === filterStatus;
+			}
+			
+			const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
+			
+			return matchesSearch && matchesStatus && matchesPriority;
+		});
+	}
+
+	function formatDate(dateString) {
+		if (!dateString) return '';
+		const date = new Date(dateString);
+		const now = new Date();
+		const diffMs = now.getTime() - date.getTime();
+		const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+		
+		if (diffHours < 1) {
+			const diffMinutes = Math.floor(diffMs / (1000 * 60));
+			return diffMinutes < 1 ? 'Just now' : `${diffMinutes}m ago`;
+		} else if (diffHours < 24) {
+			return `${diffHours}h ago`;
+		} else {
+			const diffDays = Math.floor(diffHours / 24);
+			return diffDays === 1 ? 'Yesterday' : `${diffDays}d ago`;
+		}
+	}
+
+	function formatExactDeadline(deadlineDate, deadlineTime) {
+		if (!deadlineDate) return 'No deadline';
+		
+		try {
+			// Combine date and time if both are available
+			let dateTimeString = deadlineDate;
+			if (deadlineTime) {
+				dateTimeString = `${deadlineDate}T${deadlineTime}`;
+			}
+			
+			const deadline = new Date(dateTimeString);
+			const now = new Date();
+			
+			// Format as dd-mm-yyyy
+			const day = deadline.getDate().toString().padStart(2, '0');
+			const month = (deadline.getMonth() + 1).toString().padStart(2, '0');
+			const year = deadline.getFullYear();
+			const formattedDate = `${day}-${month}-${year}`;
+			
+			// Format time as HH:MM AM/PM
+			const hours = deadline.getHours();
+			const minutes = deadline.getMinutes().toString().padStart(2, '0');
+			const ampm = hours >= 12 ? 'PM' : 'AM';
+			const displayHours = hours % 12 || 12;
+			const formattedTime = `${displayHours}:${minutes} ${ampm}`;
+			
+			// Check if it's overdue
+			const isOverdue = deadline < now;
+			const overduePrefix = isOverdue ? '⚠️ ' : '';
+			
+			return `${overduePrefix}Deadline: ${formattedDate} ${formattedTime}`;
+		} catch (error) {
+			console.error('Error formatting deadline:', error);
+			return deadlineDate;
+		}
+	}
+
+	function downloadTaskAttachments(task) {
+		if (!task.attachments || task.attachments.length === 0) {
+			console.log('No attachments to download');
+			return;
+		}
+
+		// Download all attachments
+		task.attachments.forEach(attachment => {
+			const downloadUrl = attachment.file_path && attachment.file_path.startsWith('http') 
+				? resolveStorageUrl(attachment.file_path) 
+				: resolveStorageUrl(attachment.file_path || '', 'task-images');
+			
+			const link = document.createElement('a');
+			link.href = downloadUrl;
+			link.download = attachment.file_name || 'attachment';
+			link.target = '_blank';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		});
+	}
+
+	// Helper function to get proper file URL for attachments
+	function getFileUrl(attachment) {
+		// Handle regular task attachments (use file_path)
+		if (attachment.file_path) {
+			if (attachment.file_path.startsWith('http')) {
+				return attachment.file_path;
+			}
+			return resolveStorageUrl(attachment.file_path, 'task-images');
+		}
+		
+		// Handle quick task files (use storage_path and storage_bucket)
+		if (attachment.storage_path) {
+			const bucket = attachment.storage_bucket || 'quick-task-files';
+			return resolveStorageUrl(attachment.storage_path, bucket);
+		}
+		
+		return null;
+	}
+
+	// Image preview functions
+	function openImagePreview(attachment) {
+		const imageUrl = getFileUrl(attachment);
+		if (imageUrl) {
+			previewImageSrc = imageUrl;
+			previewImageAlt = attachment.file_name || 'Task attachment';
+			showImagePreview = true;
+		}
+	}
+
+	function closeImagePreview() {
+		showImagePreview = false;
+		previewImageSrc = '';
+		previewImageAlt = '';
+	}
+
+	// Download single attachment
+	function downloadSingleAttachment(attachment) {
+		const downloadUrl = getFileUrl(attachment);
+		if (downloadUrl) {
+			const link = document.createElement('a');
+			link.href = downloadUrl;
+			link.download = attachment.file_name || 'attachment';
+			link.target = '_blank';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		}
+	}
+
+	function getPriorityColor(priority) {
+		switch (priority) {
+			case 'high': return '#EF4444';
+			case 'medium': return '#F59E0B';
+			case 'low': return '#10B981';
+			default: return '#6B7280';
+		}
+	}
+
+	function getStatusColor(status) {
+		switch (status) {
+			case 'assigned': return '#3B82F6';
+			case 'in_progress': return '#F59E0B';
+			case 'completed': return '#10B981';
+			case 'cancelled': return '#EF4444';
+			default: return '#6B7280';
+		}
+	}
+
+	function isOverdue(deadlineDate, deadlineTime) {
+		if (!deadlineDate) return false;
+		
+		const now = new Date();
+		const deadline = new Date(deadlineDate);
+		
+		if (deadlineTime) {
+			const [hours, minutes] = deadlineTime.split(':');
+			deadline.setHours(parseInt(hours), parseInt(minutes));
+		}
+		
+		return now > deadline;
+	}
+
+	function getStatusDisplayText(status) {
+		switch (status) {
+			case 'assigned': return 'PENDING';
+			case 'in_progress': return 'IN PROGRESS';
+			case 'completed': return 'COMPLETED';
+			case 'cancelled': return 'CANCELLED';
+			case 'escalated': return 'ESCALATED';
+			case 'reassigned': return 'REASSIGNED';
+			default: return status?.replace('_', ' ').toUpperCase() || 'UNKNOWN';
+		}
+	}
+
+	async function markAsComplete(task) {
+// Navigate to the appropriate completion page based on task type
+if (task.task_type === 'quick') {
+goto(`/mobile-interface/quick-tasks/${task.id}/complete`);
+} else if (task.task_type === 'receiving') {
+// Handle receiving task completion inline with API call
+await completeReceivingTask(task);
+} else {
+goto(`/mobile-interface/tasks/${task.id}/complete`);
+}
+}
+
+	async function completeReceivingTask(task) {
+		// Special handling for roles that require detailed completion forms
+		if (task.role_type === 'inventory_manager' || 
+			task.role_type === 'purchase_manager' || 
+			task.role_type === 'shelf_stocker' ||
+			task.role_type === 'branch_manager' ||
+			task.role_type === 'night_supervisor' ||
+			task.role_type === 'accountant') {
+			// Redirect to the detailed completion form
+			goto(`/mobile-interface/receiving-tasks/${task.id}/complete`);
+			return;
+		}
+
+		const confirmed = window.confirm(
+			`Are you sure you want to mark this receiving task as completed?\n\nRole: ${task.title}\nBranch: ${task.branch_name || 'N/A'}`
+		);
+
+		if (!confirmed) return;
+
+		try {
+			const response = await fetch('/api/receiving-tasks/complete', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					receiving_task_id: task.id,
+					user_id: currentUserData?.id
+				})
+			});
+
+			console.log('🔍 [Mobile Tasks] API Response status:', response.status);
+
+			if (!response.ok) {
+				const errorData = await response.json();
+				console.log('❌ [Mobile Tasks] API Error Response:', errorData);
+				
+				// Handle specific error cases
+				if (errorData.error_code === 'DEPENDENCIES_NOT_MET') {
+					throw new Error(errorData.error || errorData.message || 'Task dependencies not met');
+				} else {
+					throw new Error(errorData.error || errorData.message || 'Failed to complete receiving task');
+				}
+			}
+
+			const result = await response.json();
+			console.log('✅ [Mobile Tasks] API Success Response:', result);
+
+			notifications.add({ type: 'success', message: 'Receiving task completed successfully!' });
+			await loadTasks();
+		} catch (error) {
+			console.error('Error completing receiving task:', error);
+			notifications.add({ type: 'error', message: `Error: ${error.message}` });
+		}
+	}
+
+function navigateToTask(task) {
+// Navigate to the appropriate task view based on task type
+if (task.task_type === 'quick') {
+goto(`/mobile-interface/quick-tasks/${task.id}/complete`);
+} else if (task.task_type === 'receiving') {
+showReceivingTaskDetails(task);
+} else {
+goto(`/mobile-interface/tasks/${task.id}`);
+}
+}
+
+function showReceivingTaskDetails(task) {
+// Navigate to the receiving task detail page
+goto(`/mobile-interface/receiving-tasks/${task.id}`);
+}
+
+	// Load completed tasks on demand when checkbox is toggled
+	async function loadCompletedTasks() {
+		try {
+			const startTime = performance.now();
+			console.log('📋 Loading completed tasks on demand...');
+
+			// Load completed task assignments separately
+			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
+				// Regular task assignments - completed status
+				supabase
+					.from('task_assignments')
+					.select('id, status, assigned_at, deadline_date, deadline_time, task_id, assigned_by, assigned_by_name, require_task_finished, require_photo_upload, require_erp_reference')
+					.eq('assigned_to_user_id', currentUserData.id)
+					.eq('status', 'completed')
+					.order('assigned_at', { ascending: false })
+					.limit(100),
+
+				// Quick task assignments - completed status
+				supabase
+					.from('quick_task_assignments')
+					.select('id, status, created_at, quick_task_id, assigned_to_user_id')
+					.eq('assigned_to_user_id', currentUserData.id)
+					.eq('status', 'completed')
+					.order('created_at', { ascending: false })
+					.limit(100),
+
+				// Receiving tasks - completed status
+				supabase
+					.from('receiving_tasks')
+					.select('id, title, description, priority, role_type, task_status, due_date, created_at, assigned_user_id, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
+					.eq('assigned_user_id', currentUserData.id)
+					.eq('task_status', 'completed')
+					.order('created_at', { ascending: false })
+					.limit(100)
+			]);
+
+			if (taskAssignmentsResult.error) console.error('Error loading completed regular tasks:', taskAssignmentsResult.error);
+			if (quickTaskAssignmentsResult.error) console.error('Error loading completed quick tasks:', quickTaskAssignmentsResult.error);
+			if (receivingTasksResult.error) console.error('Error loading completed receiving tasks:', receivingTasksResult.error);
+
+			const taskAssignments = taskAssignmentsResult.data || [];
+			const quickTaskAssignments = quickTaskAssignmentsResult.data || [];
+			const receivingTasksCompleted = receivingTasksResult.data || [];
+
+			// Fetch task details separately
+			const regularTaskIds = taskAssignments.map(a => a.task_id);
+			const quickTaskIds = quickTaskAssignments.map(a => a.quick_task_id);
+
+			const [tasksResult, quickTasksResult] = await Promise.all([
+				regularTaskIds.length > 0 
+					? supabase
+						.from('tasks')
+						.select('id, title, description, priority, due_date, due_time, status, created_at, created_by, created_by_name, require_task_finished, require_photo_upload, require_erp_reference')
+						.in('id', regularTaskIds)
+					: Promise.resolve({ data: [] }),
+				quickTaskIds.length > 0
+					? supabase
+						.from('quick_tasks')
+					.select('id, title, description, priority, deadline_datetime, status, created_at, assigned_by, incident_id')
+					.in('id', quickTaskIds)
+				: Promise.resolve({ data: [] })
+		]);
+
+		// Create maps for O(1) lookup
+		const taskDetailsMap = new Map();
+		(tasksResult.data || []).forEach(task => {
+			taskDetailsMap.set(task.id, task);
+		});
+
+		const quickTaskDetailsMap = new Map();
+		(quickTasksResult.data || []).forEach(task => {
+			quickTaskDetailsMap.set(task.id, task);
+		});
+
+		// Process completed regular tasks
+		const completedRegularTasks = taskAssignments.map(assignment => {
+			const taskDetails = taskDetailsMap.get(assignment.task_id) || { title: 'Unknown Task', description: '' };
+			return {
+					...taskDetails,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.assigned_at,
+					deadline_date: assignment.deadline_date,
+					deadline_time: assignment.deadline_time,
+					assigned_by: assignment.assigned_by,
+					assigned_by_name: assignment.assigned_by_name,
+					require_task_finished: assignment.require_task_finished ?? true,
+					require_photo_upload: assignment.require_photo_upload ?? false,
+					require_erp_reference: assignment.require_erp_reference ?? false,
+					hasAttachments: false,
+					attachments: [],
+					task_type: 'regular'
+				};
+			});
+
+			// Process completed quick tasks
+			const completedQuickTasks = quickTaskAssignments.map(assignment => {
+				const quickTaskDetails = quickTaskDetailsMap.get(assignment.quick_task_id) || { title: 'Unknown Quick Task', description: '' };
+				return {
+					...quickTaskDetails,
+					assignment_id: assignment.id,
+					assignment_status: assignment.status,
+					assigned_at: assignment.created_at,
+					deadline_date: quickTaskDetails.deadline_datetime 
+						? quickTaskDetails.deadline_datetime.split('T')[0] 
+						: null,
+					deadline_time: quickTaskDetails.deadline_datetime 
+						? quickTaskDetails.deadline_datetime.split('T')[1]?.substring(0, 5) 
+						: null,
+					assigned_by: quickTaskDetails.assigned_by,
+					assigned_by_name: 'Quick Task Creator',
+					created_by: quickTaskDetails.assigned_by,
+					created_by_name: 'Quick Task Creator',
+					require_task_finished: true,
+					require_photo_upload: false,
+					require_erp_reference: false,
+					hasAttachments: false,
+					attachments: [],
+					task_type: 'quick'
+				};
+			});
+
+			// Process completed receiving tasks
+			const completedReceivingTasks = receivingTasksCompleted.map(task => {
+				return {
+					id: task.id,
+					title: task.title,
+					description: task.description,
+					priority: task.priority,
+					status: task.task_status,
+					assignment_id: task.id,
+					assignment_status: task.task_status,
+					assigned_at: task.created_at,
+					deadline_date: task.due_date ? task.due_date.split('T')[0] : null,
+					deadline_time: task.due_date ? task.due_date.split('T')[1]?.substring(0, 5) : null,
+					assigned_by: null,
+					assigned_by_name: 'System (Receiving)',
+					created_by: null,
+					created_by_name: 'System (Receiving)',
+					require_task_finished: true,
+					require_photo_upload: task.requires_original_bill_upload || false,
+					require_erp_reference: task.requires_erp_reference || false,
+					hasAttachments: false,
+					attachments: [],
+					task_type: 'receiving',
+					role_type: task.role_type,
+					receiving_record_id: task.receiving_record_id,
+					clearance_certificate_url: task.clearance_certificate_url
+				};
+			});
+
+			// Fetch parent task price info for completed shelf tag tasks
+			const cParentTaskIds = [];
+			const cTaskToParentMap = new Map();
+			completedQuickTasks.forEach(t => {
+				const desc = t.description || '';
+				const parentMatch = desc.match(/linked_parent_task:([a-f0-9-]{36})/i);
+				if (parentMatch) {
+					cParentTaskIds.push(parentMatch[1]);
+					cTaskToParentMap.set(t.id || t.assignment_id, parentMatch[1]);
+				}
+			});
+
+			if (cParentTaskIds.length > 0) {
+				const { data: cParentTasks } = await supabase
+					.from('quick_tasks')
+					.select('id, title, description, price_tag')
+					.in('id', [...new Set(cParentTaskIds)]);
+
+				if (cParentTasks) {
+					const cParentMap = new Map();
+					const cBarcodesToLookup = new Set();
+					cParentTasks.forEach(pt => {
+						cParentMap.set(pt.id, pt);
+						const barcodeMatch = (pt.description || '').match(/Barcode:\s*(\S+)/i) || (pt.description || '').match(/باركود:\s*(\S+)/);
+						const titleBarcodeMatch = (pt.title || '').match(/:\s*(\d{4,})/);
+						const barcode = barcodeMatch ? barcodeMatch[1] : (titleBarcodeMatch ? titleBarcodeMatch[1] : null);
+						if (barcode) {
+							pt._barcode = barcode;
+							cBarcodesToLookup.add(barcode);
+						}
+					});
+
+					let cProductNameMap = new Map();
+					if (cBarcodesToLookup.size > 0) {
+						const cBarcodeArr = [...cBarcodesToLookup];
+						const [cByBarcode, cByAutoBarcode] = await Promise.all([
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('barcode', cBarcodeArr),
+							supabase
+								.from('erp_synced_products')
+								.select('barcode, auto_barcode, product_name_en, product_name_ar')
+								.in('auto_barcode', cBarcodeArr)
+						]);
+						if (cByBarcode.data) {
+							cByBarcode.data.forEach(p => cProductNameMap.set(p.barcode, p));
+						}
+						if (cByAutoBarcode.data) {
+							cByAutoBarcode.data.forEach(p => cProductNameMap.set(p.auto_barcode, p));
+						}
+					}
+
+					completedQuickTasks.forEach(t => {
+						const parentId = cTaskToParentMap.get(t.id || t.assignment_id);
+						if (parentId && cParentMap.has(parentId)) {
+							const parent = cParentMap.get(parentId);
+							const parentDesc = parent.description || '';
+							const oldP = parentDesc.match(/Old Price:\s*([\d.]+)/i) || parentDesc.match(/السعر القديم:\s*([\d.]+)/);
+							const newP = parentDesc.match(/New Price:\s*([\d.]+)/i) || parentDesc.match(/السعر الجديد:\s*([\d.]+)/);
+							const arrowP = parentDesc.match(/([\d.]+)\s*→\s*([\d.]+)/);
+							t.parent_old_price = oldP ? oldP[1] : (arrowP ? arrowP[1] : null);
+							t.parent_new_price = newP ? newP[1] : (arrowP ? arrowP[2] : null);
+							t.parent_title = parent.title;
+							if (parent._barcode && cProductNameMap.has(parent._barcode)) {
+								const prod = cProductNameMap.get(parent._barcode);
+								t.product_name = prod.product_name_en || prod.product_name_ar || '';
+								t.product_name_ar = prod.product_name_ar || '';
+								t.product_barcode = parent._barcode;
+								if (prod.auto_barcode === parent._barcode && prod.barcode !== parent._barcode) {
+									t.product_real_barcode = prod.barcode;
+								}
+							}
+						}
+					});
+				}
+			}
+
+			// Add completed tasks to main tasks array
+			const completedTasks = [...completedRegularTasks, ...completedQuickTasks, ...completedReceivingTasks];
+			tasks = [...tasks, ...completedTasks]
+				.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
+
+			const endTime = performance.now();
+			console.log(`✅ Completed tasks loaded in ${(endTime - startTime).toFixed(0)}ms (${completedTasks.length} completed tasks)`);
+
+			filterTasks();
+		} catch (error) {
+			console.error('Error loading completed tasks:', error);
+		}
+	}
+
+	// Reactive loading - trigger when showCompleted changes
+	$: if (showCompleted && tasks.length > 0 && !tasks.some(t => t.assignment_status === 'completed')) {
+		loadCompletedTasks();
+	}
+
+	// Reactive filtering - trigger when search term or filters change
+	$: searchTerm, filterStatus, filterPriority, showCompleted, filterTasks();
+</script>
+
+<svelte:head>
+	<title>{getTranslation('mobile.tasksContent.title')}</title>
+</svelte:head>
+
+<div class="mobile-tasks">
+	<!-- Assignment Action Button -->
+	<div class="action-buttons-section">
+		<a href="/mobile-interface/tasks/assign" class="assign-task-btn">
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+				<circle cx="8.5" cy="7" r="4"/>
+				<line x1="20" y1="8" x2="20" y2="14"/>
+				<line x1="23" y1="11" x2="17" y2="11"/>
+			</svg>
+			<span>{getTranslation('mobile.bottomNav.create')}</span>
+		</a>
+	</div>
+
+	<!-- Filters -->
+	<div class="filters-section">
+		<div class="search-box">
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="11" cy="11" r="8"/>
+				<path d="M21 21l-4.35-4.35"/>
+			</svg>
+			<input
+				type="text"
+				placeholder={getTranslation('mobile.tasksContent.searchPlaceholder')}
+				bind:value={searchTerm}
+				class="search-input"
+			/>
+		</div>
+
+		<div class="results-count">
+			{filteredTasks.length} {filteredTasks.length !== 1 ? getTranslation('mobile.tasksContent.results.tasksFound') : getTranslation('mobile.tasksContent.results.taskFound')}
+		</div>
+	</div>
+
+	<!-- Content -->
+	<div class="content-section">
+		{#if isLoading}
+			<div class="loading-skeleton">
+				{#each Array(4) as _, i}
+					<div class="skeleton-card">
+						<div class="skeleton-header">
+							<div class="skeleton-title"></div>
+							<div class="skeleton-badges">
+								<div class="skeleton-badge"></div>
+								<div class="skeleton-badge"></div>
+							</div>
+						</div>
+						<div class="skeleton-text"></div>
+						<div class="skeleton-text short"></div>
+						<div class="skeleton-details">
+							<div class="skeleton-detail"></div>
+							<div class="skeleton-detail"></div>
+						</div>
+						<div class="skeleton-actions">
+							<div class="skeleton-button"></div>
+							<div class="skeleton-button"></div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else if filteredTasks.length === 0}
+			<div class="empty-state">
+				<div class="empty-icon">
+					<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+						<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
+						<rect x="9" y="7" width="6" height="5"/>
+					</svg>
+				</div>
+				<h2>{getTranslation('mobile.tasksContent.emptyState.title')}</h2>
+				<p>{getTranslation('mobile.tasksContent.emptyState.description')}</p>
+			</div>
+		{:else}
+			<div class="task-list">
+				{#each filteredTasks as task (task.assignment_id)}
+					<div class="task-card" class:overdue={isOverdue(task.deadline_date, task.deadline_time)}>
+						<div class="task-header" 
+							on:click={() => navigateToTask(task)}
+							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && navigateToTask(task)}
+							role="button" 
+							tabindex="0"
+						>
+							<div class="task-title-section">
+								<h3>{task.title}</h3>
+								<div class="task-meta">
+									{#if task.task_type === 'quick'}
+										<span class="task-type-badge quick-task">⚡ {getTranslation('mobile.tasksContent.taskCard.quickTask')}</span>
+									{/if}
+									<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}15; color: {getPriorityColor(task.priority)}">
+										{task.priority?.toUpperCase()}
+									</span>
+									<span class="task-status" style="background-color: {getStatusColor(task.assignment_status)}15; color: {getStatusColor(task.assignment_status)}">
+										{getStatusDisplayText(task.assignment_status)}
+									</span>
+								</div>
+							</div>
+							{#if isOverdue(task.deadline_date, task.deadline_time) && task.assignment_status !== 'completed'}
+								<div class="overdue-badge">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"/>
+										<line x1="12" y1="8" x2="12" y2="12"/>
+										<line x1="12" y1="16" x2="12.01" y2="16"/>
+									</svg>
+								</div>
+							{/if}
+						</div>
+
+						<div class="task-content" 
+							on:click={() => navigateToTask(task)}
+							on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && navigateToTask(task)}
+							role="button" 
+							tabindex="0"
+						>
+							{#if task.parent_old_price && task.parent_new_price}
+								<div class="price-change-info">
+									{#if task.product_name || task.product_name_ar}
+										<div class="product-name-row">
+											<span class="product-icon">📦</span>
+											<span class="product-name-text">{task.product_name || task.product_name_ar}</span>
+											{#if task.product_real_barcode}
+												<span class="product-barcode">{task.product_real_barcode}</span>
+											{:else if task.product_barcode}
+												<span class="product-barcode">{task.product_barcode}</span>
+											{/if}
+										</div>
+									{/if}
+									<div class="price-change-row">
+										<span class="price-label">Old Price:</span>
+										<span class="price-value old-price">{parseFloat(task.parent_old_price).toFixed(2)}</span>
+										<span class="price-arrow">→</span>
+										<span class="price-label">New Price:</span>
+										<span class="price-value new-price">{parseFloat(task.parent_new_price).toFixed(2)}</span>
+									</div>
+								</div>
+							{:else if task.description}
+								{@const oldPriceMatch = task.description.match(/Old Price:\s*([\d.]+)/i)}
+								{@const newPriceMatch = task.description.match(/New Price:\s*([\d.]+)/i)}
+								{@const urlPart = task.description.split('Photo URL:')[1]}
+								{@const photoUrl = urlPart ? urlPart.trim().split(/[\s\n]/)[0] : null}
+								{#if oldPriceMatch && newPriceMatch}
+									<div class="price-change-info">
+										<div class="price-change-row">
+											<span class="price-label">Old Price:</span>
+											<span class="price-value old-price">{parseFloat(oldPriceMatch[1]).toFixed(2)}</span>
+											<span class="price-arrow">→</span>
+											<span class="price-label">New Price:</span>
+											<span class="price-value new-price">{parseFloat(newPriceMatch[1]).toFixed(2)}</span>
+										</div>
+									</div>
+								{:else}
+									<p class="task-description">{task.description.split('Photo URL:')[0] || task.description}</p>
+									{#if photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))}
+										<div class="barcode-image-preview">
+											<img 
+												src={photoUrl} 
+												alt="Barcode product photo" 
+												class="barcode-image" 
+												loading="lazy"
+												on:error={hideImage}
+												on:click={() => { showImagePreview = true; previewImageSrc = photoUrl; previewImageAlt = 'Barcode Product'; }} 
+											/>
+										</div>
+									{/if}
+								{/if}
+							{/if}
+							
+							{#if task.task_type === 'quick' && task.incident_id}
+								<div class="incident-attachments-section">
+									{#await loadIncidentAttachments(task.incident_id) then attachments}
+										{#if attachments && attachments.length > 0}
+											<div class="attachments-grid">
+												{#each attachments as attachment, idx}
+													{#if attachment.type === 'image'}
+														<img 
+															src={attachment.url} 
+															alt={attachment.name || 'Incident attachment'} 
+															class="incident-image" 
+															on:click={() => { showImagePreview = true; previewImageSrc = attachment.url; previewImageAlt = attachment.name || 'Incident'; }} 
+														/>
+													{:else}
+														<a 
+															href={attachment.url} 
+															target="_blank" 
+															rel="noopener noreferrer" 
+															class="attachment-file"
+														>
+															<span class="attachment-icon">{attachment.type === 'pdf' ? '📄' : '📁'}</span>
+															<span class="attachment-name">{attachment.name}</span>
+														</a>
+													{/if}
+												{/each}
+											</div>
+										{/if}
+									{/await}
+								</div>
+							{/if}
+							
+							<div class="task-details">
+								{#if task.deadline_date}
+									<div class="task-detail">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<circle cx="12" cy="12" r="10"/>
+											<polyline points="12,6 12,12 16,14"/>
+										</svg>
+										<span class="deadline-text">{formatExactDeadline(task.deadline_date, task.deadline_time)}</span>
+									</div>
+								{/if}
+								
+								<div class="task-detail">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+										<circle cx="12" cy="7" r="4"/>
+									</svg>
+									<span>{getTranslation('mobile.tasksContent.taskCard.by')} {getUserDisplayName(task.assigned_by || task.created_by, task.assigned_by_name || task.created_by_name)}</span>
+								</div>
+								
+								<div class="task-detail">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+										<circle cx="8.5" cy="7" r="4"/>
+										<line x1="20" y1="8" x2="20" y2="14"/>
+										<line x1="23" y1="11" x2="17" y2="11"/>
+									</svg>
+									<span>Assigned to: {getUserDisplayName(currentUserData?.id, currentUserData?.username || 'You')}</span>
+								</div>
+								
+								<div class="task-detail">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"/>
+										<polyline points="12,6 12,12 16,14"/>
+									</svg>
+									<span>{getTranslation('mobile.tasksContent.taskCard.assigned')} {formatDate(task.assigned_at)}</span>
+								</div>
+
+								{#if task.hasAttachments}
+									<div class="task-detail">
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+										</svg>
+										<span>{task.attachments.length} {task.attachments.length !== 1 ? getTranslation('mobile.tasksContent.taskCard.attachments') : getTranslation('mobile.tasksContent.taskCard.attachment')}</span>
+									</div>
+									
+									<!-- Individual attachments with preview and download -->
+									<div class="attachments-grid" on:click|stopPropagation>
+										{#each task.attachments as attachment}
+											<div class="attachment-item">
+												{#if (attachment.file_type && attachment.file_type.startsWith('image/')) || (attachment.mime_type && attachment.mime_type.startsWith('image/'))}
+													<!-- Image attachment with preview -->
+													<div class="attachment-image-container">
+														<img 
+															src={getFileUrl(attachment)} 
+															alt={attachment.file_name} 
+															loading="lazy"
+															class="attachment-image-preview"
+															on:click={() => openImagePreview(attachment)}
+														/>
+														<div class="attachment-actions">
+															<button 
+																class="attachment-download-btn"
+																on:click={() => downloadSingleAttachment(attachment)}
+																title="Download {attachment.file_name}"
+															>
+																<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																	<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+																	<polyline points="7,10 12,15 17,10"/>
+																	<line x1="12" y1="15" x2="12" y2="3"/>
+																</svg>
+															</button>
+														</div>
+													</div>
+													<div class="attachment-info">
+														<span class="attachment-name">{attachment.file_name}</span>
+														<span class="attachment-source">Task Image</span>
+													</div>
+												{:else}
+													<!-- File attachment -->
+													<div class="attachment-file">
+														<div class="file-icon">
+															<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+															</svg>
+														</div>
+														<div class="attachment-info">
+															<span class="attachment-name">{attachment.file_name}</span>
+															<span class="attachment-source">Task File</span>
+														</div>
+														<button 
+															class="attachment-download-btn"
+															on:click={() => downloadSingleAttachment(attachment)}
+															title="Download {attachment.file_name}"
+														>
+															<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+																<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+																<polyline points="7,10 12,15 17,10"/>
+																<line x1="12" y1="15" x2="12" y2="3"/>
+															</svg>
+														</button>
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						</div>
+
+						{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
+							<div class="task-actions">
+								<button class="complete-btn" on:click={() => markAsComplete(task)} disabled={isLoading}>
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<polyline points="20,6 9,17 4,12"/>
+									</svg>
+									{getTranslation('mobile.tasksContent.taskCard.markComplete')}
+								</button>
+								<button class="view-btn" on:click={() => navigateToTask(task)}>
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+										<circle cx="12" cy="12" r="3"/>
+									</svg>
+									{getTranslation('mobile.tasksContent.taskCard.viewDetails')}
+								</button>
+							</div>
+						{:else}
+							<div class="task-actions">
+								<button class="view-btn full-width" on:click={() => navigateToTask(task)}>
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+										<circle cx="12" cy="12" r="3"/>
+									</svg>
+									{getTranslation('mobile.tasksContent.taskCard.viewDetails')}
+								</button>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</div>
+
+<!-- Image Preview Modal -->
+{#if showImagePreview}
+	<div class="image-preview-modal" on:click={closeImagePreview}>
+		<div class="image-preview-container" on:click|stopPropagation>
+			<button class="image-preview-close" on:click={closeImagePreview}>
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="18" y1="6" x2="6" y2="18"></line>
+					<line x1="6" y1="6" x2="18" y2="18"></line>
+				</svg>
+			</button>
+			<img src={previewImageSrc} alt={previewImageAlt} class="image-preview-img" />
+		</div>
+	</div>
+{/if}
+
+<style>
+	.mobile-tasks {
+		min-height: 100vh;
+		min-height: 100dvh;
+		background: #F8FAFC;
+		overflow-x: hidden;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Action Buttons */
+	.action-buttons-section {
+		padding: 0.5rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.assign-task-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		width: 100%;
+		padding: 0.5rem 0.75rem;
+		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.78rem;
+		font-weight: 600;
+		text-decoration: none;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+	}
+
+	.assign-task-btn:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+	}
+
+	.assign-task-btn:active {
+		transform: translateY(0);
+		box-shadow: 0 2px 6px rgba(59, 130, 246, 0.2);
+	}
+
+	.assign-task-btn svg {
+		width: 16px;
+		height: 16px;
+		stroke-width: 2;
+	}
+
+	/* Filters */
+	.filters-section {
+		padding: 0.5rem;
+		background: white;
+		border-bottom: 1px solid #E5E7EB;
+	}
+
+	.search-box {
+		position: relative;
+		margin-bottom: 0.4rem;
+	}
+
+	.search-box svg {
+		position: absolute;
+		left: 1rem;
+		top: 50%;
+		transform: translateY(-50%);
+		color: #9CA3AF;
+	}
+
+	.search-input {
+		width: 100%;
+		padding: 0.4rem 0.6rem 0.4rem 2rem;
+		border: 1px solid #E5E7EB;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		background: #F9FAFB;
+		color: #374151;
+		transition: all 0.3s ease;
+		box-sizing: border-box;
+	}
+
+	.search-input:focus {
+		outline: none;
+		border-color: #3B82F6;
+		background: white;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	.filter-chips {
+		display: flex;
+		gap: 0.4rem;
+		margin-bottom: 0.4rem;
+	}
+
+	.filter-select {
+		flex: 1;
+		padding: 0.3rem 0.4rem;
+		border: 1px solid #E5E7EB;
+		border-radius: 5px;
+		font-size: 0.68rem;
+		background: white;
+		color: #374151;
+		cursor: pointer;
+		transition: all 0.3s ease;
+	}
+
+	.filter-select:focus {
+		outline: none;
+		border-color: #3B82F6;
+		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+	}
+
+	/* Show Completed Toggle */
+	.toggle-section {
+		margin: 0.4rem 0;
+		padding: 0.3rem 0.5rem;
+		background: #F9FAFB;
+		border-radius: 5px;
+	}
+
+	.toggle-label {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.toggle-checkbox {
+		width: 14px;
+		height: 14px;
+		cursor: pointer;
+		accent-color: #3B82F6;
+	}
+
+	.toggle-text {
+		font-size: 0.72rem;
+		color: #374151;
+		font-weight: 500;
+	}
+
+	.results-count {
+		font-size: 0.65rem;
+		color: #6B7280;
+		text-align: center;
+	}
+
+	/* Content */
+	.content-section {
+		padding: 0.5rem;
+		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+	}
+
+	/* Loading State */
+	.loading-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.skeleton-card {
+		background: white;
+		border-radius: 8px;
+		padding: 0.6rem;
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+
+	.skeleton-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.4rem;
+	}
+
+	.skeleton-title {
+		height: 1.25rem;
+		width: 60%;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	.skeleton-badges {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.skeleton-badge {
+		height: 1.5rem;
+		width: 4rem;
+		background: #E5E7EB;
+		border-radius: 6px;
+	}
+
+	.skeleton-text {
+		height: 0.875rem;
+		width: 100%;
+		background: #E5E7EB;
+		border-radius: 4px;
+		margin-bottom: 0.5rem;
+	}
+
+	.skeleton-text.short {
+		width: 75%;
+	}
+
+	.skeleton-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		margin: 0.5rem 0;
+	}
+
+	.skeleton-detail {
+		height: 1rem;
+		width: 50%;
+		background: #E5E7EB;
+		border-radius: 4px;
+	}
+
+	.skeleton-actions {
+		display: flex;
+		gap: 0.4rem;
+		padding-top: 0.4rem;
+		border-top: 1px solid #F3F4F6;
+	}
+
+	.skeleton-button {
+		flex: 1;
+		height: 2rem;
+		background: #E5E7EB;
+		border-radius: 6px;
+	}
+
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.5;
+		}
+	}
+
+	.loading-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem 1rem;
+		text-align: center;
+		color: #6B7280;
+	}
+
+	/* Empty State */
+	.empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem 1rem;
+		text-align: center;
+	}
+
+	.empty-icon {
+		width: 48px;
+		height: 48px;
+		background: #F3F4F6;
+		border-radius: 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 0.75rem;
+		color: #9CA3AF;
+	}
+
+	.empty-state h2 {
+		font-size: 0.88rem;
+		font-weight: 600;
+		color: #374151;
+		margin: 0 0 0.3rem 0;
+	}
+
+	.empty-state p {
+		font-size: 0.75rem;
+		color: #6B7280;
+		margin: 0 0 1rem 0;
+		line-height: 1.5;
+	}
+
+	/* Task List */
+	.task-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.task-card {
+		background: white;
+		border-radius: 8px;
+		overflow: hidden;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		transition: all 0.3s ease;
+		border: 1px solid transparent;
+	}
+
+	.task-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	}
+
+	.task-card.overdue {
+		border-color: #FEE2E2;
+		background: linear-gradient(to right, #FEF2F2, white);
+	}
+
+	.task-header {
+		padding: 0.5rem 0.5rem 0.25rem;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+
+	.task-title-section {
+		flex: 1;
+	}
+
+	.task-header h3 {
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: #1F2937;
+		margin: 0 0 0.3rem 0;
+		line-height: 1.4;
+	}
+
+	.task-meta {
+		display: flex;
+		gap: 0.25rem;
+		flex-wrap: wrap;
+	}
+
+	.task-priority,
+	.task-status,
+	.task-type-badge {
+		font-size: 0.62rem;
+		font-weight: 600;
+		padding: 0.15rem 0.35rem;
+		border-radius: 4px;
+		text-transform: uppercase;
+	}
+
+	.task-type-badge.quick-task {
+		background-color: #f59e0b15;
+		color: #f59e0b;
+		text-transform: none;
+		font-weight: 500;
+	}
+
+	.overdue-badge {
+		width: 24px;
+		height: 24px;
+		background: #FEE2E2;
+		color: #DC2626;
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.task-content {
+		padding: 0 0.5rem 0.5rem;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+
+	.task-description {
+		font-size: 0.72rem;
+		color: #6B7280;
+		margin: 0 0 0.5rem 0;
+		line-height: 1.4;
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.price-change-info {
+		margin: 0.25rem 0 0.5rem 0;
+		padding: 0.5rem 0.75rem;
+		background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+		border-radius: 8px;
+		border-left: 3px solid #F59E0B;
+	}
+
+	.price-change-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		font-size: 0.8rem;
+		font-weight: 600;
+	}
+
+	.price-label {
+		color: #92400E;
+		font-weight: 500;
+		font-size: 0.72rem;
+	}
+
+	.price-value {
+		font-weight: 700;
+		font-size: 0.9rem;
+	}
+
+	.price-value.old-price {
+		color: #DC2626;
+		text-decoration: line-through;
+	}
+
+	.price-value.new-price {
+		color: #059669;
+	}
+
+	.price-arrow {
+		color: #92400E;
+		font-size: 1rem;
+		font-weight: 700;
+	}
+
+	.product-name-row {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-bottom: 0.35rem;
+		padding-bottom: 0.35rem;
+		border-bottom: 1px dashed #D97706;
+	}
+
+	.product-icon {
+		font-size: 0.85rem;
+	}
+
+	.product-name-text {
+		font-size: 0.78rem;
+		font-weight: 600;
+		color: #92400E;
+		flex: 1;
+		line-height: 1.3;
+	}
+
+	.product-barcode {
+		font-size: 0.68rem;
+		color: #B45309;
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.incident-attachments-section {
+		margin: 0.75rem 0;
+	}
+
+	.attachments-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.incident-image {
+		width: 100%;
+		height: auto;
+		max-height: 250px;
+		object-fit: contain;
+		display: block;
+		cursor: pointer;
+		transition: opacity 0.2s ease;
+		border-radius: 8px;
+		border: 1px solid #E5E7EB;
+		background: #F9FAFB;
+	}
+
+	.incident-image:hover {
+		opacity: 0.9;
+	}
+
+	.attachment-file {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-start;
+		height: auto;
+		padding: 0.75rem 1rem;
+		background: #F9FAFB;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		text-decoration: none;
+		gap: 0.75rem;
+		transition: background 0.2s ease;
+	}
+
+	.attachment-file:hover {
+		background: #F3F4F6;
+	}
+
+	.attachment-icon {
+		font-size: 1.5rem;
+		flex-shrink: 0;
+	}
+
+	.attachment-name {
+		font-size: 0.8rem;
+		color: #374151;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		flex: 1;
+	}
+
+	.task-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.task-detail {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-size: 0.65rem;
+		color: #9CA3AF;
+	}
+
+	.task-detail svg {
+		flex-shrink: 0;
+	}
+
+	.deadline-text {
+		color: #EF4444 !important;
+		font-weight: 600;
+	}
+
+	.attachments-indicator {
+		position: relative;
+	}
+
+	.download-attachments-btn {
+		background: #3B82F6;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 0.25rem;
+		margin-left: 0.5rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		font-size: 0.75rem;
+	}
+
+	.download-attachments-btn:hover {
+		background: #2563EB;
+		transform: scale(1.05);
+	}
+
+	.download-attachments-btn:active {
+		transform: scale(0.95);
+	}
+
+	/* Task Actions */
+	.task-actions {
+		padding: 0.4rem 0.5rem;
+		border-top: 1px solid #F3F4F6;
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.complete-btn,
+	.view-btn {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.3rem;
+		padding: 0.4rem 0.5rem;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.72rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		touch-action: manipulation;
+	}
+
+	.complete-btn {
+		background: #10B981;
+		color: white;
+	}
+
+	.complete-btn:hover:not(:disabled) {
+		background: #059669;
+		transform: translateY(-1px);
+	}
+
+	.complete-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	.view-btn {
+		background: #F3F4F6;
+		color: #374151;
+	}
+
+	.view-btn:hover {
+		background: #E5E7EB;
+		transform: translateY(-1px);
+	}
+
+	.view-btn.full-width {
+		flex: unset;
+		width: 100%;
+	}
+
+	/* Attachment Styles */
+	.attachments-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+
+	.attachment-item {
+		background: #F8F9FA;
+		border: 1px solid #E5E7EB;
+		border-radius: 8px;
+		padding: 0.5rem;
+	}
+
+	.attachment-image-container {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 0.80rem;
+	}
+
+	.attachment-image-preview {
+		width: 80px;
+		height: 80px;
+		object-fit: cover;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: transform 0.2s ease;
+	}
+
+	.attachment-image-preview:hover {
+		transform: scale(1.05);
+	}
+
+	.attachment-file {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.file-icon {
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #E5E7EB;
+		border-radius: 6px;
+		color: #6B7280;
+	}
+
+	.attachment-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.attachment-name {
+		display: block;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: #374151;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.attachment-source {
+		display: block;
+		font-size: 0.65rem;
+		color: #6B7280;
+		margin-top: 0.125rem;
+	}
+
+	.attachment-actions {
+		position: absolute;
+		top: 0.25rem;
+		right: 0.25rem;
+	}
+
+	.attachment-download-btn {
+		background: rgba(0, 0, 0, 0.6);
+		color: white;
+		border: none;
+		border-radius: 4px;
+		padding: 0.25rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: background-color 0.2s ease;
+	}
+
+	.attachment-download-btn:hover {
+		background: rgba(0, 0, 0, 0.8);
+	}
+
+	.attachment-file .attachment-download-btn {
+		background: #F3F4F6;
+		color: #374151;
+		position: relative;
+		top: unset;
+		right: unset;
+	}
+
+	.attachment-file .attachment-download-btn:hover {
+		background: #E5E7EB;
+	}
+
+	/* Image Preview Modal */
+	.image-preview-modal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.9);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.image-preview-container {
+		position: relative;
+		max-width: 90vw;
+		max-height: 90vh;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.image-preview-close {
+		position: absolute;
+		top: -40px;
+		right: 0;
+		background: rgba(255, 255, 255, 0.1);
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: background-color 0.2s ease;
+	}
+
+	.image-preview-close:hover {
+		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.image-preview-img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: 8px;
+	}
+
+	/* Barcode image preview in task cards */
+	.barcode-image-preview {
+		margin-top: 0.75rem;
+		border-radius: 8px;
+		overflow: hidden;
+		background: #F3F4F6;
+		padding: 0.5rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		max-height: 200px;
+	}
+
+	.barcode-image {
+		max-width: 100%;
+		max-height: 180px;
+		object-fit: contain;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: transform 0.2s ease;
+	}
+
+	.barcode-image:hover {
+		transform: scale(1.05);
+	}
+
+	/* Responsive adjustments */
+	@media (max-width: 480px) {
+		.page-header {
+			padding: 0.5rem;
+			padding-top: calc(0.5rem + env(safe-area-inset-top));
+		}
+
+		.filters-section,
+		.content-section {
+			padding: 0.5rem;
+		}
+
+		.filter-chips {
+			flex-direction: column;
+		}
+
+		.task-card {
+			border-radius: 6px;
+		}
+
+		.task-actions {
+			flex-direction: column;
+		}
+
+		.complete-btn,
+		.view-btn {
+			width: 100%;
+		}
+	}
+
+	/* Safe area handling */
+	@supports (padding: max(0px)) {
+		.page-header {
+			padding-top: max(0.5rem, env(safe-area-inset-top));
+		}
+
+		.content-section {
+			padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+		}
+	}
+</style>
+
+

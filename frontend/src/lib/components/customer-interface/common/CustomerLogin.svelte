@@ -1,0 +1,2358 @@
+﻿<script lang="ts">
+	import { createEventDispatcher, onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
+	import { _, switchLocale, currentLocale } from '$lib/i18n';
+
+	const dispatch = createEventDispatcher();
+
+	// Props
+	export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
+	// NOTE: showMask controls the "Currently Not Available" mask
+	// Set to true to block customer login access code input
+	export let showMask: boolean = true;
+	// Auto-login code from URL (WhatsApp login button redirect)
+	export let autoLoginCode: string | null = null;
+	// Hide nav buttons (Follow Us, Offers, Loyalty) to show only access code
+	export let hideNavButtons: boolean = false;
+
+	// Component states
+	export let currentView: 'login' | 'register' | 'forgot' | 'loyalty' = initialView;
+	let isLoading = false;
+	let errorMessage = '';
+	let successMessage = '';
+
+
+
+
+    onMount(() => {
+            // Auto-focus the first digit box so mobile keyboard pops up immediately
+            setTimeout(() => {
+                    const firstInput = document.getElementById('customer-digit-0') as HTMLInputElement | null;
+                    firstInput?.focus();
+            }, 400);
+    });
+
+
+	// Customer login form
+	let customerAccessCode = '';
+	let customerDigits = ['', '', '', '', '', ''];
+	let accessCodeValid = true;
+	let rememberDevice = false;
+
+	// Customer registration form
+	let customerName = '';
+	let whatsappNumber = '';
+	let nameValid = true;
+	let whatsappValid = true;
+	let privacyAccepted = false;
+
+	// Forgot access code form
+	let forgotWhatsappNumber = '';
+	let forgotWhatsappValid = true;
+	let retryAfterSeconds = 0;
+
+	// Temporary block access code - set to true to show white mask
+	let manualUnlock = false;
+	$: blockAccessCodeInput = showMask && !manualUnlock;
+
+	// Auto-login: when autoLoginCode is provided, fill digits and submit
+	$: if (autoLoginCode && autoLoginCode.length === 6 && !isLoading) {
+		// Fill the digit boxes
+		customerDigits = autoLoginCode.split('');
+		customerAccessCode = autoLoginCode;
+		accessCodeValid = true;
+		// Auto-submit after a short delay
+		setTimeout(() => {
+			handleCustomerLogin();
+		}, 500);
+		// Clear to prevent re-triggering
+		autoLoginCode = null;
+	}
+
+	// Secret dev unmask: click 15 times to dismiss
+	let maskClickCount = 0;
+	let maskClickTimer: any = null;
+	function handleMaskClick() {
+		maskClickCount++;
+		clearTimeout(maskClickTimer);
+		maskClickTimer = setTimeout(() => { maskClickCount = 0; }, 3000);
+		if (maskClickCount >= 15) {
+			manualUnlock = true;
+			maskClickCount = 0;
+		}
+	}
+
+	// Loyalty member login form
+	let loyaltyMobileNumber = '';
+	let loyaltyMobileValid = false;
+	let loyaltyCardData: any = null;
+	let loyaltyCardChecked = false;
+
+	// Form validation
+	function validateAccessCode() {
+		customerAccessCode = customerDigits.join('');
+		const isNumeric = /^[0-9]+$/.test(customerAccessCode);
+		accessCodeValid = customerAccessCode.length === 6 && isNumeric;
+		return accessCodeValid;
+	}
+
+	function validateName() {
+		console.log('🔍 [Validation] Checking name:', customerName);
+		nameValid = customerName.trim().length >= 2;
+		console.log('🔍 [Validation] Name valid:', nameValid);
+		return nameValid;
+	}
+
+	function validateWhatsApp() {
+		console.log('🔍 [Validation] Checking WhatsApp number:', whatsappNumber);
+		// Basic mobile number validation (international format)
+		let cleanNumber = whatsappNumber.replace(/\D/g, '');
+		console.log('🔍 [Validation] Clean number:', cleanNumber);
+		
+		// Add country code if not present (assuming Saudi Arabia +966)
+		if (!cleanNumber.startsWith('966') && cleanNumber.length >= 8) {
+			cleanNumber = '966' + cleanNumber.replace(/^0/, '');
+		}
+		
+		console.log('🔍 [Validation] Clean number with country code:', cleanNumber);
+		console.log('🔍 [Validation] Final number length:', cleanNumber.length);
+		whatsappValid = cleanNumber.length === 12 && cleanNumber.startsWith('9665');
+		console.log('🔍 [Validation] WhatsApp valid:', whatsappValid);
+		return whatsappValid;
+	}
+
+	// Handle customer access code login
+	async function handleCustomerLogin() {
+		if (!validateAccessCode()) {
+			errorMessage = 'Please enter a valid 6-digit access code.';
+			return;
+		}
+
+		isLoading = true;
+		errorMessage = '';
+
+		try {
+			console.log('🔐 [CustomerLogin] Attempting login with access code:', customerAccessCode);
+			const { data, error } = await supabase.rpc('authenticate_customer_access_code', {
+				p_access_code: customerAccessCode
+			});
+
+			console.log('🔐 [CustomerLogin] RPC response:', { data, error });
+
+			if (error) {
+				console.error('❌ [CustomerLogin] RPC error:', error);
+				throw error;
+			}
+
+			if (data && data.success) {
+				console.log('✅ [CustomerLogin] Authentication successful:', data);
+				successMessage = 'Welcome! Redirecting to your customer portal...';
+				
+				// Store customer session (simplified for independent customers)
+				localStorage.setItem('customer_session', JSON.stringify({
+					customer_id: data.customer_id,
+					customer_name: data.customer_name,
+					whatsapp_number: data.whatsapp_number,
+					registration_status: data.registration_status,
+					login_time: new Date().toISOString(),
+					remember_device: rememberDevice
+				}));
+
+				// Save plaintext access code so the customer can view it later on the home screen
+				// (The DB only stores a hash so it cannot be retrieved from there)
+				localStorage.setItem('customer_access_code', customerAccessCode);
+
+				// Redirect to customer interface
+				setTimeout(() => {
+					dispatch('success', { 
+						type: 'customer_login',
+						customer_data: data
+					});
+				}, 1500);
+			} else {
+				console.log('❌ [CustomerLogin] Authentication failed:', data);
+				// If account was deleted, redirect to register
+				if (data?.error === 'ACCOUNT_DELETED') {
+					const lang = localStorage.getItem('language') || 'ar';
+					errorMessage = lang === 'ar'
+						? 'تم حذف هذا الحساب. يرجى التسجيل بحساب جديد.'
+						: 'This account has been deleted. Please register a new account.';
+					customerAccessCode = '';
+					setTimeout(() => {
+						currentView = 'register';
+						errorMessage = '';
+					}, 2500);
+				} else {
+					errorMessage = data?.error || 'Authentication failed. Please check your access code.';
+				}
+			}
+
+		} catch (error) {
+			console.error('❌ [CustomerLogin] Login error:', error);
+			errorMessage = error.message || 'Login failed. Please try again.';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Handle customer registration
+	async function handleCustomerRegistration() {
+		console.log('🔍 [CustomerRegistration] Starting registration process');
+		console.log('🔍 [CustomerRegistration] Customer name:', customerName);
+		console.log('🔍 [CustomerRegistration] WhatsApp number:', whatsappNumber);
+		
+		const nameValid = validateName();
+		const whatsappValid = validateWhatsApp();
+		
+		console.log('🔍 [CustomerRegistration] Name valid:', nameValid);
+		console.log('🔍 [CustomerRegistration] WhatsApp valid:', whatsappValid);
+		
+		if (!nameValid || !whatsappValid) {
+			console.error('❌ [CustomerRegistration] Validation failed');
+			errorMessage = 'Please check your information and try again.';
+			return;
+		}
+
+		console.log('✅ [CustomerRegistration] Validation passed, proceeding with registration');
+		isLoading = true;
+		errorMessage = '';
+
+		try {
+			// Format WhatsApp number
+			let formattedWhatsApp = whatsappNumber.replace(/\D/g, '');
+			console.log('🔍 [CustomerRegistration] Clean number:', formattedWhatsApp);
+			
+			if (!formattedWhatsApp.startsWith('966')) {
+				formattedWhatsApp = '966' + formattedWhatsApp.replace(/^0/, '');
+			}
+			formattedWhatsApp = '+' + formattedWhatsApp;
+			
+			console.log('🔍 [CustomerRegistration] Formatted number:', formattedWhatsApp);
+
+			const { data, error } = await supabase.rpc('create_customer_registration', {
+				p_name: customerName.trim(),
+				p_whatsapp_number: formattedWhatsApp
+			});
+
+			if (error) throw error;
+
+			if (data && data.success) {
+				console.log('✅ [CustomerRegistration] Registration successful, sending access code via WhatsApp');
+				
+				// Send access code via WhatsApp
+				let waSent = false;
+				try {
+					const waResponse = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+						},
+						body: JSON.stringify({
+							action: 'send_access_code',
+							phone_number: data.whatsapp_number,
+							access_code: data.access_code,
+							customer_name: data.customer_name,
+							language: $currentLocale === 'ar' ? 'ar' : 'en'
+						})
+					});
+					const waResult = await waResponse.json();
+					waSent = !!waResult.success;
+					if (waSent) {
+						console.log('✅ [CustomerRegistration] Access code sent via WhatsApp');
+					} else {
+						console.warn('⚠️ [CustomerRegistration] WhatsApp send failed:', waResult.error);
+					}
+				} catch (waError) {
+					console.warn('⚠️ [CustomerRegistration] WhatsApp send error:', waError);
+				}
+
+				// Clear form
+				customerName = '';
+				whatsappNumber = '';
+				privacyAccepted = false;
+				
+				// Switch to login view
+				currentView = 'login';
+				if (waSent) {
+					successMessage = $currentLocale === 'ar'
+						? 'تم إرسال رمز الوصول إلى رقم واتساب المسجل.'
+						: 'Your access code was sent to your registered WhatsApp number.';
+				} else {
+					errorMessage = $currentLocale === 'ar'
+						? 'تعذر إرسال رمز الوصول عبر واتساب. يرجى المحاولة مرة أخرى لاحقًا.'
+						: 'Unable to deliver the access code through WhatsApp. Please try again later.';
+				}
+			} else {
+				errorMessage = data?.message || data?.error || 'Registration failed. Please try again.';
+			}
+
+		} catch (error) {
+			errorMessage = error.message || 'Registration failed. Please try again.';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Handle forgot access code request
+	async function handleForgotAccessCode() {
+		if (!validateForgotWhatsApp()) {
+			errorMessage = 'Please enter a valid mobile number.';
+			return;
+		}
+
+		isLoading = true;
+		errorMessage = '';
+		successMessage = '';
+
+		try {
+			// Format the phone number for lookup
+			let formattedForgotNumber = forgotWhatsappNumber.replace(/\D/g, '');
+			if (!formattedForgotNumber.startsWith('966')) {
+				formattedForgotNumber = '966' + formattedForgotNumber.replace(/^0/, '');
+			}
+			formattedForgotNumber = '+' + formattedForgotNumber;
+
+			const { data, error } = await supabase.rpc('request_access_code_resend', {
+				p_whatsapp_number: formattedForgotNumber
+			});
+
+			if (error) {
+				throw error;
+			}
+
+			if (data.success) {
+				// Send access code via WhatsApp
+				let waSent = false;
+				try {
+					const waResponse = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+						},
+						body: JSON.stringify({
+							action: 'send_access_code',
+							phone_number: data.whatsapp_number,
+							access_code: data.access_code,
+							customer_name: data.customer_name,
+							language: $currentLocale === 'ar' ? 'ar' : 'en'
+						})
+					});
+					const waResult = await waResponse.json();
+					waSent = !!waResult.success;
+					if (waSent) {
+						console.log('✅ [ForgotCode] Access code resent via WhatsApp');
+					} else {
+						console.warn('⚠️ [ForgotCode] WhatsApp send failed:', waResult.error);
+					}
+				} catch (waError) {
+					console.warn('⚠️ [ForgotCode] WhatsApp send error:', waError);
+				}
+
+				if (waSent) {
+					currentView = 'login';
+					successMessage = $currentLocale === 'ar'
+						? 'تم إرسال رمز الوصول إلى رقم واتساب المسجل.'
+						: 'Your access code was sent to your registered WhatsApp number.';
+				} else {
+					errorMessage = $currentLocale === 'ar'
+						? 'تعذر إرسال رمز الوصول عبر واتساب. يرجى المحاولة مرة أخرى لاحقًا.'
+						: 'Unable to deliver the access code through WhatsApp. Please try again later.';
+				}
+			} else {
+				errorMessage = data.message || data.error;
+			}
+
+		} catch (error) {
+			errorMessage = error.message || 'Failed to process request. Please try again.';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	function validateForgotWhatsApp() {
+		const cleanNumber = forgotWhatsappNumber.replace(/\D/g, '');
+		// Accept 9-15 digits (9 for local Saudi numbers, 10-15 for international)
+		forgotWhatsappValid = cleanNumber.length >= 9 && cleanNumber.length <= 15;
+		return forgotWhatsappValid;
+	}
+
+	function startRetryCountdown() {
+		const interval = setInterval(() => {
+			retryAfterSeconds--;
+			if (retryAfterSeconds <= 0) {
+				clearInterval(interval);
+			}
+		}, 1000);
+	}
+
+	// Handle digit input for access code
+	function handleDigitInput(event: Event, index: number) {
+		const input = event.target as HTMLInputElement;
+		const value = input.value.replace(/\D/g, '');
+		
+		if (value.length > 0) {
+			customerDigits[index] = value.slice(-1);
+			input.value = customerDigits[index];
+			
+			// Auto-focus next input
+			if (index < 5 && customerDigits[index] !== '') {
+				setTimeout(() => {
+					const nextInput = document.getElementById(`customer-digit-${index + 1}`) as HTMLInputElement;
+					if (nextInput) {
+						nextInput.focus();
+						nextInput.select();
+					}
+				}, 10);
+			}
+		} else {
+			customerDigits[index] = '';
+		}
+		
+		validateAccessCode();
+	}
+
+	function handleDigitKeydown(event: KeyboardEvent, index: number) {
+		const input = event.target as HTMLInputElement;
+		
+		// Handle Enter key - trigger login if access code is complete
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			if (validateAccessCode() && customerAccessCode.length === 6) {
+				handleCustomerLogin();
+			}
+			return;
+		}
+		
+		if (event.key === 'Backspace') {
+			event.preventDefault();
+			if (customerDigits[index] !== '') {
+				customerDigits[index] = '';
+				input.value = '';
+			} else if (index > 0) {
+				customerDigits[index - 1] = '';
+				const prevInput = document.getElementById(`customer-digit-${index - 1}`) as HTMLInputElement;
+				if (prevInput) {
+					prevInput.value = '';
+					prevInput.focus();
+				}
+			}
+			validateAccessCode();
+			return;
+		}
+		
+		if (event.key === 'ArrowLeft' && index > 0) {
+			event.preventDefault();
+			const prevInput = document.getElementById(`customer-digit-${index - 1}`) as HTMLInputElement;
+			if (prevInput) {
+				prevInput.focus();
+				prevInput.select();
+			}
+		} else if (event.key === 'ArrowRight' && index < 5) {
+			event.preventDefault();
+			const nextInput = document.getElementById(`customer-digit-${index + 1}`) as HTMLInputElement;
+			if (nextInput) {
+				nextInput.focus();
+				nextInput.select();
+			}
+		}
+		
+		if (!/[0-9]/.test(event.key) && !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(event.key)) {
+			event.preventDefault();
+		}
+	}
+
+	function handleDigitPaste(event: ClipboardEvent) {
+		event.preventDefault();
+		const pastedText = event.clipboardData?.getData('text') || '';
+		const digits = pastedText.replace(/\D/g, '').slice(0, 6);
+		
+		for (let i = 0; i < 6; i++) {
+			customerDigits[i] = digits[i] || '';
+			const input = document.getElementById(`customer-digit-${i}`) as HTMLInputElement;
+			if (input) {
+				input.value = customerDigits[i];
+			}
+		}
+		
+		const lastFilledIndex = digits.length - 1;
+		const targetIndex = Math.min(Math.max(lastFilledIndex + 1, 0), 5);
+		const targetInput = document.getElementById(`customer-digit-${targetIndex}`) as HTMLInputElement;
+		if (targetInput) {
+			targetInput.focus();
+		}
+		
+		validateAccessCode();
+	}
+
+	// Switch between login and registration
+	function switchToRegister() {
+		currentView = 'register';
+		errorMessage = '';
+		successMessage = '';
+	}
+
+	function switchToLogin() {
+		currentView = 'login';
+		errorMessage = '';
+		successMessage = '';
+	}
+
+	function switchToLoyalty() {
+		currentView = 'loyalty';
+		errorMessage = '';
+		successMessage = '';
+	}
+
+	// Navigate to offers page
+	async function goToOffers() {
+		try {
+			await goto('/offers?referrer=login');
+		} catch (error) {
+			console.error('❌ Navigation error:', error);
+		}
+	}
+
+	// Navigate to follow us page
+	async function goToFollowUs() {
+		try {
+			await goto('/follow-us?referrer=login');
+		} catch (error) {
+			console.error('❌ Navigation error:', error);
+		}
+	}
+
+	function backFromLoyalty() {
+		goto('/login');
+	}
+
+	// Validate and check loyalty member mobile number
+	async function validateLoyaltyMobile() {
+		const cleanNumber = loyaltyMobileNumber.replace(/\D/g, '');
+		// Saudi mobile: 0548357066 format (10 digits starting with 05)
+		const isValidFormat = cleanNumber.length === 10 && cleanNumber.startsWith('05');
+		
+		if (!isValidFormat) {
+			loyaltyMobileValid = false;
+			loyaltyCardChecked = true;
+			errorMessage = '';
+			return false;
+		}
+
+		// Check if card number exists in privilege_cards_master
+		try {
+			isLoading = true;
+			errorMessage = '';
+			const { data, error } = await supabase
+				.from('privilege_cards_master')
+				.select('id, card_number')
+				.eq('card_number', cleanNumber)
+				.maybeSingle();
+
+			if (error) {
+				console.error('❌ [LoyaltyLogin] Error querying privilege_cards_master:', error);
+				loyaltyMobileValid = false;
+				loyaltyCardData = null;
+				errorMessage = $_('customer.login.cardNotRegistered') || 'This card number is not registered in the loyalty program';
+				loyaltyCardChecked = true;
+				return false;
+			}
+
+			if (!data) {
+				console.warn('⚠️ [LoyaltyLogin] Card not found in privilege_cards_master:', cleanNumber);
+				loyaltyMobileValid = false;
+				loyaltyCardData = null;
+				errorMessage = $_('customer.login.cardNotRegistered') || 'This card number is not registered in the loyalty program';
+				loyaltyCardChecked = true;
+				return false;
+			}
+
+			console.log('✅ [LoyaltyLogin] Card found in privilege_cards_master:', data);
+
+			// Card found, now get branch details - a card can have multiple branches, so get all and use the first one
+			const { data: branchDataArray, error: branchError } = await supabase
+				.from('privilege_cards_branch')
+				.select('*')
+				.eq('card_number', cleanNumber);
+
+			if (branchError) {
+				console.error('❌ [LoyaltyLogin] Error querying privilege_cards_branch:', branchError);
+				loyaltyMobileValid = false;
+				loyaltyCardData = null;
+				errorMessage = $_('customer.login.cardNotRegistered') || 'This card number is not registered in the loyalty program';
+				loyaltyCardChecked = true;
+				return false;
+			}
+
+			if (!branchDataArray || branchDataArray.length === 0) {
+				console.warn('⚠️ [LoyaltyLogin] No branch details found for card:', cleanNumber);
+				// Even if no branch data, card exists in master - show success with basic info
+				loyaltyMobileValid = true;
+				loyaltyCardData = {
+					card_number: cleanNumber,
+					card_holder_name: null,
+					card_balance: 0,
+					expiry_date: null
+				};
+				loyaltyCardChecked = true;
+				errorMessage = '';
+				return true;
+			}
+
+			// Use the first branch if multiple exist
+			const branchData = branchDataArray[0];
+			console.log('✅ [LoyaltyLogin] Card details found:', branchData);
+
+			loyaltyMobileValid = true;
+			loyaltyCardData = branchData;
+			loyaltyCardChecked = true;
+			errorMessage = '';
+			return true;
+		} catch (error) {
+			console.error('❌ [LoyaltyLogin] Error checking card:', error);
+			loyaltyMobileValid = false;
+			errorMessage = error.message || 'Error checking card. Please try again.';
+			loyaltyCardChecked = true;
+			return false;
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Format loyalty mobile number
+	function formatLoyaltyMobileNumber(event: Event) {
+		const input = event.target as HTMLInputElement;
+		let value = input.value.replace(/\D/g, '');
+		
+		// Ensure it starts with 0
+		if (value && !value.startsWith('0')) {
+			value = '0' + value;
+		}
+		
+		// Limit to 10 digits
+		if (value.length > 10) {
+			value = value.substring(0, 10);
+		}
+		
+		loyaltyMobileNumber = value;
+		input.value = value;
+	}
+
+	// Navigate to loyalty details page
+	async function handleLoyaltyContinue() {
+		if (!loyaltyCardData || !loyaltyMobileValid) {
+			return;
+		}
+
+		try {
+			isLoading = true;
+			const cardNumber = encodeURIComponent(loyaltyCardData.card_number);
+			await goto(`/loyalty/details?cardNumber=${cardNumber}&referrer=login`);
+		} catch (error) {
+			console.error('❌ Navigation error:', error);
+			errorMessage = 'Error navigating to loyalty details page';
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Auto-validate when loyalty mobile number changes
+	$: if (loyaltyMobileNumber && loyaltyMobileNumber.length === 10) {
+		validateLoyaltyMobile();
+	}
+
+	// Format WhatsApp number as user types
+	function formatWhatsAppNumber(event: Event) {
+		const input = event.target as HTMLInputElement;
+		let value = input.value.replace(/\D/g, '');
+		
+		// Saudi format: +966 5X XXX XXXX
+		if (value.startsWith('966')) {
+			value = value.substring(3);
+		}
+		if (value.startsWith('0')) {
+			value = value.substring(1);
+		}
+		
+		// Limit to 9 digits (Saudi mobile: 5XXXXXXXX)
+		if (value.length > 9) {
+			value = value.substring(0, 9);
+		}
+		
+		// Format with spaces: 5XX XXX XXX
+		if (value.length > 6) {
+			value = value.substring(0, 3) + ' ' + value.substring(3, 6) + ' ' + value.substring(6);
+		} else if (value.length > 3) {
+			value = value.substring(0, 3) + ' ' + value.substring(3);
+		}
+		
+	whatsappNumber = value;
+	input.value = value;
+}
+</script>
+
+<div class="customer-login-container">	{#if currentView === 'login'}
+		<!-- Customer Login Form -->
+		<form class="customer-form" on:submit|preventDefault={handleCustomerLogin}>
+
+			{#if !hideNavButtons}
+			<div class="login-divider">
+				<span>{$_('common.or') || 'OR'}</span>
+			</div>
+			{/if}
+
+			<div class="access-code-section" class:blocked={blockAccessCodeInput}>
+				{#if blockAccessCodeInput}
+					<div class="access-code-mask" on:click={handleMaskClick}>
+						{#if maskClickCount >= 10}
+							<div class="mask-click-counter">{maskClickCount}/15</div>
+						{/if}
+						<div class="mask-message">
+							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<circle cx="12" cy="12" r="10"/>
+								<path d="M4.93 4.93l14.14 14.14"/>
+							</svg>
+							<h3>
+								{$currentLocale === 'ar' 
+									? 'غير متاح حالياً: التوصيل المنزلي والاستلام من المتجر' 
+									: 'Currently Not Available: Home Delivery & Store Pickup'}
+							</h3>
+						</div>
+					</div>
+				{/if}
+				
+				<div class="form-fields">
+					<div class="field-group">
+						<p class="access-code-instruction">
+							{#if $currentLocale === 'ar'}
+								أدخل الرمز المُرسل إليك على واتساب
+							{:else}
+								Enter the code sent to your WhatsApp
+							{/if}
+						</p>
+						<div class="customer-access-digits">
+							{#each customerDigits as digit, index}
+								<input 
+									id="customer-digit-{index}"
+									type="text" 
+									class="customer-digit-input"
+									class:error={!accessCodeValid && customerDigits.some(d => d !== '')}
+									bind:value={customerDigits[index]}
+									on:input={(e) => handleDigitInput(e, index)}
+									on:keydown={(e) => handleDigitKeydown(e, index)}
+									on:paste={handleDigitPaste}
+									placeholder=""
+									disabled={isLoading || blockAccessCodeInput}
+									maxlength="1"
+									autocomplete="off"
+									inputmode="numeric"
+									pattern="[0-9]*"
+								/>
+							{/each}
+						</div>
+						{#if !accessCodeValid && customerDigits.some(d => d !== '')}
+							<span class="field-error">{$_('customer.login.errors.accessCodeLength')}</span>
+						{/if}
+					</div>
+
+					<div class="form-options">
+						<label class="checkbox-option">
+							<input 
+								type="checkbox" 
+								bind:checked={rememberDevice}
+								disabled={isLoading || blockAccessCodeInput}
+							/>
+							<span class="checkbox-mark"></span>
+							{$_('common.rememberDevice')}
+						</label>
+					</div>
+				</div>
+
+				<button 
+					type="submit" 
+					class="customer-submit-btn"
+					disabled={isLoading || customerDigits.some(d => d === '') || blockAccessCodeInput}
+				>
+					{#if isLoading}
+						<span class="loading-spinner"></span>
+						{$_('customer.login.loggingIn')}
+					{:else}
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M9 12l2 2 4-4"/>
+							<circle cx="12" cy="12" r="10"/>
+						</svg>
+						{$_('customer.login.loginButton')}
+					{/if}
+				</button>
+
+				<div class="register-prompt-section">
+					<div class="register-prompt-divider">
+						<span>{$currentLocale === 'ar' ? 'أو' : 'or'}</span>
+					</div>
+					<button type="button" class="register-prompt-btn" on:click={switchToRegister} disabled={isLoading || blockAccessCodeInput}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+							<circle cx="8.5" cy="7" r="4"></circle>
+							<line x1="20" y1="8" x2="20" y2="14"></line>
+							<line x1="23" y1="11" x2="17" y2="11"></line>
+						</svg>
+						{$currentLocale === 'ar' ? 'سجّل الآن' : 'Register Now'}
+					</button>
+				</div>
+
+				<div class="form-footer-modern">
+					<button type="button" class="btn-footer-card" on:click={() => currentView = 'forgot'} disabled={isLoading || blockAccessCodeInput}>
+						<div class="icon-wrapper bg-blue">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 2v6h-6"></path>
+								<path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+								<path d="M3 22v-6h6"></path>
+								<path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+							</svg>
+						</div>
+						<div class="card-text">
+							<span class="title">{$_('customer.login.requestNewAccess')}</span>
+							<span class="desc">{$_('customer.login.forgotCredentials')}</span>
+						</div>
+					</button>
+				</div>
+			</div>
+		</form>
+
+	{:else if currentView === 'register'}
+		<!-- Customer Registration Form -->
+		<form class="customer-form" on:submit|preventDefault={handleCustomerRegistration}>
+
+			<div class="form-fields">
+				<div class="field-group">
+					<label for="customer-name">{$_('customer.login.customerName')}</label>
+					<input 
+						id="customer-name"
+						type="text" 
+						class="field-input"
+						class:error={!nameValid}
+						bind:value={customerName}
+						on:input={validateName}
+						placeholder={$_('customer.login.customerNamePlaceholder')}
+						disabled={isLoading}
+						autocomplete="name"
+					/>
+					{#if !nameValid}
+						<span class="field-error">{$_('customer.login.errors.customerNameRequired')}</span>
+					{/if}
+				</div>
+
+				<div class="field-group">
+					<label for="whatsapp-number">{$_('customer.login.whatsappLabel')}</label>
+					<div class="phone-input-group">
+						<span class="country-code">+966</span>
+						<input 
+							id="whatsapp-number"
+							type="tel" 
+							class="field-input phone-input"
+							class:error={!whatsappValid}
+							bind:value={whatsappNumber}
+							on:input={formatWhatsAppNumber}
+							on:blur={validateWhatsApp}
+							placeholder={$_('customer.login.whatsappPlaceholder')}
+							disabled={isLoading}
+							autocomplete="tel"
+						/>
+					</div>
+					{#if !whatsappValid}
+						<span class="field-error">{$_('customer.login.errors.invalidWhatsappFormat')}</span>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Privacy Policy Checkbox -->
+			<div class="privacy-checkbox-group">
+				<label class="privacy-label">
+					<input 
+						type="checkbox" 
+						bind:checked={privacyAccepted}
+						disabled={isLoading}
+						class="privacy-checkbox"
+					/>
+					<span class="privacy-text">
+						{$_('customer.login.agreeToPrivacy')}
+						<a href="/privacy" target="_blank" class="privacy-link" on:click|stopPropagation>
+							{$_('customer.login.privacyPolicy')}
+						</a>
+					</span>
+				</label>
+			</div>
+
+			<button 
+				type="submit" 
+				class="customer-submit-btn register"
+				disabled={isLoading || !customerName.trim() || !whatsappNumber.trim() || !privacyAccepted}
+			>
+				{#if isLoading}
+					<span class="loading-spinner"></span>
+					{$_('customer.login.registering')}
+				{:else}
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+					</svg>
+					{$_('customer.login.registerButton')}
+				{/if}
+			</button>
+
+			<div class="form-footer">
+				<p>{$_('customer.login.alreadyHaveAccount')}</p>
+				<button type="button" class="register-link" on:click={switchToLogin} disabled={isLoading}>
+					{$_('customer.login.loginButton')}
+				</button>
+			</div>
+		</form>
+
+	{:else if currentView === 'forgot'}
+		<!-- Forgot Access Code Form -->
+		<form class="customer-form" on:submit|preventDefault={handleForgotAccessCode}>
+
+			<div class="form-fields">
+				<div class="field-group">
+					<label for="forgot-whatsapp">{$_('customer.login.whatsappLabel')}</label>
+					<div class="phone-input-group">
+						<span class="country-code">+966</span>
+						<input 
+							id="forgot-whatsapp"
+							type="tel" 
+							class="field-input phone-input"
+							class:error={!forgotWhatsappValid}
+							bind:value={forgotWhatsappNumber}
+							on:input={() => forgotWhatsappNumber = forgotWhatsappNumber.replace(/[^\d+\s-()]/g, '')}
+							on:blur={validateForgotWhatsApp}
+							placeholder={$_('customer.login.whatsappPlaceholder')}
+							disabled={isLoading}
+							autocomplete="tel"
+						/>
+					</div>
+					{#if !forgotWhatsappValid}
+						<span class="field-error">{$_('customer.login.errors.invalidWhatsappFormat')}</span>
+					{/if}
+				</div>
+
+				{#if retryAfterSeconds > 0}
+					<div class="retry-info">
+						<p>{$_('customer.login.errors.tooManyRequests')}</p>
+					</div>
+				{/if}
+			</div>
+
+			<button 
+				type="submit" 
+				class="customer-submit-btn forgot"
+				disabled={isLoading || !forgotWhatsappNumber.trim() || retryAfterSeconds > 0}
+			>
+				{#if isLoading}
+					<span class="loading-spinner"></span>
+					{$_('customer.login.submittingRequest')}
+				{:else}
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+						<polyline points="16,6 12,2 8,6"/>
+						<line x1="12" y1="2" x2="12" y2="15"/>
+					</svg>
+					{$_('customer.login.submitRequest')}
+				{/if}
+			</button>
+
+			<div class="form-footer">
+				<p>{$_('customer.login.alreadyHaveAccount')}</p>
+				<button type="button" class="register-link" on:click={switchToLogin} disabled={isLoading}>
+					{$_('customer.login.backToLogin')}
+				</button>
+				<p>{$_('customer.login.needNewAccount')}</p>
+				<button type="button" class="register-link" on:click={switchToRegister} disabled={isLoading}>
+					{$_('customer.login.registerButton')}
+				</button>
+			</div>
+		</form>
+
+	{:else if currentView === 'loyalty'}
+		<!-- Loyalty Member Login Form -->
+		<form class="customer-form loyalty-form" on:submit|preventDefault={() => {}}>
+
+			<div class="loyalty-header">
+				<button type="button" class="back-btn" on:click={backFromLoyalty} disabled={isLoading} title="Back">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M19 12H5M12 19l-7-7 7-7"/>
+					</svg>
+				</button>
+				<h2>{$_('customer.login.loyaltyMemberTitle') || 'Loyalty Member Login'}</h2>
+			</div>
+
+			<p class="loyalty-subtitle">{$_('customer.login.loyaltyMemberSubtitle') || 'Enter your mobile number to login'}</p>
+
+			<div class="form-fields">
+				<div class="field-group">
+					<label for="loyalty-mobile">{$_('customer.login.loyaltyMobileLabel') || 'Mobile Number'}</label>
+					<input 
+						id="loyalty-mobile"
+						type="tel" 
+						class="field-input"
+						class:error={loyaltyCardChecked && !loyaltyMobileValid}
+						bind:value={loyaltyMobileNumber}
+						on:input={formatLoyaltyMobileNumber}
+						on:blur={validateLoyaltyMobile}
+						placeholder="05XXXXXXXX"
+						disabled={isLoading}
+						autocomplete="tel"
+						inputmode="numeric"
+					/>
+					{#if loyaltyCardChecked && !loyaltyMobileValid && errorMessage}
+						<span class="field-error">{errorMessage}</span>
+					{/if}
+				</div>
+			</div>
+
+			<button 
+				type="button" 
+				class="customer-submit-btn loyalty"
+				disabled={isLoading || !loyaltyMobileValid}
+				on:click={handleLoyaltyContinue}
+			>
+				{#if isLoading}
+					<span class="loading-spinner"></span>
+					{$_('customer.login.loyaltyLoggingIn') || 'Signing in...'}
+				{:else}
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M9 12l2 2 4-4"/>
+						<circle cx="12" cy="12" r="10"/>
+					</svg>
+					{$_('customer.login.loyaltySubmit') || 'Continue'}
+				{/if}
+			</button>
+		</form>
+	{/if}
+
+	<!-- Status Messages -->
+	{#if errorMessage}
+		<div class="status-message error-status" role="alert">
+			<div class="status-icon">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="12" r="10"/>
+					<line x1="15" y1="9" x2="9" y2="15"/>
+					<line x1="9" y1="9" x2="15" y2="15"/>
+				</svg>
+			</div>
+			<div class="status-content">
+				<h4>{$_('status.error')}</h4>
+				<p>{errorMessage}</p>
+			</div>
+		</div>
+	{/if}
+
+	{#if successMessage}
+		<div class="status-message success-status" role="status">
+			<div class="status-icon">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M9 12l2 2 4-4"/>
+					<circle cx="12" cy="12" r="10"/>
+				</svg>
+			</div>
+			<div class="status-content">
+				<h4>{$_('status.success')}</h4>
+				<p>{successMessage}</p>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Follow Us Modal -->
+</div>
+
+<style>
+	.customer-login-container {
+		animation: slideInUp 0.5s ease-out;
+		padding: 0;
+		margin: 0;
+		background: transparent;
+		border: none;
+		box-shadow: none;
+		width: 100%;
+	}
+
+	/* RTL Support */
+	:global([dir="rtl"]) .customer-login-container {
+		text-align: right;
+	}
+
+	:global([dir="rtl"]) .back-btn {
+		flex-direction: row-reverse;
+	}
+
+	:global([dir="rtl"]) .back-btn svg {
+		transform: scaleX(-1);
+	}
+
+	:global([dir="rtl"]) .field-group label {
+		text-align: right;
+	}
+
+	:global([dir="rtl"]) .form-footer {
+		text-align: right;
+	}
+
+	:global([dir="rtl"]) .phone-input-group {
+		flex-direction: row-reverse;
+	}
+
+	:global([dir="rtl"]) .country-code {
+		border-radius: 0 6px 6px 0;
+		border-left: 1px solid #E5E7EB;
+		border-right: none;
+	}
+
+	:global([dir="rtl"]) .phone-input {
+		border-radius: 6px 0 0 6px;
+	}
+
+	:global([dir="rtl"]) .customer-submit-btn svg {
+		order: 1;
+	}
+
+	:global([dir="rtl"]) .status-message {
+		text-align: right;
+	}
+
+	:global([dir="rtl"]) .checkbox-option {
+		flex-direction: row-reverse;
+		justify-content: flex-end;
+	}
+
+	:global([dir="rtl"]) .checkbox-mark {
+		margin-left: 0;
+		margin-right: 8px;
+	}
+
+	/* Arabic Font Support */
+	:global(.font-arabic) .customer-login-container {
+		font-family: 'Tajawal', 'Amiri', 'Cairo', sans-serif;
+	}
+
+	:global(.font-arabic) .field-input,
+	:global(.font-arabic) .customer-digit-input {
+		font-family: 'Tajawal', 'Amiri', 'Cairo', sans-serif;
+	}
+
+	@keyframes slideInUp {
+		from {
+			opacity: 0;
+			transform: translateY(20px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.customer-form {
+		width: 100%;
+		margin: 0;
+		padding: 0;
+	}
+
+	.form-fields {
+		margin-bottom: 0.75rem;
+	}
+
+	.field-group {
+		margin-bottom: 0.75rem;
+	}
+
+	.already-member-divider {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		margin-bottom: 0.25rem;
+	}
+
+	.already-member-divider::before,
+	.already-member-divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: #6ee7b7;
+	}
+
+	.already-member-divider span {
+		font-size: 0.82rem;
+		color: #059669;
+		white-space: nowrap;
+		font-weight: 600;
+		background: #ecfdf5;
+		border: 1px solid #6ee7b7;
+		border-radius: 20px;
+		padding: 0.3rem 0.75rem;
+	}
+
+	.access-code-instruction {
+		font-size: 0.78rem;
+		color: #0e7c3f;
+		font-weight: 700;
+		margin: 0 0 0.85rem;
+		text-align: center;
+		line-height: 1.4;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		background: none;
+		border: none;
+		padding: 0;
+	}
+
+	.field-group label {
+		display: block;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #374151;
+		margin-bottom: 0.5rem;
+	}
+
+	.field-input {
+		width: 100%;
+		padding: 0.875rem 1rem;
+		border: 2px solid #E5E7EB;
+		border-radius: 8px;
+		font-size: 1rem;
+		background: #FFFFFF;
+		color: #1E293B;
+		transition: all 0.3s ease;
+		box-sizing: border-box;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+	}
+
+	.field-input:focus {
+		outline: none;
+		border-color: #8B5CF6;
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+	}
+
+	.field-input.error {
+		border-color: #EF4444;
+		background: #FEF2F2;
+	}
+
+	.field-input:disabled {
+		background: #F9FAFB;
+		color: #9CA3AF;
+		cursor: not-allowed;
+	}
+
+	/* Customer Access Code Digits */
+	.customer-access-digits {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: center;
+		align-items: center;
+		margin: 0.5rem 0;
+		direction: ltr;
+	}
+
+	.customer-digit-input {
+		width: 50px;
+		height: 56px;
+		border: 1.5px solid #E2E8F0;
+		border-radius: 12px;
+		text-align: center;
+		font-size: 1.35rem;
+		font-weight: 700;
+		font-family: 'JetBrains Mono', 'Courier New', monospace;
+		background: #FFFFFF;
+		color: #14532D;
+		transition: all 0.2s ease;
+		box-sizing: border-box;
+		padding: 0;
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		touch-action: manipulation;
+		direction: ltr;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+	}
+
+	.customer-digit-input:focus {
+		outline: none;
+		border-color: #15A34A;
+		box-shadow: 0 0 0 4px rgba(21, 163, 74, 0.14);
+		background: #F5FBF7;
+	}
+
+	.customer-digit-input.error {
+		border-color: #EF4444;
+		background: #FEF2F2;
+	}
+
+	.customer-digit-input:disabled {
+		background: #F9FAFB;
+		color: #9CA3AF;
+		cursor: not-allowed;
+	}
+
+	/* Phone Input Group */
+	.phone-input-group {
+		display: flex;
+		align-items: center;
+		gap: 0;
+		border: 2px solid #E5E7EB;
+		border-radius: 8px;
+		background: #FFFFFF;
+		transition: all 0.3s ease;
+	}
+
+	.phone-input-group:focus-within {
+		border-color: #8B5CF6;
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+	}
+
+	.country-code {
+		padding: 0.875rem 0.75rem;
+		background: #F8FAFC;
+		color: #64748B;
+		font-weight: 600;
+		border-right: 1px solid #E5E7EB;
+		font-size: 1rem;
+	}
+
+	.phone-input {
+		border: none !important;
+		border-radius: 0 6px 6px 0 !important;
+		box-shadow: none !important;
+		flex: 1;
+	}
+
+	.phone-input:focus {
+		box-shadow: none !important;
+		border-color: transparent !important;
+	}
+
+	.field-error {
+		color: #EF4444;
+		font-size: 0.75rem;
+		margin-top: 0.5rem;
+		display: block;
+	}
+
+	.form-options {
+		display: flex;
+		justify-content: flex-start;
+		align-items: center;
+		margin-top: 1.5rem;
+	}
+
+	.checkbox-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		color: #64748B;
+		cursor: pointer;
+	}
+
+	.checkbox-option input[type="checkbox"] {
+		width: 18px;
+		height: 18px;
+		accent-color: #15A34A;
+		margin: 0;
+	}
+
+	.customer-submit-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: linear-gradient(135deg, #0e7c3f 0%, #15A34A 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		box-shadow: 0 4px 14px rgba(14, 124, 63, 0.3);
+		text-transform: none;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+	}
+
+	.customer-submit-btn.register {
+		background: linear-gradient(135deg, #059669 0%, #10B981 100%);
+		box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+	}
+
+	.customer-submit-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #0a6934 0%, #0e7c3f 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(14, 124, 63, 0.4);
+	}
+
+	.customer-submit-btn.register:hover:not(:disabled) {
+		background: linear-gradient(135deg, #047857 0%, #059669 100%);
+		box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+	}
+
+	.customer-submit-btn.forgot {
+		background: linear-gradient(135deg, #7C3AED 0%, #A855F7 100%);
+		box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+	}
+
+	.customer-submit-btn.forgot:hover:not(:disabled) {
+		background: linear-gradient(135deg, #6D28D9 0%, #9333EA 100%);
+		box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
+	}
+
+	.customer-submit-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.customer-submit-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	.register-prompt-section {
+		margin-top: 0.1rem;
+		margin-bottom: 0.25rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.register-prompt-divider {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+	}
+
+	.register-prompt-divider::before,
+	.register-prompt-divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: #E2E8F0;
+	}
+
+	.register-prompt-divider span {
+		font-size: 0.72rem;
+		color: #94A3B8;
+		white-space: nowrap;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.register-prompt-btn {
+		width: 100%;
+		padding: 0.85rem 1.5rem;
+		background: #ffffff;
+		color: #0e7c3f;
+		border: 1.5px solid #a7d9b8;
+		border-radius: 12px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		box-shadow: none;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+	}
+
+	.register-prompt-btn:hover:not(:disabled) {
+		background: #ecfdf5;
+		border-color: #0e7c3f;
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgba(14, 124, 63, 0.15);
+	}
+
+	.register-prompt-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	.loading-spinner {
+		width: 20px;
+		height: 20px;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top: 2px solid white;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.form-footer {
+		text-align: center;
+		margin-top: 1.5rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid #E5E7EB;
+	}
+
+	.privacy-checkbox-group {
+		margin-top: 1rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.privacy-label {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.625rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+		color: #374151;
+		line-height: 1.4;
+	}
+
+	.privacy-checkbox {
+		width: 18px;
+		height: 18px;
+		min-width: 18px;
+		margin-top: 2px;
+		accent-color: #059669;
+		cursor: pointer;
+	}
+
+	.privacy-text {
+		flex: 1;
+	}
+
+	.privacy-link {
+		color: #059669;
+		font-weight: 600;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.privacy-link:hover {
+		color: #047857;
+	}
+
+	.form-footer p {
+		color: #64748B;
+		font-size: 0.875rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.form-footer-modern {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 1px dashed #E2E8F0;
+	}
+
+	.btn-footer-card {
+		display: flex;
+		align-items: center;
+		padding: 14px 16px;
+		background: #F8FAFC;
+		border: 1px solid #E2E8F0;
+		border-radius: 12px;
+		text-align: left;
+		cursor: pointer;
+		text-decoration: none;
+		transition: all 0.2s ease;
+		color: inherit;
+		box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+	}
+
+	:global([dir="rtl"]) .btn-footer-card {
+		text-align: right;
+	}
+
+	.btn-footer-card:hover:not(:disabled) {
+		background: #F1F5F9;
+		border-color: #CBD5E1;
+		transform: translateY(-1px);
+	}
+
+	.btn-footer-card:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.btn-footer-card.highlight {
+		background: linear-gradient(to right, #F0FDF4, #ECFDF5);
+		border-color: #10B981;
+	}
+
+	.btn-footer-card.highlight:hover:not(:disabled) {
+		background: linear-gradient(to right, #ECFDF5, #D1FAE5);
+		border-color: #059669;
+	}
+
+	.btn-footer-card .icon-wrapper {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border-radius: 10px;
+		margin-right: 14px;
+		flex-shrink: 0;
+	}
+
+	:global([dir="rtl"]) .btn-footer-card .icon-wrapper {
+		margin-right: 0;
+		margin-left: 14px;
+	}
+
+	.icon-wrapper.bg-blue {
+		background: #EFF6FF;
+		color: #3B82F6;
+	}
+
+	.icon-wrapper.bg-green {
+		background: #DCFCE7;
+		color: #10B981;
+	}
+
+	.icon-wrapper.bg-gray {
+		background: #F1F5F9;
+		color: #64748B;
+	}
+
+	.btn-footer-card .card-text {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+	}
+
+	.btn-footer-card .title {
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: #1E293B;
+		margin-bottom: 2px;
+	}
+
+	.btn-footer-card .desc {
+		font-size: 0.8rem;
+		color: #64748B;
+	}
+
+	.register-link {
+		background: transparent;
+		border: none;
+		color: #8B5CF6;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.register-link:hover:not(:disabled) {
+		color: #7C3AED;
+	}
+
+	.register-link:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.loyalty-divider {
+		height: 1px;
+		background: #E5E7EB;
+		margin: 1rem 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+	}
+
+	.loyalty-divider span {
+		background: white;
+		padding: 0 0.75rem;
+		color: #9CA3AF;
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.login-divider {
+		height: 1px;
+		background: #E5E7EB;
+		margin: 1.5rem 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+	}
+
+	.login-divider span {
+		background: white;
+		padding: 0 0.75rem;
+		color: #9CA3AF;
+		font-size: 0.875rem;
+		font-weight: 500;
+	}
+
+	.loyalty-member-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: #1a1a1a;
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+	}
+
+	.loyalty-member-btn:hover:not(:disabled) {
+		background: #4D5157;
+	}
+
+	.loyalty-member-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.loyalty-member-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	/* Follow Us Button Styles */
+	.follow-us-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: #00CC00;
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+		margin-bottom: 1rem;
+	}
+
+	.follow-us-btn:hover:not(:disabled) {
+		background: #13A538;
+	}
+
+	.follow-us-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.follow-us-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	/* View Offers Button Styles */
+	@keyframes heartbeat {
+		0%, 100% {
+			transform: scale(1);
+		}
+		25% {
+			transform: scale(1.1);
+		}
+		50% {
+			transform: scale(1.2);
+		}
+		75% {
+			transform: scale(1.1);
+		}
+	}
+
+	.view-offers-btn {
+		width: 100%;
+		padding: 1rem 1.5rem;
+		background: #FF5500;
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		min-height: 48px;
+		margin-bottom: 1.5rem;
+	}
+
+	.view-offers-btn svg {
+		animation: heartbeat 1.5s infinite;
+	}
+
+	.view-offers-btn:hover:not(:disabled) {
+		background: #f08300;
+	}
+
+	.view-offers-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.view-offers-btn:disabled {
+		background: #9CA3AF;
+		cursor: not-allowed;
+		transform: none;
+		box-shadow: none;
+	}
+
+	/* Loyalty Form Styles */
+	.loyalty-form {
+		animation: fadeIn 0.3s ease-out;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	/* Card Details Section */
+	.card-details-section {
+		background: linear-gradient(135deg, #FEF3C7 0%, #FEF08A 100%);
+		border: 1px solid #FCD34D;
+		border-radius: 12px;
+		padding: 1.5rem;
+		margin: 1.5rem 0;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.card-detail-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem 0;
+		border-bottom: 1px solid rgba(252, 211, 77, 0.3);
+	}
+
+	.card-detail-item:last-child {
+		border-bottom: none;
+	}
+
+	.detail-label {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #92400E;
+	}
+
+	.detail-value {
+		font-size: 1rem;
+		font-weight: 600;
+		color: #1F2937;
+		text-align: right;
+	}
+
+	.detail-value.amount {
+		color: #F59E0B;
+		font-size: 1.125rem;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.loyalty-header {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		position: relative;
+	}
+
+	.loyalty-header h2 {
+		flex: 1;
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #1F2937;
+		margin: 0;
+	}
+
+	.back-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		padding: 0;
+		background: #F3F4F6;
+		border: 1px solid #E5E7EB;
+		color: #374151;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: all 0.3s ease;
+	}
+
+	.back-btn:hover:not(:disabled) {
+		background: #E5E7EB;
+		border-color: #D1D5DB;
+	}
+
+	.back-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.loyalty-subtitle {
+		color: #6B7280;
+		font-size: 0.95rem;
+		margin: 0 0 1.5rem 0;
+		text-align: center;
+	}
+
+	.customer-submit-btn.loyalty {
+		background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+		box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+	}
+
+	.customer-submit-btn.loyalty:hover:not(:disabled) {
+		background: linear-gradient(135deg, #D97706 0%, #F59E0B 100%);
+		box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+	}
+
+	.retry-info {
+		background: #FEF3C7;
+		border: 1px solid #F59E0B;
+		border-radius: 8px;
+		padding: 1rem;
+		margin-top: 1rem;
+		text-align: center;
+	}
+
+	.retry-info p {
+		color: #92400E;
+		font-size: 0.875rem;
+		margin: 0;
+		font-weight: 500;
+	}
+
+	/* Status Messages */
+	.status-message {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
+		margin-top: 1.5rem;
+		border-radius: 12px;
+		animation: messageSlideIn 0.4s ease-out;
+	}
+
+	@keyframes messageSlideIn {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.error-status {
+		background: #FEF2F2;
+		border: 1px solid #FECACA;
+		color: #DC2626;
+	}
+
+	.success-status {
+		background: #F0FDF4;
+		border: 1px solid #BBF7D0;
+		color: #16A34A;
+	}
+
+	.status-icon {
+		flex-shrink: 0;
+		margin-top: 0.125rem;
+	}
+
+	.status-content h4 {
+		font-size: 0.875rem;
+		font-weight: 600;
+		margin: 0 0 0.25rem 0;
+	}
+
+	.status-content p {
+		font-size: 0.875rem;
+		margin: 0;
+		opacity: 0.9;
+	}
+
+	/* Responsive Design */
+	@media (max-width: 768px) {
+		.customer-access-digits {
+			gap: 0.5rem;
+		}
+
+		.customer-digit-input {
+			width: 44px;
+			height: 44px;
+			font-size: 1.2rem;
+		}
+
+		.field-input {
+			font-size: 16px; /* Prevents zoom on iOS */
+		}
+
+		.form-fields {
+			margin-bottom: 1.25rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.customer-access-digits {
+			gap: 0.375rem;
+		}
+
+		.customer-digit-input {
+			width: 38px;
+			height: 38px;
+			font-size: 1.1rem;
+		}
+
+		.customer-submit-btn {
+			min-height: 52px;
+		}
+	}
+
+	@media (max-width: 375px) {
+		.customer-access-digits {
+			gap: 0.25rem;
+		}
+
+		.customer-digit-input {
+			width: 34px;
+			height: 34px;
+			font-size: 1rem;
+		}
+	}
+
+	/* Access Code Section with Mask */
+	.access-code-section {
+		position: relative;
+	}
+
+	.access-code-mask {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(255, 255, 255, 0.95);
+		border-radius: 8px;
+		z-index: 50;
+		pointer-events: auto;
+		backdrop-filter: blur(2px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mask-click-counter {
+		position: absolute;
+		bottom: 8px;
+		right: 10px;
+		font-size: 0.7rem;
+		color: #9ca3af;
+		font-weight: 600;
+		pointer-events: none;
+		opacity: 0.6;
+	}
+
+	.mask-message {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.5rem;
+		padding: 2.5rem;
+		text-align: center;
+		color: #1F2937;
+		background: linear-gradient(135deg, #F8F9FB 0%, #FFFFFF 100%);
+		border-radius: 16px;
+		box-shadow: 0 20px 40px rgba(139, 92, 246, 0.15),
+			0 10px 20px rgba(0, 0, 0, 0.08);
+		border: 1px solid rgba(139, 92, 246, 0.1);
+		max-width: 340px;
+		backdrop-filter: blur(8px);
+		transform: translateY(-8px);
+		animation: slideInDown 0.5s ease-out;
+	}
+
+	.mask-message svg {
+		width: 56px;
+		height: 56px;
+		color: #8B5CF6;
+		animation: bounce 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+		filter: drop-shadow(0 4px 12px rgba(139, 92, 246, 0.3));
+	}
+
+	@keyframes bounce {
+		0%,
+		100% {
+			transform: translateY(0);
+			opacity: 1;
+		}
+		50% {
+			transform: translateY(-8px);
+			opacity: 0.85;
+		}
+	}
+
+	@keyframes slideInDown {
+		from {
+			opacity: 0;
+			transform: translateY(-20px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(-8px);
+		}
+	}
+
+	.mask-message h3 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 700;
+		line-height: 1.6;
+		letter-spacing: -0.3px;
+		background: linear-gradient(135deg, #8B5CF6 0%, #A78BFA 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	/* ── Access Code Popup ─────────────────────────────────────────── */
+	.code-popup-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.65);
+		backdrop-filter: blur(6px);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+	}
+	.code-popup-card {
+		background: #ffffff;
+		border-radius: 24px;
+		padding: 2rem 1.75rem 1.5rem;
+		max-width: 380px;
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		position: relative;
+		box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+		animation: popupIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+	}
+	@keyframes popupIn {
+		from { transform: scale(0.85); opacity: 0; }
+		to   { transform: scale(1);    opacity: 1; }
+	}
+	.popup-countdown-ring {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		width: 44px;
+		height: 44px;
+	}
+	[dir="rtl"] .popup-countdown-ring {
+		right: auto;
+		left: 1rem;
+	}
+	.countdown-svg {
+		width: 44px;
+		height: 44px;
+		transform: rotate(-90deg);
+	}
+	.countdown-track {
+		fill: none;
+		stroke: #e2e8f0;
+		stroke-width: 3;
+	}
+	.countdown-progress {
+		fill: none;
+		stroke: #13A538;
+		stroke-width: 3;
+		stroke-dasharray: 113;
+		transition: stroke-dashoffset 1s linear;
+		stroke-linecap: round;
+	}
+	.countdown-number {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 13px;
+		font-weight: 700;
+		color: #13A538;
+	}
+	.popup-congrats {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		text-align: center;
+	}
+	.popup-congrats-emoji {
+		font-size: 2.5rem;
+		line-height: 1;
+	}
+	.popup-congrats-title {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #0f4c1e;
+		margin: 0;
+	}
+	.popup-code-block {
+		background: #f0fdf4;
+		border: 2px solid #13A538;
+		border-radius: 16px;
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+	}
+	.popup-code-label {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #166534;
+		margin: 0;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.popup-code-digits {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.popup-digit {
+		width: 38px;
+		height: 46px;
+		background: #ffffff;
+		border: 2px solid #13A538;
+		border-radius: 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.4rem;
+		font-weight: 800;
+		color: #0f4c1e;
+		box-shadow: 0 2px 6px rgba(19,165,56,0.15);
+	}
+	.popup-copy-btn {
+		background: linear-gradient(135deg, #13A538, #108C30);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		padding: 0.5rem 1.25rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: opacity 0.2s;
+	}
+	.popup-copy-btn:hover { opacity: 0.88; }
+	.popup-warning {
+		background: #fff7ed;
+		border: 1px solid #f08300;
+		border-radius: 10px;
+		padding: 0.6rem 0.9rem;
+		font-size: 0.78rem;
+		color: #92400e;
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+	.popup-whatsapp-sent {
+		background: #f0fdf4;
+		border: 1px solid #86efac;
+		border-radius: 10px;
+		padding: 0.65rem 0.9rem;
+		font-size: 0.78rem;
+		color: #166534;
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		line-height: 1.4;
+	}
+	.popup-no-whatsapp {
+		background: #eff6ff;
+		border: 1px solid #93c5fd;
+		border-radius: 10px;
+		padding: 0.65rem 0.9rem;
+		font-size: 0.78rem;
+		color: #1e3a5f;
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		line-height: 1.4;
+	}
+	.popup-no-whatsapp p { margin: 0 0 0.3rem; }
+	.popup-no-whatsapp p:last-child { margin: 0; }
+	.popup-close-btn {
+		background: #f1f5f9;
+		color: #475569;
+		border: 1px solid #e2e8f0;
+		border-radius: 10px;
+		padding: 0.6rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		width: 100%;
+		transition: background 0.2s;
+	}
+	.popup-close-btn:hover { background: #e2e8f0; }
+
+</style>

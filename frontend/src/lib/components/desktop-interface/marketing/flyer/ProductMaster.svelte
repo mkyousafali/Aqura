@@ -1,0 +1,3923 @@
+<script lang="ts">
+	import * as XLSX from 'xlsx';
+	import { supabase } from '$lib/utils/supabase';
+	import { onMount } from 'svelte';
+	import { removeBackground } from '@imgly/background-removal';
+	
+	let products: any[] = [];
+	let filteredProducts: any[] = [];
+	let fileInput: HTMLInputElement;
+	let imageInput: HTMLInputElement;
+	let searchBarcode: string = '';
+	let isUploadingImages: boolean = false;
+	let uploadProgress: string = '';
+	let imageUploadProgress: number = 0; // 0 to 100 for image uploads
+	let uploadedImageCount: number = 0;
+	let totalImageCount: number = 0;
+	let cancelImageUpload: boolean = false;
+	let showUploadSuccessPopup: boolean = false;
+	let uploadSuccessMessage: string = '';
+	let isSavingProducts: boolean = false;
+	let hasUnsavedData: boolean = false;
+	let saveProgress: number = 0; // 0 to 100
+	let totalProducts: number = 0;
+	let productsWithImages: number = 0;
+	let productsWithoutImages: number = 0;
+	let isCalculatingStats: boolean = false;
+	let storageImageCache: Set<string> = new Set(); // Track barcodes that have images (in-memory only, no persistence)
+	let isCacheLoaded: boolean = true; // Always ready, no cache loading needed
+	
+	// Database stats
+	let dbTotalProducts: number = 0;
+	let dbProductsWithImages: number = 0;
+	let dbProductsWithoutImages: number = 0;
+	let isLoadingDbStats: boolean = false;
+	
+	// Products without images view
+	let showNoImageProducts: boolean = false;
+	let noImageProducts: any[] = [];
+	let isLoadingNoImageProducts: boolean = false;
+	let uploadingImageForBarcode: string | null = null;
+	let noImageSearchQuery: string = '';
+	let filteredNoImageProducts: any[] = [];
+	
+	// All products view
+	let showAllProducts: boolean = false;
+	let allProductsList: any[] = [];
+	let allProductsForDropdowns: any[] = [];
+	let isLoadingAllProducts: boolean = false;
+	let allProductsSearch: string = '';
+	let filteredAllProducts: any[] = [];
+	let allProductsWithImages: number = 0; // Count of products that have images
+
+
+
+	let isLoadingDropdownsData: boolean = false;
+	let dropdownsDataLoaded: boolean = false;
+	
+	// Direct unit and category lists
+	let allUnits: any[] = [];
+	let allCategories: any[] = [];
+	
+	// Image loading state
+	let successfullyLoadedImages: Set<string> = new Set(); // Track which images have loaded successfully
+	let imageRefs: Record<string, HTMLImageElement> = {}; // Track image element refs for cache checking
+	
+	// Cache removed - always load fresh data directly
+	
+	// Find missing images in storage
+	let showFindMissingImagesPopup: boolean = false;
+	let isFindingMissingImages: boolean = false;
+	let foundMissingImages: { barcode: string; productName: string; imageUrl: string }[] = [];
+	let isSavingFoundImages: boolean = false;
+	
+	// Web image search
+	let showImageSearchPopup: boolean = false;
+	let searchingBarcode: string = '';
+	let webImages: any[] = [];
+	let isSearchingWeb: boolean = false;
+	let selectedWebImage: string | null = null;
+	let downloadingImage: boolean = false;
+	let removingBackground: boolean = false;
+	let searchProvider: 'google' | 'openfoodfacts' | null = null;
+	
+	// Image preview popup
+	let showImagePreview: boolean = false;
+	let previewImageUrl: string = '';
+	let previewImageBlob: Blob | null = null;
+	let previewBarcode: string = '';
+	
+	// Edit product popup
+	let showEditPopup: boolean = false;
+	let editingProduct: any = null;
+	let isSavingEdit: boolean = false;
+	
+	// Create product popup
+	let showCreatePopup: boolean = false;
+	let newProduct: any = null;
+	let isSavingCreate: boolean = false;
+	let isCheckingImage: boolean = false;
+	let imageCheckStatus: string = '';
+	let imageCheckResult: 'success' | 'error' | null = null;
+	let foundImageUrl: string = '';
+	
+	// Create unit popup
+	let showCreateUnitPopup: boolean = false;
+	let newUnitName: string = '';
+	let newUnitNameAr: string = '';
+	let isSavingUnit: boolean = false;
+	
+	// Create category popup
+	let showCreateCategoryPopup: boolean = false;
+	let newCategoryName: string = '';
+	let newCategoryNameAr: string = '';
+	let isSavingCategory: boolean = false;
+	
+	// Filter no-image products based on search query
+	$: filteredNoImageProducts = noImageProducts.filter(product => {
+		if (!noImageSearchQuery.trim()) return true;
+		const query = noImageSearchQuery.toLowerCase();
+		return (
+			product.barcode?.toLowerCase().includes(query) ||
+			product.product_name_en?.toLowerCase().includes(query) ||
+			product.product_name_ar?.includes(query)
+		);
+	});
+	
+	// Filter all products based on search query - displays progressively as they load
+	$: filteredAllProducts = allProductsList.filter(product => {
+		if (!allProductsSearch.trim()) return true;
+		const query = allProductsSearch.toLowerCase();
+		return (
+			product.barcode?.toLowerCase().includes(query) ||
+			product.product_name_en?.toLowerCase().includes(query) ||
+			product.product_name_ar?.includes(query)
+		);
+	});
+	
+	// Extract unique values for dropdowns
+	$: uniqueUnits = allUnits.map(u => u.name_en).filter(Boolean).sort();
+	$: uniqueParentCategories = allCategories.map(c => c.name_en).filter(Boolean).sort();
+	$: uniqueParentSubCategories = []; // Not available in current schema
+	$: uniqueSubCategories = []; // Not available in current schema
+
+	// Check for cached images after each render
+	$: if ((filteredProducts && filteredProducts.length > 0) || (filteredAllProducts && filteredAllProducts.length > 0)) {
+		setTimeout(() => {
+			// Check regular filtered products
+			filteredProducts.forEach(product => {
+				if (product.image_url && imageRefs[product.barcode]) {
+					checkImageCache(imageRefs[product.barcode]);
+				}
+			});
+			// Check all products view
+			filteredAllProducts.forEach(product => {
+				if (product.image_url && imageRefs[product.barcode]) {
+					checkImageCache(imageRefs[product.barcode]);
+				}
+			});
+		}, 100);
+	}
+	
+	// Quota tracking
+	interface QuotaData {
+		googleSearches: number;
+		googleResetDate: string;
+		removeBgUses: number;
+		removeBgResetDate: string;
+	}
+	
+	let quotaData: QuotaData = {
+		googleSearches: 0,
+		googleResetDate: new Date().toISOString().split('T')[0],
+		removeBgUses: 0,
+		removeBgResetDate: getMonthKey()
+	};
+	
+	const GOOGLE_DAILY_LIMIT = 100;
+	const REMOVE_BG_MONTHLY_LIMIT = 50;
+	
+	// Get current month key (YYYY-MM)
+	function getMonthKey(): string {
+		const now = new Date();
+		return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+	}
+	
+	// Load quota data from localStorage
+	function loadQuotaData() {
+		if (typeof window === 'undefined') return;
+		
+		try {
+			const saved = localStorage.getItem('apiQuotaData');
+			if (saved) {
+				const data = JSON.parse(saved);
+				const today = new Date().toISOString().split('T')[0];
+				const currentMonth = getMonthKey();
+				
+				// Reset Google quota if it's a new day
+				if (data.googleResetDate !== today) {
+					data.googleSearches = 0;
+					data.googleResetDate = today;
+				}
+				
+				// Reset Remove.bg quota if it's a new month
+				if (data.removeBgResetDate !== currentMonth) {
+					data.removeBgUses = 0;
+					data.removeBgResetDate = currentMonth;
+				}
+				
+				quotaData = data;
+			}
+		} catch (error) {
+			console.error('Error loading quota data:', error);
+		}
+	}
+	
+	// Save quota data to localStorage
+	function saveQuotaData() {
+		if (typeof window === 'undefined') return;
+		
+		try {
+			localStorage.setItem('apiQuotaData', JSON.stringify(quotaData));
+		} catch (error) {
+			console.error('Error saving quota data:', error);
+		}
+	}
+	
+	// Check if Google search is available
+	function isGoogleAvailable(): boolean {
+		return quotaData.googleSearches < GOOGLE_DAILY_LIMIT;
+	}
+	
+	// Check if Remove.bg is available
+	function isRemoveBgAvailable(): boolean {
+		return quotaData.removeBgUses < REMOVE_BG_MONTHLY_LIMIT;
+	}
+	
+	// Increment Google search count
+	function incrementGoogleSearch() {
+		quotaData.googleSearches++;
+		saveQuotaData();
+	}
+	
+	// Increment Remove.bg use count
+	function incrementRemoveBg() {
+		quotaData.removeBgUses++;
+		saveQuotaData();
+	}
+	
+	// No cache loading needed - check storage directly each time
+	async function loadStorageImageCache() {
+		// No-op: removed caching, always check storage directly
+	}
+	
+	// Check if image exists in storage (fast single file check)
+	async function checkImageExists(barcode: string): Promise<boolean> {
+		if (storageImageCache.has(barcode)) return true;
+		
+		try {
+			const { data, error } = await supabase.storage
+				.from('flyer-product-images')
+				.list('', {
+					limit: 1,
+					search: `${barcode}.`
+				});
+			
+			const exists = data && data.length > 0;
+			if (exists) {
+				storageImageCache.add(barcode);
+			}
+			return exists;
+		} catch (error) {
+			console.error('Error checking image:', error);
+			return false;
+		}
+	}
+	
+	// Calculate image statistics properly by checking if images exist
+	async function updateImageStats() {
+		totalProducts = filteredProducts.length;
+		
+		if (totalProducts === 0) {
+			productsWithImages = 0;
+			productsWithoutImages = 0;
+			return;
+		}
+		
+		// Make sure cache is loaded
+		if (!isCacheLoaded) {
+			await loadStorageImageCache();
+		}
+		
+		isCalculatingStats = true;
+		let withImages = 0;
+		let withoutImages = 0;
+		
+		// Check against cache - super fast!
+		filteredProducts.forEach(product => {
+			const barcode = String(product.Barcode || product.barcode || '');
+			if (!barcode) {
+				withoutImages++;
+				return;
+			}
+			
+			if (storageImageCache.has(barcode)) {
+				withImages++;
+			} else {
+				withoutImages++;
+			}
+		});
+		
+		productsWithImages = withImages;
+		productsWithoutImages = withoutImages;
+		
+		isCalculatingStats = false;
+	}
+	
+	// Update stats when products change
+	$: if (filteredProducts.length > 0 && isCacheLoaded) {
+		updateImageStats();
+	}
+	
+	// Load products from database on mount
+	async function loadProducts() {
+		const { data, error } = await supabase
+			.from('products')
+			.select('*')
+			.order('created_at', { ascending: false });
+		
+		if (error) {
+			console.error('Error loading products:', error);
+		} else if (data) {
+			products = data.map(p => ({
+				Barcode: p.barcode,
+				'Product name_en': p.product_name_en,
+				'Product name_ar': p.product_name_ar,
+				'Unit name': p.unit_name,
+				image_url: p.image_url
+			}));
+			filteredProducts = [...products];
+		}
+		
+		// Load storage image cache after products
+		await loadStorageImageCache();
+	}
+	
+	// Load all init data in one RPC call (stats + dropdowns)
+	async function loadInitData() {
+		isLoadingDbStats = true;
+		isLoadingDropdownsData = true;
+		
+		try {
+			const { data, error } = await supabase.rpc('get_product_master_init_data');
+			
+			if (error) {
+				console.error('Error loading init data:', error);
+			} else if (data) {
+				// Set database stats
+				dbTotalProducts = data.total_products || 0;
+				dbProductsWithImages = data.products_with_images || 0;
+				dbProductsWithoutImages = data.products_without_images || 0;
+				
+				// Set dropdown data
+				allUnits = data.units || [];
+				allCategories = data.categories || [];
+				dropdownsDataLoaded = true;
+			}
+		} catch (error) {
+			console.error('Error loading init data:', error);
+		}
+		
+		isLoadingDbStats = false;
+		isLoadingDropdownsData = false;
+	}
+	
+	// Legacy function for refreshing stats only
+	async function loadDatabaseStats() {
+		isLoadingDbStats = true;
+		try {
+			const { data, error } = await supabase.rpc('get_product_master_init_data');
+			if (!error && data) {
+				dbTotalProducts = data.total_products || 0;
+				dbProductsWithImages = data.products_with_images || 0;
+				dbProductsWithoutImages = data.products_without_images || 0;
+			}
+		} catch (error) {
+			console.error('Error loading database stats:', error);
+		}
+		isLoadingDbStats = false;
+	}
+	
+	function downloadTemplate() {
+		// Create template data with sample row - matching the actual database schema
+		const templateData = [
+			{
+				'Barcode': '123456789',
+				'Product name english': 'Sample Product',
+				'Product name arabic': 'منتج عينة',
+				'Unit english': 'piece',
+				'Unit arabic': 'قطعة',
+				'Category english': 'Food',
+				'Category arabic': 'غذاء'
+			}
+		];
+		
+		// Create workbook and worksheet
+		const ws = XLSX.utils.json_to_sheet(templateData);
+		const wb = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(wb, ws, 'Products');
+		
+		// Set column widths
+		ws['!cols'] = [
+			{ wch: 15 }, // Barcode
+			{ wch: 25 }, // Product name english
+			{ wch: 25 }, // Product name arabic
+			{ wch: 15 }, // Unit english
+			{ wch: 15 }, // Unit arabic
+			{ wch: 20 }, // Category english
+			{ wch: 20 }  // Category arabic
+		];
+		
+		// Download file
+		XLSX.writeFile(wb, 'Product_Import_Template.xlsx');
+	}
+	
+	function handleImport() {
+		fileInput.click();
+	}
+	
+	function handleUploadImages() {
+		imageInput.click();
+	}
+	
+	function handleCancelUpload() {
+		cancelImageUpload = true;
+		uploadProgress = 'Upload cancelled by user';
+	}
+	
+	// Load products without images from database
+	async function loadNoImageProducts() {
+		isLoadingNoImageProducts = true;
+		showNoImageProducts = true;
+		
+		try {
+			// Load all products without images
+			const { data, error } = await supabase
+				.from('products')
+				.select(`
+					id,
+					barcode,
+					product_name_en,
+					product_name_ar,
+					product_units (name_en, name_ar)
+				`)
+				.or('image_url.is.null,image_url.eq.')
+				.order('product_name_en', { ascending: true });
+			
+			if (error) {
+				console.error('Error loading products without images:', error);
+				noImageProducts = [];
+			} else {
+				// Map unit data to unit_name
+				noImageProducts = (data || []).map((product: any) => ({
+					...product,
+					unit_name: product.product_units?.name_en || ''
+				}));
+			}
+		} catch (error) {
+			console.error('Error:', error);
+			noImageProducts = [];
+		}
+		
+		isLoadingNoImageProducts = false;
+	}
+	
+	// Upload single image for a product
+	async function uploadSingleImage(event: Event, barcode: string) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		
+		if (!file) return;
+		
+		uploadingImageForBarcode = barcode;
+		
+		try {
+			// Upload to Supabase Storage with barcode as filename
+			const { data, error } = await supabase.storage
+				.from('flyer-product-images')
+				.upload(`${barcode}.png`, file, {
+					cacheControl: '3600',
+					upsert: true
+				});
+			
+			if (error) {
+				console.error(`Failed to upload image for ${barcode}:`, error);
+				alert(`Failed to upload image: ${error.message}`);
+			} else {
+				// Get the public URL
+				const { data: urlData } = supabase.storage
+					.from('flyer-product-images')
+					.getPublicUrl(`${barcode}.png`);
+				
+				// Update the product in database with image URL
+				const { error: updateError } = await supabase
+					.from('products')
+					.update({ 
+						image_url: urlData.publicUrl,
+						updated_at: new Date().toISOString()
+					})
+					.eq('barcode', barcode);
+				
+				if (updateError) {
+					console.error('Error updating product:', updateError);
+				} else {
+					// Track uploaded image
+					storageImageCache.add(barcode);
+					
+					// Reload the products without images
+					await loadNoImageProducts();
+					await loadDatabaseStats();
+					
+					alert('Image uploaded successfully!');
+				}
+			}
+		} catch (error) {
+			console.error('Error uploading image:', error);
+			alert('Error uploading image');
+		}
+		
+		uploadingImageForBarcode = null;
+		input.value = '';
+	}
+	
+	function closeNoImageView() {
+		showNoImageProducts = false;
+		noImageProducts = [];
+	}
+	
+	// Export missing images to Excel (CSV format)
+	function exportMissingImagesToExcel() {
+		if (filteredNoImageProducts.length === 0) {
+			alert('No products to export');
+			return;
+		}
+		
+		// Prepare CSV data with proper escaping for Excel
+		// Barcode uses ="value" format to force Excel to treat it as text (preserve leading zeros)
+		const headers = ['Barcode', 'Product (English)', 'Product (Arabic)', 'Unit Name'];
+		const rows = filteredNoImageProducts.map(product => [
+			`="${(product.barcode || '').replace(/"/g, '""')}"`,
+			`"${(product.product_name_en || '').replace(/"/g, '""')}"`,
+			`"${(product.product_name_ar || '').replace(/"/g, '""')}"`,
+			`"${(product.unit_name || '').replace(/"/g, '""')}"`
+		]);
+		
+		// Create CSV content with BOM for Excel UTF-8 support
+		const BOM = '\uFEFF';
+		const csvContent = BOM + [
+			headers.join(','),
+			...rows.map(row => row.join(','))
+		].join('\n');
+		
+		// Create blob and download
+		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		const link = document.createElement('a');
+		const url = URL.createObjectURL(blob);
+		link.setAttribute('href', url);
+		link.setAttribute('download', `missing-images-${new Date().toISOString().split('T')[0]}.csv`);
+		link.style.visibility = 'hidden';
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+	}
+	
+	// Find missing images in storage for products without image_url
+	async function findMissingImagesInStorage() {
+		isFindingMissingImages = true;
+		foundMissingImages = [];
+		
+		try {
+			// Get products without images
+			const productsWithoutImages = allProductsList.filter(p => !p.image_url);
+			
+			if (productsWithoutImages.length === 0) {
+				alert('All products already have images!');
+				isFindingMissingImages = false;
+				return;
+			}
+			
+			// Check storage for each barcode
+			const foundImages: { barcode: string; productName: string; imageUrl: string }[] = [];
+			
+			for (const product of productsWithoutImages) {
+				// Try common image extensions
+				const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+				
+				for (const ext of extensions) {
+					const fileName = `${product.barcode}.${ext}`;
+					const { data } = supabase.storage
+						.from('flyer-product-images')
+						.getPublicUrl(fileName);
+					
+					if (data?.publicUrl) {
+						// Check if the image actually exists by trying to fetch it
+						try {
+							const response = await fetch(data.publicUrl, { method: 'HEAD' });
+							if (response.ok) {
+								foundImages.push({
+									barcode: product.barcode,
+									productName: product.product_name_en || product.product_name_ar || product.barcode,
+									imageUrl: data.publicUrl
+								});
+								break; // Found image, no need to check other extensions
+							}
+						} catch (e) {
+							// Image doesn't exist, continue
+						}
+					}
+				}
+			}
+			
+			foundMissingImages = foundImages;
+			showFindMissingImagesPopup = true;
+		} catch (error) {
+			console.error('Error finding missing images:', error);
+			alert('Error searching for images. Please try again.');
+		}
+		
+		isFindingMissingImages = false;
+	}
+	
+	// Save found images to products
+	async function saveFoundImagesToProducts() {
+		if (foundMissingImages.length === 0) return;
+		
+		isSavingFoundImages = true;
+		
+		try {
+			let savedCount = 0;
+			
+			for (const item of foundMissingImages) {
+				const { error } = await supabase
+					.from('products')
+					.update({ image_url: item.imageUrl })
+					.eq('barcode', item.barcode);
+				
+				if (!error) {
+					savedCount++;
+				}
+			}
+			
+			alert(`Successfully updated ${savedCount} products with images!`);
+			showFindMissingImagesPopup = false;
+			foundMissingImages = [];
+			// Realtime subscription will update the product rows automatically
+		} catch (error) {
+			console.error('Error saving images:', error);
+			alert('Error saving images. Please try again.');
+		}
+		
+		isSavingFoundImages = false;
+	}
+	
+	// Close find missing images popup
+	function closeFindMissingImagesPopup() {
+		showFindMissingImagesPopup = false;
+		foundMissingImages = [];
+	}
+	
+	// Load all products from database
+	async function loadAllProducts() {
+		showAllProducts = true;
+		isLoadingAllProducts = true;
+		allProductsList = [];
+		filteredAllProducts = [];
+		
+		try {
+			// Load all products in one RPC call (~17ms server-side)
+			const { data, error } = await supabase.rpc('get_all_products_master');
+			
+			if (error) {
+				console.error('Error loading all products:', error);
+				alert('Error loading products. Please try again.');
+			} else if (data) {
+				allProductsList = data;
+				allProductsWithImages = data.filter((p: any) => p.image_url).length;
+			}
+		} catch (error) {
+			console.error('Error loading all products:', error);
+			alert('Error loading products. Please try again.');
+		}
+		
+		isLoadingAllProducts = false;
+	}
+	
+	function closeAllProductsView() {
+		showAllProducts = false;
+		allProductsList = [];
+		allProductsSearch = '';
+	}
+	
+	// Clear cache and reload all products from database
+	async function clearProductCacheAndReload() {
+		try {
+			// Clear local data
+			allProductsList = [];
+			allProductsSearch = '';
+			isLoadingAllProducts = true;
+			
+			// Reload all products
+			await loadAllProducts();
+			
+			// Show success message
+			alert('Cache cleared and all products reloaded from database successfully!');
+		} catch (error) {
+			console.error('Error clearing cache:', error);
+			alert('Error clearing cache. Please try again.');
+		}
+	}
+	
+	// Export all products to XLSX
+	function exportProductsToXLSX() {
+		try {
+			// Prepare data for export with proper formatting
+			const exportData = allProductsList.map(product => ({
+				'Barcode': product.barcode ? `'${product.barcode}` : '', // Prefix with apostrophe to preserve as text and avoid leading zero loss
+				'Product name english': product.product_name_en || '',
+				'Product name arabic': product.product_name_ar || '',
+				'Unit english': product.unit_name || '',
+				'Unit arabic': product.unit_name_ar || '',
+				'Category english': product.parent_category || '',
+				'Category arabic': product.parent_category_ar || ''
+			}));
+
+			// Create a new workbook
+			const ws = XLSX.utils.json_to_sheet(exportData);
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, ws, 'Products');
+
+			// Set column widths for better readability
+			ws['!cols'] = [
+				{ wch: 18 }, // Barcode
+				{ wch: 30 }, // Product name english
+				{ wch: 30 }, // Product name arabic
+				{ wch: 20 }, // Unit english
+				{ wch: 20 }, // Unit arabic
+				{ wch: 25 }, // Category english
+				{ wch: 25 }  // Category arabic
+			];
+
+			// Generate filename with timestamp
+			const timestamp = new Date().toISOString().slice(0, 10);
+			const filename = `products_export_${timestamp}.xlsx`;
+
+			// Write the file
+			XLSX.writeFile(wb, filename);
+
+			alert(`Successfully exported ${allProductsList.length} products to ${filename}`);
+		} catch (error) {
+			console.error('Error exporting products:', error);
+			alert('Error exporting products. Please try again.');
+		}
+	}
+	
+	// Load all products for dropdown data (without showing the view)
+	async function loadAllProductsForDropdowns() {
+		if (dropdownsDataLoaded || isLoadingDropdownsData) return; // Prevent multiple calls
+		
+		isLoadingDropdownsData = true;
+		try {
+			// Load all units directly from product_units table
+			const { data: unitsData, error: unitsError } = await supabase
+				.from('product_units')
+				.select('id, name_en, name_ar')
+				.order('name_en', { ascending: true });
+			
+			if (!unitsError && unitsData) {
+				allUnits = unitsData;
+			}
+			
+			// Load all categories directly from product_categories table
+			const { data: categoriesData, error: categoriesError } = await supabase
+				.from('product_categories')
+				.select('id, name_en, name_ar')
+				.order('name_en', { ascending: true });
+			
+			if (!categoriesError && categoriesData) {
+				allCategories = categoriesData;
+			}
+			
+			// Dropdown data loaded
+			dropdownsDataLoaded = true;
+		} catch (error) {
+			console.error('Error loading products for dropdowns:', error);
+		} finally {
+			isLoadingDropdownsData = false;
+		}
+	}
+	
+	// Create unit functions
+	function openCreateUnitPopup() {
+		showCreateUnitPopup = true;
+		newUnitName = '';
+		newUnitNameAr = '';
+	}
+	
+	function closeCreateUnitPopup() {
+		showCreateUnitPopup = false;
+		newUnitName = '';
+		newUnitNameAr = '';
+	}
+	
+	async function saveNewUnit() {
+		if (!newUnitName.trim()) {
+			alert('Unit name (English) is required!');
+			return;
+		}
+		
+		isSavingUnit = true;
+		try {
+			const { data, error } = await supabase
+				.from('product_units')
+				.insert({
+					name_en: newUnitName.trim(),
+					name_ar: newUnitNameAr.trim() || newUnitName.trim()
+				})
+				.select('id');
+			
+			if (error) {
+				alert('Error creating unit: ' + error.message);
+			} else {
+				alert('Unit created successfully!');
+				// Reload dropdown data
+				dropdownsDataLoaded = false;
+				await loadAllProductsForDropdowns();
+				closeCreateUnitPopup();
+			}
+		} catch (error) {
+			console.error('Error creating unit:', error);
+			alert('Error creating unit. Please try again.');
+		} finally {
+			isSavingUnit = false;
+		}
+	}
+	
+	// Create category functions
+	function openCreateCategoryPopup() {
+		showCreateCategoryPopup = true;
+		newCategoryName = '';
+		newCategoryNameAr = '';
+	}
+	
+	function closeCreateCategoryPopup() {
+		showCreateCategoryPopup = false;
+		newCategoryName = '';
+		newCategoryNameAr = '';
+	}
+	
+	async function saveNewCategory() {
+		if (!newCategoryName.trim()) {
+			alert('Category name (English) is required!');
+			return;
+		}
+		
+		isSavingCategory = true;
+		try {
+			const { data, error } = await supabase
+				.from('product_categories')
+				.insert({
+					name_en: newCategoryName.trim(),
+					name_ar: newCategoryNameAr.trim() || newCategoryName.trim()
+				})
+				.select('id');
+			
+			if (error) {
+				alert('Error creating category: ' + error.message);
+			} else {
+				alert('Category created successfully!');
+				// Reload dropdown data
+				dropdownsDataLoaded = false;
+				await loadAllProductsForDropdowns();
+				closeCreateCategoryPopup();
+			}
+		} catch (error) {
+			console.error('Error creating category:', error);
+			alert('Error creating category. Please try again.');
+		} finally {
+			isSavingCategory = false;
+		}
+	}
+	
+	// Filter all products based on search
+	$: {
+		if (allProductsSearch.trim() === '') {
+			filteredAllProducts = allProductsList;
+		} else {
+			const search = allProductsSearch.toLowerCase();
+			filteredAllProducts = allProductsList.filter(product => 
+				product.barcode?.toLowerCase().includes(search) ||
+				product.product_name_en?.toLowerCase().includes(search) ||
+				product.product_name_ar?.includes(search) ||
+				product.unit_name?.toLowerCase().includes(search) ||
+				product.category_id?.toLowerCase().includes(search)
+			);
+		}
+		// Clear loaded images when search changes to reset loading counter
+		successfullyLoadedImages = new Set();
+	}
+
+	// Search for product images on the web
+	async function searchWebForImages(barcode: string, provider: 'google' | 'openfoodfacts') {
+		searchingBarcode = barcode;
+		searchProvider = provider;
+		showImageSearchPopup = true;
+		isSearchingWeb = true;
+		webImages = [];
+		
+		try {
+			// Check quota for Google
+			if (provider === 'google' && !isGoogleAvailable()) {
+				alert(`Google search quota exceeded (${GOOGLE_DAILY_LIMIT}/day). Resets tomorrow.`);
+				isSearchingWeb = false;
+				return;
+			}
+			
+			// Find the product details
+			const product = noImageProducts.find(p => p.barcode === barcode) || 
+			                products.find(p => (p.Barcode || p.barcode) === barcode);
+			
+			const productNameEn = product?.product_name_en || product?.['Product name_en'] || '';
+			const productNameAr = product?.product_name_ar || product?.['Product name_ar'] || '';
+			
+			// Choose API endpoint based on provider
+			const endpoint = provider === 'google' ? '/api/google-search' : '/api/openfoodfacts-search';
+			
+			// Call the image search API endpoint with all search terms
+			const response = await fetch(endpoint, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ 
+					barcode,
+					productNameEn,
+					productNameAr
+				})
+			});
+			
+			if (!response.ok) {
+				const errorData = await response.json();
+				console.error(`${provider} search error:`, errorData);
+				
+				if (errorData.quota_exceeded) {
+					alert(`${provider === 'google' ? 'Google' : 'Open Food Facts'} search quota exceeded. Please try again later.`);
+				} else {
+					const errorMsg = errorData.error || 'Failed to search for images';
+					const details = errorData.details ? `\n\nDetails: ${JSON.stringify(errorData.details, null, 2)}` : '';
+					alert(`${provider === 'google' ? 'Google' : 'Open Food Facts'} Search Error:\n${errorMsg}${details}`);
+				}
+				isSearchingWeb = false;
+				return;
+			}
+			
+			const data = await response.json();
+			webImages = data.images || [];
+			
+			// Increment Google quota if successful
+			if (provider === 'google' && webImages.length > 0) {
+				incrementGoogleSearch();
+			}
+		} catch (error) {
+			console.error('Error searching for images:', error);
+			alert('Error searching for images. Please try again.');
+		}
+		
+		isSearchingWeb = false;
+	}
+	
+	// Download and upload image from URL
+	async function downloadAndUploadImage(imageUrl: string, removeBackgroundType: 'none' | 'api' | 'client' = 'none') {
+		if (!searchingBarcode) return;
+		
+		// Check Remove.bg quota if using API
+		if (removeBackgroundType === 'api' && !isRemoveBgAvailable()) {
+			alert(`Background removal quota exceeded (${REMOVE_BG_MONTHLY_LIMIT}/month). Resets next month.`);
+			return;
+		}
+		
+		downloadingImage = true;
+		selectedWebImage = imageUrl;
+		if (removeBackgroundType !== 'none') {
+			removingBackground = true;
+		}
+		
+		try {
+			let blob: Blob;
+			
+			// Remove background using API (Remove.bg)
+			if (removeBackgroundType === 'api') {
+				const bgRemoveResponse = await fetch('/api/remove-background', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ 
+						imageUrl: imageUrl 
+					})
+				});
+				
+				if (!bgRemoveResponse.ok) {
+					const errorData = await bgRemoveResponse.json();
+					throw new Error(errorData.error || 'Failed to remove background');
+				}
+				
+				const result = await bgRemoveResponse.json();
+				
+				// Convert base64 data URL to blob
+				const base64Response = await fetch(result.imageData);
+				blob = await base64Response.blob();
+				
+				// Increment Remove.bg quota
+				incrementRemoveBg();
+			} 
+			// Remove background using client-side AI (Free, unlimited)
+			else if (removeBackgroundType === 'client') {
+				// Fetch the image through our proxy
+				const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+				const response = await fetch(proxyUrl);
+				
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(`Failed to fetch image: ${errorText}`);
+				}
+				
+				const imageBlob = await response.blob();
+				
+				// Verify the blob is valid
+				if (imageBlob.size === 0) {
+					throw new Error('Downloaded image is empty');
+				}
+				
+				// Use client-side AI to remove background (this runs in the browser)
+				blob = await removeBackground(imageBlob);
+				
+				// Show preview popup instead of uploading directly
+				previewImageBlob = blob;
+				previewImageUrl = URL.createObjectURL(blob);
+				previewBarcode = searchingBarcode;
+				showImagePreview = true;
+				downloadingImage = false;
+				removingBackground = false;
+				return; // Don't upload yet, wait for user confirmation
+			} 
+			// No background removal
+			else {
+				// Fetch the image through our proxy to avoid CORS issues
+				const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
+				const response = await fetch(proxyUrl);
+				
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(`Failed to fetch image: ${errorText}`);
+				}
+				
+				blob = await response.blob();
+			}
+			
+			// Convert to File object
+			const file = new File([blob], `${searchingBarcode}.png`, { type: 'image/png' });
+			
+			// Upload to Supabase Storage
+			const { data, error } = await supabase.storage
+				.from('flyer-product-images')
+				.upload(`${searchingBarcode}.png`, file, {
+					cacheControl: '3600',
+					upsert: true
+				});
+			
+			if (error) {
+				console.error(`Failed to upload image for ${searchingBarcode}:`, error);
+				alert(`Failed to upload image: ${error.message}`);
+			} else {
+				// Get the public URL
+				const { data: urlData } = supabase.storage
+					.from('flyer-product-images')
+					.getPublicUrl(`${searchingBarcode}.png`);
+				
+				// Update the product in database with image URL
+				const { error: updateError } = await supabase
+					.from('products')
+					.update({ 
+						image_url: urlData.publicUrl,
+						updated_at: new Date().toISOString()
+					})
+					.eq('barcode', searchingBarcode);
+				
+				if (updateError) {
+					console.error('Error updating product:', updateError);
+					alert('Error updating product');
+				} else {
+					// Add to cache
+					storageImageCache.add(searchingBarcode);
+					
+					// Reload the products without images
+					await loadNoImageProducts();
+					await loadDatabaseStats();
+					
+					alert('Image uploaded successfully!');
+					closeImageSearchPopup();
+				}
+			}
+		} catch (error) {
+			console.error('Error downloading/uploading image:', error);
+			const errorMessage = error instanceof Error ? error.message : 'Error processing image';
+			alert(errorMessage);
+		} finally {
+			downloadingImage = false;
+			removingBackground = false;
+			selectedWebImage = null;
+		}
+		selectedWebImage = null;
+		removingBackground = false;
+	}
+	
+	function closeImageSearchPopup() {
+		showImageSearchPopup = false;
+		searchingBarcode = '';
+		webImages = [];
+		selectedWebImage = null;
+	}
+	
+	// Upload image from preview
+	async function uploadPreviewImage() {
+		if (!previewImageBlob || !previewBarcode) return;
+		
+		downloadingImage = true;
+		
+		try {
+			// Convert to File object
+			const file = new File([previewImageBlob], `${previewBarcode}.png`, { type: 'image/png' });
+			
+			// Upload to Supabase Storage
+			const { data, error } = await supabase.storage
+				.from('flyer-product-images')
+				.upload(`${previewBarcode}.png`, file, {
+					cacheControl: '3600',
+					upsert: true
+				});
+			
+			if (error) {
+				console.error(`Failed to upload image for ${previewBarcode}:`, error);
+				alert(`Failed to upload image: ${error.message}`);
+			} else {
+				// Get the public URL
+				const { data: urlData } = supabase.storage
+					.from('flyer-product-images')
+					.getPublicUrl(`${previewBarcode}.png`);
+				
+				// Update the product in database with image URL
+				const { error: updateError } = await supabase
+					.from('products')
+					.update({ image_url: urlData.publicUrl })
+					.eq('barcode', previewBarcode);
+				
+				if (updateError) {
+					console.error('Error updating product:', updateError);
+				}
+				
+				// Update cache and stats
+				storageImageCache.add(previewBarcode);
+				await loadDatabaseStats();
+				await loadNoImageProducts();
+				
+				alert('Image uploaded successfully!');
+				closeImagePreview();
+				closeImageSearchPopup();
+			}
+		} catch (error) {
+			console.error('Error uploading image:', error);
+			alert('Error uploading image. Please try again.');
+		} finally {
+			downloadingImage = false;
+		}
+	}
+	
+	function closeImagePreview() {
+		showImagePreview = false;
+		if (previewImageUrl) {
+			URL.revokeObjectURL(previewImageUrl);
+		}
+		previewImageUrl = '';
+		previewImageBlob = null;
+		previewBarcode = '';
+	}
+	
+	// Edit product functions
+	function openEditPopup(product: any) {
+		editingProduct = { ...product };
+		showEditPopup = true;
+		// Ensure dropdowns are loaded
+		if (!dropdownsDataLoaded) {
+			loadAllProductsForDropdowns();
+		}
+	}
+	
+	function closeEditPopup() {
+		showEditPopup = false;
+		editingProduct = null;
+		isSavingEdit = false;
+	}
+	
+	async function deleteProduct(barcode: string) {
+		if (!confirm(`Are you sure you want to delete product ${barcode}? This action cannot be undone.`)) {
+			return;
+		}
+		
+		try {
+			const { error } = await supabase
+				.from('products')
+				.delete()
+				.eq('barcode', barcode);
+			
+			if (error) {
+				console.error('Error deleting product:', error);
+				alert('Failed to delete product: ' + error.message);
+			} else {
+				alert('Product deleted successfully!');
+				
+				// Reload the appropriate views
+				await loadAllProducts();
+				if (showNoImageProducts) {
+					await loadNoImageProducts();
+				}
+				
+				// Refresh statistics
+				await loadDatabaseStats();
+			}
+		} catch (error) {
+			console.error('Error deleting product:', error);
+			alert('Error deleting product. Please try again.');
+		}
+	}
+	
+	async function saveProductEdit() {
+		if (!editingProduct) return;
+		
+		isSavingEdit = true;
+		try {
+			// Map unit name to unit_id
+			let unit_id = null;
+			if (editingProduct.unit_name) {
+				const unit = allUnits.find(u => u.name_en === editingProduct.unit_name);
+				unit_id = unit?.id || null;
+			}
+			
+			// Map category name to category_id
+			let category_id = null;
+			if (editingProduct.parent_category) {
+				const category = allCategories.find(c => c.name_en === editingProduct.parent_category);
+				category_id = category?.id || null;
+			}
+			
+			const { error } = await supabase
+				.from('products')
+				.update({
+					product_name_en: editingProduct.product_name_en,
+					product_name_ar: editingProduct.product_name_ar,
+					unit_id: unit_id,
+					category_id: category_id,
+					updated_at: new Date().toISOString()
+				})
+				.eq('barcode', editingProduct.barcode);
+			
+			if (error) {
+				console.error('Error updating product:', error);
+				alert('Failed to update product: ' + error.message);
+			} else {
+				alert('Product updated successfully!');
+				
+				// Fetch updated product data and refresh the UI
+				const barcode = editingProduct.barcode;
+				supabase
+					.from('products')
+					.select(`
+						id,
+						barcode,
+						product_name_en,
+						product_name_ar,
+						image_url,
+						unit_id,
+						category_id,
+						product_units (id, name_en, name_ar),
+						product_categories (id, name_en, name_ar)
+					`)
+					.eq('barcode', barcode)
+					.single()
+					.then(({ data: updatedProduct, error: fetchError }) => {
+						if (!fetchError && updatedProduct) {
+							console.log('✓ Manually refreshed product after edit:', barcode);
+							
+							// Process the complete product data
+							const processedProduct = {
+								...updatedProduct,
+								unit_name: updatedProduct.product_units?.name_en || '',
+								unit_name_ar: updatedProduct.product_units?.name_ar || '',
+								parent_category: updatedProduct.product_categories?.name_en || '',
+								parent_category_ar: updatedProduct.product_categories?.name_ar || ''
+							};
+
+							// Update all arrays
+							const allProdIndex = allProductsList.findIndex(p => p.barcode === barcode);
+							if (allProdIndex !== -1) {
+								allProductsList[allProdIndex] = processedProduct;
+								allProductsList = allProductsList;
+							}
+
+							const filteredAllIndex = filteredAllProducts.findIndex(p => p.barcode === barcode);
+							if (filteredAllIndex !== -1) {
+								filteredAllProducts[filteredAllIndex] = processedProduct;
+								filteredAllProducts = filteredAllProducts;
+							}
+
+							const prodIndex = products.findIndex(p => p.barcode === barcode);
+							if (prodIndex !== -1) {
+								products[prodIndex] = updatedProduct;
+								products = products;
+							}
+
+							const filteredIndex = filteredProducts.findIndex(p => p.barcode === barcode);
+							if (filteredIndex !== -1) {
+								filteredProducts[filteredIndex] = updatedProduct;
+								filteredProducts = filteredProducts;
+							}
+
+							const noImageIndex = noImageProducts.findIndex(p => p.barcode === barcode);
+							if (noImageIndex !== -1) {
+								noImageProducts[noImageIndex] = updatedProduct;
+								noImageProducts = noImageProducts;
+
+								const filteredNoImageIndex = filteredNoImageProducts.findIndex(p => p.barcode === barcode);
+								if (filteredNoImageIndex !== -1) {
+									filteredNoImageProducts[filteredNoImageIndex] = updatedProduct;
+									filteredNoImageProducts = filteredNoImageProducts;
+								}
+							}
+						}
+					});
+				
+				closeEditPopup();
+			}
+		} catch (error) {
+			console.error('Error saving product:', error);
+			alert('Error saving product. Please try again.');
+		} finally {
+			isSavingEdit = false;
+		}
+	}
+	
+	// Create product functions
+	function openCreatePopup() {
+		newProduct = {
+			barcode: '',
+			product_name_en: '',
+			product_name_ar: '',
+			unit_name: '',
+			parent_category: '',
+			parent_sub_category: '',
+			sub_category: '',
+			image_url: ''
+		};
+		isCheckingImage = false;
+		imageCheckStatus = '';
+		imageCheckResult = null;
+		// Ensure dropdowns are loaded
+		if (!dropdownsDataLoaded) {
+			loadAllProductsForDropdowns();
+		}
+		foundImageUrl = '';
+		showCreatePopup = true;
+	}
+	
+	function closeCreatePopup() {
+		showCreatePopup = false;
+		newProduct = null;
+		isSavingCreate = false;
+		isCheckingImage = false;
+		imageCheckStatus = '';
+		imageCheckResult = null;
+		foundImageUrl = '';
+	}
+	
+	async function saveNewProduct() {
+		if (!newProduct) return;
+		
+		// Validate required fields
+		if (!newProduct.barcode || !newProduct.barcode.trim()) {
+			alert('Barcode is required!');
+			return;
+		}
+		
+		if (!newProduct.product_name_en || !newProduct.product_name_en.trim()) {
+			alert('Product name (English) is required!');
+			return;
+		}
+		
+		isSavingCreate = true;
+		try {
+			// Check if barcode already exists
+			const { data: existingProduct, error: checkError } = await supabase
+				.from('products')
+				.select('barcode')
+				.eq('barcode', newProduct.barcode.trim())
+				.maybeSingle();
+			
+			if (existingProduct) {
+				alert('A product with this barcode already exists!');
+				isSavingCreate = false;
+				return;
+			}
+			
+			// Generate next product ID (P1, P2, P3, etc.)
+			const { data: allProducts } = await supabase
+				.from('products')
+				.select('id');
+			let highestNum = 0;
+			if (allProducts && allProducts.length > 0) {
+				highestNum = Math.max(...allProducts.map(p => {
+					const match = p.id.match(/\d+/);
+					return match ? parseInt(match[0]) : 0;
+				}));
+			}
+			const newProductId = `P${highestNum + 1}`;
+			
+			// Map unit name to unit_id
+			let unit_id = null;
+			if (newProduct.unit_name) {
+				const unit = allUnits.find(u => u.name_en === newProduct.unit_name);
+				unit_id = unit?.id || null;
+			}
+			
+			// Map category name to category_id
+			let category_id = null;
+			if (newProduct.parent_category) {
+				const category = allCategories.find(c => c.name_en === newProduct.parent_category);
+				category_id = category?.id || null;
+			}
+			
+			const { error } = await supabase
+				.from('products')
+				.insert({
+					id: newProductId,
+					barcode: newProduct.barcode.trim(),
+					product_name_en: newProduct.product_name_en.trim(),
+					product_name_ar: newProduct.product_name_ar?.trim() || null,
+					unit_id: unit_id,
+					category_id: category_id,
+					image_url: newProduct.image_url || null,
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString()
+				});
+			
+			if (error) {
+				console.error('Error creating product:', error);
+				alert('Failed to create product: ' + error.message);
+			} else {
+				alert('Product created successfully!');
+				
+				// Realtime subscription will add the product automatically
+				closeCreatePopup();
+			}
+		} catch (error) {
+			console.error('Error creating product:', error);
+			alert('Error creating product. Please try again.');
+		} finally {
+			isSavingCreate = false;
+		}
+	}
+	
+	async function checkImageAvailability() {
+		if (!newProduct?.barcode || !newProduct.barcode.trim()) {
+			alert('Please enter a barcode first!');
+			return;
+		}
+		
+		isCheckingImage = true;
+		imageCheckStatus = 'Checking...';
+		imageCheckResult = null;
+		foundImageUrl = '';
+		
+		try {
+			const barcode = newProduct.barcode.trim();
+			const bucketName = 'flyer-product-images';
+			
+			// Try to get the public URL for the image
+			const { data: urlData } = supabase
+				.storage
+				.from(bucketName)
+				.getPublicUrl(`${barcode}.png`);
+			
+			const imageUrl = urlData.publicUrl;
+			
+			// Try to fetch the image to verify it exists
+			const response = await fetch(imageUrl);
+			
+			if (response.ok) {
+				// Image exists!
+				imageCheckStatus = 'Image exists! URL saved automatically.';
+				imageCheckResult = 'success';
+				foundImageUrl = imageUrl;
+				
+				// Automatically set the image URL in the newProduct object
+				// Use object reassignment to trigger Svelte reactivity
+				newProduct = { ...newProduct, image_url: imageUrl };
+			} else {
+				// Image not found
+				imageCheckStatus = 'Image not available for this barcode.';
+				imageCheckResult = 'error';
+			}
+		} catch (error) {
+			console.error('Error checking image:', error);
+			imageCheckStatus = 'Error checking image availability.';
+			imageCheckResult = 'error';
+		} finally {
+			isCheckingImage = false;
+		}
+	}
+
+	async function handleImageUpload(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const files = target.files;
+		
+		if (!files || files.length === 0) return;
+		
+		isUploadingImages = true;
+		cancelImageUpload = false;
+		totalImageCount = files.length;
+		uploadedImageCount = 0;
+		imageUploadProgress = 0;
+		uploadProgress = `Preparing to upload ${files.length} images...`;
+		
+		let successCount = 0;
+		let failedCount = 0;
+		
+		// Create or ensure bucket exists
+		const bucketName = 'flyer-product-images';
+		
+		// Upload images in batches of 5
+		const batchSize = 5;
+		for (let i = 0; i < files.length; i += batchSize) {
+			// Check if user cancelled
+			if (cancelImageUpload) {
+				uploadProgress = `Upload cancelled! ${successCount} images uploaded before cancellation.`;
+				imageUploadProgress = Math.round((uploadedImageCount / totalImageCount) * 100);
+				break;
+			}
+			
+			const batch = Array.from(files).slice(i, i + batchSize);
+			
+			await Promise.all(
+				batch.map(async (file) => {
+					// Check if cancelled before processing each file
+					if (cancelImageUpload) return;
+					
+					try {
+						// Get filename without extension to use as barcode
+						const fileName = file.name;
+						const barcode = fileName.replace(/\.[^/.]+$/, ''); // Remove extension
+						
+						// Upload to Supabase Storage
+						const { data, error } = await supabase.storage
+							.from(bucketName)
+							.upload(`${barcode}.png`, file, {
+								cacheControl: '3600',
+								upsert: true // Overwrite if exists
+							});
+						
+						if (error) {
+							console.error(`Failed to upload ${fileName}:`, error);
+							failedCount++;
+						} else {
+							successCount++;
+							// Add to cache immediately
+							storageImageCache.add(barcode);
+						}
+						
+						// Update count
+						uploadedImageCount++;
+						imageUploadProgress = Math.round((uploadedImageCount / totalImageCount) * 100);
+						uploadProgress = `Uploading: ${uploadedImageCount} / ${totalImageCount} (${imageUploadProgress}%)`;
+					} catch (error) {
+						console.error(`Error uploading ${file.name}:`, error);
+						failedCount++;
+						uploadedImageCount++;
+						imageUploadProgress = Math.round((uploadedImageCount / totalImageCount) * 100);
+						uploadProgress = `Uploading: ${uploadedImageCount} / ${totalImageCount} (${imageUploadProgress}%)`;
+					}
+				})
+			);
+		}
+		
+		// Only show success popup if not cancelled
+		if (!cancelImageUpload) {
+			uploadProgress = `Upload complete! ✓ ${successCount} uploaded${failedCount > 0 ? `, ✗ ${failedCount} failed` : ''} out of ${totalImageCount} total`;
+			imageUploadProgress = 100;
+			
+			// Show success popup
+			uploadSuccessMessage = `Successfully uploaded ${successCount} image${successCount !== 1 ? 's' : ''}!${failedCount > 0 ? ` ${failedCount} failed.` : ''}`;
+			showUploadSuccessPopup = true;
+		}
+		
+		// Refresh the table to show new images
+		filteredProducts = [...filteredProducts];
+		await updateImageStats();
+		
+		setTimeout(() => {
+			isUploadingImages = false;
+			uploadProgress = '';
+			imageUploadProgress = 0;
+			uploadedImageCount = 0;
+			totalImageCount = 0;
+			cancelImageUpload = false;
+		}, 3000);
+		
+		// Reset file input
+		target.value = '';
+	}
+	
+	async function handleFileChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const file = target.files?.[0];
+		
+		if (!file) return;
+		
+		const reader = new FileReader();
+		
+		reader.onload = async (e) => {
+			const data = e.target?.result;
+			const workbook = XLSX.read(data, { type: 'binary' });
+			const sheetName = workbook.SheetNames[0];
+			const worksheet = workbook.Sheets[sheetName];
+			const jsonData = XLSX.utils.sheet_to_json(worksheet);
+			
+			// Save to local state
+			products = jsonData;
+			filteredProducts = jsonData;
+			hasUnsavedData = true;
+		};
+		
+		reader.readAsBinaryString(file);
+	}
+	
+	async function deleteAllProducts() {
+		const confirmed = confirm('Are you sure you want to DELETE ALL products? This cannot be undone!');
+		if (!confirmed) return;
+		
+		try {
+			uploadProgress = 'Deleting all products...';
+			const { error } = await supabase
+				.from('products')
+				.delete()
+				.neq('id', ''); // Delete all rows
+			
+			if (error) {
+				console.error('Error deleting products:', error);
+				alert('Failed to delete products: ' + error.message);
+			} else {
+				alert('All products deleted successfully!');
+				products = [];
+				filteredProducts = [];
+				hasUnsavedData = false;
+				uploadProgress = '';
+				
+				// Reload all views
+				await loadProducts();
+				await loadDatabaseStats();
+				if (showAllProducts) await loadAllProducts();
+				if (showNoImageProducts) await loadNoImageProducts();
+			}
+		} catch (error) {
+			console.error('Error:', error);
+			alert('Error deleting products');
+		}
+	}
+	
+	async function handleSave() {
+		if (!hasUnsavedData || products.length === 0) return;
+		await saveProductsToDatabase(products);
+	}
+	
+	async function saveProductsToDatabase(productList: any[]) {
+		isSavingProducts = true;
+		saveProgress = 0;
+		uploadProgress = 'Starting save process...';
+		
+		let savedCount = 0;
+		let imageFoundCount = 0;
+		const totalProducts = productList.length;
+		
+		// First, load all units and categories for mapping (including Arabic)
+		const { data: unitsData } = await supabase.from('product_units').select('id, name_en, name_ar');
+		const { data: categoriesData } = await supabase.from('product_categories').select('id, name_en, name_ar');
+		const { data: existingProducts } = await supabase.from('products').select('id, barcode');
+		
+		const unitMap = new Map(unitsData?.map(u => [u.name_en.toLowerCase(), u.id]) || []);
+		const unitMapAr = new Map(unitsData?.map(u => [u.name_ar.toLowerCase(), u.id]) || []);
+		const categoryMap = new Map(categoriesData?.map(c => [c.name_en.toLowerCase(), c.id]) || []);
+		const categoryMapAr = new Map(categoriesData?.map(c => [c.name_ar.toLowerCase(), c.id]) || []);
+		const existingBarcodes = new Set(existingProducts?.map(p => p.barcode) || []);
+		
+		// Get highest unit ID number (extract number from U1, U2, U3, etc.)
+		let highestUnitNum = 0;
+		if (unitsData && unitsData.length > 0) {
+			highestUnitNum = Math.max(...unitsData.map(u => {
+				const match = u.id.match(/\d+/);
+				return match ? parseInt(match[0]) : 0;
+			}));
+		}
+		
+		// Get highest product ID number (extract number from P1, P2, P3, etc.)
+		let highestProductNum = 0;
+		if (existingProducts && existingProducts.length > 0) {
+			highestProductNum = Math.max(...existingProducts.map(p => {
+				const match = p.id.match(/\d+/);
+				return match ? parseInt(match[0]) : 0;
+			}));
+		}
+		
+		// Get highest category ID number (extract number from C1, C2, C3, etc.)
+		let highestCategoryNum = 0;
+		if (categoriesData && categoriesData.length > 0) {
+			highestCategoryNum = Math.max(...categoriesData.map(c => {
+				const match = c.id.match(/\d+/);
+				return match ? parseInt(match[0]) : 0;
+			}));
+		}
+		
+		// Counters for new units and categories created during this import
+		let newUnitCounter = highestUnitNum;
+		let newCategoryCounter = highestCategoryNum;
+		let newProductNum = highestProductNum;
+		
+		for (let i = 0; i < productList.length; i++) {
+			const product = productList[i];
+			try {
+				const barcode = String(product.Barcode || product['barcode'] || '');
+				if (!barcode) continue;
+				
+				// Skip if product with this barcode already exists
+				if (existingBarcodes.has(barcode)) {
+					console.log(`Skipping product ${barcode} - already exists in database`);
+					continue;
+				}
+				
+				// Use incrementing product ID (P1, P2, P3, etc.)
+				newProductNum++;
+				const productId = `P${newProductNum}`;
+				
+				// Get or create unit_id from unit name (English or Arabic)
+				let unit_id = null;
+				const unitNameEn = (product['Unit english'] || product['unit'] || product['Unit'] || '').toString().trim();
+				const unitNameAr = (product['Unit arabic'] || '').toString().trim();
+				
+				if (unitNameEn || unitNameAr) {
+					const unitNameEnLower = unitNameEn.toLowerCase();
+					const unitNameArLower = unitNameAr.toLowerCase();
+					
+					// Try to find existing unit by English name
+					if (unitNameEn && unitMap.has(unitNameEnLower)) {
+						unit_id = unitMap.get(unitNameEnLower);
+					}
+					// Try to find existing unit by Arabic name
+					else if (unitNameAr && unitMapAr.has(unitNameArLower)) {
+						unit_id = unitMapAr.get(unitNameArLower);
+					}
+					// Create new unit if it doesn't exist
+					else if (unitNameEn) {
+						newUnitCounter++;
+						const unitId = `U${newUnitCounter}`;
+						const { data: newUnit, error: unitError } = await supabase
+							.from('product_units')
+							.insert({
+								id: unitId,
+								name_en: unitNameEn,
+								name_ar: unitNameAr || unitNameEn,
+								is_active: true
+							})
+							.select('id');
+						
+						if (!unitError && newUnit && newUnit.length > 0) {
+							unit_id = newUnit[0].id;
+							unitMap.set(unitNameEnLower, unit_id); // Cache it for future lookups
+							if (unitNameAr) unitMapAr.set(unitNameArLower, unit_id);
+							console.log(`Created new unit: ${unitNameEn} (${unitNameAr || unitNameEn}) with ID ${unit_id}`);
+						}
+					}
+				}
+				
+				// Get or create category_id from category name (English or Arabic)
+				let category_id = null;
+				const categoryNameEn = (product['Category english'] || product['Category'] || product['category'] || '').toString().trim();
+				const categoryNameAr = (product['Category arabic'] || '').toString().trim();
+				
+				if (categoryNameEn || categoryNameAr) {
+					const categoryNameEnLower = categoryNameEn.toLowerCase();
+					const categoryNameArLower = categoryNameAr.toLowerCase();
+					
+					// Try to find existing category by English name
+					if (categoryNameEn && categoryMap.has(categoryNameEnLower)) {
+						category_id = categoryMap.get(categoryNameEnLower);
+					}
+					// Try to find existing category by Arabic name
+					else if (categoryNameAr && categoryMapAr.has(categoryNameArLower)) {
+						category_id = categoryMapAr.get(categoryNameArLower);
+					}
+					// Create new category if it doesn't exist
+					else if (categoryNameEn) {
+						newCategoryCounter++;
+						const categoryId = `C${newCategoryCounter}`;
+						const { data: newCategory, error: categoryError } = await supabase
+							.from('product_categories')
+							.insert({
+								id: categoryId,
+								name_en: categoryNameEn,
+								name_ar: categoryNameAr || categoryNameEn,
+								is_active: true
+							})
+							.select('id');
+						
+						if (!categoryError && newCategory && newCategory.length > 0) {
+							category_id = newCategory[0].id;
+							categoryMap.set(categoryNameEnLower, category_id); // Cache it for future lookups
+							if (categoryNameAr) categoryMapAr.set(categoryNameArLower, category_id);
+							console.log(`Created new category: ${categoryNameEn} (${categoryNameAr || categoryNameEn}) with ID ${category_id}`);
+						}
+					}
+				}
+				
+				// Check if image actually exists in storage before setting image_url
+				let imageUrl = null;
+				if (barcode) {
+					try {
+						// Try to check if the file exists in storage
+						const { data: fileList, error: listError } = await supabase.storage
+							.from('flyer-product-images')
+							.list('', {
+								limit: 1,
+								search: `${barcode}.png`
+							});
+						
+						// If file exists, get the public URL
+						if (fileList && fileList.length > 0) {
+							const { data: urlData } = supabase.storage
+								.from('flyer-product-images')
+								.getPublicUrl(`${barcode}.png`);
+							imageUrl = urlData.publicUrl;
+							imageFoundCount++;
+						}
+					} catch (err) {
+						// Image doesn't exist, leave imageUrl as null
+						console.log(`No image found for ${barcode}`);
+					}
+				}
+				
+				// Insert or update product in database with correct field mappings
+				const { error: dbError } = await supabase
+					.from('products')
+					.upsert({
+						id: productId, // Use generated ID (P1, P2, P3, etc.)
+						barcode: barcode,
+						product_name_en: product['Product name english'] || product['Product name_en'] || '',
+						product_name_ar: product['Product name arabic'] || product['Product name_ar'] || '',
+						unit_id: unit_id, // Map unit name to unit_id (will be null if empty)
+						category_id: category_id, // Map category name to category_id (will be null if empty)
+						image_url: imageUrl, // Will be null if image doesn't exist
+						updated_at: new Date().toISOString()
+					}, {
+						onConflict: 'barcode',
+						ignoreDuplicates: false
+					});
+				
+				if (!dbError) {
+					savedCount++;
+				} else {
+					console.error(`Error saving product ${barcode}:`, dbError);
+				}
+			} catch (error) {
+				console.error('Error saving product:', error);
+			}
+			
+			// Update progress
+			saveProgress = Math.round(((i + 1) / totalProducts) * 100);
+			uploadProgress = `Saved ${savedCount}/${totalProducts} products, ${imageFoundCount} with images...`;
+		}
+		
+		uploadProgress = `Complete! Saved ${savedCount} products with ${imageFoundCount} images.`;
+		saveProgress = 100;
+		hasUnsavedData = false;
+		
+		// Clear the file input
+		if (fileInput) {
+			fileInput.value = '';
+		}
+		
+		// Clear all data - don't reload from database
+		products = [];
+		filteredProducts = [];
+		searchBarcode = '';
+		
+		// Refresh database statistics and reload dropdowns
+		await loadDatabaseStats();
+		dropdownsDataLoaded = false; // Force reload of dropdowns
+		await loadAllProductsForDropdowns();
+		
+		setTimeout(() => {
+			isSavingProducts = false;
+			uploadProgress = '';
+			saveProgress = 0;
+		}, 3000);
+	}
+	
+	function getImagePath(barcode: string, product?: any): string {
+		// If product has image_url from database (already uploaded), use it
+		if (product && product.image_url) {
+			return product.image_url;
+		}
+		
+		// Try to get public URL from storage (it will return URL even if file doesn't exist)
+		// The actual check happens on image load error
+		if (barcode) {
+			const { data } = supabase.storage
+				.from('flyer-product-images')
+				.getPublicUrl(`${barcode}.png`);
+			
+			return data.publicUrl;
+		}
+		
+		// Return placeholder if no barcode
+		return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f3f4f6" width="100" height="100"/><text x="50" y="50" font-size="12" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">No Image</text></svg>';
+	}
+	
+	function handleImageError(event: Event) {
+		// Hide the image and show placeholder if image doesn't exist
+		const img = event.target as HTMLImageElement;
+		const barcode = img.getAttribute('data-barcode');
+		const src = img.getAttribute('src');
+		// Hide the image element
+		img.style.display = 'none';
+		// Show the parent's no-image placeholder
+		const parent = img.parentElement;
+		if (parent) {
+			const noImageSvg = parent.querySelector('svg');
+			if (noImageSvg) {
+				noImageSvg.style.display = 'block';
+			}
+		}
+	}
+	
+	function handleImageLoad(event: Event) {
+		const img = event.target as HTMLImageElement;
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode) {
+			successfullyLoadedImages.add(barcode);
+			// Force Svelte reactivity by creating a new Set
+			successfullyLoadedImages = new Set(successfullyLoadedImages);
+			// Hide placeholder when image loads
+			const parent = img.parentElement;
+			if (parent) {
+				const placeholder = parent.querySelector('svg');
+				if (placeholder) {
+					placeholder.style.display = 'none';
+				}
+			}
+		}
+	}
+
+	function checkImageCache(img: HTMLImageElement) {
+		const barcode = img.getAttribute('data-barcode');
+		if (barcode && img.complete && img.naturalHeight !== 0) {
+			// Image is already cached/loaded
+			successfullyLoadedImages.add(barcode);
+			// Force Svelte reactivity by creating a new Set
+			successfullyLoadedImages = new Set(successfullyLoadedImages);
+			// Hide placeholder
+			const parent = img.parentElement;
+			if (parent) {
+				const placeholder = parent.querySelector('svg');
+				if (placeholder) {
+					placeholder.style.display = 'none';
+				}
+			}
+		}
+	}
+	
+	function handleSearch() {
+		if (!searchBarcode.trim()) {
+			filteredProducts = [...products];
+		} else {
+			filteredProducts = products.filter(product => 
+				String(product.Barcode).toLowerCase().includes(searchBarcode.toLowerCase())
+			);
+		}
+	}
+	
+	async function exportProductsWithoutImages() {
+		// Get products without images
+		const productsNoImages = await getProductsWithoutImages();
+		
+		if (productsNoImages.length === 0) {
+			alert('All products have images! Nothing to export.');
+			return;
+		}
+		
+		// Prepare data for Excel
+		const exportData = productsNoImages.map(product => {
+			const barcode = product.Barcode || product.barcode || '';
+			return {
+				'Barcode': barcode,
+				'Readable Barcode': `'${barcode}`, // Prefix with ' to force text format in Excel
+				'Product name_en': product['Product name_en'] || product.product_name_en || '',
+				'Product name_ar': product['Product name_ar'] || product.product_name_ar || '',
+				'Unit name': product['Unit name'] || product.unit_name || ''
+			};
+		});
+		
+		// Create workbook and worksheet
+		const worksheet = XLSX.utils.json_to_sheet(exportData);
+		const workbook = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(workbook, worksheet, 'Products Without Images');
+		
+		// Generate filename with date
+		const date = new Date().toISOString().split('T')[0];
+		const filename = `products_without_images_${date}.xlsx`;
+		
+		// Download
+		XLSX.writeFile(workbook, filename);
+	}
+	
+	async function getProductsWithoutImages(): Promise<any[]> {
+		// Make sure cache is loaded
+		if (!isCacheLoaded) {
+			await loadStorageImageCache();
+		}
+		
+		const noImageProducts: any[] = [];
+		
+		// Check against cache - super fast!
+		filteredProducts.forEach(product => {
+			const barcode = String(product.Barcode || product.barcode || '');
+			if (!barcode || !storageImageCache.has(barcode)) {
+				noImageProducts.push(product);
+			}
+		});
+		
+		return noImageProducts;
+	}
+	
+	// Reactive statement to trigger search when searchBarcode or products changes
+	$: {
+		searchBarcode;
+		products;
+		handleSearch();
+	}
+	
+	// Realtime subscriptions
+	let realtimeSubscriptions: any[] = [];
+	
+	// Subscribe to realtime changes
+	function subscribeToRealtimeChanges() {
+		try {
+			// Subscribe to products table changes
+			const productsChannel = supabase
+				.channel('products-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'products'
+					},
+					(payload) => {
+						handleProductChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to products realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(productsChannel);
+
+			// Subscribe to product_units table changes
+			const unitsChannel = supabase
+				.channel('units-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'product_units'
+					},
+					(payload) => {
+						handleUnitsChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to product_units realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(unitsChannel);
+
+			// Subscribe to product_categories table changes
+			const categoriesChannel = supabase
+				.channel('categories-changes')
+				.on(
+					'postgres_changes',
+					{
+						event: '*',
+						schema: 'public',
+						table: 'product_categories'
+					},
+					(payload) => {
+						handleCategoriesChange(payload);
+					}
+				)
+				.subscribe((status) => {
+					if (status === 'SUBSCRIBED') {
+						console.log('✓ Subscribed to product_categories realtime updates');
+					}
+				});
+
+			realtimeSubscriptions.push(categoriesChannel);
+		} catch (error) {
+			console.error('Error setting up realtime subscriptions:', error);
+		}
+	}
+
+	// Handle product changes (INSERT, UPDATE, DELETE)
+	function handleProductChange(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+		const barcode = newRecord?.barcode || oldRecord?.barcode;
+		console.log('🔔 Product realtime event:', eventType, 'Barcode:', barcode);
+		console.log('   Current state - allProductsList.length:', allProductsList.length, 'filteredAllProducts.length:', filteredAllProducts.length);
+
+		if (eventType === 'INSERT') {
+			// Add new product to allProductsList
+			const newProduct = {
+				...newRecord,
+				unit_name: newRecord.product_units?.name_en || '',
+				unit_name_ar: newRecord.product_units?.name_ar || '',
+				parent_category: newRecord.product_categories?.name_en || '',
+				parent_category_ar: newRecord.product_categories?.name_ar || ''
+			};
+
+			allProductsList = [newProduct, ...allProductsList];
+			filteredAllProducts = [newProduct, ...filteredAllProducts];
+			products = [newRecord, ...products];
+			filteredProducts = [newRecord, ...filteredProducts];
+
+			console.log('✓ Product added via realtime:', newRecord.barcode);
+		} else if (eventType === 'UPDATE') {
+			// Update existing product
+			const barcode = newRecord.barcode;
+			console.log('🔄 Realtime UPDATE event received for barcode:', barcode);
+			console.log('   Payload:', newRecord);
+
+			// Fetch complete product data including relationships since realtime only sends changed columns
+			supabase
+				.from('products')
+				.select(`
+					id,
+					barcode,
+					product_name_en,
+					product_name_ar,
+					image_url,
+					unit_id,
+					category_id,
+					product_units (id, name_en, name_ar),
+					product_categories (id, name_en, name_ar)
+				`)
+				.eq('barcode', barcode)
+				.single()
+				.then(({ data: completeProduct, error }) => {
+					if (error) {
+						console.error('❌ Error fetching updated product:', error);
+						return;
+					}
+
+					if (!completeProduct) {
+						console.warn('⚠️ No product data returned for barcode:', barcode);
+						return;
+					}
+
+					console.log('✅ Fetched complete product data:', completeProduct);
+
+					// Process the complete product data
+					const processedProduct = {
+						...completeProduct,
+						unit_name: completeProduct.product_units?.name_en || '',
+						unit_name_ar: completeProduct.product_units?.name_ar || '',
+						parent_category: completeProduct.product_categories?.name_en || '',
+						parent_category_ar: completeProduct.product_categories?.name_ar || ''
+					};
+
+					// Update in allProductsList
+					const allProdIndex = allProductsList.findIndex(p => p.barcode === barcode);
+					console.log('   allProductsList index:', allProdIndex, '(total items:', allProductsList.length, ')');
+					if (allProdIndex !== -1) {
+						console.log('   📝 Updating allProductsList');
+						allProductsList[allProdIndex] = processedProduct;
+						allProductsList = allProductsList; // Trigger reactivity
+					}
+
+					// Update in filteredAllProducts
+					const filteredAllIndex = filteredAllProducts.findIndex(p => p.barcode === barcode);
+					console.log('   filteredAllProducts index:', filteredAllIndex, '(total items:', filteredAllProducts.length, ')');
+					if (filteredAllIndex !== -1) {
+						console.log('   📝 Updating filteredAllProducts');
+						filteredAllProducts[filteredAllIndex] = processedProduct;
+						filteredAllProducts = filteredAllProducts; // Trigger reactivity
+					}
+
+					// Update in main products list
+					const prodIndex = products.findIndex(p => p.barcode === barcode);
+					console.log('   products index:', prodIndex, '(total items:', products.length, ')');
+					if (prodIndex !== -1) {
+						console.log('   📝 Updating products');
+						products[prodIndex] = completeProduct;
+						products = products; // Trigger reactivity
+					}
+
+					// Update in filtered products
+					const filteredIndex = filteredProducts.findIndex(p => p.barcode === barcode);
+					console.log('   filteredProducts index:', filteredIndex, '(total items:', filteredProducts.length, ')');
+					if (filteredIndex !== -1) {
+						console.log('   📝 Updating filteredProducts');
+						filteredProducts[filteredIndex] = completeProduct;
+						filteredProducts = filteredProducts; // Trigger reactivity
+					}
+
+					// Update in no-image products if present
+					const noImageIndex = noImageProducts.findIndex(p => p.barcode === barcode);
+					if (noImageIndex !== -1) {
+						console.log('📝 Updating noImageProducts at index:', noImageIndex);
+						noImageProducts[noImageIndex] = completeProduct;
+						noImageProducts = noImageProducts; // Trigger reactivity
+
+						// Update filtered no-image products
+						const filteredNoImageIndex = filteredNoImageProducts.findIndex(p => p.barcode === barcode);
+						if (filteredNoImageIndex !== -1) {
+							console.log('📝 Updating filteredNoImageProducts at index:', filteredNoImageIndex);
+							filteredNoImageProducts[filteredNoImageIndex] = completeProduct;
+							filteredNoImageProducts = filteredNoImageProducts; // Trigger reactivity
+						}
+					}
+
+					console.log('✓ Product updated via realtime:', barcode);
+				})
+				.catch(err => {
+					console.error('❌ Error in realtime product fetch:', err);
+				});
+			return;
+		} else if (eventType === 'DELETE') {
+			// Remove deleted product
+			const barcode = oldRecord.barcode;
+
+			allProductsList = allProductsList.filter(p => p.barcode !== barcode);
+			filteredAllProducts = filteredAllProducts.filter(p => p.barcode !== barcode);
+			products = products.filter(p => p.barcode !== barcode);
+			filteredProducts = filteredProducts.filter(p => p.barcode !== barcode);
+			noImageProducts = noImageProducts.filter(p => p.barcode !== barcode);
+			filteredNoImageProducts = filteredNoImageProducts.filter(p => p.barcode !== barcode);
+
+			console.log('✓ Product deleted via realtime:', barcode);
+		}
+	}
+
+	// Handle product units changes
+	function handleUnitsChange(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		if (eventType === 'INSERT' || eventType === 'UPDATE') {
+			// Reload units data
+			loadAllProductsForDropdowns();
+			console.log('✓ Units updated via realtime');
+		} else if (eventType === 'DELETE') {
+			// Remove unit from allUnits
+			const unitId = oldRecord.id;
+			allUnits = allUnits.filter(u => u.id !== unitId);
+			console.log('✓ Unit deleted via realtime:', oldRecord.name_en);
+		}
+	}
+
+	// Handle product categories changes
+	function handleCategoriesChange(payload: any) {
+		const { eventType, new: newRecord, old: oldRecord } = payload;
+
+		if (eventType === 'INSERT' || eventType === 'UPDATE') {
+			// Reload categories data
+			loadAllProductsForDropdowns();
+			console.log('✓ Categories updated via realtime');
+		} else if (eventType === 'DELETE') {
+			// Remove category from allCategories
+			const catId = oldRecord.id;
+			allCategories = allCategories.filter(c => c.id !== catId);
+			console.log('✓ Category deleted via realtime:', oldRecord.name_en);
+		}
+	}
+
+	// Cleanup subscriptions on unmount
+	function unsubscribeFromRealtimeChanges() {
+		realtimeSubscriptions.forEach((channel) => {
+			supabase.removeChannel(channel);
+		});
+		realtimeSubscriptions = [];
+		console.log('✓ Unsubscribed from all realtime updates');
+	}
+	
+	// Load quota data on mount
+	onMount(() => {
+		loadQuotaData();
+		loadInitData();
+		subscribeToRealtimeChanges();
+
+		// Cleanup on unmount
+		return () => {
+			unsubscribeFromRealtimeChanges();
+		};
+	});
+</script>
+
+<div class="space-y-6">
+	<!-- Edit Product Popup -->
+	{#if showCreatePopup && newProduct}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeCreatePopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-green-600 to-emerald-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+						</div>
+						<div>
+							<h3 class="text-lg font-bold text-white">Create New Product</h3>
+							<p class="text-xs text-green-100">Add a new product to the database</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeCreatePopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+					<div class="space-y-4">
+						<!-- Barcode -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Barcode <span class="text-red-500">*</span>
+							</label>
+							<input
+								type="text"
+								bind:value={newProduct.barcode}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Enter product barcode"
+							/>
+							
+							<!-- Check Image Availability Button -->
+							<div class="mt-2">
+								<button
+									type="button"
+									on:click={checkImageAvailability}
+									disabled={isCheckingImage || !newProduct.barcode?.trim()}
+									class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									{#if isCheckingImage}
+										<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+										</svg>
+										Checking...
+									{:else}
+										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+										</svg>
+										Check Image Availability
+									{/if}
+								</button>
+								
+								<!-- Image Check Status -->
+								{#if imageCheckStatus}
+									<div class="mt-2 p-3 rounded-lg flex items-start gap-2 {imageCheckResult === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}">
+										{#if imageCheckResult === 'success'}
+											<svg class="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+											</svg>
+											<div class="flex-1">
+												<p class="text-sm font-semibold text-green-800">{imageCheckStatus}</p>
+												{#if foundImageUrl}
+													<p class="text-xs text-green-600 mt-1 break-all">{foundImageUrl}</p>
+												{/if}
+											</div>
+										{:else}
+											<svg class="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+											</svg>
+											<p class="text-sm font-semibold text-red-800">{imageCheckStatus}</p>
+										{/if}
+									</div>
+								{/if}
+							</div>
+						</div>
+						
+						<!-- Product Name English -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (English) <span class="text-red-500">*</span>
+							</label>
+							<input
+								type="text"
+								bind:value={newProduct.product_name_en}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Enter product name in English"
+							/>
+						</div>
+						
+						<!-- Product Name Arabic -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (Arabic)
+							</label>
+							<input
+								type="text"
+								bind:value={newProduct.product_name_ar}
+								dir="rtl"
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="أدخل اسم المنتج بالعربية"
+							/>
+						</div>
+						
+						<!-- Unit Name -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Unit ({uniqueUnits.length} options)
+							</label>
+							<select
+								bind:value={newProduct.unit_name}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueUnits as unit}
+									<option value={unit}>{unit}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={newProduct.unit_name}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Or type custom unit"
+							/>
+						</div>
+						
+						<!-- Parent Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Category ({uniqueParentCategories.length} options)
+							</label>
+							<select
+								bind:value={newProduct.parent_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueParentCategories as category}
+									<option value={category}>{category}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={newProduct.parent_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+								placeholder="Or type custom category"
+							/>
+						</div>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeCreatePopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingCreate}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveNewProduct}
+						disabled={isSavingCreate}
+						class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingCreate}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Creating...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Create Product
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+	
+	{#if showEditPopup && editingProduct}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeEditPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+							</svg>
+						</div>
+						<div>
+							<h3 class="text-lg font-bold text-white">Edit Product</h3>
+							<p class="text-xs text-blue-100">Barcode: {editingProduct.barcode}</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeEditPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+					<div class="space-y-4">
+						<!-- Product Name English -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (English)
+							</label>
+							<input
+								type="text"
+								bind:value={editingProduct.product_name_en}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Enter product name in English"
+							/>
+						</div>
+						
+						<!-- Product Name Arabic -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Product Name (Arabic)
+							</label>
+							<input
+								type="text"
+								bind:value={editingProduct.product_name_ar}
+								dir="rtl"
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="أدخل اسم المنتج بالعربية"
+							/>
+						</div>
+						
+						<!-- Unit Name -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Unit ({uniqueUnits.length} options)
+							</label>
+							<select
+								bind:value={editingProduct.unit_name}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueUnits as unit}
+									<option value={unit}>{unit}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={editingProduct.unit_name}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Or type custom unit"
+							/>
+						</div>
+						
+						<!-- Parent Category -->
+						<div>
+							<label class="block text-sm font-semibold text-gray-700 mb-2">
+								Category ({uniqueParentCategories.length} options)
+							</label>
+							<select
+								bind:value={editingProduct.parent_category}
+								class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+							>
+								<option value="">-- Select or type below --</option>
+								{#each uniqueParentCategories as category}
+									<option value={category}>{category}</option>
+								{/each}
+							</select>
+							<input
+								type="text"
+								bind:value={editingProduct.parent_category}
+								class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								placeholder="Or type custom category"
+							/>
+						</div>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeEditPopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingEdit}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveProductEdit}
+						disabled={isSavingEdit}
+						class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingEdit}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Saving...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Save Changes
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Create Unit Popup -->
+	{#if showCreateUnitPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeCreateUnitPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-md w-full" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-cyan-600 to-teal-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+						</div>
+						<h3 class="text-lg font-bold text-white">Create New Unit</h3>
+					</div>
+					<button 
+						on:click={closeCreateUnitPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 space-y-4">
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Unit Name (English) <span class="text-red-500">*</span>
+						</label>
+						<input
+							type="text"
+							bind:value={newUnitName}
+							placeholder="e.g., piece, kilogram, liter"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+						/>
+					</div>
+					
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Unit Name (Arabic)
+						</label>
+						<input
+							type="text"
+							bind:value={newUnitNameAr}
+							dir="rtl"
+							placeholder="e.g., قطعة، كيلوغرام، لتر"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+						/>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeCreateUnitPopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingUnit}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveNewUnit}
+						disabled={isSavingUnit}
+						class="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingUnit}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Creating...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Create Unit
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Create Category Popup -->
+	{#if showCreateCategoryPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeCreateCategoryPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-md w-full" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-purple-600 to-pink-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+							</svg>
+						</div>
+						<h3 class="text-lg font-bold text-white">Create New Category</h3>
+					</div>
+					<button 
+						on:click={closeCreateCategoryPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="p-6 space-y-4">
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Category Name (English) <span class="text-red-500">*</span>
+						</label>
+						<input
+							type="text"
+							bind:value={newCategoryName}
+							placeholder="e.g., Food, Beverages, Electronics"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+						/>
+					</div>
+					
+					<div>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">
+							Category Name (Arabic)
+						</label>
+						<input
+							type="text"
+							bind:value={newCategoryNameAr}
+							dir="rtl"
+							placeholder="e.g., غذاء، مشروبات، الإلكترونيات"
+							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+						/>
+					</div>
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-200">
+					<button
+						on:click={closeCreateCategoryPopup}
+						class="px-4 py-2 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+						disabled={isSavingCategory}
+					>
+						Cancel
+					</button>
+					<button
+						on:click={saveNewCategory}
+						disabled={isSavingCategory}
+						class="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{#if isSavingCategory}
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							Creating...
+						{:else}
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+							Create Category
+						{/if}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Success Popup -->
+	{#if showUploadSuccessPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" on:click={() => showUploadSuccessPopup = false}>
+			<div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all" on:click|stopPropagation>
+				<div class="flex items-center justify-center mb-4">
+					<div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+						<svg class="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+						</svg>
+					</div>
+				</div>
+				<h3 class="text-2xl font-bold text-center text-gray-800 mb-2">Upload Successful!</h3>
+				<p class="text-center text-gray-600 mb-6">{uploadSuccessMessage}</p>
+				<button 
+					on:click={() => showUploadSuccessPopup = false}
+					class="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200"
+				>
+					Close
+				</button>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Image Preview Popup (After Background Removal) -->
+	{#if showImagePreview}
+		<div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" on:click={closeImagePreview}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-blue-600 to-purple-600 p-6 flex items-center justify-between">
+					<div>
+						<h3 class="text-2xl font-bold text-white">✨ Background Removed!</h3>
+						<p class="text-white text-opacity-90 mt-1">
+							Barcode: {previewBarcode}
+						</p>
+					</div>
+					<button 
+						on:click={closeImagePreview}
+						class="px-4 py-2 bg-white text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+					>
+						Close
+					</button>
+				</div>
+				
+				<!-- Image Preview -->
+				<div class="flex-1 overflow-y-auto p-6 bg-gray-50">
+					<div class="bg-white rounded-lg shadow-lg p-4 mb-6">
+						<h4 class="text-lg font-semibold text-gray-800 mb-4">Preview Image:</h4>
+						<div class="relative">
+							<!-- Checkered background to show transparency -->
+							<div class="absolute inset-0 bg-checkered rounded-lg"></div>
+							<img 
+								src={previewImageUrl}
+								alt="Preview"
+								class="relative w-full h-auto max-h-96 object-contain rounded-lg"
+							/>
+						</div>
+					</div>
+					
+					<!-- Action Buttons -->
+					<div class="flex gap-4 justify-center">
+						<button
+							on:click={closeImagePreview}
+							class="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+						>
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+							Cancel
+						</button>
+						<button
+							on:click={uploadPreviewImage}
+							disabled={downloadingImage}
+							class="px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:shadow-lg text-white font-semibold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							{#if downloadingImage}
+								<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Uploading...
+							{:else}
+								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+								</svg>
+								Upload Image
+							{/if}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Web Image Search Popup -->
+	{#if showImageSearchPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeImageSearchPopup}>
+			<div class="bg-white rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col" on:click|stopPropagation>
+				<!-- Header -->
+				<div class="bg-gradient-to-r {searchProvider === 'google' ? 'from-blue-600 to-blue-700' : 'from-green-600 to-emerald-700'} p-6 flex items-center justify-between">
+					<div>
+						<h3 class="text-2xl font-bold text-white">
+							{searchProvider === 'google' ? '🔍 Google Search' : '🍊 Open Food Facts'}
+						</h3>
+						<p class="text-white text-opacity-90 mt-1">
+							Barcode: {searchingBarcode}
+						</p>
+						<div class="flex gap-4 mt-2 text-xs text-white text-opacity-80">
+							<span>
+								Google: {quotaData.googleSearches}/{GOOGLE_DAILY_LIMIT} today
+							</span>
+							<span>
+								Remove.bg: {quotaData.removeBgUses}/{REMOVE_BG_MONTHLY_LIMIT} this month
+							</span>
+						</div>
+					</div>
+					<button 
+						on:click={closeImageSearchPopup}
+						class="px-4 py-2 bg-white text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+					>
+						Close
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="flex-1 overflow-y-auto p-6">
+					{#if isSearchingWeb}
+						<div class="flex flex-col items-center justify-center py-12">
+							<svg class="animate-spin w-12 h-12 text-green-600 mb-4" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							<p class="text-gray-600">Searching for images...</p>
+						</div>
+					{:else if webImages.length === 0}
+						<div class="flex flex-col items-center justify-center py-12">
+							<svg class="w-24 h-24 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							<h4 class="text-xl font-semibold text-gray-800 mb-2">No images found</h4>
+							<p class="text-gray-600">Try searching with a different barcode or upload manually.</p>
+						</div>
+					{:else}
+						<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+							{#each webImages as image, index (image.url || index)}
+								<div class="relative group">
+									<img 
+										src={`/api/proxy-image?url=${encodeURIComponent(image.url || image)}`}
+										alt="Product {index + 1}"
+										class="w-full h-48 object-cover rounded-lg border-2 border-gray-200 hover:border-green-500 transition-all"
+										loading="lazy"
+										on:error={(e) => {
+											const img = e.target;
+											img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f3f4f6" width="100" height="100"/><text x="50" y="50" font-size="10" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">Image Unavailable</text></svg>';
+										}}
+									/>
+									<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 rounded-lg">
+										{#if downloadingImage && selectedWebImage === (image.url || image)}
+											<div class="bg-white rounded-lg px-4 py-3 flex items-center gap-2">
+												<svg class="animate-spin w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24">
+													<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+													<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+												</svg>
+												<span class="text-sm font-semibold text-gray-700">Uploading...</span>
+											</div>
+										{:else if removingBackground && selectedWebImage === (image.url || image)}
+											<div class="bg-white rounded-lg px-4 py-3 flex items-center gap-2">
+												<svg class="animate-spin w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24">
+													<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+													<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+												</svg>
+												<span class="text-sm font-semibold text-gray-700">Removing Background...</span>
+											</div>
+										{:else}
+											<div class="flex flex-col gap-2">
+												<!-- Use As-Is Button -->
+												<button
+													on:click={() => downloadAndUploadImage(image.url || image, 'none')}
+													disabled={downloadingImage || removingBackground}
+													class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-3 py-2 flex items-center gap-2 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+												>
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+													</svg>
+													<span class="text-xs font-semibold">Use This</span>
+												</button>
+												
+												<!-- Free AI Background Removal Button (Client-side) -->
+												<button
+													on:click={() => downloadAndUploadImage(image.url || image, 'client')}
+													disabled={downloadingImage || removingBackground}
+													class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 flex items-center gap-2 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-semibold"
+													title="Free AI background removal (runs in browser, unlimited)"
+												>
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+													</svg>
+													<span>AI Remove (Free)</span>
+													<span class="text-[9px] opacity-75">(∞)</span>
+												</button>
+												
+												<!-- Remove.bg API Button -->
+												<button
+													on:click={() => downloadAndUploadImage(image.url || image, 'api')}
+													disabled={downloadingImage || removingBackground || !isRemoveBgAvailable()}
+													class="rounded-lg px-3 py-2 flex items-center gap-2 transition-colors text-white text-xs font-semibold {isRemoveBgAvailable() ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-400 cursor-not-allowed'}"
+													title={isRemoveBgAvailable() ? `Remove.bg API (${quotaData.removeBgUses}/${REMOVE_BG_MONTHLY_LIMIT} used this month)` : 'Monthly quota exceeded'}
+												>
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+													</svg>
+													<span>Remove.bg</span>
+													<span class="text-[9px] opacity-75">({quotaData.removeBgUses}/{REMOVE_BG_MONTHLY_LIMIT})</span>
+												</button>
+											</div>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Find Missing Images Popup -->
+	{#if showFindMissingImagesPopup}
+		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+			<div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+				<!-- Header -->
+				<div class="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="bg-white bg-opacity-20 rounded-lg p-2">
+							<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+							</svg>
+						</div>
+						<div>
+							<h3 class="text-lg font-bold text-white">Missing Images Found</h3>
+							<p class="text-purple-100 text-sm">Found {foundMissingImages.length} images in storage</p>
+						</div>
+					</div>
+					<button 
+						on:click={closeFindMissingImagesPopup}
+						class="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition-colors"
+						title="Close"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				
+				<!-- Content -->
+				<div class="flex-1 overflow-y-auto p-4">
+					{#if foundMissingImages.length === 0}
+						<div class="text-center py-8">
+							<svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M12 12h.01M12 12h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							<h4 class="text-lg font-semibold text-gray-700 mb-2">No Images Found</h4>
+							<p class="text-gray-500">No matching images were found in storage for products without images.</p>
+						</div>
+					{:else}
+						<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+							{#each foundMissingImages as item}
+								<div class="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+									<div class="aspect-square bg-white flex items-center justify-center p-2">
+										<img 
+											src={item.imageUrl} 
+											alt={item.productName}
+											class="max-w-full max-h-full object-contain"
+										/>
+									</div>
+									<div class="p-2 border-t border-gray-200">
+										<p class="text-xs font-mono text-gray-600 truncate" title={item.barcode}>{item.barcode}</p>
+										<p class="text-xs text-gray-500 truncate" title={item.productName}>{item.productName}</p>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+				
+				<!-- Footer -->
+				<div class="bg-gray-50 p-4 border-t border-gray-200 flex items-center justify-between">
+					<p class="text-sm text-gray-600">
+						{foundMissingImages.length} image{foundMissingImages.length !== 1 ? 's' : ''} will be linked to products
+					</p>
+					<div class="flex gap-2">
+						<button
+							on:click={closeFindMissingImagesPopup}
+							class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold text-sm rounded-lg transition-colors"
+						>
+							Cancel
+						</button>
+						{#if foundMissingImages.length > 0}
+							<button
+								on:click={saveFoundImagesToProducts}
+								disabled={isSavingFoundImages}
+								class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold text-sm rounded-lg transition-colors flex items-center gap-2"
+							>
+								{#if isSavingFoundImages}
+									<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									Saving...
+								{:else}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+									</svg>
+									Save All ({foundMissingImages.length})
+								{/if}
+							</button>
+						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Image Upload Progress Bar -->
+	{#if isUploadingImages && imageUploadProgress >= 0}
+		<div class="bg-white rounded-lg shadow-md p-4 border-2 border-green-200">
+			<div class="flex items-center justify-between mb-2">
+				<div class="flex items-center gap-2">
+					<svg class="animate-spin w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+					<span class="text-sm font-semibold text-gray-700">Uploading Images</span>
+				</div>
+				<div class="flex items-center gap-3">
+					<span class="text-sm font-medium text-gray-600">{uploadedImageCount} / {totalImageCount}</span>
+					<span class="text-sm font-bold text-green-600">{imageUploadProgress}%</span>
+					{#if !cancelImageUpload}
+						<button 
+							on:click={handleCancelUpload}
+							class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs font-semibold rounded transition-colors duration-200"
+						>
+							Cancel
+						</button>
+					{/if}
+				</div>
+			</div>
+			<div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+				<div 
+					class="bg-gradient-to-r from-green-600 to-teal-600 h-3 rounded-full transition-all duration-300 ease-out"
+					style="width: {imageUploadProgress}%"
+				></div>
+			</div>
+			{#if uploadProgress}
+				<p class="text-xs text-gray-600 mt-2">{uploadProgress}</p>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Saving Products Progress Bar -->
+	{#if isSavingProducts && saveProgress > 0}
+		<div class="bg-white rounded-lg shadow-md p-4">
+			<div class="flex items-center justify-between mb-2">
+				<span class="text-sm font-semibold text-gray-700">Saving Progress</span>
+				<span class="text-sm font-bold text-blue-600">{saveProgress}%</span>
+			</div>
+			<div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+				<div 
+					class="bg-gradient-to-r from-blue-600 to-purple-600 h-3 rounded-full transition-all duration-300 ease-out"
+					style="width: {saveProgress}%"
+				></div>
+			</div>
+			{#if uploadProgress}
+				<p class="text-xs text-gray-600 mt-2">{uploadProgress}</p>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Action Bar with Refresh Button -->
+	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+		<div class="flex items-center gap-3">
+			<button 
+				on:click={() => { loadProducts(); loadDatabaseStats(); }}
+				class="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 hover:shadow-md transition-all duration-200 border border-slate-200/50"
+				title="Refresh the product list"
+			>
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+				</svg>
+				<span class="text-xs font-black uppercase tracking-wide">Refresh</span>
+			</button>
+		</div>
+		
+		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
+			{#if hasUnsavedData}
+				<button 
+					on:click={handleSave}
+					disabled={isSavingProducts}
+					class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+					{isSavingProducts 
+						? 'bg-green-600 text-white shadow-lg shadow-green-200 scale-[1.02] opacity-75' 
+						: 'bg-green-600 text-white shadow-lg shadow-green-200 scale-[1.02] hover:bg-green-700'}"
+				>
+					{#if isSavingProducts}
+						<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+					{:else}
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+						</svg>
+					{/if}
+					<span class="relative z-10">Save</span>
+				</button>
+			{/if}
+			
+			<button 
+				on:click={openCreatePopup}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+				<span class="relative z-10">Create Product</span>
+			</button>
+			
+			<button 
+				on:click={handleUploadImages}
+				disabled={isUploadingImages}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				{isUploadingImages 
+					? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-[1.02] opacity-75' 
+					: 'text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md'}"
+			>
+				{#if isUploadingImages}
+					<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+				{:else}
+					<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+					</svg>
+				{/if}
+				<span class="relative z-10">Upload Images</span>
+			</button>
+			
+			<button 
+				on:click={downloadTemplate}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+				</svg>
+				<span class="relative z-10">Template</span>
+			</button>
+			
+			<button 
+				on:click={handleImport}
+				disabled={isSavingProducts}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				{isSavingProducts 
+					? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02] opacity-75' 
+					: 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02] hover:bg-purple-700'}"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+				</svg>
+				<span class="relative z-10">Import</span>
+			</button>
+			
+			<button 
+				on:click={openCreateUnitPopup}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+				<span class="relative z-10">Unit</span>
+			</button>
+			
+			<button 
+				on:click={openCreateCategoryPopup}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+				</svg>
+				<span class="relative z-10">Category</span>
+			</button>
+			
+			<button 
+				on:click={loadAllProducts}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+				</svg>
+				<span class="relative z-10">All Products ({dbTotalProducts})</span>
+			</button>
+			
+			<button 
+				on:click={loadNoImageProducts}
+				class="group relative flex items-center gap-2.5 px-6 py-2.5 text-xs font-black uppercase tracking-fast transition-all duration-500 rounded-xl overflow-hidden
+				text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-md"
+			>
+				<svg class="w-5 h-5 filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+				</svg>
+				<span class="relative z-10">Missing Images ({dbProductsWithoutImages})</span>
+			</button>
+		</div>
+	</div>
+
+	<!-- Hidden file inputs -->
+	<input
+		type="file"
+		bind:this={fileInput}
+		on:change={handleFileChange}
+		accept=".xlsx,.xls"
+		class="hidden"
+	/>
+	
+	<input
+		type="file"
+		bind:this={imageInput}
+		on:change={handleImageUpload}
+		accept="image/*"
+		multiple
+		webkitdirectory
+		directory
+		class="hidden"
+	/>
+	
+	<!-- Products Without Images View -->
+	{#if showNoImageProducts}
+		<div class="space-y-2">
+			<!-- Header Bar with stats inline -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-3">
+				<div class="flex items-center justify-between flex-wrap gap-3">
+					<div class="flex items-center gap-3">
+						<div class="bg-gradient-to-br from-orange-600 to-red-600 rounded-xl p-2 shadow-lg">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+							</svg>
+						</div>
+						<h2 class="text-lg font-black text-slate-800">Products Without Images</h2>
+						<!-- Inline stats badges -->
+						<div class="flex items-center gap-2">
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-100 text-red-800 text-xs font-black">✗ {noImageProducts.length} Missing</span>
+						</div>
+					</div>
+					<div class="flex gap-1.5 flex-wrap">
+						<button 
+							on:click={exportMissingImagesToExcel}
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 gap-1"
+							title="Export missing images to Excel"
+						>
+							📥 Export
+						</button>
+						<button 
+							on:click={closeNoImageView}
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-300 transition-all duration-200 gap-1"
+						>
+							✕
+						</button>
+					</div>
+				</div>
+			</div>
+
+			{#if isLoadingNoImageProducts}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center">
+					<div class="animate-spin inline-block">
+						<div class="w-12 h-12 border-4 border-orange-200 border-t-orange-600 rounded-full"></div>
+					</div>
+					<p class="text-slate-500 mt-4 font-semibold">Loading products...</p>
+				</div>
+			{:else if noImageProducts.length === 0}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-emerald-200">
+					<svg class="w-24 h-24 text-emerald-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+					</svg>
+					<h3 class="text-xl font-bold text-slate-600 mb-2">All products have images!</h3>
+					<p class="text-slate-400">Great job! All products in the database have images.</p>
+				</div>
+			{:else}
+				<!-- Compact Search + Info Row -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-2">
+					<div class="flex items-center gap-3">
+						<div class="relative flex-1">
+							<input
+								type="text"
+								bind:value={noImageSearchQuery}
+								placeholder="Search by barcode, name (English/Arabic)..."
+								class="w-full pl-8 pr-4 py-2 bg-white/80 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-xs font-medium text-slate-700 placeholder-slate-400"
+							/>
+							<svg class="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+						</div>
+						<span class="text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+							{filteredNoImageProducts.length}/{noImageProducts.length}
+						</span>
+					</div>
+				</div>
+
+				<!-- Products Table -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+					<div class="overflow-x-auto flex-1 max-h-[calc(100vh-220px)] overflow-y-auto">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-orange-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 bg-orange-600 text-white shadow-lg z-10">
+								<tr>
+									<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400 w-10">#</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Barcode</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Product Name</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Unit</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Upload</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Web Search</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Action</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-slate-200">
+								{#if filteredNoImageProducts.length === 0}
+									<tr>
+										<td colspan="7" class="px-6 py-12 text-center">
+											<svg class="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+											</svg>
+											<p class="text-slate-500 text-lg font-medium">No products found</p>
+											<p class="text-slate-400 text-sm mt-1">Try adjusting your search query</p>
+										</td>
+									</tr>
+								{:else}
+									{#each filteredNoImageProducts as product, index (product.barcode)}
+									<tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-3 py-2 text-center text-xs font-bold text-slate-400">{index + 1}</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<span class="select-all cursor-copy hover:bg-orange-100 px-2 py-0.5 rounded transition-colors font-mono text-xs">
+												{product.barcode}
+											</span>
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div class="font-medium text-slate-800">{product.product_name_en || '-'}</div>
+											{#if product.product_name_ar}
+												<div class="text-xs text-slate-400">{product.product_name_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											{product.unit_name || '-'}
+										</td>
+										<td class="px-4 py-2 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<input
+													id="upload-{product.barcode}"
+													type="file"
+													accept="image/*"
+													on:change={(e) => uploadSingleImage(e, product.barcode)}
+													disabled={uploadingImageForBarcode !== null}
+													class="hidden"
+												/>
+												<button
+													on:click={() => document.getElementById(`upload-${product.barcode}`)?.click()}
+													disabled={uploadingImageForBarcode === product.barcode}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110 disabled:opacity-50"
+													title="Upload image"
+												>
+													{#if uploadingImageForBarcode === product.barcode}
+														<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+															<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+															<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+														</svg>
+													{:else}
+														🖼️
+													{/if}
+												</button>
+											</div>
+										</td>
+										<td class="px-4 py-2 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<!-- Google Search Button -->
+												<button
+													on:click={() => searchWebForImages(product.barcode, 'google')}
+													disabled={!isGoogleAvailable()}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white font-bold transition-all duration-200 transform hover:scale-110 {isGoogleAvailable() ? 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg' : 'bg-gray-400 cursor-not-allowed'}"
+													title={isGoogleAvailable() ? `Google (${quotaData.googleSearches}/${GOOGLE_DAILY_LIMIT} used today)` : 'Daily quota exceeded'}
+												>
+													🔍
+												</button>
+												<!-- Open Food Facts Button -->
+												<button
+													on:click={() => searchWebForImages(product.barcode, 'openfoodfacts')}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													title="Open Food Facts (Free & Unlimited)"
+												>
+													🍊
+												</button>
+											</div>
+										</td>
+										<td class="px-4 py-2 text-center">
+											<button
+												on:click={() => openEditPopup(product)}
+												class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+												title="Edit product"
+											>
+												✏️
+											</button>
+										</td>
+									</tr>
+									{/each}
+								{/if}
+							</tbody>
+						</table>
+					</div>
+
+					<!-- Footer with row count -->
+					<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+						Total Products Without Images: {noImageProducts.length} | Showing: {filteredNoImageProducts.length}
+					</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+	
+	<!-- All Products View -->
+	{#if showAllProducts}
+		<div class="space-y-2">
+			<!-- Header Bar with stats inline -->
+			<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-3">
+				<div class="flex items-center justify-between flex-wrap gap-3">
+					<div class="flex items-center gap-3">
+						<div class="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl p-2 shadow-lg">
+							<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+							</svg>
+						</div>
+						<h2 class="text-lg font-black text-slate-800">All Products</h2>
+						<!-- Inline stats badges -->
+						<div class="flex items-center gap-2">
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 text-xs font-black">{allProductsList.length} Total</span>
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-black">✓ {dbProductsWithImages}</span>
+							<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-100 text-red-800 text-xs font-black">✗ {dbProductsWithoutImages}</span>
+						</div>
+					</div>
+					<div class="flex gap-1.5 flex-wrap">
+						<button 
+							on:click={exportProductsToXLSX}
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 gap-1"
+							title="Export all products to Excel"
+						>
+							📥 Export
+						</button>
+						<button 
+							on:click={clearProductCacheAndReload}
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 gap-1"
+							title="Clear cache and reload all data from database"
+						>
+							🔄 Reload
+						</button>
+						<button 
+							on:click={findMissingImagesInStorage}
+							disabled={isFindingMissingImages}
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-purple-600 text-white text-[11px] font-bold hover:bg-purple-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed gap-1"
+							title="Search storage for images matching products without image URLs"
+						>
+							{#if isFindingMissingImages}
+								<svg class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								...
+							{:else}
+								🔍 Missing
+							{/if}
+						</button>
+						<button 
+							on:click={closeAllProductsView}
+							class="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-300 transition-all duration-200 gap-1"
+						>
+							✕
+						</button>
+					</div>
+				</div>
+			</div>
+			
+			{#if isLoadingAllProducts}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center">
+					<div class="animate-spin inline-block">
+						<div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full"></div>
+					</div>
+					<p class="text-slate-500 mt-4 font-semibold">Loading products...</p>
+				</div>
+			{:else if allProductsList.length === 0}
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+					<svg class="w-24 h-24 text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+					</svg>
+					<h3 class="text-xl font-bold text-slate-600 mb-2">No Products Found</h3>
+					<p class="text-slate-400">Import products from Excel to get started.</p>
+				</div>
+			{:else}
+				<!-- Compact Search + Info Row -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-2">
+					<div class="flex items-center gap-3">
+						<div class="relative flex-1">
+							<input
+								type="text"
+								bind:value={allProductsSearch}
+								placeholder="Search by barcode, name (English/Arabic)..."
+								class="w-full pl-8 pr-4 py-2 bg-white/80 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs font-medium text-slate-700 placeholder-slate-400"
+							/>
+							<svg class="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+						</div>
+						<span class="text-[11px] font-semibold text-slate-400 whitespace-nowrap">
+							{filteredAllProducts.length}/{allProductsList.length}
+						</span>
+						{#if successfullyLoadedImages.size > 0}
+							<span class="text-[11px] font-bold text-emerald-600 whitespace-nowrap">
+								✓ {successfullyLoadedImages.size}/{allProductsWithImages} img
+							</span>
+						{/if}
+					</div>
+				</div>
+				
+				<!-- Products Table -->
+				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+					<div class="overflow-x-auto flex-1 max-h-[calc(100vh-220px)] overflow-y-auto">
+						<table class="w-full border-collapse [&_th]:border-x [&_th]:border-blue-500/30 [&_td]:border-x [&_td]:border-slate-200">
+							<thead class="sticky top-0 bg-blue-600 text-white shadow-lg z-10">
+								<tr>
+									<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400 w-10">#</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Image</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Barcode</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Product Name</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Unit</th>
+									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Category</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Status</th>
+									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-blue-400">Action</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-slate-200">
+								{#each filteredAllProducts as product, index (product.barcode)}
+									<tr class="hover:bg-blue-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<td class="px-3 py-2 text-center text-xs font-bold text-slate-400">{index + 1}</td>
+										<td class="px-4 py-2 text-center">
+											<div class="w-14 h-14 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden relative mx-auto cursor-pointer group" on:click={() => { if (product.image_url) { previewImageUrl = product.image_url; previewBarcode = product.barcode; showImagePreview = true; } }}>
+												{#if product.image_url}
+													<img 
+														bind:this={imageRefs[product.barcode]}
+														src={product.image_url}
+														alt={product.product_name_en || product.barcode}
+														data-barcode={product.barcode}
+														class="w-full h-full object-scale-down p-0.5 group-hover:opacity-80 transition-opacity"
+														loading="lazy"
+														decoding="async"
+														on:load={handleImageLoad}
+														on:error={handleImageError}
+													/>
+												{:else}
+													<svg class="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+													</svg>
+												{/if}
+											</div>
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<span class="select-all cursor-copy hover:bg-blue-100 px-2 py-0.5 rounded transition-colors font-mono text-xs">
+												{product.barcode}
+											</span>
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div class="font-medium text-slate-800">{product.product_name_en || '-'}</div>
+											{#if product.product_name_ar}
+												<div dir="rtl" class="text-xs text-slate-400 text-right">{product.product_name_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div>{product.unit_name || '-'}</div>
+											{#if product.unit_name_ar}
+												<div dir="rtl" class="text-xs text-slate-400 text-right">{product.unit_name_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-sm text-slate-700">
+											<div>{product.parent_category || '-'}</div>
+											{#if product.parent_category_ar}
+												<div dir="rtl" class="text-xs text-slate-400 text-right">{product.parent_category_ar}</div>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-center">
+											{#if !product.image_url}
+												<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-red-200 text-red-800">No Image</span>
+											{:else if successfullyLoadedImages.has(product.barcode)}
+												<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-200 text-emerald-800">✓ Loaded</span>
+											{:else}
+												<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-200 text-orange-800">Pending</span>
+											{/if}
+										</td>
+										<td class="px-4 py-2 text-center">
+											<div class="flex items-center justify-center gap-1">
+												<input
+													type="file"
+													id="update-image-{product.barcode}"
+													accept="image/*"
+													on:change={(e) => uploadSingleImage(e, product.barcode)}
+													class="hidden"
+												/>
+												<button
+													on:click={() => document.getElementById(`update-image-${product.barcode}`)?.click()}
+													disabled={uploadingImageForBarcode === product.barcode}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110 disabled:opacity-50"
+													title="Update image"
+												>
+													{#if uploadingImageForBarcode === product.barcode}
+														<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+															<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+															<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+														</svg>
+													{:else}
+														🖼️
+													{/if}
+												</button>
+												<button
+													on:click={() => openEditPopup(product)}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-600 text-white font-bold hover:bg-amber-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													title="Edit product"
+												>
+													✏️
+												</button>
+												<button
+													on:click={() => deleteProduct(product.barcode)}
+													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+													title="Delete product"
+												>
+													🗑️
+												</button>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+
+					<!-- Footer with row count -->
+					<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+						Total Products: {allProductsList.length} | Showing: {filteredAllProducts.length}
+					</div>
+				</div>
+			{/if}
+		</div>
+	{/if}
+	
+	<!-- Search Bar and Stats -->
+	{#if products.length > 0}
+		<div class="bg-white rounded-lg shadow-md p-4">
+			<!-- Search Bar -->
+			<div class="flex items-center gap-2 mb-2">
+				<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+				</svg>
+				<input
+					type="text"
+					bind:value={searchBarcode}
+					placeholder="Search by barcode..."
+					class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+				/>
+				{#if searchBarcode}
+					<button
+						on:click={() => searchBarcode = ''}
+						class="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+					>
+						Clear
+					</button>
+				{/if}
+			</div>
+			<p class="text-sm text-gray-500 mt-2">
+				Showing {filteredProducts.length} of {products.length} products
+			</p>
+		</div>
+	{/if}
+	
+	<!-- Products Table -->
+	{#if filteredProducts.length > 0}
+		<div class="bg-white rounded-lg shadow-lg overflow-hidden">
+			<div class="overflow-x-auto">
+				<table class="min-w-full divide-y divide-gray-200">
+					<thead class="bg-gray-50">
+						<tr>
+							<th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+								#
+							</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Image
+							</th>
+							<th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Actions
+							</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Barcode
+							</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Product Name
+							</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Unit
+							</th>
+							<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								Category
+							</th>
+						</tr>
+					</thead>
+					<tbody class="bg-white divide-y divide-gray-200">
+						{#each filteredProducts as product, index (`${product.Barcode || 'no-barcode'}-${index}`)}
+							<tr class="hover:bg-gray-50 transition-colors">
+								<td class="px-6 py-4 whitespace-nowrap">
+									<div class="w-16 h-16 rounded-lg border border-gray-200 flex items-center justify-center overflow-hidden relative">
+										<img 
+											src={getImagePath(product.Barcode, product)} 
+											alt={product['Product name english'] || product['Product name_en'] || 'Product'}
+											data-barcode={product.Barcode}
+											on:load={handleImageLoad}
+											on:error={handleImageError}
+											class="w-full h-full object-cover"
+										/>
+									</div>
+								</td>
+								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{product.Barcode || ''}
+								</td>
+								<td class="px-6 py-4 text-sm text-gray-900">
+									<div dir="ltr" class="font-medium text-gray-900 block">{product['Product name english'] || product['Product name_en'] || product.Product_name_en || ''}</div>
+									<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product['Product name arabic'] || product['Product name_ar'] || product.Product_name_ar || ''}</div>
+								</td>
+								<td class="px-6 py-4 text-sm text-gray-900">
+									<div class="font-medium text-gray-900 block">{product['Unit english'] || product['unit'] || product['Unit'] || product['Unit name'] || product.Unit_name || ''}</div>
+									<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product['Unit arabic'] || product['Unit name arabic'] || ''}</div>
+								</td>
+								<td class="px-6 py-4 text-sm text-gray-900">
+									<div class="font-medium text-gray-900 block">{product['Category english'] || product['Category'] || product['category'] || product['Category_en'] || ''}</div>
+									<div dir="rtl" class="text-black text-sm mt-1 block text-right">{product['Category arabic'] || product['Category_ar'] || ''}</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			
+			<!-- Table Footer -->
+			<div class="bg-gray-50 px-6 py-4 border-t border-gray-200">
+				<p class="text-sm text-gray-700">
+					Total Products: <span class="font-semibold">{filteredProducts.length}</span>
+					{#if searchBarcode}
+						<span class="text-gray-500">of {products.length}</span>
+					{/if}
+				</p>
+			</div>
+		</div>
+	{:else if products.length > 0}
+		<!-- No Results State -->
+		<div class="bg-white rounded-lg shadow-lg p-12 text-center">
+			<svg class="w-24 h-24 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+			</svg>
+			<h3 class="text-xl font-semibold text-gray-800 mb-2">No products found</h3>
+			<p class="text-gray-600 mb-6">Try adjusting your search term</p>
+			<button
+				on:click={() => searchBarcode = ''}
+				class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+			>
+				Clear Search
+			</button>
+		</div>
+	{/if}
+</div>
+
+
+<style>
+	/* Checkered background pattern to show transparency */
+	.bg-checkered {
+		background-image: 
+			linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+			linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+			linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+			linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+		background-size: 20px 20px;
+		background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+	}
+</style>

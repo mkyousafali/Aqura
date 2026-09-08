@@ -1,0 +1,304 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "📦 Install Dependencies",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"setup"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "🎨 Dev Frontend (npm)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/frontend"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared",
+				"showReuseMessage": false
+			},
+			"isBackground": true,
+			"problemMatcher": {
+				"pattern": {
+					"regexp": "^([^\\s].*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+					"file": 1,
+					"line": 2,
+					"column": 3,
+					"severity": 4,
+					"message": 5
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".",
+					"endsPattern": "(Local|Network):\\s+http"
+				}
+			}
+		},
+		{
+			"label": "🎨 Dev Frontend",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--filter",
+				"aqura-frontend",
+				"dev"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "🚀 Build All",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"build"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "📱 Build PWA",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"build:pwa"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "🪟 Build Windows Installer",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"build:windows"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "🧹 Lint All",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"lint"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "🧪 Test All",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"test"
+			],
+			"group": "test",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "🌐 Extract i18n",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"i18n:extract"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "🐳 Docker Dev",
+			"type": "shell",
+			"command": "docker-compose",
+			"args": [
+				"-f",
+				"docker-compose.dev.yml",
+				"up"
+			],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "📸 Copy Flyer Images",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/copy-flyer-images.js"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "🖥️ Dev Local Server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/frontend"
+			},
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared",
+				"showReuseMessage": false
+			}
+		},
+		{
+			"label": "🎨 Dev Frontend SSL",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"--filter",
+				"aqura-frontend",
+				"dev",
+				"--https"
+			],
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend && pnpm dev",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend; pnpm dev",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "pnpm dev",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend && pnpm dev --host",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Dev Server",
+			"type": "shell",
+			"command": "cd frontend; pnpm dev --host",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Aqura Dev",
+			"type": "shell",
+			"command": "Set-Location frontend; pnpm dev --host",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "🔄 Local Sync Service",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/local-sync-service.js"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build",
+			"presentation": {
+				"echo": true,
+				"reveal": "always",
+				"focus": false,
+				"panel": "shared"
+			}
+		}
+	]
+}
