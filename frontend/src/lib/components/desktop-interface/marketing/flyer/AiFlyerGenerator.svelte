@@ -443,15 +443,25 @@
     try {
       for (let i = 0; i < preview.pages.length; i++) {
         progress = `Improving page ${i + 1} of ${preview.pages.length}…`;
-        const form = new FormData();
-        form.append('image', await pageBlob(preview.pages[i]), 'flyer-page.png');
-        // Reuse this flyer's own saved context (from generation) so Improve enhances it without
-        // drifting into a different theme, e.g. never turning a general offer into a produce-themed
-        // one just because some vegetables happen to be on the page — see offer_context_ai_flyer_spec.md §9.
-        if (preview.context?.name) form.append('contextName', preview.context.name);
-        if (preview.context?.description) form.append('contextDescription', preview.context.description);
-        const response = await fetch('/api/ai-flyers/improve', { method: 'POST', body: form, signal: AbortSignal.timeout(285000) });
-        if (!response.ok) { const failure = await response.json(); throw new Error(failure.error || `Could not improve page ${i + 1}.`); }
+        // Send the page's own signed Storage URL rather than uploading its bytes: this app runs on
+        // Vercel, whose functions hard-cap the incoming request body at 4.5MB regardless of any
+        // app-level check — a captured flyer page routinely exceeds that (worked on `vite dev`,
+        // which has no such limit, but 413'd in production). The endpoint fetches the image itself
+        // from Storage instead, which isn't subject to that cap.
+        const response = await fetch('/api/ai-flyers/improve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          // Reuse this flyer's own saved context (from generation) so Improve enhances it without
+          // drifting into a different theme — see offer_context_ai_flyer_spec.md §9.
+          body: JSON.stringify({ pageUrl: preview.pages[i], contextName: preview.context?.name, contextDescription: preview.context?.description }),
+          signal: AbortSignal.timeout(285000)
+        });
+        // A platform-level rejection (a gateway/proxy 413, 502, etc.) never returns our own JSON
+        // error shape, and .json() throwing on that would otherwise surface as an opaque "Unexpected
+        // token" parse error instead of something a user can act on.
+        if (!response.ok) {
+          const failure = await response.json().catch(() => null);
+          throw new Error(failure?.error || `Could not improve page ${i + 1} (server responded ${response.status}).`);
+        }
         improvedPages[i] = URL.createObjectURL(await response.blob());
         improvedPages = [...improvedPages]; // reassign so this page's tile updates right away
       }

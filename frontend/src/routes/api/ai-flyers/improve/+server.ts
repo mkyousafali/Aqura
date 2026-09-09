@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import type { RequestHandler } from '@sveltejs/kit';
 
 export const config = { maxDuration: 300 };
@@ -76,16 +77,31 @@ Improve overall lighting, depth, contrast, and shadows for a premium supermarket
 The final result must still clearly be THIS flyer — same offer, same products at the same prices in the same positions — just dressed up with the kind of tasteful marketing decoration a real published supermarket flyer would have.`;
 }
 
+// The page image is fetched server-side from its own signed Supabase Storage URL rather than
+// uploaded in the request body. This app is deployed on Vercel (see vercel.json), whose Serverless
+// Functions hard-cap the incoming request body at 4.5MB regardless of any app-level size check —
+// a flyer page captured via html-to-image at pixelRatio:2 routinely exceeds that, which is exactly
+// why Improve worked on `vite dev` (no such limit) but failed in production with a raw "Request
+// Entity Too Large" 413 that isn't even JSON. Fetching the already-saved page from Storage instead
+// keeps the browser→function request tiny (just a URL + a couple of short strings) — the large
+// transfer becomes this function's own outbound fetch to Storage, which isn't subject to that cap.
+const inputSchema = z.object({
+  pageUrl: z.string().url(),
+  contextName: z.string().trim().min(1).max(100).optional(),
+  contextDescription: z.string().trim().min(1).max(500).optional()
+}).strict();
+
 export const POST: RequestHandler = async ({ request, url }) => {
   try {
     if (request.headers.get('origin') && request.headers.get('origin') !== url.origin)
       return json({ error: 'Invalid request origin.' }, { status: 403 });
-    const form = await request.formData();
-    const image = form.get('image');
-    if (!(image instanceof File) || !image.size) return json({ error: 'A flyer page image is required.' }, { status: 400 });
+    const input = inputSchema.safeParse(await request.json());
+    if (!input.success) return json({ error: 'A saved flyer page is required.' }, { status: 400 });
+    const pageResponse = await fetch(input.data.pageUrl);
+    if (!pageResponse.ok) throw new Error('Could not load this flyer page for improving.');
+    const image = await pageResponse.blob();
+    if (!image.size) return json({ error: 'This flyer page is empty.' }, { status: 400 });
     if (image.size > 20_000_000) return json({ error: 'This flyer page is too large to improve (over 20MB).' }, { status: 400 });
-    const contextName = form.get('contextName');
-    const contextDescription = form.get('contextDescription');
 
     const databaseUrl = env.VITE_SUPABASE_URL;
     const databaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY;
@@ -97,10 +113,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
     const form2 = new FormData();
     form2.append('model', 'gpt-image-2');
     form2.append('image[]', image, 'flyer-page.png');
-    form2.append('prompt', buildImprovePrompt(
-      typeof contextName === 'string' && contextName.trim() ? contextName.trim() : undefined,
-      typeof contextDescription === 'string' && contextDescription.trim() ? contextDescription.trim() : undefined
-    ));
+    form2.append('prompt', buildImprovePrompt(input.data.contextName, input.data.contextDescription));
     form2.append('size', '1024x1536');
     form2.append('quality', 'medium');
 
