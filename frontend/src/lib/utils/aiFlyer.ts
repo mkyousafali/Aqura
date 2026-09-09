@@ -44,6 +44,11 @@ export interface FlyerSnapshot {
   design: FlyerDesign;
   template?: FlyerTemplate;
   offerName?: string;
+  // Internal AI visual-direction guidance ("General Supermarket Offer", "Fruit & Vegetable
+  // Offer", ...) selected in the Generate Flyer window — never printed on the flyer itself.
+  // Carried in the snapshot so it survives into Save and is available again from the library
+  // (openPreview/improveFlyer) without a second lookup, per offer_context_ai_flyer_spec.md.
+  context?: { id: string; name: string; description: string } | null;
   logoUrl?: string;
   pageCount?: number;
   revision?: string;

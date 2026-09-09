@@ -30,6 +30,11 @@
     const qtyBadge = Number(p?.offer_qty) > 1
       ? [{ label: 'offer_qty_badge', x: w * .97 - badgeSize, y: h * .02, width: badgeSize, height: badgeSize }]
       : [];
+    // Pinned to the card's own top-left corner (mirroring the quantity badge's top-right) so
+    // it never competes for space with whatever image layout the variant count picks below.
+    const assortedBadge = slot.products.length > 1
+      ? [{ label: 'assorted_badge', x: w * .02, y: h * .02, width: w * .3, height: h * .065 }]
+      : [];
     return [
       // Height (not width) is what usually caps how big a tall, narrow product photo (a
       // bottle, a box) can render under object-fit:contain — so the image gets most of the
@@ -38,6 +43,7 @@
       { label: 'product_name_ar', x: w * .045, y: h * .735, width: w * .91, height: h * .09, fontSize: 19, color: '#e60024', bold: true, alignment: 'center' },
       { label: 'product_name_en', x: w * .045, y: h * .825, width: w * .91, height: h * .075, fontSize: 13, alignment: 'center' },
       ...qtyBadge,
+      ...assortedBadge,
       { label: 'price', x: w * .64, y: h * .48, width: w * .31, height: h * .075, fontSize: 20, bold: true, alignment: 'center' },
       { label: 'offer_price', x: w * .59, y: h * .55, width: w * .38, height: h * .14, fontSize: 40, color: '#ffffff', bold: true, alignment: 'center' },
       ...meta
@@ -48,34 +54,37 @@
     const images = variant ? slot.products.map(p => p.image_url).filter(Boolean) : Array(Math.min(Number(slot.products[0]?.offer_qty) || 1, 5)).fill(slot.products[0]?.image_url);
     const positions = variant ? config.variantImagePositions : config.offerQtyImagePositions;
     const sizes = variant ? config.variantImageSizes : config.offerQtyImageSizes;
-    if (variant && images.length > 1) {
-      // One hero product stays large and fully in front; the rest are smaller and tucked
-      // behind it along the top edge, peeking out — like a real product-family photo, rather
-      // than an equal-size grid (too rigid) or an even cascade (crops earlier images to slivers).
-      const restCount = images.length - 1;
-      const restSize = restCount === 1 ? 46 : restCount === 2 ? 40 : 34;
-      const restStep = restCount > 1 ? (100 - restSize) / (restCount - 1) : 0;
-      const heroSize = 62;
-      return images.map((url, index) => {
-        if (index === 0) return {
-          url, x: positions?.[0]?.x ?? 3 * config.width / 100, y: positions?.[0]?.y ?? 34 * config.height / 100,
-          width: sizes?.[0]?.width ?? heroSize, height: sizes?.[0]?.height ?? heroSize, z: 50
-        };
-        const restIndex = index - 1;
-        return {
-          url, x: positions?.[index]?.x ?? (restIndex * restStep) * config.width / 100, y: positions?.[index]?.y ?? 0,
-          width: sizes?.[index]?.width ?? restSize, height: sizes?.[index]?.height ?? restSize, z: restIndex + 1
-        };
-      });
-    }
-    // The same product repeated for a multi-buy quantity reads fine as a diagonal cascade —
-    // it's one item shown as a stack, not several distinct items competing to stay visible.
-    const overlap = .4;
-    const scale = images.length === 1 ? 100 : 100 / (1 + (images.length - 1) * (1 - overlap));
+    // A diagonal cascade works the same way whether it's several different products (a variant
+    // group) or the same product repeated for a multi-buy quantity — each photo now exports with
+    // its background genuinely removed (see trimProductPhoto), and a real product photo's own
+    // silhouette rarely fills its whole rectangular box, so the one behind still shows through
+    // the gaps at the overlap instead of being hidden by an opaque rectangle. Verified directly
+    // against this card's actual 4 product photos before landing on this over the hand-tuned
+    // per-count compositions tried earlier, which kept needing further fixes.
+    if (images.length === 1) return [{ url: images[0], x: 0, y: 0, width: 100, height: 100 }];
+    // More overlap counterintuitively means MORE room per image, not less: fewer/bigger steps
+    // fit across the same 100%-wide span. Variant groups get a higher overlap fraction than a
+    // repeated multi-buy photo specifically to give each distinct product as much size as
+    // possible, now that transparency makes the extra overlap safe.
+    const overlap = variant ? .55 : .4;
+    const scale = 100 / (1 + (images.length - 1) * (1 - overlap));
     const step = scale * (1 - overlap);
-    return images.map((url, index) => ({ url, x: positions?.[index]?.x ?? (images.length === 1 ? 0 : index * step * config.width / 100), y: positions?.[index]?.y ?? (images.length === 1 ? 0 : index * 5),
+    // The "متنوع" badge sits at the card's top-left corner (see assortedBadge below), covering
+    // roughly x:0-31%,y:0-9% of this image field — the first (top-left-most) cascade image would
+    // otherwise start right under it, so the whole band shifts down to clear that zone.
+    const yOffset = variant ? 10 : 0;
+    const yStep = variant ? 4 : 5;
+    // Give height as much room as the vertical stagger allows without the last image overflowing
+    // past the bottom of the field, regardless of how many images are in the group.
+    const heightCap = Math.min(88, 100 - yOffset - (images.length - 1) * yStep);
+    return images.map((url, index) => ({
+      url,
+      x: positions?.[index]?.x ?? index * step * config.width / 100,
+      y: positions?.[index]?.y ?? (yOffset + index * yStep) * config.height / 100,
       width: sizes?.[index]?.width ?? scale,
-      height: sizes?.[index]?.height ?? (images.length === 1 ? 100 : 88) }));
+      height: sizes?.[index]?.height ?? heightCap,
+      z: index + 1
+    }));
   }
   function box(field: any) {
     return `left:${field.x ?? 0}px;top:${field.y ?? 0}px;width:${field.width ?? 100}px;height:${field.height ?? 20}px;transform:rotate(${field.rotation || 0}deg);`;
@@ -117,7 +126,9 @@
             {/each}
             {#if field.variantIconUrl && slot.products.length > 1}
               <img class="asset" src={field.variantIconUrl} crossorigin="anonymous" alt="Varieties" style="left:{field.variantIconX || 0}px;top:{field.variantIconY || 0}px;width:{field.variantIconWidth || 50}px;height:{field.variantIconHeight || 50}px;z-index:20;" />
-            {:else if slot.products.length > 1}
+            {:else if slot.products.length > 1 && slot.field.fields?.length}
+              <!-- Configured template, no custom variant icon set — the default layout gets its
+                   own card-level "assorted_badge" field instead (see fieldsFor). -->
               <span class="assorted-badge" aria-hidden="true">متنوع</span>
             {/if}
           </div>
@@ -130,6 +141,8 @@
           {#if qtyText}
             <div class="qty-badge" data-fit-text data-field-label="offer_qty" style="{box(field)}font-size:{field.width * .3}px;"><span dir="rtl">{qtyText}</span></div>
           {/if}
+        {:else if type === 'assorted_badge'}
+          <span class="assorted-badge assorted-badge-card" style="{box(field)}font-size:{field.height * .5}px;" aria-hidden="true">متنوع</span>
         {:else if text}
           <div class="configured-field" class:price-panel={type === 'offer_price'} class:old-price-panel={type === 'price'} class:offer-title={type.startsWith('offer_name')} style={box(field)}>
             {#if field.iconUrl}<img class="asset" src={field.iconUrl} crossorigin="anonymous" alt="Template label background" style="left:{field.iconX || 0}px;top:{field.iconY || 0}px;width:{field.iconWidth || 20}px;height:{field.iconHeight || 20}px;" />{/if}
@@ -187,17 +200,25 @@
   .template-text[data-field-label="free_qty"]{background:linear-gradient(180deg,#fef6e4,#f7e8c4);border:1px solid #e3c98a;border-radius:6px;box-shadow:inset 0 1px 0 #fffdf5;}
   .price-panel{z-index:10;border-radius:7px;background:linear-gradient(135deg,#fa092c,#e40022);box-shadow:0 3px 5px rgba(120,0,0,.2),inset 0 1px 1px #ffffff40;}
   .asset{position:absolute;object-fit:contain;}.product-image{position:absolute;object-fit:contain;object-position:center bottom;width:auto;height:auto;filter:drop-shadow(2px 4px 3px rgba(0,0,0,.2));}
-  /* A fanned variant photo already sits in a short, roughly-centered band (see imagesFor) —
-     bottom-anchoring it there (right for a single tall bottle filling its full-height box)
-     just re-creates a gap at the other end, so let it center in its own box instead. */
+  /* Bottom-anchoring a variant's fanned images (to match the multi-buy cascade) pushed the
+     later/lower images in the stagger down far enough to collide with the price overlay above
+     them — the multi-buy cascade doesn't stagger downward by nearly as much per step. Centering
+     keeps each image's visible content in the middle of its own (increasingly lower) box instead
+     of hard against its bottom edge, clearing the price zone. */
   .product-image.variant-image{object-position:center;}
   .image-ground{position:absolute;left:18%;right:18%;bottom:4%;height:9%;border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.16),transparent 70%);}
   /* Default "Assorted" flag for a variant group with no template-supplied variant icon. */
-  .assorted-badge{position:absolute;left:4%;bottom:5%;z-index:21;background:linear-gradient(160deg,#ff8a2b,#e2530a);color:#fff;font:700 13px Tahoma,Arial,sans-serif;padding:.4em 1em;border-radius:999px;box-shadow:0 3px 6px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.35);}
+  /* Colored off the page's own --accent (the AI-chosen or user-selected theme for this flyer)
+     instead of a fixed orange, so badges actually vary flyer to flyer along with everything else. */
+  .assorted-badge{position:absolute;z-index:21;background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 75%,white 25%),color-mix(in srgb,var(--accent) 80%,black 20%));color:#fff;font:700 13px Tahoma,Arial,sans-serif;padding:.4em 1em;border-radius:999px;box-shadow:0 3px 6px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.35);}
+  .assorted-badge:not(.assorted-badge-card){left:4%;bottom:5%;}
+  /* Card-level variant: positioned/sized via box(field) at the card's top-left corner, so it
+     never depends on (or competes with) whatever image layout the variant count picks. */
+  .assorted-badge-card{box-sizing:border-box;display:flex;align-items:center;justify-content:center;text-align:center;padding:0;}
   /* Multi-buy quantity seal: one ringed circular badge holding all three lines ("on offer" /
      quantity / unit) — font-size is set inline (proportional to badge size) so every
      measurement below can just use em and scale with it. */
-  .qty-badge{position:absolute;box-sizing:border-box;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff8a4a,#e2530a 65%,#c23f05);border:.14em solid #fff;box-shadow:0 0 0 .08em #e2530a,0 .3em .5em rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:12;}
+  .qty-badge{position:absolute;box-sizing:border-box;border-radius:50%;background:radial-gradient(circle at 35% 30%,color-mix(in srgb,var(--accent) 65%,white 35%),var(--accent) 65%,color-mix(in srgb,var(--accent) 70%,black 30%));border:.14em solid #fff;box-shadow:0 0 0 .08em var(--accent),0 .3em .5em rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:12;}
   .qty-badge span{color:#fff;font:700 1em/1.15 Tahoma,Arial,sans-serif;text-align:center;white-space:pre-line;text-shadow:0 1px 1px rgba(0,0,0,.35);}
   .currency{height:.6em;max-width:1em;display:inline-block;vertical-align:baseline;margin-right:.12em;filter:brightness(0) invert(1);}
   .offer-title{text-shadow:0 1px 0 rgba(255,255,255,.4),0 2px 0 rgba(0,0,0,.15),0 3px 0 rgba(0,0,0,.12),0 5px 5px rgba(0,0,0,.2);}

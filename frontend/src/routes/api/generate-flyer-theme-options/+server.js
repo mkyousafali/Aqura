@@ -30,7 +30,7 @@ async function getOpenAiKey() {
 
 export async function POST({ request }) {
   try {
-    const { offerDescriptionAr } = await request.json();
+    const { offerDescriptionAr, offerContext, offerContextDescription } = await request.json();
 
     if (!offerDescriptionAr || !offerDescriptionAr.trim()) {
       return json({ error: 'Arabic offer name/description is required' }, { status: 400 });
@@ -76,7 +76,8 @@ export async function POST({ request }) {
           },
           {
             role: 'user',
-            content: `Offer description (Arabic): "${offerDescriptionAr}"`
+            content: `Offer description (Arabic): "${offerDescriptionAr}"` +
+              (offerContext ? `\n\nInternal offer context (visual-direction guidance only, never shown on the flyer): "${offerContext}" — ${offerContextDescription || ''}. Let this guide the themes; if it is a general/department-neutral context, keep the themes balanced across categories rather than leaning into one product type.` : '')
           }
         ]
       })
