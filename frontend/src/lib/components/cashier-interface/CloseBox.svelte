@@ -2467,7 +2467,7 @@
 										{#each supervisorCodeDigits as digit, i}
 											<input
 												id="supervisor-sig-{i}"
-												type="text"
+												type="password"
 												inputmode="numeric"
 												pattern="[0-9]*"
 												maxlength="1"
@@ -2499,7 +2499,7 @@
 										{#each cashierConfirmCodeDigits as digit, i}
 											<input
 												id="cashier-confirm-sig-{i}"
-												type="text"
+												type="password"
 												inputmode="numeric"
 												pattern="[0-9]*"
 												maxlength="1"

@@ -1184,7 +1184,7 @@
 											{#each cashierCodeDigits as digit, i}
 												<input
 													id="cashier-code-{i}"
-													type="text"
+													type="password"
 													inputmode="numeric"
 													pattern="[0-9]*"
 													maxlength="1"
@@ -1209,7 +1209,7 @@
 											{#each supervisorCodeDigits as digit, i}
 												<input
 													id="supervisor-code-{i}"
-													type="text"
+													type="password"
 													inputmode="numeric"
 													pattern="[0-9]*"
 													maxlength="1"
