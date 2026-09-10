@@ -22,6 +22,8 @@
 		detail: string;
 		amount: number | null;
 		isItemLevel: boolean;
+		remarks?: string | null;
+		actionPerformed?: string | null;
 	}
 
 	interface SummaryRow {
@@ -203,6 +205,45 @@
 	let selectedCashier: string | null = null;
 	let cappedItemRows = false;
 	let cappedGenericRows = false;
+	let exporting = false;
+	let reportContext = { branch: '', from: '', to: '' };
+
+	async function exportCanceledProducts() {
+		if (exporting || loading || !filteredEntries.length) return;
+		exporting = true;
+		errorMessage = '';
+		const groups = groupByEvent(filteredEntries.filter((r) => r.kind === 'Cancel selected product list'));
+		const context = { ...reportContext };
+		try {
+			const XLSX = await import('xlsx');
+			const workbook = XLSX.utils.book_new();
+			const actions = groups.map((g, index) => ({
+				'Action #': index + 1, Branch: context.branch, 'Date From': context.from, 'Date To': context.to,
+				Time: formatTime(g.time), Counter: g.counter, User: g.actor,
+				'Authorized By': g.authorizedBy || '', Type: g.kind,
+				'Product Count': g.items.length, 'Total Amount': g.total
+			}));
+			const products = groups.flatMap((g, index) => g.items.map((item) => ({
+				'Action #': index + 1, Branch: context.branch, Time: formatTime(item.time),
+				'Timestamp (branch local)': item.time.replace(/Z$/, ''), Counter: item.counter,
+				User: item.actor, 'Authorized By': item.authorizedBy || '', Type: item.kind,
+				Product: item.detail || '', Amount: item.amount,
+				Remarks: item.remarks || '', 'Action Details': item.actionPerformed || ''
+			})));
+			for (const [name, rows] of [['Actions', actions], ['Products', products]] as const) {
+				const sheet = XLSX.utils.json_to_sheet(rows);
+				sheet['!cols'] = Object.keys(rows[0] || {}).map((key) => ({ wch: key === 'Product' || key === 'Action Details' || key === 'Remarks' ? 55 : 24 }));
+				if (sheet['!ref']) sheet['!autofilter'] = { ref: sheet['!ref'] };
+				XLSX.utils.book_append_sheet(workbook, sheet, name);
+			}
+			XLSX.writeFile(workbook, `Canceled-products_${context.from}_${context.to}.xlsx`);
+		} catch (err) {
+			console.error('Error exporting canceled products:', err);
+			errorMessage = $t('userActionReports.exportFailed');
+		} finally {
+			exporting = false;
+		}
+	}
 
 	function toggleKindFilter(kind: string) {
 		selectedKind = selectedKind === kind ? null : kind;
@@ -384,6 +425,7 @@
 
 		const branch = branches.find((b) => b.branch_id === selectedBranchId);
 		if (!branch) return;
+		const requestedContext = { branch: branch.branch_name, from: dateFrom, to: dateTo };
 
 		loading = true;
 		errorMessage = '';
@@ -507,6 +549,8 @@
 				kind: deriveAuthorizeKind(r.MatchedAction, null),
 				detail: r.ProductName,
 				amount: r.Total,
+				remarks: r.Remarks,
+				actionPerformed: r.MatchedAction,
 				isItemLevel: true
 			}));
 
@@ -564,6 +608,7 @@
 				}));
 
 			allEntries = [...itemEntries, ...genericEntries];
+			reportContext = requestedContext;
 		} catch (err: any) {
 			console.error('Error loading user action report:', err);
 			errorMessage = err.message || $t('userActionReports.failedToLoadReport');
@@ -706,7 +751,14 @@
 	{#if groupedRows.length > 0}
 		<div class="content-split">
 			<div class="table-column section-block">
-				<h3 class="section-title">{$t('userActionReports.actionDetail')}</h3>
+				<div class="section-title-row">
+					<h3 class="section-title">{$t('userActionReports.actionDetail')}</h3>
+					{#if selectedKind === 'Cancel selected product list'}
+						<button class="run-btn" on:click={exportCanceledProducts} disabled={loading || exporting || cappedItemRows}>
+							{exporting ? $t('userActionReports.exporting') : $t('userActionReports.exportToExcel')}
+						</button>
+					{/if}
+				</div>
 				<div class="table-wrapper">
 					<table>
 						<thead>

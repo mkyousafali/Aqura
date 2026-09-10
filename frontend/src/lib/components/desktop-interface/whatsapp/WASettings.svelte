@@ -951,8 +951,8 @@
                                     {/each}
                                     <tr class="hover:bg-emerald-50/30 transition-colors bg-slate-50/20">
                                         <td class="px-4 py-3 text-center"><span class="text-xl">🤖</span></td>
-                                        <td class="px-4 py-3"><span class="text-sm font-bold text-slate-700">Auto Reply</span></td>
-                                        <td class="px-4 py-3"><span class="text-xs text-slate-500">Automatically reply outside business hours</span></td>
+                                        <td class="px-4 py-3"><span class="text-sm font-bold text-slate-700">Auto Reply (Master Switch)</span></td>
+                                        <td class="px-4 py-3"><span class="text-xs text-slate-500">Master switch — off blocks ALL auto-reply triggers and the AI Bot, even if the AI Bot itself is "Active". Also editable from the AI Reply window dashboard.</span></td>
                                         <td class="px-4 py-3 text-center">
                                             <button class="relative w-11 h-6 rounded-full transition-colors duration-300 {settings.auto_reply_enabled ? 'bg-emerald-500' : 'bg-slate-300'}"
                                                 on:click={() => settings && (settings.auto_reply_enabled = !settings.auto_reply_enabled)}>

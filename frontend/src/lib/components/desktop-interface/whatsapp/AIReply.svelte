@@ -14,6 +14,13 @@
 	let isEnabled = false;
 	let togglingBot = false;
 	let refreshingStats = false;
+
+	// Master auto-reply switch — gates the ENTIRE webhook auto-reply/AI-bot pipeline
+	// (wa_settings.auto_reply_enabled). Also editable in WhatsApp Settings, kept in
+	// sync here since it silently blocks AI replies even while the bot above is "Active".
+	let waAccountId: string | null = null;
+	let masterAutoReplyEnabled = false;
+	let togglingMaster = false;
 	let tokensUsed = 0;
 	let promptTokensUsed = 0;
 	let completionTokensUsed = 0;
@@ -179,7 +186,48 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
 		await loadIdentity();
+		await loadMasterAutoReply();
 	});
+
+	async function loadMasterAutoReply() {
+		try {
+			const { data: account } = await supabase
+				.from('wa_accounts')
+				.select('id')
+				.eq('status', 'connected')
+				.order('is_default', { ascending: false })
+				.limit(1)
+				.maybeSingle();
+			if (!account) return;
+			waAccountId = account.id;
+
+			const { data: settings } = await supabase
+				.from('wa_settings')
+				.select('auto_reply_enabled')
+				.eq('wa_account_id', waAccountId)
+				.maybeSingle();
+			masterAutoReplyEnabled = settings?.auto_reply_enabled ?? false;
+		} catch (err) {
+			console.error('Error loading master auto-reply switch:', err);
+		}
+	}
+
+	async function toggleMasterAutoReply() {
+		if (!waAccountId) return;
+		togglingMaster = true;
+		const next = !masterAutoReplyEnabled;
+		try {
+			const { error } = await supabase
+				.from('wa_settings')
+				.update({ auto_reply_enabled: next })
+				.eq('wa_account_id', waAccountId);
+			if (error) throw error;
+			masterAutoReplyEnabled = next;
+		} catch (err) {
+			console.error('Error toggling master auto-reply switch:', err);
+		}
+		togglingMaster = false;
+	}
 
 	async function loadIdentity() {
 		loading = true;
@@ -625,7 +673,33 @@ Do NOT escalate for general questions about products, offers, hours, or prices �
 						</button>
 					</div>
 
-					<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+					{#if waAccountId && !masterAutoReplyEnabled}
+						<div class="mb-2.5 flex items-center justify-between gap-3 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+							<div class="text-[11px] text-rose-700 font-bold">
+								🚨 Master Auto-Reply switch is OFF — no AI reply or auto-reply trigger is sending anything, even though Bot Status below says Active.
+							</div>
+							<button
+								class="whitespace-nowrap px-3 py-1.5 rounded text-[10px] font-bold bg-rose-600 text-white hover:bg-rose-700 transition-all disabled:opacity-50"
+								on:click={toggleMasterAutoReply} disabled={togglingMaster}>
+								{togglingMaster ? '...' : 'Turn On Now'}
+							</button>
+						</div>
+					{/if}
+
+					<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+						<!-- Master auto-reply switch — wa_settings.auto_reply_enabled, gates the whole webhook pipeline -->
+						<div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-col justify-between">
+							<div class="text-[9px] font-bold text-slate-500 uppercase leading-tight" title="Master switch — must be ON for the AI Bot or any auto-reply trigger to send messages">Auto-Reply Master</div>
+							<div class="text-sm font-black {masterAutoReplyEnabled ? 'text-emerald-600' : 'text-slate-400'} leading-tight my-0.5">
+								{masterAutoReplyEnabled ? '🟢 On' : '⚪ Off'}
+							</div>
+							<button
+								class="w-full px-2 py-1 rounded text-[10px] font-bold transition-all disabled:opacity-50 {masterAutoReplyEnabled ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-emerald-600 text-white hover:bg-emerald-700'}"
+								on:click={toggleMasterAutoReply} disabled={togglingMaster || !waAccountId}>
+								{togglingMaster ? '...' : (masterAutoReplyEnabled ? 'Turn Off' : 'Turn On')}
+							</button>
+						</div>
+
 						<!-- Bot switch -->
 						<div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-col justify-between">
 							<div class="text-[9px] font-bold text-slate-500 uppercase leading-tight">Bot Status</div>

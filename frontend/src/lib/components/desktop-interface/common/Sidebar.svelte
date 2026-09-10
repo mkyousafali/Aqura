@@ -8301,6 +8301,107 @@ function openApprovalCenter() {
 		font-size: 0.7rem !important;
 		opacity: 0.7;
 	}
+
+	/* Compact sidebar usability refresh. Keep the established 154px width. */
+	.sidebar {
+		background: linear-gradient(180deg, #26384b 0%, #172536 48%, #111d2b 100%);
+		border-right-color: rgba(148, 163, 184, 0.22);
+		box-shadow: 3px 0 18px rgba(2, 8, 23, 0.42);
+	}
+
+	.sidebar::before {
+		height: 120px;
+		background: linear-gradient(160deg, rgba(255, 255, 255, 0.055), transparent 72%);
+	}
+
+	.sidebar-content {
+		padding: 12px 9px 4px;
+		gap: 6px;
+	}
+
+	.view-mode-toggle,
+	.bottom-controls-row {
+		border-color: rgba(148, 163, 184, 0.25);
+		background: rgba(15, 23, 42, 0.3);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 6px rgba(2, 8, 23, 0.2);
+	}
+
+	.menu-section {
+		margin-bottom: 4px;
+	}
+
+	.section-button,
+	.submenu-subsection-button,
+	.submenu-subsection-button.icon-only,
+	.submenu-item,
+	.submenu-inline .submenu-item {
+		align-items: center;
+		min-height: 40px;
+		padding: 9px 8px;
+		gap: 7px;
+		border-radius: 8px;
+		border-color: rgba(148, 163, 184, 0.28);
+		background: rgba(15, 23, 42, 0.42);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 1px 3px rgba(2, 8, 23, 0.18);
+		color: #f8fafc;
+		font-size: 11.5px;
+		font-weight: 600;
+		line-height: 1.2;
+		text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+	}
+
+	.section-button:hover,
+	.submenu-subsection-button:hover,
+	.submenu-item:hover,
+	.submenu-inline .submenu-item:hover {
+		background: rgba(37, 99, 235, 0.34);
+		border-color: rgba(96, 165, 250, 0.72);
+		box-shadow: inset 3px 0 0 #38bdf8, inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 6px rgba(2, 8, 23, 0.2);
+		transform: none;
+	}
+
+	.section-button:has(.arrow.expanded) {
+		background: linear-gradient(90deg, rgba(37, 99, 235, 0.55), rgba(30, 64, 175, 0.34));
+		border-color: rgba(96, 165, 250, 0.72);
+		box-shadow: inset 3px 0 0 #38bdf8, inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 2px 7px rgba(2, 8, 23, 0.24);
+	}
+
+	.section-button:focus-visible,
+	.submenu-subsection-button:focus-visible,
+	.submenu-item:focus-visible {
+		outline: 2px solid #7dd3fc;
+		outline-offset: 1px;
+	}
+
+	.section-icon,
+	.menu-icon,
+	.submenu-subsection-button .menu-icon {
+		width: 20px;
+		height: 20px;
+		font-size: 16px;
+		filter: none;
+	}
+
+	.section-text,
+	.menu-text,
+	.submenu-subsection-button .menu-text,
+	.submenu-subsection-button.icon-only .menu-text {
+		font-weight: 600;
+		line-height: 1.2;
+	}
+
+	.arrow,
+	.submenu-subsection-button .arrow,
+	.submenu-subsection-button.icon-only .arrow {
+		margin-left: auto;
+		font-size: 9px;
+		opacity: 0.9;
+	}
+
+	.submenu-inline {
+		background: rgba(2, 8, 23, 0.14);
+		border-color: rgba(148, 163, 184, 0.14);
+	}
 </style>
 
 
