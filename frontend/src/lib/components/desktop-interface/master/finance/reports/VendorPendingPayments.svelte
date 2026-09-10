@@ -3,6 +3,57 @@
 	import { _ as t, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { buildVendorPaymentsExport } from '$lib/utils/vendorPaymentsExport';
+
+	let exporting = false;
+	async function exportToExcel() {
+		if (exporting || loading || erpBalancesLoading) return;
+		exporting = true;
+		try {
+			const branchId = selectedErpBranchId;
+			const { headers, rows, sections } = buildVendorPaymentsExport({
+				vendors: filteredTableVendors, branches, selectedBranchId: branchId,
+				bills: rawBillsUnpaid, expenses: rawExpensesUnpaid,
+				overdueBills: rawBillsOverdue, overdueExpenses: rawExpensesOverdue, erp: erpBranchResults
+			});
+			const failedBranches = [...erpFailedBranches];
+			const XLSX = (await import('xlsx-js-style')).default;
+			const sectionHeaders = headers.map(() => '');
+			for (const section of sections) sectionHeaders[section.start] = section.title;
+			const sheet = XLSX.utils.aoa_to_sheet([sectionHeaders, headers, ...rows]);
+			sheet['!merges'] = sections.filter(section => section.end > section.start).map(section => ({
+				s: { r: 0, c: section.start }, e: { r: 0, c: section.end }
+			}));
+			sheet['!rows'] = [{ hpt: 28 }, { hpt: 42 }];
+			for (const section of sections) for (let c = section.start; c <= section.end; c++) {
+				for (let r = 0; r < 2; r++) {
+					sheet[XLSX.utils.encode_cell({ r, c })].s = {
+						font: { bold: true, color: { rgb: 'FFFFFF' }, sz: r === 0 ? 13 : 10 },
+						fill: { fgColor: { rgb: section.color } },
+						alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+						border: { right: { style: 'thin', color: { rgb: 'FFFFFF' } } }
+					};
+				}
+			}
+			sheet['!cols'] = headers.map((_, i) => ({ wch: i === 1 ? 45 : i === 0 ? 6 : i === 2 ? 16 : 24 }));
+			sheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: rows.length + 1, c: headers.length - 1 } }) };
+			for (let r = 2; r <= rows.length + 1; r++) for (let c = 3; c < headers.length; c++) {
+				const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+				if (cell?.t === 'n') cell.z = '#,##0.00';
+			}
+			const workbook = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(workbook, sheet, 'Vendor Payments');
+			if (failedBranches.length) XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+				['ERP balances may be incomplete. Unreachable branches:'], ...failedBranches.map(name => [name])
+			]), 'ERP Status');
+			XLSX.writeFile(workbook, `Vendor_Payments_${branchId ? `Branch_${branchId}` : 'All_Branches'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+		} catch (error) {
+			console.error('Vendor payments export failed:', error);
+			alert($currentLocale === 'ar' ? 'تعذر تصدير الملف. يرجى المحاولة مرة أخرى.' : 'Could not export the Excel file. Please try again.');
+		} finally {
+			exporting = false;
+		}
+	}
 
 	let loading = true;
 	let vendors: Array<{ vendor_id: string; vendor_name: string }> = [];
@@ -1025,6 +1076,11 @@
 			<!-- Account tab: full vendor table with search + scroll-to-load-more -->
 			<div class="flex-1 flex flex-col overflow-hidden px-4 pt-3 pb-4">
 				<!-- Search bar + branch filter + count — search on its own line, filter+count together on a second line on mobile -->
+				<div class="flex justify-end mb-2 flex-shrink-0">
+					<button class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed" on:click={exportToExcel} disabled={loading || erpBalancesLoading || exporting || filteredTableVendors.length === 0}>
+						{exporting ? ($currentLocale === 'ar' ? 'جارٍ التصدير...' : 'Exporting...') : ($currentLocale === 'ar' ? 'تصدير إلى Excel' : 'Export to Excel')}
+					</button>
+				</div>
 				<div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 mb-3 flex-shrink-0">
 					<div class="relative flex-1 max-w-md">
 						<div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
@@ -1052,7 +1108,7 @@
 							class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-300 transition-all shadow-sm flex-1 md:flex-shrink-0 min-w-0"
 							title="Filter balances by branch"
 						>
-							<option value="">{$t('vendorPaymentFilters.selectBranch') || 'All Branches'}</option>
+							<option value="">{$currentLocale === 'ar' ? 'جميع الفروع' : 'All Branches'}</option>
 							{#each branches as branch}
 								<option value={branch.id.toString()}>{branch.location_en ? `${branch.name_en} - ${branch.location_en}` : branch.name_en}</option>
 							{/each}
