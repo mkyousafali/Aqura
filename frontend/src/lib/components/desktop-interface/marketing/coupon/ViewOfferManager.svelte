@@ -125,6 +125,25 @@
 		return `${day}/${month}/${year}`;
 	}
 
+	// Manually pull an offer down (or bring it back) — a direct status flip on view_offer, the
+	// same column the AI-Generated Flyers Publish feature uses; this table's own status is
+	// otherwise date-only (see isOfferExpired/getRemainingTime below) and never showed this state.
+	async function toggleOfferStatus(offer: any) {
+		const newStatus = offer.status === 'unpublished' ? 'published' : 'unpublished';
+		try {
+			const { error } = await supabase
+				.from('view_offer')
+				.update({ status: newStatus, updated_at: new Date().toISOString() })
+				.eq('id', offer.id);
+			if (error) throw error;
+			offer.status = newStatus;
+			offers = [...offers];
+		} catch (error) {
+			console.error('Error updating offer status:', error);
+			alert('Could not update this offer\'s status.');
+		}
+	}
+
 	function isOfferExpired(endDate: string, endTime: string): boolean {
 		const offerEnd = new Date(`${endDate}T${endTime}`);
 		return new Date() > offerEnd;
@@ -249,7 +268,9 @@
 								<td>{formatDate(offer.end_date)}</td>
 								<td>{convertTo12Hour(offer.start_time)} - {convertTo12Hour(offer.end_time)}</td>
 								<td class="status-cell">
-									{#if isOfferExpired(offer.end_date, offer.end_time)}
+									{#if offer.status === 'unpublished'}
+										<span class="status-badge unpublished">⏸️ Unpublished</span>
+									{:else if isOfferExpired(offer.end_date, offer.end_time)}
 										<span class="status-badge expired">🔴 Expired</span>
 									{:else}
 										<span class="status-badge active">{getRemainingTime(offer.end_date, offer.end_time)}</span>
@@ -263,12 +284,20 @@
 								</td>
 								<td class="action-cell">
 									<div class="action-buttons">
-										<button 
+										<button
 											class="edit-btn"
 											on:click={() => openEditOfferWindow(offer.id, offer.offer_name)}
 											title="Edit Offer"
 										>
 											✏️ Edit
+										</button>
+										<button
+											class="toggle-btn"
+											class:reactivate={offer.status === 'unpublished'}
+											on:click={() => toggleOfferStatus(offer)}
+											title={offer.status === 'unpublished' ? 'Activate Offer' : 'Deactivate Offer'}
+										>
+											{offer.status === 'unpublished' ? '▶️ Activate' : '⏸️ Deactivate'}
 										</button>
 										{#if offer.file_url}
 											<a 
@@ -481,6 +510,11 @@
 		color: #166534;
 	}
 
+	.status-badge.unpublished {
+		background: #f3f4f6;
+		color: #4b5563;
+	}
+
 	.count-cell {
 		text-align: center;
 	}
@@ -533,6 +567,38 @@
 
 	.edit-btn:active {
 		transform: translateY(0);
+	}
+
+	.toggle-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.5rem 0.9rem;
+		background: #fee2e2;
+		color: #991b1b;
+		border: 1px solid #fca5a5;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.toggle-btn:hover {
+		background: #fca5a5;
+		border-color: #f87171;
+		transform: translateY(-1px);
+	}
+
+	.toggle-btn.reactivate {
+		background: #dcfce7;
+		color: #166534;
+		border-color: #86efac;
+	}
+
+	.toggle-btn.reactivate:hover {
+		background: #86efac;
+		border-color: #4ade80;
 	}
 
 	.view-btn {

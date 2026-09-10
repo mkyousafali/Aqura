@@ -103,7 +103,17 @@
 	};
 
 	let mounted = false;
-	let permittedButtons: Array<{ id: string; button_code: string; button_name_en: string; section_name: string; checked: boolean }> = [];
+	let permittedButtons: Array<{
+		id: string;
+		button_code: string;
+		button_name_en: string;
+		section_name: string;
+		subsection_name: string;
+		section_order: number;
+		subsection_order: number;
+		button_order: number;
+		checked: boolean;
+	}> = [];
 	let loadingButtons = false;
 	let savingFavorites = false;
 	let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -307,6 +317,12 @@
 		return sectionName;
 	}
 
+	function getSubsectionLabel(subsectionName: string): string {
+		const key = `nav.${subsectionName.toLowerCase()}`;
+		const translated = t(key);
+		return translated && translated !== key ? translated : subsectionName;
+	}
+
 	onMount(async () => {
 		mounted = true;
 		
@@ -333,17 +349,15 @@
 		favoritesStore.load($currentUser.id, $currentUser.employee_id || null);
 	}
 
-	// Load buttons when favorites panel opens
-	$: if ($favoritesPanelOpen && permittedButtons.length === 0) {
+	// Refresh every time the panel opens so removed buttons and permission
+	// changes never remain cached in the manager.
+	$: if ($favoritesPanelOpen) {
 		loadPermittedButtons();
 	}
 
 	async function toggleFavoritesPanel() {
 		const isOpen = !$favoritesPanelOpen;
 		favoritesPanelOpen.set(isOpen);
-		if (isOpen && permittedButtons.length === 0) {
-			await loadPermittedButtons();
-		}
 	}
 
 	function handleLogoClick() {
@@ -370,11 +384,27 @@
 			// [[button-permission-system-rewrite]].
 			const catalogRes = await fetch('/api/parse-sidebar');
 			const catalog = await catalogRes.json();
-			const catalogButtons: Array<{ code: string; name: string; section: string }> = [];
-			for (const section of catalog.sections || []) {
-				for (const subsection of section.subsections || []) {
-					for (const button of subsection.buttons || []) {
-						catalogButtons.push({ code: button.code, name: button.name, section: section.name });
+			const catalogButtons: Array<{
+				code: string;
+				name: string;
+				section: string;
+				subsection: string;
+				sectionOrder: number;
+				subsectionOrder: number;
+				buttonOrder: number;
+			}> = [];
+			for (const [sectionOrder, section] of (catalog.sections || []).entries()) {
+				for (const [subsectionOrder, subsection] of (section.subsections || []).entries()) {
+					for (const [buttonOrder, button] of (subsection.buttons || []).entries()) {
+						catalogButtons.push({
+							code: button.code,
+							name: button.name,
+							section: section.name,
+							subsection: subsection.name,
+							sectionOrder,
+							subsectionOrder,
+							buttonOrder
+						});
 					}
 				}
 			}
@@ -402,9 +432,13 @@
 					button_code: b.code,
 					button_name_en: b.name,
 					section_name: b.section,
+					subsection_name: b.subsection,
+					section_order: b.sectionOrder,
+					subsection_order: b.subsectionOrder,
+					button_order: b.buttonOrder,
 					checked: favCodes.has(b.code)
 				}))
-				.sort((a, b) => a.section_name.localeCompare(b.section_name) || a.button_name_en.localeCompare(b.button_name_en));
+				.sort((a, b) => a.section_order - b.section_order || a.subsection_order - b.subsection_order || a.button_order - b.button_order);
 		} catch (err) {
 			console.error('Error loading permitted buttons:', err);
 		} finally {
@@ -485,19 +519,23 @@
 						<div class="empty-msg">{t('nav.noPermittedButtons') || 'No permitted buttons found.'}</div>
 					{:else}
 						{@const groupedButtons = permittedButtons.reduce((acc, btn) => {
-							if (!acc[btn.section_name]) acc[btn.section_name] = [];
-							acc[btn.section_name].push(btn);
+							if (!acc[btn.section_name]) acc[btn.section_name] = {};
+							if (!acc[btn.section_name][btn.subsection_name]) acc[btn.section_name][btn.subsection_name] = [];
+							acc[btn.section_name][btn.subsection_name].push(btn);
 							return acc;
-						}, {} as Record<string, typeof permittedButtons>)}
-						{#each Object.entries(groupedButtons) as [section, buttons]}
+						}, {} as Record<string, Record<string, typeof permittedButtons>>)}
+						{#each Object.entries(groupedButtons) as [section, subsections]}
 							<div class="section-group">
 								<div class="section-title">{getSectionLabel(section)}</div>
-								{#each buttons as btn}
-									<label class="favorite-item">
-									<input type="checkbox" bind:checked={btn.checked} on:change={onFavoriteToggle} />
-									<span class="btn-icon">{buttonIconMap[btn.button_code] || '📌'}</span>
-										<span class="btn-name">{getButtonLabel(btn.button_code, btn.button_name_en)}</span>
-									</label>
+								{#each Object.entries(subsections) as [subsection, buttons]}
+									<div class="subsection-title">{getSubsectionLabel(subsection)}</div>
+									{#each buttons as btn}
+										<label class="favorite-item">
+											<input type="checkbox" bind:checked={btn.checked} on:change={onFavoriteToggle} />
+											<span class="btn-icon">{buttonIconMap[btn.button_code] || '📌'}</span>
+											<span class="btn-name">{getButtonLabel(btn.button_code, btn.button_name_en)}</span>
+										</label>
+									{/each}
 								{/each}
 							</div>
 						{/each}
@@ -669,6 +707,15 @@
 		border-bottom: 1px solid #e5e7eb;
 		margin-bottom: 4px;
 		letter-spacing: 0.5px;
+	}
+
+	.subsection-title {
+		margin: 8px 4px 3px 28px;
+		color: #64748b;
+		font-size: 0.68rem;
+		font-weight: 700;
+		letter-spacing: 0.45px;
+		text-transform: uppercase;
 	}
 
 	.favorite-item {

@@ -35,13 +35,51 @@
   let libraryPage = 0;
   let hasMore = false;
   let deletingId = '';
-  let preview: { id: string; title: string; pages: string[]; pagePaths: string[]; context: { id: string; name: string; description: string } | null } | null = null;
+  let preview: { id: string; title: string; pages: string[]; pagePaths: string[]; startDate: string; endDate: string; context: { id: string; name: string; description: string } | null; publications: FlyerPublication[] } | null = null;
   let previewBusy = false;
+  // Publish: links a saved flyer to real, scheduled row(s) in view_offer — the same table the
+  // Login page, Offers page and the WhatsApp Live Chat AI already read live offers from. A flyer
+  // can be published to several branches at once, independently — each is one row in
+  // ai_flyer_publications, carrying which of the flyer's pages that branch's publication covers.
+  interface PublishedOffer { status: 'published' | 'unpublished' | 'expired'; start_date: string; start_time: string; end_date: string; end_time: string }
+  interface FlyerPublication { branch_id: number; page_paths: string[]; offer: PublishedOffer }
+  let branches: { id: number; name_en: string; name_ar: string }[] = [];
+  // publishingBranchId: the branch this dialog session is editing (null while adding a new one).
+  let publishTarget: { id: string; title: string; pagePaths: string[]; startDate: string; endDate: string; publishingBranchId: number | null; publications: FlyerPublication[] } | null = null;
+  let publishing = false;
+  let publishError = '';
+  let unpublishingKey: string | null = null; // `${flyerId}:${branchId}` of the publication currently being unpublished
+  let publishBranchId = '';
+  let publishOfferName = '';
+  let publishStartDate = '', publishStartDateDisplay = '';
+  let publishStartHour = '12', publishStartMinute = '00', publishStartPeriod = 'AM';
+  let publishEndDate = '', publishEndDateDisplay = '';
+  let publishEndHour = '11', publishEndMinute = '59', publishEndPeriod = 'PM';
+  // Page checklist in the Publish dialog — parallel arrays to publishTarget.pagePaths.
+  let publishPageChecked: boolean[] = [];
+  let publishPageThumbs: string[] = [];
   // Reviewing an AI "Improve" pass before committing it — parallel to preview.pages; empty
   // means nothing has been improved yet (still showing the saved originals).
   let improvedPages: string[] = [];
   let improving = false;
   let improveError = '';
+  // Region Edit: regenerates one small, user-drawn box on a single saved page, instead of the
+  // whole page (see /api/ai-flyers/edit-region). editIndex is which page in preview.pages/pagePaths
+  // is being edited (null = the edit overlay is closed). Box coordinates are always kept in the
+  // page image's own real pixel space (not on-screen CSS px) — toEditDisplayBox() converts to
+  // on-screen px only for rendering the drawn rectangle.
+  let editIndex: number | null = null;
+  let editImgEl: HTMLImageElement;
+  let editDrawing = false;
+  let editDragStartReal: { x: number; y: number } | null = null;
+  let editBox: { x: number; y: number; width: number; height: number } | null = null;
+  let editInstruction = '';
+  let editBusy = false;
+  let editError = '';
+  // Set once an edit comes back from the AI — the full composited page, awaiting Accept/Discard,
+  // same review-before-commit shape as the Improve flow.
+  let editResultUrl = '';
+  const editInstructionChips = ['أضف شارة عرض', 'غيّر الكمية إلى 1 فقط', 'احذف هذه الشارة', 'صحّح هذا النص', 'غيّر منطقة السعر فقط', 'غيّر شكل الشارة'];
   let mounted = false;
   let themeOptions: string[] = [];
   let colorTheme = '';
@@ -55,9 +93,10 @@
 
   onMount(async () => {
     mounted = true;
-    const [offersResult, contextsResult] = await Promise.all([
+    const [offersResult, contextsResult, branchesResult] = await Promise.all([
       supabase.from('flyer_offers').select('id, template_name, start_date, end_date, offer_names:offer_name_id(name_en, name_ar)').eq('is_active', true).order('created_at', { ascending: false }),
-      supabase.from('flyer_offer_contexts').select('id, name, description').eq('is_active', true).order('sort_order')
+      supabase.from('flyer_offer_contexts').select('id, name, description').eq('is_active', true).order('sort_order'),
+      supabase.from('branches').select('id, name_en, name_ar').eq('is_active', true).order('name_en')
     ]);
     if (offersResult.error) error = `Could not load offers: ${offersResult.error.message}`;
     else offers = offersResult.data || [];
@@ -67,6 +106,7 @@
       // since most promotions mix products from several departments.
       if (!contextId && contexts.length) contextId = contexts[0].id;
     }
+    if (!branchesResult.error) branches = branchesResult.data || [];
   });
 
   function discardGeneration() {
@@ -348,25 +388,31 @@
     } catch (e) { error = e instanceof Error ? e.message : 'Download failed.'; }
     finally { busy = false; }
   }
+  // Shared by the Download-as-PDF button and Publish (which needs the PDF bytes to store, not
+  // hand to the browser) — one PDF page per flyer page, sized to that page's real dimensions.
+  async function buildPdfBlob(pages: string[]): Promise<Blob | null> {
+    const { jsPDF } = await import('jspdf');
+    let pdf: InstanceType<typeof jsPDF> | undefined;
+    for (let i = 0; i < pages.length; i++) {
+      const blob = await pageBlob(pages[i]);
+      const image = await createImageBitmap(blob);
+      // PNGs are captured at 2x; retain each template page's original physical dimensions.
+      const width = image.width / 2 * 25.4 / 96, height = image.height / 2 * 25.4 / 96;
+      image.close();
+      const orientation = width > height ? 'landscape' : 'portrait';
+      if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format: [width, height], compress: true });
+      else pdf.addPage([width, height], orientation);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      pdf.addImage(bytes, 'PNG', 0, 0, width, height, undefined, 'FAST');
+    }
+    return pdf ? pdf.output('blob') : null;
+  }
   async function downloadPdf(pages = flyerPages.filter(p => p.status === 'done').map(p => p.url), name = title) {
     if (busy) return;
     busy = true; error = '';
     try {
-      const { jsPDF } = await import('jspdf');
-      let pdf: InstanceType<typeof jsPDF> | undefined;
-      for (let i = 0; i < pages.length; i++) {
-        const blob = await pageBlob(pages[i]);
-        const image = await createImageBitmap(blob);
-        // PNGs are captured at 2x; retain each template page's original physical dimensions.
-        const width = image.width / 2 * 25.4 / 96, height = image.height / 2 * 25.4 / 96;
-        image.close();
-        const orientation = width > height ? 'landscape' : 'portrait';
-        if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format: [width, height], compress: true });
-        else pdf.addPage([width, height], orientation);
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        pdf.addImage(bytes, 'PNG', 0, 0, width, height, undefined, 'FAST');
-      }
-      if (pdf) download(pdf.output('blob'), `${fileName(name)}.pdf`);
+      const pdf = await buildPdfBlob(pages);
+      if (pdf) download(pdf, `${fileName(name)}.pdf`);
     } catch (e) { error = e instanceof Error ? e.message : 'PDF download failed.'; }
     finally { busy = false; }
   }
@@ -400,11 +446,26 @@
   }
 
   async function loadLibrary() {
-    loadingLibrary = true; libraryError = '';
-    const result = await supabase.from('ai_generated_flyers').select('id,title,start_date,end_date,page_count,product_count,page_paths,created_at,context:snapshot->context').order('created_at', { ascending: false }).range(libraryPage * 20, libraryPage * 20 + 20);
+    loadingLibrary = true; libraryError = ''; success = '';
+    const result = await supabase.from('ai_generated_flyers').select('id,title,start_date,end_date,page_count,product_count,page_paths,created_at,context:snapshot->context,publications:ai_flyer_publications(branch_id,page_paths,offer:view_offer_id(status,start_date,start_time,end_date,end_time))').order('created_at', { ascending: false }).range(libraryPage * 20, libraryPage * 20 + 20);
     if (result.error) libraryError = `Could not load saved flyers: ${result.error.message}`;
     else { hasMore = result.data.length > 20; library = result.data.slice(0, 20); }
     loadingLibrary = false;
+  }
+  // A flyer can be published to several branches at once — one badge per publication, instead of
+  // one badge per flyer. Published / Unpublished / Expired — same 4-state idea as the status pill
+  // already used for customer-app offers (OfferManagement.svelte); no publications at all just
+  // shows nothing (the row/dialog falls back to "Not Published" text elsewhere).
+  function publicationStatusBadge(pub: FlyerPublication): { text: string; cls: string } {
+    const status = pub.offer?.status;
+    if (status === 'published') return { text: 'Published', cls: 'status-published' };
+    if (status === 'unpublished') return { text: 'Unpublished', cls: 'status-unpublished' };
+    if (status === 'expired') return { text: 'Expired', cls: 'status-expired' };
+    return { text: status || '', cls: 'status-none' };
+  }
+  function branchLabel(branchId: number): string {
+    const b = branches.find(x => x.id === branchId);
+    return b ? b.name_en : `Branch ${branchId}`;
   }
   // Delete the database row first, then its page files — the storage cleanup policy only permits
   // removing a page file once no ai_generated_flyers row references it any more (see
@@ -426,9 +487,175 @@
     try {
       const result = await supabase.storage.from(bucket).createSignedUrls(row.page_paths, 3600);
       if (result.error || result.data?.some((p: any) => !p.signedUrl)) throw new Error('Could not load all saved pages.');
-      preview = { id: row.id, title: row.title, pages: result.data.map((p: any) => p.signedUrl), pagePaths: row.page_paths, context: row.context || null };
+      preview = { id: row.id, title: row.title, pages: result.data.map((p: any) => p.signedUrl), pagePaths: row.page_paths, startDate: row.start_date, endDate: row.end_date, context: row.context || null, publications: row.publications || [] };
     } catch (e) { libraryError = e instanceof Error ? e.message : 'Preview failed.'; }
     finally { previewBusy = false; }
+  }
+
+  // Date/time conversion helpers — same shape as AddOfferDialog.svelte's (that dialog owns the
+  // only other start/end date+time UI in this app), duplicated here rather than shared since
+  // that's the existing convention (ViewOfferManager.svelte also keeps its own copy).
+  function toISODate(displayDate: string): string {
+    if (!displayDate) return '';
+    const parts = displayDate.split('/');
+    if (parts.length !== 3) return displayDate;
+    const [day, month, year] = parts;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  function toDisplayDate(isoDate: string): string {
+    if (!isoDate) return '';
+    const [year, month, day] = isoDate.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  function convert12HourTo24Hour(hour: string, period: string): string {
+    let h = parseInt(hour, 10);
+    if (period === 'PM' && h !== 12) h += 12;
+    if (period === 'AM' && h === 12) h = 0;
+    return String(h).padStart(2, '0');
+  }
+  function to12Hour(time24: string): [string, string, string] {
+    if (!time24) return ['12', '00', 'AM'];
+    const [hStr, mStr] = time24.split(':');
+    let h = parseInt(hStr, 10);
+    const period = h >= 12 ? 'PM' : 'AM';
+    if (h === 0) h = 12; else if (h > 12) h -= 12;
+    return [String(h).padStart(2, '0'), (mStr || '00').padStart(2, '0'), period];
+  }
+
+  // Publish: opens with sensible defaults. Passing an existing branchId edits that branch's own
+  // publication (its saved schedule + exactly the pages it currently includes, so "Republish"
+  // mostly means "confirm"); omitting it starts a fresh publication to a NEW branch (every page
+  // checked by default) — the flyer's other branches, if any, are left completely untouched
+  // either way, since each is its own row in ai_flyer_publications.
+  // Accepts either a library row (page_paths/start_date/end_date) or the open preview object
+  // (pagePaths/startDate/endDate) — both carry the same flyer, just under different field names.
+  function openPublishDialog(row: any, branchId: number | null = null) {
+    publishError = '';
+    const pagePaths: string[] = row.page_paths || row.pagePaths;
+    const startDate = row.start_date || row.startDate;
+    const endDate = row.end_date || row.endDate;
+    const publications: FlyerPublication[] = row.publications || [];
+    publishTarget = { id: row.id, title: row.title, pagePaths, startDate, endDate, publishingBranchId: branchId, publications };
+    publishOfferName = row.title;
+    const existing = branchId != null ? publications.find(p => p.branch_id === branchId) : undefined;
+    if (existing) {
+      publishBranchId = String(branchId);
+      publishStartDate = existing.offer.start_date; publishStartDateDisplay = toDisplayDate(existing.offer.start_date);
+      [publishStartHour, publishStartMinute, publishStartPeriod] = to12Hour(existing.offer.start_time);
+      publishEndDate = existing.offer.end_date; publishEndDateDisplay = toDisplayDate(existing.offer.end_date);
+      [publishEndHour, publishEndMinute, publishEndPeriod] = to12Hour(existing.offer.end_time);
+      publishPageChecked = pagePaths.map(p => existing.page_paths.includes(p));
+    } else {
+      publishBranchId = '';
+      publishStartDate = startDate; publishStartDateDisplay = toDisplayDate(startDate);
+      publishStartHour = '12'; publishStartMinute = '00'; publishStartPeriod = 'AM';
+      publishEndDate = endDate; publishEndDateDisplay = toDisplayDate(endDate);
+      publishEndHour = '11'; publishEndMinute = '59'; publishEndPeriod = 'PM';
+      publishPageChecked = pagePaths.map(() => true);
+    }
+    publishPageThumbs = pagePaths.map(() => '');
+    loadPublishPageThumbs(pagePaths);
+  }
+  async function loadPublishPageThumbs(pagePaths: string[]) {
+    try {
+      const result = await supabase.storage.from(bucket).createSignedUrls(pagePaths, 3600);
+      if (!result.error) publishPageThumbs = (result.data || []).map((p: any) => p?.signedUrl || '');
+    } catch { /* thumbnails are a nice-to-have, never block the dialog */ }
+  }
+  function closePublishDialog() {
+    if (publishing) return;
+    publishTarget = null; publishError = ''; publishPageChecked = []; publishPageThumbs = [];
+  }
+
+  // Publishing needs an actual stored PDF/thumbnail (not the 1-hour signed URLs the flyer's own
+  // private bucket hands out) — builds one via the same logic as Download-as-PDF, from only the
+  // CHECKED pages, then uploads it to the public offer-pdfs bucket AddOfferDialog.svelte already
+  // uses, and finally calls the publish_ai_flyer RPC to do the view_offer insert/update + link +
+  // log atomically for this one branch, leaving any of the flyer's other branch publications
+  // (if any) completely untouched.
+  async function submitPublish() {
+    if (!publishTarget || publishing) return;
+    if (!publishBranchId || !publishOfferName.trim() || !publishStartDate || !publishEndDate) {
+      publishError = 'Please fill in the branch, offer name and both dates.';
+      return;
+    }
+    if (!publishPageChecked.some(Boolean)) {
+      publishError = 'Select at least one page to publish.';
+      return;
+    }
+    const startTime24 = convert12HourTo24Hour(publishStartHour, publishStartPeriod) + ':' + publishStartMinute;
+    const endTime24 = convert12HourTo24Hour(publishEndHour, publishEndPeriod) + ':' + publishEndMinute;
+    if (new Date(`${publishStartDate}T${startTime24}`) >= new Date(`${publishEndDate}T${endTime24}`)) {
+      publishError = 'End date/time must be after start date/time.';
+      return;
+    }
+
+    publishing = true; publishError = '';
+    try {
+      // Reuse the open preview's signed page URLs when publishing from there; otherwise fetch
+      // fresh ones (the flyer's own bucket is private — there's no other way to read a page).
+      const allPageUrls = preview && preview.id === publishTarget.id ? preview.pages : await (async () => {
+        const result = await supabase.storage.from(bucket).createSignedUrls(publishTarget!.pagePaths, 3600);
+        if (result.error || result.data?.some((p: any) => !p.signedUrl)) throw new Error("Could not read this flyer's pages.");
+        return result.data.map((p: any) => p.signedUrl as string);
+      })();
+      const selectedPagePaths = publishTarget.pagePaths.filter((_, i) => publishPageChecked[i]);
+      const pageUrls = allPageUrls.filter((_, i) => publishPageChecked[i]);
+
+      const pdfBlob = await buildPdfBlob(pageUrls);
+      if (!pdfBlob) throw new Error('Could not build a PDF from this flyer.');
+      const thumbBlob = await pageBlob(pageUrls[0]);
+
+      // File names include the branch, since the same flyer can now be published to several
+      // branches at once — each needs its own stored PDF/thumbnail, not a shared one.
+      const pdfPath = `ai-flyer-${publishTarget.id}-${publishBranchId}.pdf`;
+      const thumbPath = `ai-flyer-thumb-${publishTarget.id}-${publishBranchId}.png`;
+      const [pdfUpload, thumbUpload] = await Promise.all([
+        supabase.storage.from('offer-pdfs').upload(pdfPath, pdfBlob, { contentType: 'application/pdf', upsert: true }),
+        supabase.storage.from('offer-pdfs').upload(thumbPath, thumbBlob, { contentType: 'image/png', upsert: true })
+      ]);
+      if (pdfUpload.error) throw pdfUpload.error;
+      if (thumbUpload.error) throw thumbUpload.error;
+      const fileUrl = supabase.storage.from('offer-pdfs').getPublicUrl(pdfPath).data.publicUrl;
+      const thumbnailUrl = supabase.storage.from('offer-pdfs').getPublicUrl(thumbPath).data.publicUrl;
+
+      const rpc = await supabase.rpc('publish_ai_flyer', {
+        p_flyer_id: publishTarget.id,
+        p_branch_id: Number(publishBranchId),
+        p_offer_name: publishOfferName.trim(),
+        p_start_date: publishStartDate,
+        p_start_time: startTime24,
+        p_end_date: publishEndDate,
+        p_end_time: endTime24,
+        p_file_url: fileUrl,
+        p_thumbnail_url: thumbnailUrl,
+        p_page_paths: selectedPagePaths
+      });
+      if (rpc.error) throw rpc.error;
+
+      const publishedId = publishTarget.id;
+      publishTarget = null; publishPageChecked = []; publishPageThumbs = [];
+      await loadLibrary();
+      success = 'Flyer published.';
+      if (preview && preview.id === publishedId) preview = { ...preview, publications: library.find(r => r.id === publishedId)?.publications || [] };
+    } catch (e) {
+      publishError = e instanceof Error ? e.message : 'Could not publish this flyer.';
+    } finally { publishing = false; }
+  }
+
+  async function unpublishFlyer(row: any, branchId: number) {
+    const key = `${row.id}:${branchId}`;
+    if (unpublishingKey) return;
+    if (!confirm(`Unpublish "${row.title}" from ${branchLabel(branchId)}? It stops showing on the Login/Offers pages and stops being sent by the WhatsApp AI immediately for that branch.`)) return;
+    unpublishingKey = key; libraryError = '';
+    try {
+      const result = await supabase.rpc('unpublish_ai_flyer', { p_flyer_id: row.id, p_branch_id: branchId });
+      if (result.error) throw result.error;
+      await loadLibrary();
+      success = 'Flyer unpublished.';
+      if (preview && preview.id === row.id) preview = { ...preview, publications: library.find(r => r.id === row.id)?.publications || [] };
+    } catch (e) { libraryError = e instanceof Error ? e.message : 'Could not unpublish this flyer.'; }
+    finally { unpublishingKey = null; }
   }
 
   // Runs every saved page through the fixed "improve, change nothing it says" AI pass — one
@@ -498,9 +725,141 @@
     improvedPages = []; improveError = '';
   }
   function closePreview() {
-    if (busy || improving) return;
+    if (busy || improving || editBusy) return;
     discardImprovement();
+    closeRegionEdit();
     preview = null;
+  }
+
+  // ─── Region Edit: regenerate one drawn box on one page, not the whole page ─────────────────
+  function loadImageEl(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Could not load an image.'));
+      img.src = src;
+    });
+  }
+  const EDIT_MIN_BOX = 12; // real image px — smaller than this is treated as an accidental click, not a drawn box
+
+  function openRegionEdit(index: number) {
+    if (busy || improving || editBusy || improvedPages.length) return;
+    editIndex = index; editBox = null; editInstruction = ''; editError = ''; editResultUrl = '';
+  }
+  function closeRegionEdit() {
+    if (editBusy) return;
+    if (editResultUrl) URL.revokeObjectURL(editResultUrl);
+    editIndex = null; editBox = null; editDrawing = false; editDragStartReal = null;
+    editInstruction = ''; editError = ''; editResultUrl = '';
+  }
+  // Cancels only the current box/result, keeping the overlay open on the same page so the user
+  // can immediately draw the next one — the "select another area and make the next change" step.
+  function resetEditBox() {
+    if (editResultUrl) URL.revokeObjectURL(editResultUrl);
+    editBox = null; editDrawing = false; editDragStartReal = null; editInstruction = ''; editError = ''; editResultUrl = '';
+  }
+
+  // Converts a pointer event to the page image's own real pixel space, regardless of how large
+  // the <img> is actually rendered on screen (it's shown scaled-to-fit, not at 1:1).
+  function editPointToReal(e: PointerEvent): { x: number; y: number } {
+    const rect = editImgEl.getBoundingClientRect();
+    const scaleX = editImgEl.naturalWidth / rect.width, scaleY = editImgEl.naturalHeight / rect.height;
+    return {
+      x: Math.max(0, Math.min(editImgEl.naturalWidth, (e.clientX - rect.left) * scaleX)),
+      y: Math.max(0, Math.min(editImgEl.naturalHeight, (e.clientY - rect.top) * scaleY))
+    };
+  }
+  // The inverse — real image px back to on-screen CSS px — so the drawn-box overlay div lines up
+  // with the image exactly as it's currently displayed.
+  function toEditDisplayBox(box: { x: number; y: number; width: number; height: number }) {
+    const rect = editImgEl.getBoundingClientRect();
+    const scaleX = rect.width / editImgEl.naturalWidth, scaleY = rect.height / editImgEl.naturalHeight;
+    return { left: box.x * scaleX, top: box.y * scaleY, width: box.width * scaleX, height: box.height * scaleY };
+  }
+
+  function startEditBox(e: PointerEvent) {
+    if (editBusy || editResultUrl || !editImgEl?.naturalWidth) return;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    editDragStartReal = editPointToReal(e);
+    editBox = { x: editDragStartReal.x, y: editDragStartReal.y, width: 0, height: 0 };
+    editDrawing = true;
+  }
+  function moveEditBox(e: PointerEvent) {
+    if (!editDrawing || !editDragStartReal) return;
+    const cur = editPointToReal(e);
+    editBox = {
+      x: Math.min(editDragStartReal.x, cur.x), y: Math.min(editDragStartReal.y, cur.y),
+      width: Math.abs(cur.x - editDragStartReal.x), height: Math.abs(cur.y - editDragStartReal.y)
+    };
+  }
+  function endEditBox() {
+    if (!editDrawing) return;
+    editDrawing = false;
+    // Too small to be a deliberate box — treat as an accidental click, not a selection.
+    if (!editBox || editBox.width < EDIT_MIN_BOX || editBox.height < EDIT_MIN_BOX) editBox = null;
+  }
+
+  async function cropRegionDataUrl(imgUrl: string, box: { x: number; y: number; width: number; height: number }): Promise<string> {
+    const img = await pageBlob(imgUrl).then(b => loadImageEl(URL.createObjectURL(b)));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(box.width)); canvas.height = Math.max(1, Math.round(box.height));
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, box.x, box.y, box.width, box.height, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  }
+  // Pastes the AI's edited crop back onto the full page at the exact drawn-box coordinates —
+  // force-fit to the box's own dimensions (drawImage's scaling form) regardless of whatever
+  // resolution the AI actually returned, so the result always lands pixel-exact on the box.
+  async function compositeEditedRegion(fullImgUrl: string, box: { x: number; y: number; width: number; height: number }, editedBlob: Blob): Promise<string> {
+    const [fullImg, editedImg] = await Promise.all([
+      pageBlob(fullImgUrl).then(b => loadImageEl(URL.createObjectURL(b))),
+      loadImageEl(URL.createObjectURL(editedBlob))
+    ]);
+    const canvas = document.createElement('canvas');
+    canvas.width = fullImg.naturalWidth; canvas.height = fullImg.naturalHeight;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(fullImg, 0, 0);
+    ctx.drawImage(editedImg, 0, 0, editedImg.naturalWidth, editedImg.naturalHeight, box.x, box.y, box.width, box.height);
+    return canvas.toDataURL('image/png');
+  }
+
+  async function submitRegionEdit() {
+    if (editIndex === null || !editBox || !editInstruction.trim() || editBusy || !preview) return;
+    editBusy = true; editError = '';
+    try {
+      const pageUrl = preview.pages[editIndex];
+      const cropUrl = await cropRegionDataUrl(pageUrl, editBox);
+      const response = await fetch('/api/ai-flyers/edit-region', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageDataUrl: cropUrl, instruction: editInstruction.trim(), contextName: preview.context?.name, contextDescription: preview.context?.description }),
+        signal: AbortSignal.timeout(110000)
+      });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null);
+        throw new Error(failure?.error || `Could not edit this region (server responded ${response.status}).`);
+      }
+      const editedBlob = await response.blob();
+      editResultUrl = await compositeEditedRegion(pageUrl, editBox, editedBlob);
+    } catch (e) { editError = e instanceof Error ? e.message : 'Could not edit this region.'; }
+    finally { editBusy = false; }
+  }
+  async function acceptRegionEdit() {
+    if (editIndex === null || !editResultUrl || !preview || editBusy) return;
+    editBusy = true; editError = '';
+    try {
+      const path = preview.pagePaths[editIndex];
+      const result = await supabase.storage.from(bucket).upload(path, await pageBlob(editResultUrl), { contentType: 'image/png', upsert: true });
+      if (result.error) throw result.error;
+      const newPages = [...preview.pages];
+      newPages[editIndex] = editResultUrl; // keep using the local composited data URL — no need to re-sign
+      preview = { ...preview, pages: newPages };
+      // Ready for the next box on this same page, per "select another area and make the next change."
+      editBox = null; editInstruction = ''; editResultUrl = '';
+    } catch (e) { editError = e instanceof Error ? e.message : 'Could not save this edit.'; }
+    finally { editBusy = false; }
+  }
+  function discardRegionEdit() {
+    resetEditBox();
   }
   function focusDialog(node: HTMLElement) {
     const previous = document.activeElement as HTMLElement | null;
@@ -551,13 +910,13 @@
     <div class="toolbar"><h2>AI Generated Flyers</h2><button disabled={loadingLibrary} on:click={loadLibrary}>Refresh</button></div>
     {#if libraryError}<p class="error" role="alert">{libraryError}</p>{/if}
     {#if loadingLibrary}<p>Loading saved flyers…</p>{:else if !library.length && !libraryError}<p>No AI flyers have been saved yet.</p>{:else}
-      <div class="table-scroll"><table><thead><tr><th>Flyer</th><th>Offer dates</th><th>Products</th><th>Pages</th><th>Saved</th><th>Action</th></tr></thead><tbody>{#each library as row}<tr><td>{row.title}</td><td>{row.start_date} — {row.end_date}</td><td>{row.product_count}</td><td>{row.page_count}</td><td>{new Date(row.created_at).toLocaleString()}</td><td class="row-actions"><button disabled={previewBusy || !!deletingId} on:click={() => openPreview(row)}>Preview</button><button disabled={previewBusy || !!deletingId} on:click={() => deleteFlyer(row)}>{deletingId === row.id ? 'Deleting…' : 'Delete'}</button></td></tr>{/each}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Flyer</th><th>Offer dates</th><th>Products</th><th>Pages</th><th>Saved</th><th>Published to</th><th>Action</th></tr></thead><tbody>{#each library as row}<tr><td>{row.title}</td><td>{row.start_date} — {row.end_date}</td><td>{row.product_count}</td><td>{row.page_count}</td><td>{new Date(row.created_at).toLocaleString()}</td><td class="pub-chips">{#if row.publications?.length}{#each row.publications as pub (pub.branch_id)}<span class="status-badge {publicationStatusBadge(pub).cls}">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}{#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={previewBusy || !!deletingId || unpublishingKey === `${row.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(row, pub.branch_id)}>✕</button>{/if}</span>{/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</td><td class="row-actions"><button disabled={previewBusy || !!deletingId} on:click={() => openPreview(row)}>Preview</button><button disabled={previewBusy || !!deletingId} on:click={() => openPublishDialog(row)}>Publish</button><button disabled={previewBusy || !!deletingId} on:click={() => deleteFlyer(row)}>{deletingId === row.id ? 'Deleting…' : 'Delete'}</button></td></tr>{/each}</tbody></table></div>
       <div class="toolbar"><button disabled={!libraryPage || loadingLibrary} on:click={() => { libraryPage--; loadLibrary(); }}>Previous</button><span>Page {libraryPage + 1}</span><button disabled={!hasMore || loadingLibrary} on:click={() => { libraryPage++; loadLibrary(); }}>Next</button></div>
     {/if}
   {/if}
   {#if progress}<p role="status">{progress}</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
-  {#if success && section === 'generate'}<p class="success" role="status">{success}</p>{/if}
+  {#if success}<p class="success" role="status">{success}</p>{/if}
   {#if section === 'generate' && flyerPages.length}
     <div class="previews">
       {#each flyerPages as page (page.pageNumber)}
@@ -587,6 +946,9 @@
     <div class="preview-dialog" role="dialog" aria-modal="true" aria-label={preview.title} tabindex="-1" use:focusDialog>
       <div class="toolbar">
         <h2>{preview.title}</h2>
+        {#if !improvedPages.length}
+          <div class="pub-chips">{#if preview.publications.length}{#each preview.publications as pub (pub.branch_id)}<span class="status-badge {publicationStatusBadge(pub).cls}">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}{#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={busy || improving || unpublishingKey === `${preview.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(preview!, pub.branch_id)}>✕</button>{/if}</span>{/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</div>
+        {/if}
         {#if improvedPages.length}
           <button class="primary" disabled={busy || improving} title={improving ? 'Wait for every page to finish improving first' : ''} on:click={acceptImprovement}>Done</button>
           <button disabled={busy || improving} on:click={discardImprovement}>Discard</button>
@@ -594,6 +956,7 @@
           <button disabled={busy} on:click={() => downloadPng(preview!.pages, preview!.title)}>Download PNG</button>
           <button disabled={busy} on:click={() => downloadPdf(preview!.pages, preview!.title)}>Download as PDF</button>
           <button disabled={busy || improving} on:click={improveFlyer}>{improving ? 'Improving…' : '✨ Improve'}</button>
+          <button disabled={busy || improving} on:click={() => openPublishDialog(preview)}>Publish</button>
           <button disabled={improving} on:click={closePreview}>Close</button>
         {/if}
       </div>
@@ -602,11 +965,126 @@
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       {#if improveError}<p class="error" role="alert">{improveError}</p>{/if}
       {#if success}<p class="success" role="status">{success}</p>{/if}
-      <div class="saved-pages">{#each (improvedPages.length ? improvedPages : preview.pages) as page, i}<figure><img src={page} alt={`Saved flyer page ${i + 1}`} /><figcaption>Page {i + 1}</figcaption></figure>{/each}</div>
+      <div class="saved-pages">{#each (improvedPages.length ? improvedPages : preview.pages) as page, i}<figure><img src={page} alt={`Saved flyer page ${i + 1}`} /><figcaption>Page {i + 1}{#if !improvedPages.length}<button class="edit-page-btn" disabled={busy || improving} on:click={() => openRegionEdit(i)}>Edit</button>{/if}</figcaption></figure>{/each}</div>
+    </div>
+  </div>
+{/if}
+{#if preview && editIndex !== null}
+  <div class="preview-overlay" role="presentation">
+    <div class="preview-dialog edit-region-dialog" role="dialog" aria-modal="true" aria-label={`Edit page ${editIndex + 1}`} tabindex="-1">
+      <div class="toolbar">
+        <h2>Edit page {editIndex + 1}</h2>
+        <p class="hint">Draw a box around the exact area to change, then describe the change. Only that area is regenerated.</p>
+        <button disabled={editBusy} on:click={closeRegionEdit}>Close</button>
+      </div>
+      <div
+        class="edit-canvas"
+        on:pointerdown={startEditBox}
+        on:pointermove={moveEditBox}
+        on:pointerup={endEditBox}
+        on:pointercancel={endEditBox}
+      >
+        <img bind:this={editImgEl} src={preview.pages[editIndex]} alt={`Page ${editIndex + 1}`} draggable="false" />
+        {#if editBox}
+          {@const d = toEditDisplayBox(editBox)}
+          <div class="edit-box" style="left:{d.left}px;top:{d.top}px;width:{d.width}px;height:{d.height}px;"></div>
+        {/if}
+        {#if editResultUrl}<img class="edit-result-overlay" src={editResultUrl} alt="Edited result preview" draggable="false" />{/if}
+      </div>
+      {#if editError}<p class="error" role="alert">{editError}</p>{/if}
+      {#if editBox && !editDrawing}
+        <div class="edit-panel">
+          {#if editResultUrl}
+            <p class="hint">Reviewing this change — Accept to save it and pick another area, or Discard to try again.</p>
+            <div class="toolbar">
+              <button class="primary" disabled={editBusy} on:click={acceptRegionEdit}>{editBusy ? 'Saving…' : 'Accept'}</button>
+              <button disabled={editBusy} on:click={discardRegionEdit}>Discard</button>
+            </div>
+          {:else}
+            <div class="edit-chips">{#each editInstructionChips as chip}<button type="button" disabled={editBusy} on:click={() => (editInstruction = chip)}>{chip}</button>{/each}</div>
+            <label>Instruction<textarea bind:value={editInstruction} maxlength="300" rows="2" disabled={editBusy} placeholder="e.g. أضف شارة 1 كرتون"></textarea></label>
+            <div class="toolbar">
+              <button class="primary" disabled={editBusy || !editInstruction.trim()} on:click={submitRegionEdit}>{editBusy ? 'Applying…' : 'Apply'}</button>
+              <button disabled={editBusy} on:click={resetEditBox}>Cancel</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+{#if publishTarget}
+  <div class="preview-overlay" role="presentation">
+    <div class="preview-dialog publish-dialog" role="dialog" aria-modal="true" aria-label={`Publish ${publishTarget.title}`} tabindex="-1">
+      <h2>Publish "{publishTarget.title}"</h2>
+      <p class="hint">Sets when this flyer appears on the Login/Offers pages and is sent by the WhatsApp AI — it disappears automatically at the end date/time, or immediately if you Unpublish it.</p>
+      <div class="form-grid">
+        <label>Branch
+          <select bind:value={publishBranchId} disabled={publishing}>
+            <option value="">Select a branch</option>
+            {#each branches as b}<option value={b.id}>{b.name_en}</option>{/each}
+          </select>
+        </label>
+        <label>Offer name<input bind:value={publishOfferName} maxlength="255" disabled={publishing} /></label>
+        <label>Start date
+          <input type="text" placeholder="dd/mm/yyyy" bind:value={publishStartDateDisplay} on:blur={() => (publishStartDate = toISODate(publishStartDateDisplay))} disabled={publishing} />
+        </label>
+        <label>Start time
+          <div class="time-input-group">
+            <input type="number" min="1" max="12" bind:value={publishStartHour} class="hour-input" disabled={publishing} />
+            <span class="time-separator">:</span>
+            <input type="number" min="0" max="59" bind:value={publishStartMinute} class="minute-input" disabled={publishing} />
+            <select bind:value={publishStartPeriod} class="period-select" disabled={publishing}><option value="AM">AM</option><option value="PM">PM</option></select>
+          </div>
+        </label>
+        <label>End date
+          <input type="text" placeholder="dd/mm/yyyy" bind:value={publishEndDateDisplay} on:blur={() => (publishEndDate = toISODate(publishEndDateDisplay))} disabled={publishing} />
+        </label>
+        <label>End time
+          <div class="time-input-group">
+            <input type="number" min="1" max="12" bind:value={publishEndHour} class="hour-input" disabled={publishing} />
+            <span class="time-separator">:</span>
+            <input type="number" min="0" max="59" bind:value={publishEndMinute} class="minute-input" disabled={publishing} />
+            <select bind:value={publishEndPeriod} class="period-select" disabled={publishing}><option value="AM">AM</option><option value="PM">PM</option></select>
+          </div>
+        </label>
+      </div>
+      <p class="hint">Pages to include for this branch — uncheck any you don't want in the published PDF.</p>
+      <div class="publish-pages">
+        {#each publishTarget.pagePaths as path, i (path)}
+          <label class="publish-page" class:unchecked={!publishPageChecked[i]}>
+            <input type="checkbox" bind:checked={publishPageChecked[i]} disabled={publishing} />
+            {#if publishPageThumbs[i]}<img src={publishPageThumbs[i]} alt={`Page ${i + 1}`} />{:else}<span class="publish-page-loading">…</span>{/if}
+            <span>Page {i + 1}</span>
+          </label>
+        {/each}
+      </div>
+      {#if publishError}<p class="error" role="alert">{publishError}</p>{/if}
+      <div class="toolbar">
+        <button class="primary" disabled={publishing} on:click={submitPublish}>{publishing ? 'Publishing…' : 'Publish'}</button>
+        <button disabled={publishing} on:click={closePublishDialog}>Cancel</button>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .ai-workspace{padding:24px;color:#172033;background:#f5f7fb;min-height:100%;}h2{font-size:22px;font-weight:700;margin:0;}p{margin:12px 0;color:#475569;}.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:18px 0;}.toolbar h2{margin-right:auto;align-self:center;}label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;flex:1;min-width:200px;}select,input{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:10px;color:#172033;width:100%;}button{padding:10px 16px;border:1px solid #cbd5e1;background:white;border-radius:8px;font-weight:600;color:#172033;cursor:pointer;}button.primary{background:#4338ca;color:white;border-color:#4338ca;}button:disabled{opacity:.5;cursor:not-allowed;}.error{background:#fef2f2;color:#991b1b;padding:12px;border-radius:8px;overflow-wrap:anywhere;}.success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:8px;}.hint{font-size:12px;}.theme-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 18px;}.theme-option{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:13px;font-weight:600;cursor:pointer;}.theme-option.selected{border-color:#4338ca;background:#eef2ff;color:#3730a3;}.theme-option input{margin:0;}.previews{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}figure{margin:0;}figure img{width:100%;height:auto;background:white;box-shadow:0 2px 10px #0002;}figcaption{text-align:center;padding:8px;font-size:13px;}.tile-placeholder{aspect-ratio:2/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:white;box-shadow:0 2px 10px #0002;border-radius:4px;color:#64748b;font-size:13px;}.spinner{width:26px;height:26px;border:3px solid #c7d2fe;border-top-color:#4338ca;border-radius:50%;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}.tile-error{color:#991b1b;padding:16px;text-align:center;gap:12px;}.tile-error p{margin:0;color:inherit;}.render-host{position:fixed;left:-12000px;top:0;width:794px;pointer-events:none;}.table-scroll{overflow:auto;}.row-actions{display:flex;gap:8px;}table{width:100%;border-collapse:collapse;background:white;}th,td{padding:12px;text-align:left;border-bottom:1px solid #e2e8f0;}th{background:#eef2ff;font-size:13px;}.preview-overlay{position:fixed;inset:0;background:#0f172acc;z-index:10050;padding:24px;display:flex;justify-content:center;}.preview-dialog{background:#f5f7fb;border-radius:12px;overflow:auto;padding:24px;width:min(1050px,100%);}.saved-pages{max-width:794px;margin:auto;display:grid;gap:24px;}
+  .ai-workspace{padding:24px;color:#172033;background:#f5f7fb;min-height:100%;}h2{font-size:22px;font-weight:700;margin:0;}p{margin:12px 0;color:#475569;}.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:18px 0;}.toolbar h2{margin-right:auto;align-self:center;}label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;flex:1;min-width:200px;}select,input{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:10px;color:#172033;width:100%;}button{padding:10px 16px;border:1px solid #cbd5e1;background:white;border-radius:8px;font-weight:600;color:#172033;cursor:pointer;}button.primary{background:#4338ca;color:white;border-color:#4338ca;}button:disabled{opacity:.5;cursor:not-allowed;}.error{background:#fef2f2;color:#991b1b;padding:12px;border-radius:8px;overflow-wrap:anywhere;}.success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:8px;}.hint{font-size:12px;}.theme-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 18px;}.theme-option{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:13px;font-weight:600;cursor:pointer;}.theme-option.selected{border-color:#4338ca;background:#eef2ff;color:#3730a3;}.theme-option input{margin:0;}.previews{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}figure{margin:0;}figure img{width:100%;height:auto;background:white;box-shadow:0 2px 10px #0002;}figcaption{text-align:center;padding:8px;font-size:13px;}.tile-placeholder{aspect-ratio:2/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:white;box-shadow:0 2px 10px #0002;border-radius:4px;color:#64748b;font-size:13px;}.spinner{width:26px;height:26px;border:3px solid #c7d2fe;border-top-color:#4338ca;border-radius:50%;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}.tile-error{color:#991b1b;padding:16px;text-align:center;gap:12px;}.tile-error p{margin:0;color:inherit;}.render-host{position:fixed;left:-12000px;top:0;width:794px;pointer-events:none;}.table-scroll{overflow:auto;}.row-actions{display:flex;gap:8px;}table{width:100%;border-collapse:collapse;background:white;}th,td{padding:12px;text-align:left;border-bottom:1px solid #e2e8f0;}th{background:#eef2ff;font-size:13px;}.preview-overlay{position:fixed;inset:0;background:#0f172acc;z-index:10050;padding:24px;display:flex;justify-content:center;}.preview-dialog{background:#f5f7fb;border-radius:12px;overflow:auto;padding:24px;width:min(1050px,100%);}.saved-pages{max-width:794px;margin:auto;display:grid;gap:24px;}.status-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;}.status-badge.status-none{background:#e2e8f0;color:#475569;}.status-badge.status-published{background:#dcfce7;color:#166534;}.status-badge.status-unpublished{background:#fef3c7;color:#92400e;}.status-badge.status-expired{background:#fee2e2;color:#991b1b;}.publish-dialog{width:min(600px,100%);}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:16px 0;}.time-input-group{display:flex;align-items:center;gap:6px;}.hour-input,.minute-input{width:56px;text-align:center;}.time-separator{font-weight:700;color:#475569;}.period-select{width:auto;}input[type=number].hour-input::-webkit-outer-spin-button,input[type=number].hour-input::-webkit-inner-spin-button,input[type=number].minute-input::-webkit-outer-spin-button,input[type=number].minute-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.saved-pages figcaption{display:flex;align-items:center;justify-content:center;gap:10px;}.edit-page-btn{padding:4px 12px;font-size:12px;}
+.edit-region-dialog{width:min(900px,100%);}
+.edit-canvas{position:relative;max-width:100%;width:fit-content;margin:12px auto;touch-action:none;cursor:crosshair;}
+.edit-canvas img{display:block;max-width:100%;max-height:70vh;width:auto;height:auto;user-select:none;-webkit-user-drag:none;}
+.edit-box{position:absolute;border:2px dashed #4338ca;background:rgba(67,56,202,.12);pointer-events:none;}
+.edit-result-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:white;}
+.edit-panel{background:white;border:1px solid #cbd5e1;border-radius:10px;padding:16px;margin-top:12px;}
+.edit-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}.edit-chips button{padding:6px 12px;font-size:12px;background:#eef2ff;border-color:#c7d2fe;color:#3730a3;}
+.pub-chips{display:flex;flex-wrap:wrap;gap:8px;}.pub-chips .status-badge{display:inline-flex;align-items:center;gap:6px;}
+.chip-x{padding:0;width:16px;height:16px;min-width:16px;border:none;background:rgba(0,0,0,.15);color:inherit;border-radius:50%;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}.chip-x:disabled{opacity:.5;cursor:not-allowed;}
+.publish-pages{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;}
+.publish-page{display:flex;flex-direction:column;align-items:center;gap:6px;width:110px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:12px;font-weight:600;cursor:pointer;}
+.publish-page.unchecked{opacity:.45;}
+.publish-page img{width:100%;height:110px;object-fit:contain;background:#f5f7fb;border-radius:4px;}
+.publish-page-loading{width:100%;height:110px;display:flex;align-items:center;justify-content:center;background:#f5f7fb;border-radius:4px;color:#94a3b8;}
+.publish-page input{width:auto;}
+.edit-panel textarea{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:10px;color:#172033;width:100%;font:inherit;resize:vertical;}
 </style>

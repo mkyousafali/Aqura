@@ -158,6 +158,12 @@
 		let vacanciesChannel: ReturnType<typeof supabase.channel> | undefined;
 		let branchesChannel: ReturnType<typeof supabase.channel> | undefined;
 
+		// Realtime only fires when a view_offer row actually changes — it never fires just
+		// because the clock passed a stored start/end time. Re-checking on an interval is what
+		// makes a published offer actually appear/disappear on schedule for someone already
+		// sitting on this page, without waiting for an unrelated write or a manual refresh.
+		const offerScheduleTimer = setInterval(loadOffers, 45000);
+
 		const realtimeTimer = setTimeout(() => {
 			// Live-refresh the branding as soon as it's changed/saved in BrandingManager (no manual reload needed)
 			channel = supabase
@@ -194,6 +200,7 @@
 
 		return () => {
 			clearTimeout(realtimeTimer);
+			clearInterval(offerScheduleTimer);
 			if (channel) supabase.removeChannel(channel);
 			if (offersChannel) supabase.removeChannel(offersChannel);
 			if (vacanciesChannel) supabase.removeChannel(vacanciesChannel);
@@ -620,6 +627,7 @@
 			const { data: offerRows, error: offerError } = await supabase
 				.from('view_offer')
 				.select('*')
+				.eq('status', 'published')
 				.gte('end_date', businessNow.date)
 				.order('created_at', { ascending: false });
 			if (offerError) throw offerError;

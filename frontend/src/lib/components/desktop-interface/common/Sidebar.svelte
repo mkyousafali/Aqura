@@ -608,6 +608,17 @@
 		Email: ["EmailDashboard","EmailManage","EmailOperations","EmailReports"],
 	};
 
+	// Favorites are persisted as snapshots. Filter them through the current
+	// live-sidebar catalog and permissions so deleted or revoked entries do not
+	// survive indefinitely in favorites mode.
+	const currentSidebarButtonCodes = new Set(Object.values(SUBSECTION_CODES).flat());
+	$: visibleFavorites = buttonPermissionsLoaded
+		? userFavorites.favorites.filter((favorite) =>
+			currentSidebarButtonCodes.has(favorite.button_code) &&
+			($currentUser?.isMasterAdmin || allowedButtonCodes.has(favorite.button_code))
+		)
+		: [];
+
 	// Explicit dependency reads (buttonPermissionsLoaded/$currentUser/allowedButtonCodes)
 	// so Svelte's auto-subscription tracks them — calling isButtonAllowed() alone
 	// inside a reactive block wouldn't register as a dependency.
@@ -7085,14 +7096,15 @@ function openApprovalCenter() {
 				<span class="fav-spinner"></span>
 				<span>{t('nav.loadingFavorites') || 'Loading favorites...'}</span>
 			</div>
-		{:else if userFavorites.favorites.length === 0}
+		{:else if visibleFavorites.length === 0}
 			<div class="fav-empty">
 				<span class="fav-empty-icon">⭐</span>
 				<p>{t('nav.noFavoritesYet') || 'No favorites yet'}</p>
 				<p class="fav-empty-hint">{t('nav.noFavoritesHint') || 'Use "Manage Favorites" on the desktop to add buttons here.'}</p>
 			</div>
 		{:else}
-			{#each userFavorites.favorites as fav, index (fav.button_code)}
+			{#each visibleFavorites as fav (fav.button_code)}
+				{@const index = userFavorites.favorites.findIndex((item) => item.button_code === fav.button_code)}
 				<button
 					class="favorite-sidebar-btn"
 					class:dragging={draggedIndex === index}

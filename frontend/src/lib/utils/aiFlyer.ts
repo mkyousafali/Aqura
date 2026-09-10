@@ -186,8 +186,14 @@ export function flyerFieldText(type: string, slot: FlyerSlot, snapshot: FlyerSna
     case 'price': return priceText(p.total_sales_price, p.sales_price);
     case 'offer_price': return priceText(p.total_offer_price, p.offer_price);
     case 'unit_name': return p.unit_name || '';
-    case 'offer_qty': return p.offer_qty > 1 ? `${arabic(p.offer_qty)}\n${p.unit_name || 'قطعة'}` : '';
-    case 'limit_qty': return Number(p.limit_qty) > 0 ? `${arabic(p.limit_qty)} ${p.unit_name || 'قطعة'}` : '';
+    // Also shown (with the real offer_qty, e.g. "1") whenever there's a per-customer limit > 1 —
+    // a limit alone ("Limit: 2") without the actual buy quantity reads as if 2 is what you get,
+    // when the offer itself might only be 1 per purchase. Pairing them removes that ambiguity.
+    case 'offer_qty': return (p.offer_qty > 1 || Number(p.limit_qty) > 1) ? `${arabic(p.offer_qty || 1)}\n${p.unit_name || 'قطعة'}` : '';
+    // A per-customer purchase limit is a real restriction even at 1 ("only 1 carton per
+    // customer") — shown as its own 2-line badge (see AiFlyerPage.svelte's limit_qty styling),
+    // not folded into the generic meta row, so it doesn't read as stray leftover text.
+    case 'limit_qty': return Number(p.limit_qty) > 0 ? `لكل عميل\n${arabic(p.limit_qty)} ${p.unit_name || 'قطعة'}` : '';
     case 'free_qty': return p.free_qty > 0 ? `اشتري ${arabic(p.offer_qty || 1)} ${p.unit_name || 'قطعة'}\nواحصل على ${arabic(p.free_qty)} ${p.unit_name || 'قطعة'} مجاناً` : '';
     case 'variation_text_en': return group ? 'Multiple varieties available' : '';
     case 'variation_text_ar': return group ? 'أصناف متعددة متوفرة' : '';

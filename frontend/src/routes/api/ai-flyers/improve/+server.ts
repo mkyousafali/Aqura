@@ -36,10 +36,16 @@ These FACTS must stay 100% unchanged — never alter, invent, or remove any of t
 All prices and old (struck-through) prices
 All quantities, unit counts, and offer/badge numbers (e.g. "٣" on a multi-buy badge)
 Every existing small badge, pill, or seal already printed on a product card — a quantity circle
-(e.g. "٣ حبة"), a variety/assortment label (e.g. "متنوع"), or any similar tag — must be kept exactly
-where it is, unchanged. Never remove it, cover it, or restyle over it with your own decoration; any
-new caption or icon you add is an ADDITIONAL element placed elsewhere on the card, never a
-replacement for one that is already there.
+(e.g. "٣ حبة"), a variety/assortment label (e.g. "متنوع"), a per-customer purchase-limit ribbon
+(e.g. "لكل عميل / ٢ كرتون"), or any similar tag — must be kept exactly where it is, unchanged. Never
+remove it, cover it, or restyle over it with your own decoration; any new caption or icon you add is
+an ADDITIONAL element placed elsewhere on the card, never a replacement for one that is already there.
+A single product card can legitimately carry two or three of these badges at once, stacked or placed
+close together in the same corner (for example: an assortment label, a purchase-limit ribbon, and a
+quantity circle all on one card). When badges are stacked or crowded like this, treat each one as a
+completely separate, independent element — read and reproduce each badge's own number on its own,
+never let one badge's number influence, average with, or bleed into another nearby badge's number.
+More badges on one card means more care here, not less.
 Product names (Arabic and English)
 Offer dates and the page number
 Number of product cards and their positions/arrangement
@@ -66,7 +72,7 @@ color, so different cards end up with visibly different stripe colors that each 
 own badge, not one same plain gold/tan border repeated on all of them and not a stripe color picked
 independently of that card's badge. If you find yourself giving a card a stripe color that does not
 match its own badge, that is wrong — fix it before finishing.
-Give each product a short (2-3 word maximum) Arabic promotional caption placed near it, genuinely grounded in what that product actually is — softness for tissue, family nutrition for a staple food, freshness for produce, a value callout for a steep discount, a quality/trust angle for a premium brand. Pair each caption with a small matching icon or badge (a droplet, a heart, wheat stalks, soft petals, a ribbon), added as a new element alongside (never replacing) any badge already on that card. The caption must be short enough to render fully inside its badge at a size that is completely legible — never let it get cropped, cut off, blurry, or run outside its own badge, and make sure the Arabic spelling and grammar are correct, not garbled. If a caption would not fit legibly, shorten it further rather than shrinking it into illegibility. Never invent a caption that misrepresents the product, and never let a caption or its badge cover the product photo, its name, its price, or any existing badge on that card.
+Give each product a short (2-3 word maximum) Arabic promotional caption placed near it, genuinely grounded in what that product actually is — softness for tissue, family nutrition for a staple food, freshness for produce, a value callout for a steep discount, a quality/trust angle for a premium brand. Pair each caption with a small matching icon or badge (a droplet, a heart, wheat stalks, soft petals, a ribbon), added as a new element alongside (never replacing) any badge already on that card. Its shape and color must visibly read as a NEW, different decoration — never a circular seal, a rounded pill, or a ribbon/flag shape that could be mistaken for a copy of the card's existing quantity badge, assortment label, or purchase-limit ribbon; a viewer glancing at the card must never wonder whether there are two quantity badges or two limit ribbons on it. The caption must be short enough to render fully inside its badge at a size that is completely legible — never let it get cropped, cut off, blurry, or run outside its own badge, and make sure the Arabic spelling and grammar are correct, not garbled. If a caption would not fit legibly, shorten it further rather than shrinking it into illegibility. Never invent a caption that misrepresents the product, and never let a caption or its badge cover the product photo, its name, its price, or any existing badge on that card.
 On every single product card, also add a few small ambient decorative particles floating loosely around that product's own photo (never overlapping the photo, its name, or its price) that echo what that specific product physically is — light blue water droplets floating around a water bottle, soft flour/wheat dust or a few wheat grains floating around a flour bag, small flower petals floating around a tissue pack, a light milk splash or swirl around a milk product, a cream swirl around a cheese product, and so on for whatever each product is. This must appear around every product card the same way, not only one or two of them.
 Improve product-card depth with clean rounded corners, soft premium shadows, subtle highlights, and better separation from the background, on top of the required bottom accent stripe above.
 Make the main wooden offer-title board richer and more premium with realistic wood texture, depth, shadows, ropes, and surrounding leaves. Improve the 3D appearance of the Arabic offer title while keeping the exact same wording.

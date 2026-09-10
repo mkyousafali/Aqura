@@ -15,25 +15,35 @@
     // The unit name is never its own chip: it only shows up folded into offer_qty's own
     // circular badge below ("٣ حبه") when there's a multi-buy quantity; otherwise hidden.
     const metaLabels = [
-      { label: 'limit_qty', show: Number(p?.limit_qty) > 0 },
       { label: 'free_qty', show: Number(p?.free_qty) > 0 }
     ].filter(f => f.show);
     const metaGap = w * .02;
     const metaWidth = (w * .94 - metaGap * Math.max(metaLabels.length - 1, 0)) / Math.max(metaLabels.length, 1);
     const meta = metaLabels.map((f, i) => ({
       label: f.label, x: w * .03 + i * (metaWidth + metaGap), y: h * .905, width: metaWidth, height: h * .065,
-      fontSize: f.label === 'free_qty' ? 11 : 13, bold: true, color: '#6b4a1e', alignment: 'center'
+      fontSize: 11, bold: true, color: '#6b4a1e', alignment: 'center'
     }));
     // A multi-buy quantity gets its own small seal-style badge (ring + "N unit") pinned to the
-    // card's top-right corner, instead of a flat pill buried in the meta row.
+    // card's top-right corner, instead of a flat pill buried in the meta row. Also shown (with
+    // the real, possibly-just-1 offer_qty) whenever there's a meaningful per-customer limit, so
+    // the limit badge is never left to imply the limit itself is how many you get per offer.
     const badgeSize = Math.min(w, h) * .22;
-    const qtyBadge = Number(p?.offer_qty) > 1
+    const qtyBadge = (Number(p?.offer_qty) > 1 || Number(p?.limit_qty) > 1)
       ? [{ label: 'offer_qty_badge', x: w * .97 - badgeSize, y: h * .02, width: badgeSize, height: badgeSize }]
       : [];
     // Pinned to the card's own top-left corner (mirroring the quantity badge's top-right) so
     // it never competes for space with whatever image layout the variant count picks below.
     const assortedBadge = slot.products.length > 1
       ? [{ label: 'assorted_badge', x: w * .02, y: h * .02, width: w * .3, height: h * .065 }]
+      : [];
+    // A per-customer purchase limit is a real, called-out rule — it gets its own corner ribbon
+    // flag on the card's top-left, on the opposite side from the price display (top-right
+    // strikethrough + the red offer-price box). Independent of Assorted/offer-qty — all three
+    // can apply to the same product at once — so it's always stacked below where Assorted would
+    // sit, whether or not Assorted is actually present on this card, rather than only fitting
+    // when the other badges happen to leave the corner free.
+    const limitBadge = Number(p?.limit_qty) > 0
+      ? [{ label: 'limit_qty_badge', x: 0, y: h * .10, width: w * .38, height: h * .13 }]
       : [];
     return [
       // Height (not width) is what usually caps how big a tall, narrow product photo (a
@@ -44,6 +54,7 @@
       { label: 'product_name_en', x: w * .045, y: h * .825, width: w * .91, height: h * .075, fontSize: 13, alignment: 'center' },
       ...qtyBadge,
       ...assortedBadge,
+      ...limitBadge,
       { label: 'price', x: w * .64, y: h * .48, width: w * .31, height: h * .075, fontSize: 20, bold: true, alignment: 'center' },
       { label: 'offer_price', x: w * .59, y: h * .55, width: w * .38, height: h * .14, fontSize: 40, color: '#ffffff', bold: true, alignment: 'center' },
       ...meta
@@ -143,6 +154,11 @@
           {/if}
         {:else if type === 'assorted_badge'}
           <span class="assorted-badge assorted-badge-card" style="{box(field)}font-size:{field.height * .5}px;" aria-hidden="true">متنوع</span>
+        {:else if type === 'limit_qty_badge'}
+          {@const limitText = flyerFieldText('limit_qty', slot, snapshot, page)}
+          {#if limitText}
+            <div class="limit-badge" style="{box(field)}font-size:{field.height * .22}px;" aria-hidden="true">{#each limitText.split('\n') as line}<span dir="rtl">{line}</span>{/each}</div>
+          {/if}
         {:else if text}
           <div class="configured-field" class:price-panel={type === 'offer_price'} class:old-price-panel={type === 'price'} class:offer-title={type.startsWith('offer_name')} style={box(field)}>
             {#if field.iconUrl}<img class="asset" src={field.iconUrl} crossorigin="anonymous" alt="Template label background" style="left:{field.iconX || 0}px;top:{field.iconY || 0}px;width:{field.iconWidth || 20}px;height:{field.iconHeight || 20}px;" />{/if}
@@ -168,7 +184,17 @@
 
 <style>
   .artwork-footer{position:absolute;left:35px;right:30px;top:1380px;height:135px;display:flex;align-items:center;justify-content:space-between;gap:28px;color:white;font-family:Tahoma,Arial,sans-serif;}
-  .date-plaque{display:flex;flex-direction:column;gap:5px;padding:12px 24px;border:3px solid #ad763d;border-radius:13px;background:linear-gradient(125deg,#fff6da,#efd09b);color:#211508;font-weight:700;font-size:22px;box-shadow:0 5px 10px #0005;}.date-plaque small{font-size:16px;}.page-counter{align-self:flex-end;font-size:16px;padding-bottom:9px;}
+  /* align-items:stretch (flex's own default — do NOT override to center) is what actually makes
+     multi-line centering work here: with no explicit width on .date-plaque itself, the browser
+     first sizes it to its widest line (the "or while supplies last" line), THEN stretches every
+     other line to that same resolved width — only then does text-align:center have a shared
+     width to center every line against. align-items:center looks like it should also work, but a
+     child's width:100% inside an auto-width flex container is a circular reference (container
+     width depends on children, children's 100% depends on container) that resolves to width:auto
+     per spec — silently undoing the fix and leaving shorter lines back to centering only within
+     their own shrink-to-fit width, which is what made the last line look off against the others. */
+  .date-plaque{display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:center;gap:5px;padding:12px 24px;border:3px solid #ad763d;border-radius:13px;background:linear-gradient(125deg,#fff6da,#efd09b);color:#211508;font-weight:700;font-size:22px;box-shadow:0 5px 10px #0005;}.date-plaque small{font-size:16px;}
+  .date-plaque span,.date-plaque small{display:block;width:100%;}.page-counter{align-self:flex-end;font-size:16px;padding-bottom:9px;}
   .old-price-panel{z-index:9;background:#ffe000;border-radius:7px 7px 0 0;}
   .offer-art{position:absolute;inset:0;z-index:-1;background:linear-gradient(140deg,var(--paper),#fff 60%,var(--paper));overflow:hidden;}
   .art-light{position:absolute;inset:0 0 auto;height:435px;background:radial-gradient(ellipse at 65% 20%,#ffffff50,transparent 50%),linear-gradient(120deg,var(--primary),#172015);border-bottom:12px solid var(--accent);box-shadow:0 12px 25px #0003;}
@@ -196,8 +222,24 @@
      deliberate label instead of stray text floating in its quadrant. */
   .template-text[data-field-label="unit_name"],
   .template-text[data-field-label="offer_qty"],
-  .template-text[data-field-label="limit_qty"],
   .template-text[data-field-label="free_qty"]{background:linear-gradient(180deg,#fef6e4,#f7e8c4);border:1px solid #e3c98a;border-radius:6px;box-shadow:inset 0 1px 0 #fffdf5;}
+  /* Legacy support: a configured template saved before limit_qty became its own corner ribbon
+     (see .limit-badge below) may still place it as a plain field — keep it visually distinct
+     from the routine beige meta chips above rather than reverting it to that washed-out look. */
+  .template-text[data-field-label="limit_qty"]{background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 75%,white 25%),color-mix(in srgb,var(--accent) 80%,black 20%));border-radius:8px;box-shadow:0 3px 6px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.35);}
+  .template-text[data-field-label="limit_qty"] span{color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.35);}
+  /* Per-customer purchase limit: a corner ribbon/flag pinned to the card's top-left edge — the
+     opposite side from the price display (top-right strikethrough + the red offer-price box) —
+     with a notched right end so it actually reads as a ribbon rather than a plain box. */
+  /* line-height kept tight (1.1) and the field itself sized with headroom (see limitBadge in
+     fieldsFor) so the 2-line text never grows taller than the badge and gets clipped by the
+     pentagon clip-path below — that clipping was what made the centering look broken. */
+  /* flex-direction:column (not row) so the two lines stack instead of sitting side by side, and
+     each line is forced to the same full width — like .date-plaque's lines — so a shorter line
+     ("1 كرتون") centers against the SAME width as the longer one ("لكل عميل") above it, instead
+     of each centering only within its own shrink-to-fit width. */
+  .limit-badge{position:absolute;z-index:21;box-sizing:border-box;display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:center;padding:1% 12% 1% 4%;background:linear-gradient(135deg,#fa092c,#e40022);color:#fff;font:700 1em/1.1 Tahoma,Arial,sans-serif;text-shadow:0 1px 1px rgba(0,0,0,.35);box-shadow:0 3px 6px rgba(0,0,0,.35);clip-path:polygon(0 0,88% 0,100% 50%,88% 100%,0 100%);}
+  .limit-badge span{display:block;width:100%;}
   .price-panel{z-index:10;border-radius:7px;background:linear-gradient(135deg,#fa092c,#e40022);box-shadow:0 3px 5px rgba(120,0,0,.2),inset 0 1px 1px #ffffff40;}
   .asset{position:absolute;object-fit:contain;}.product-image{position:absolute;object-fit:contain;object-position:center bottom;width:auto;height:auto;filter:drop-shadow(2px 4px 3px rgba(0,0,0,.2));}
   /* Bottom-anchoring a variant's fanned images (to match the multi-buy cascade) pushed the
