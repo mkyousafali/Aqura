@@ -2197,6 +2197,7 @@ export const englishLocale: LocaleData = {
     reports: {
       expenseTracker: "Expense Tracker",
       salesReport: "Sales Report",
+      salesAnalysis: "Sales Analysis",
       vendorPayments: "Vendor Payments",
       vendorRecords: "Vendor Records",
       vendorPendings: "Vendor Pendings",

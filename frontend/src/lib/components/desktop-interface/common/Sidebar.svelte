@@ -86,6 +86,7 @@
 	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
 	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';
 	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
+	import SalesAnalysis from '$lib/components/desktop-interface/master/finance/reports/SalesAnalysis.svelte';
 	import CentralPerformance from '$lib/components/desktop-interface/master/reports/CentralPerformance.svelte';
 	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
 	import PendingReceivingRecords from '$lib/components/desktop-interface/master/vendor/PendingReceivingRecords.svelte';
@@ -557,7 +558,7 @@
 		FinanceDashboard: ["APPROVAL_CENTER","LC_PLANNER"],
 		FinanceManage: ["CATEGORY_MANAGER","PURCHASE_VOUCHER_MANAGER","MANAGE_RECONCILIATIONS","ASSET_MANAGER","LEASE_AND_RENT"],
 		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH"],
-		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
+		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","SALES_ANALYSIS","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
 		HRDashboard: ["SECURITY_CODE","FINGERPRINT_DASHBOARD","QUICK_DASHBOARD"],
 		HRManage: ["EMPLOYEE_MASTER","LINK_ID","HR_SERVICES","SALARY_STATEMENT"],
 		HROperations: ["EMPLOYEE_FILES","PROCESS_FINGERPRINT","SALARY_AND_WAGE","SHIFTS","SHIFT_AND_DAY_OFF","DISCIPLINE","INCIDENT_MANAGER","REPORT_INCIDENT","DAILY_CHECKLIST_MANAGER","BREAK_REGISTER"],
@@ -3342,6 +3343,29 @@ function openApprovalCenter() {
 	showReportsSubmenu = false;
 }
 
+	// Open Sales Analysis window
+	function openSalesAnalysis() {
+		const windowId = generateWindowId('sales-analysis');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `Sales Analysis #${instanceNumber}`,
+			component: SalesAnalysis,
+			componentName: "SalesAnalysis",
+			icon: '🔍',
+			size: { width: 1600, height: 900 },
+			position: {
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
 	// Open Vendor Pending Payments window
 	function openVendorPendingPayments() {
 		const windowId = generateWindowId('vendor-pending-payments');
@@ -5410,6 +5434,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openSalesReport}>
 								<span class="menu-icon">📊</span>
 								<span class="menu-text">{t('reports.salesReport') || 'Sales Report'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('SALES_ANALYSIS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openSalesAnalysis}>
+								<span class="menu-icon">🔍</span>
+								<span class="menu-text">{t('reports.salesAnalysis') || 'Sales Analysis'}</span>
 							</button>
 						</div>
 					{/if}

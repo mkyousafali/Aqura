@@ -1862,6 +1862,7 @@ export const arabicLocale: LocaleData = {
     reports: {
       expenseTracker: "متتبع المصروفات",
       salesReport: "تقرير المبيعات",
+      salesAnalysis: "تحليل المبيعات",
       vendorPayments: "مدفوعات الموردين",
       vendorRecords: "سجلات الموردين",
       vendorPendings: "المدفوعات المعلقة للموردين",
