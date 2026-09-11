@@ -232,7 +232,12 @@ export default defineConfig(({ mode }) => ({
     host: true,
   },
   build: {
-    sourcemap: true,
+    // Disabled 2026-09-11: production sourcemap generation was pushing the
+    // Vercel build container's memory over its limit (confirmed OOM kill,
+    // not a code bug — build got through all 1,797 modules + chunk rendering
+    // before being SIGKILL'd). Nothing in the repo consumes these sourcemaps
+    // (no Sentry/error-tracking wired up), so there's no functional loss.
+    sourcemap: false,
     rollupOptions: {
       external: ['mssql', 'sharp'],
       output: {
