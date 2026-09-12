@@ -50,9 +50,9 @@ The release bundle will be at `app/build/outputs/bundle/release/app-release.aab`
 
 ## Push notifications
 
-The existing Aqura implementation uses browser Web Push and a service worker. Android WebView does not expose that notification pipeline as native app notifications. Production push therefore requires a separate Firebase Cloud Messaging integration, a Firebase `google-services.json`, and server-side storage/sending of each signed-in user's FCM token.
+Native notifications use Firebase Cloud Messaging. The Android bridge requests permission, obtains the device token, and lets the authenticated Aqura frontend register it alongside existing browser Web Push subscriptions. The self-hosted `send-push-notification` Edge Function sends through VAPID or FCM according to the subscription provider.
 
-Those credentials and backend changes are intentionally not fabricated or embedded here. They should be added once the Android app is registered in the Aqura Firebase project. Never commit `google-services.json`, signing keys, or service-account credentials.
+The local `app/google-services.json` is required to build but intentionally excluded from Git. Firebase service-account credentials belong only in the protected self-hosted Edge Functions environment. Never commit signing keys or service-account credentials.
 
 ## When a new Android release is required
 

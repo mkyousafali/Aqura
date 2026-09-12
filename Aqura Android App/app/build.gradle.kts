@@ -18,7 +18,6 @@ android {
         versionName = "1.0.0"
 
         buildConfigField("String", "AQURA_URL", "\"${aquraUrl.get()}\"")
-        manifestPlaceholders["aquraHost"] = java.net.URI(aquraUrl.get()).host
     }
 
     buildTypes {
