@@ -34,6 +34,23 @@
 	let showOnlyEnabled = false;
 	let showOnlyDisabled = false;
 	let tableContainer: HTMLElement;
+	let accessMode: 'user' | 'button' = 'user';
+	let selectedButtonCode = '';
+	let buttonWiseSearch = '';
+	let permittedUsers: any[] = [];
+	let permittedUsersLoading = false;
+	let buttonWiseSaving = false;
+	let showAddUsersModal = false;
+	let addUserSearch = '';
+	let addUserOptions: any[] = [];
+	let addUserOptionsLoading = false;
+	let selectedAddUserIds = new Set<string>();
+
+	$: selectedButton = allButtons.find(btn => btn.code === selectedButtonCode) || null;
+	$: buttonWiseButtons = allButtons.filter(btn => {
+		const q = buttonWiseSearch.trim().toLowerCase();
+		return !q || btn.name.toLowerCase().includes(q) || btn.code.toLowerCase().includes(q) || btn.section.toLowerCase().includes(q);
+	});
 
 	// Kept in sync with the section names/order returned by /api/parse-sidebar
 	// (see [[button-permission-system-rewrite]]), which itself mirrors the
@@ -145,8 +162,29 @@
 	$: disabledCount = allButtons.length - enabledCount;
 	$: changesCount = pendingChanges.size;
 
+	async function loadButtonCatalog() {
+		const catalogRes = await fetch('/api/parse-sidebar');
+		const catalog = await catalogRes.json();
+		const flatButtons: Array<{ code: string; name: string; section: string; subsection: string }> = [];
+		for (const section of catalog.sections || []) {
+			for (const subsection of section.subsections || []) {
+				for (const button of subsection.buttons || []) {
+					flatButtons.push({ code: button.code, name: button.name, section: section.name, subsection: subsection.name });
+				}
+			}
+		}
+		allButtons = flatButtons.sort((a, b) => {
+			const sr = sectionRank(a.section) - sectionRank(b.section);
+			if (sr !== 0) return sr;
+			const subr = subsectionRank(a.subsection) - subsectionRank(b.subsection);
+			if (subr !== 0) return subr;
+			return a.name.localeCompare(b.name);
+		});
+		availableSections = [...new Set(allButtons.map(b => b.section))].sort((a, b) => sectionRank(a) - sectionRank(b));
+	}
+
 	onMount(async () => {
-		await Promise.all([fetchBranches(), fetchPositions()]);
+		await Promise.all([fetchBranches(), fetchPositions(), loadButtonCatalog()]);
 		await loadUsers();
 	});
 
@@ -398,6 +436,87 @@
 		return pendingChanges.has(code);
 	}
 
+	async function selectButtonWise(code: string) {
+		selectedButtonCode = code;
+		await loadPermittedUsers();
+	}
+
+	async function loadPermittedUsers() {
+		if (!selectedButtonCode) return;
+		permittedUsersLoading = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: permissions, error: permissionError } = await supabase.from('button_permissions').select('user_id').eq('button_code', selectedButtonCode).eq('is_enabled', true);
+			if (permissionError) throw permissionError;
+			const ids = [...new Set((permissions || []).map((row: any) => row.user_id))];
+			if (ids.length === 0) { permittedUsers = []; return; }
+			const { data, error } = await supabase.from('users').select('id, username, employee_id, branch_id, branches!users_branch_id_fkey(name_en)').in('id', ids).order('username');
+			if (error) throw error;
+			permittedUsers = data || [];
+		} catch (err) {
+			console.error('Error loading permitted users:', err);
+			permittedUsers = [];
+		} finally { permittedUsersLoading = false; }
+	}
+
+	async function openAddUsers() {
+		showAddUsersModal = true;
+		addUserSearch = '';
+		selectedAddUserIds = new Set();
+		addUserOptionsLoading = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.from('users').select('id, username, employee_id').order('username').limit(2000);
+			if (error) throw error;
+			const permittedIds = new Set(permittedUsers.map(user => user.id));
+			addUserOptions = (data || []).filter(user => !permittedIds.has(user.id));
+		} catch (err) {
+			console.error('Error loading users:', err);
+			addUserOptions = [];
+		} finally { addUserOptionsLoading = false; }
+	}
+
+	$: filteredAddUserOptions = addUserOptions.filter(user => {
+		const q = addUserSearch.trim().toLowerCase();
+		return !q || user.username?.toLowerCase().includes(q) || user.employee_id?.toLowerCase().includes(q);
+	});
+
+	function toggleAddUser(userId: string) {
+		if (selectedAddUserIds.has(userId)) selectedAddUserIds.delete(userId);
+		else selectedAddUserIds.add(userId);
+		selectedAddUserIds = selectedAddUserIds;
+	}
+
+	async function setButtonPermission(userId: string, enabled: boolean) {
+		const requestingUserId = get(currentUser)?.id;
+		if (!requestingUserId || !selectedButtonCode) throw new Error('Missing permission context');
+		const { supabase } = await import('$lib/utils/supabase');
+		const { data, error } = await supabase.rpc('upsert_button_permission', {
+			p_requesting_user_id: requestingUserId, p_target_user_id: userId,
+			p_button_code: selectedButtonCode, p_is_enabled: enabled
+		});
+		if (error) throw error;
+		if (!data?.success) throw new Error(data?.error || 'Failed to update permission');
+	}
+
+	async function saveAddedUsers() {
+		if (selectedAddUserIds.size === 0) return;
+		buttonWiseSaving = true;
+		try {
+			for (const userId of selectedAddUserIds) await setButtonPermission(userId, true);
+			showAddUsersModal = false;
+			await loadPermittedUsers();
+		} catch (err) { console.error('Error granting button permission:', err); }
+		finally { buttonWiseSaving = false; }
+	}
+
+	async function removePermittedUser(userId: string) {
+		buttonWiseSaving = true;
+		try { await setButtonPermission(userId, false); await loadPermittedUsers(); }
+		catch (err) { console.error('Error disabling button permission:', err); }
+		finally { buttonWiseSaving = false; }
+	}
+
 	// ── Copy From Another User ──
 	// Replaces the target user's entire button_permissions with an exact copy of the source
 	// user's rows (via a SECURITY DEFINER RPC — same reasoning as upsert_button_permission above:
@@ -499,6 +618,11 @@
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
+	<div class="shrink-0 flex items-center gap-2 px-4 py-3 bg-white border-b border-slate-200">
+		<button class="px-5 py-2 rounded-xl text-sm font-bold transition-all {accessMode === 'user' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" on:click={() => accessMode = 'user'}>👤 User Wise</button>
+		<button class="px-5 py-2 rounded-xl text-sm font-bold transition-all {accessMode === 'button' ? 'bg-sky-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}" on:click={() => accessMode = 'button'}>🔘 Button Wise</button>
+	</div>
+	{#if accessMode === 'user'}
 	<!-- Two-Panel Layout -->
 	<div class="flex-1 flex overflow-hidden">
 
@@ -788,7 +912,94 @@
 			{/if}
 		</div>
 	</div>
+	{:else}
+		<div class="flex-1 flex min-h-0 overflow-hidden">
+			<div class="w-[420px] min-w-[320px] flex flex-col bg-white border-r border-slate-200">
+				<div class="px-4 py-3 bg-gradient-to-r from-sky-600 to-sky-700 text-white flex items-center gap-2 shadow-md">
+					<span class="text-lg">🔘</span><span class="text-sm font-black uppercase tracking-wider">System Buttons</span>
+					<span class="ml-auto text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">{allButtons.length}</span>
+				</div>
+				<div class="p-3 border-b border-slate-100 bg-slate-50/50">
+					<input type="text" bind:value={buttonWiseSearch} placeholder="Search buttons..." class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
+				</div>
+				<div class="flex-1 overflow-y-auto">
+					{#each buttonWiseButtons as button (button.code)}
+						<button class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-sky-50 transition-all {selectedButtonCode === button.code ? 'bg-sky-50 border-l-[3px] border-l-sky-600' : ''}" on:click={() => selectButtonWise(button.code)}>
+							<div class="text-sm font-semibold text-slate-800">{button.name}</div>
+							<div class="text-[11px] text-slate-400 mt-0.5">{button.section} · {button.subsection} · {button.code}</div>
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<div class="flex-1 flex flex-col min-w-0 bg-[#f8fafc]">
+				{#if !selectedButton}
+					<div class="flex-1 flex items-center justify-center text-center">
+						<div><div class="text-5xl mb-3">🔐</div><h3 class="text-lg font-bold text-slate-700">Select a Button</h3><p class="text-sm text-slate-400">Choose a button to manage its permitted users</p></div>
+					</div>
+				{:else}
+					<div class="px-5 py-3 bg-gradient-to-r from-violet-600 to-violet-700 text-white flex items-center gap-3 shadow-md">
+						<div class="flex-1"><div class="text-sm font-black">{selectedButton.name}</div><div class="text-xs opacity-80">{selectedButton.code}</div></div>
+						<span class="text-xs font-bold bg-white/20 px-3 py-1 rounded-full">{permittedUsers.length} users</span>
+						<button class="px-4 py-2 rounded-xl bg-white text-violet-700 text-xs font-black hover:bg-violet-50 shadow" on:click={openAddUsers}>+ Add User</button>
+					</div>
+					<div class="flex-1 overflow-y-auto p-5">
+						{#if permittedUsersLoading}
+							<div class="h-full flex items-center justify-center text-slate-400">Loading users...</div>
+						{:else if permittedUsers.length === 0}
+							<div class="h-full flex items-center justify-center text-center text-slate-400"><div><div class="text-4xl mb-2">👥</div>No users currently have access to this button.</div></div>
+						{:else}
+							<div class="max-w-3xl mx-auto space-y-2">
+								{#each permittedUsers as user (user.id)}
+									<div class="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+										<div class="w-9 h-9 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center font-bold">{(user.username || '?').charAt(0).toUpperCase()}</div>
+										<div class="flex-1"><div class="text-sm font-bold text-slate-800">{user.username}</div><div class="text-[11px] text-slate-400">{user.employee_id || '—'} · {user.branches?.name_en || '—'}</div></div>
+										<button class="px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold disabled:opacity-50" disabled={buttonWiseSaving} on:click={() => removePermittedUser(user.id)}>Remove</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
 </div>
+
+{#if showAddUsersModal}
+	<div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[9999]" on:click|self={() => showAddUsersModal = false} role="presentation">
+		<div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col overflow-hidden">
+			<div class="px-5 py-4 bg-violet-600 text-white flex items-center justify-between">
+				<div><h3 class="text-sm font-black uppercase tracking-wide">Add Users</h3><p class="text-xs opacity-80 mt-0.5">{selectedButton?.name}</p></div>
+				<button class="text-white/80 hover:text-white text-lg" on:click={() => showAddUsersModal = false}>✕</button>
+			</div>
+			<div class="p-4 border-b border-slate-100">
+				<input type="text" bind:value={addUserSearch} placeholder="Search by username or employee ID..." class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+			</div>
+			<div class="flex-1 min-h-0 overflow-y-auto p-3">
+				{#if addUserOptionsLoading}
+					<div class="py-10 text-center text-slate-400">Loading users...</div>
+				{:else if filteredAddUserOptions.length === 0}
+					<div class="py-10 text-center text-slate-400">No available users found.</div>
+				{:else}
+					{#each filteredAddUserOptions as user (user.id)}
+						<label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-violet-50 cursor-pointer">
+							<input type="checkbox" checked={selectedAddUserIds.has(user.id)} on:change={() => toggleAddUser(user.id)} class="w-4 h-4 accent-violet-600" />
+							<div class="flex-1"><div class="text-sm font-bold text-slate-800">{user.username}</div><div class="text-[11px] text-slate-400">{user.employee_id || '—'}</div></div>
+						</label>
+					{/each}
+				{/if}
+			</div>
+			<div class="shrink-0 px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+				<span class="text-xs font-bold text-violet-700">{selectedAddUserIds.size} selected</span>
+				<div class="flex gap-2">
+					<button class="px-4 py-2 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100" on:click={() => showAddUsersModal = false}>Cancel</button>
+					<button class="px-5 py-2 rounded-xl text-sm font-bold text-white {selectedAddUserIds.size > 0 && !buttonWiseSaving ? 'bg-violet-600 hover:bg-violet-700' : 'bg-slate-300 cursor-not-allowed'}" disabled={selectedAddUserIds.size === 0 || buttonWiseSaving} on:click={saveAddedUsers}>{buttonWiseSaving ? 'Saving...' : 'Save'}</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#if showCopyModal}
 	<div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[9999]" on:click|self={closeCopyModal} on:keydown={(e) => { if (e.key === 'Escape') closeCopyModal(); }} role="presentation">
