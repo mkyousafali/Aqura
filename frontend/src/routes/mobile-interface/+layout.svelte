@@ -2018,18 +2018,19 @@
 	/* Bottom Navigation */
 	.bottom-nav {
 		position: fixed;
-		bottom: 0;
-		left: 0;
-		right: 0;
+		bottom: 0.3rem;
+		left: 0.35rem;
+		right: 0.35rem;
 		height: 3.6rem; /* Reduced from 4.5rem (20% smaller) */
-		background: var(--theme-navbar-bg, white);
-		border-top: 1px solid var(--theme-navbar-border, #E5E7EB);
+		background: #ffffff;
+		border: 1.5px solid #16a34a;
+		border-radius: 14px;
 		display: flex;
 		align-items: center;
 		justify-content: space-around;
 		padding: 0.4rem; /* Reduced from 0.5rem */
 		padding-bottom: calc(0.4rem + env(safe-area-inset-bottom));
-		box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 4px 16px rgba(22, 163, 74, 0.16);
 		z-index: 1000;
 	}
 

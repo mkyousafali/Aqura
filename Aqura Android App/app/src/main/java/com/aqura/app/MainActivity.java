@@ -35,6 +35,9 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.activity.ComponentActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -116,6 +119,11 @@ public final class MainActivity extends ComponentActivity {
 
     private void buildUi() {
         FrameLayout root = new FrameLayout(this);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
+            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return windowInsets;
+        });
         webView = new WebView(this);
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
@@ -145,7 +153,8 @@ public final class MainActivity extends ComponentActivity {
         errorView = error;
         errorView.setVisibility(View.GONE);
         root.addView(errorView, new FrameLayout.LayoutParams(-1, -1));
-        setContentView(root);
+                setContentView(root);
+        ViewCompat.requestApplyInsets(root);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
