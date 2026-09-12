@@ -1,3 +1,6 @@
+# Claude Code project instructions - local only per user request
+CLAUDE.md
+
 # Dependencies
 node_modules/
 **/node_modules/
@@ -68,31 +71,15 @@ dist/
 .parcel-cache/
 
 # Electron app - keep local only (large size, not needed for Vercel)
-erp-sync-app/
 scripts/local-branch-sync/
 
-# Aqura Desktop (Windows Electron shell) - local only, not part of PWA deploy
-desktop/
-
-# Desktop frontend - generated files (copied from web frontend via sync script)
-desktop/frontend/src/routes/
-desktop/frontend/src/lib/components/
-desktop/frontend/src/lib/stores/
-desktop/frontend/src/lib/utils/
-desktop/frontend/src/lib/supabase*.ts
-desktop/frontend/static/
-desktop/frontend/.svelte-kit/
-desktop/frontend/build/
-desktop/frontend/node_modules/
-
-# Desktop frontend - DO track these (desktop-specific)
-!desktop/frontend/src/desktop/
-!desktop/frontend/package.json
-!desktop/frontend/vite.config.desktop.ts
-!desktop/frontend/.env.desktop
-
-# Aqura QR Kiosk (standalone break QR Electron app) - local only
-qr-kiosk/
+# Aqura Support Apps - standalone local-only tools, never part of the deployed web
+# app: cashier-desktop-shell (Electron shell), aqura-security-code-kiosk (break QR
+# display), aqura-cam-checker (Hikvision viewer), Aqura-Data-Manager (ERP bridge
+# branch setup wizard), aqura-action-sync (ERP/printer sync agent), aqura-pc-lock-guard,
+# "Aqura Erp Psd Manager" (ERP credential viewer/rotator). Several hold hardcoded
+# service keys / live credentials — the whole tree must never be committed.
+aqura-support-app/
 
 # Storage Sync Service (contains service keys in .env.local)
 scripts/storage-sync-service/
@@ -204,42 +191,21 @@ test_payload.json
 AQURA_DESKTOP_WINDOWS_DEVELOPMENT_PLAN.md
 DESKTOP_ARCHITECTURE_DECISIONS.md
 
-# Aqura Action Sync (ERP/printer sync agent) - local only, contains hardcoded Supabase keys
-aqura-action-sync/
-
 # Local-only files (not needed for app to work)
 AQURA-LC/
 aqura-lc-schema-dump.sql
 aqura-ready-to-deploy/
-scripts/prepare-deploy-bundle.ts
 
 # ERP bridge setup scripts (branch-specific, contain shared secret placeholders)
 scripts/erp-setup-wizard.js
 scripts/erp-bridge-server.js
 
-# Aqura Data Manager - standalone branch setup tool, local-only
-scripts/Aqura-Data-Manager/
-
-# ERP backfill/one-time data-repair scripts - inert local tools, not part of the running app
-scripts/erp-backfill-dry-run.mjs
-scripts/erp-backfill-write.mjs
-scripts/backfill-erp-check-results.js
-
 # Branch-server deployment script (not part of Aqura app, contains example credentials)
 scripts/erp-bridge-server.js
 
-# Aqura PC Lock Guard - entire folder is local-only (contains hardcoded service keys, local device/SQL data)
-aqura-pc-lock-guard/
-
-# Standalone designer app (local development only)
+# Standalone designer app (local development only) - folder already deleted, rule kept
+# harmless in case a build artifact of the same name ever reappears
 aqura-designer-standalone/
-
-# Standalone Hikvision player app - contains hardcoded secrets, not for main repo
-hikvision-player/
-
-# Aqura ERP Password Manager - entire folder is local-only (views/rotates live
-# ERP credentials per branch, hardcoded service keys, must never be committed)
-Aqura Erp Psd Manager/
 
 # Copilot worktree metadata - local workspace only
 .claude/
