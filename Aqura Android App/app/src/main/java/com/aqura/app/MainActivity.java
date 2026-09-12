@@ -182,6 +182,9 @@ public final class MainActivity extends ComponentActivity {
                 return route(request.getUrl());
             }
             @Override public void onPageFinished(WebView view, String url) {
+                if (isTrusted(Uri.parse(url))) {
+                    view.evaluateJavascript("document.documentElement.classList.add('aqura-android-app');", null);
+                }
                 progress.setVisibility(View.GONE);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {

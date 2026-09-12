@@ -2034,6 +2034,21 @@
 		z-index: 1000;
 	}
 
+	/* The native Android shell already applies system-bar insets. Avoid
+	   applying the browser/PWA safe area a second time inside WebView. */
+	:global(html.aqura-android-app) .global-mobile-header {
+		padding-top: 0.8rem;
+	}
+
+	:global(html.aqura-android-app) .mobile-content {
+		padding-bottom: 4rem;
+	}
+
+	:global(html.aqura-android-app) .bottom-nav {
+		box-sizing: border-box;
+		padding: 0.35rem 0.4rem;
+	}
+
 	.nav-item {
 		display: flex;
 		flex-direction: column;
