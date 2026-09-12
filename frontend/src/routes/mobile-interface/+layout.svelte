@@ -11,7 +11,6 @@
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import { mobileThemeStore } from '$lib/stores/mobileThemeStore';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
-	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
@@ -692,7 +691,6 @@
 		if (path === '/mobile-interface/price-checker' || path === '/mobile-interface/price-checker/') return locale === 'ar' ? 'فحص الأسعار' : 'Price Checker';
 		if (path === '/mobile-interface/my-products' || path === '/mobile-interface/my-products/') return locale === 'ar' ? 'منتجاتي' : 'My Products';
 		if (path === '/mobile-interface/start-receiving' || path === '/mobile-interface/start-receiving/') return locale === 'ar' ? 'بدء الاستلام' : 'Start Receiving';
-		if (path === '/mobile-interface/communication' || path === '/mobile-interface/communication/') return locale === 'ar' ? 'اتصال ورسائل' : 'Call & Message';
 		if (path === '/mobile-interface/support' || path === '/mobile-interface/support/') return locale === 'ar' ? 'الدعم' : 'Support';
 		if (path === '/mobile-interface/break-register' || path === '/mobile-interface/break-register/') return locale === 'ar' ? 'سجل الاستراحة' : 'Break Register';
 		if (path === '/mobile-interface/break-register-log' || path === '/mobile-interface/break-register-log/') return locale === 'ar' ? 'سجل الاستراحات' : 'Break Log';
@@ -1440,15 +1438,6 @@
 				</div>
 			{/if}
 
-			<!-- Call & Message Button -->
-			<a href="/mobile-interface/communication" class="nav-item communication-btn" class:active={$page.url.pathname.startsWith('/mobile-interface/communication')} on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }}>
-				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
-					</svg>
-				</div>
-				<span class="nav-label">{$currentLocale === 'ar' ? 'اتصال' : 'Call'}</span>
-			</a>
 		</nav>
 
 		<!-- FAB QR Scanner Overlay -->
@@ -1469,8 +1458,6 @@
 		<ContactInfoOverlay mode="mobile" />
 	</div>
 
-	<!-- Incoming Call Overlay -->
-	<IncomingCallOverlay />
 {:else}
 	<div class="mobile-error">
 		<h2>{getTranslation('mobile.error.accessRequired')}</h2>
@@ -2298,33 +2285,6 @@
 		cursor: pointer;
 		position: relative;
 		color: #6366F1;
-	}
-
-	.nav-item.communication-btn {
-		border: none;
-		background: none;
-		cursor: pointer;
-		position: relative;
-		color: #22c55e;
-	}
-
-	.nav-item.communication-btn:hover {
-		color: #22c55e;
-		background: rgba(34, 197, 94, 0.05);
-	}
-
-	.nav-item.communication-btn.active {
-		color: #22c55e;
-	}
-
-	.nav-item.communication-btn.active .nav-icon {
-		background: rgba(34, 197, 94, 0.1);
-		color: #22c55e;
-	}
-
-	.nav-item.communication-btn .nav-label {
-		font-weight: 600;
-		color: #22c55e;
 	}
 
 	.nav-item.ai-chat-btn:hover {

@@ -12,7 +12,6 @@
 	import CommandPalette from '$lib/components/desktop-interface/common/CommandPalette.svelte';
 	import ToastNotifications from '$lib/components/common/ToastNotifications.svelte';
 	import UserSwitcher from '$lib/components/common/UserSwitcher.svelte';
-	import IncomingCallOverlay from '$lib/components/common/IncomingCallOverlay.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	
 	// Enhanced imports for persistent auth
@@ -1181,9 +1180,6 @@
 			
 			<!-- Toast Notifications -->
 			<ToastNotifications />
-
-			<!-- Incoming Call Overlay -->
-			<IncomingCallOverlay />
 
 			{/if}
 		{:else}
