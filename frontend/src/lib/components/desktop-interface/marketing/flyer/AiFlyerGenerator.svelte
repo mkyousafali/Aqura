@@ -43,7 +43,7 @@
   // ai_flyer_publications, carrying which of the flyer's pages that branch's publication covers.
   interface PublishedOffer { status: 'published' | 'unpublished' | 'expired'; start_date: string; start_time: string; end_date: string; end_time: string }
   interface FlyerPublication { branch_id: number; page_paths: string[]; offer: PublishedOffer }
-  let branches: { id: number; name_en: string; name_ar: string }[] = [];
+  let branches: { id: number; name_en: string; name_ar: string; location_en: string; location_ar: string }[] = [];
   // publishingBranchId: the branch this dialog session is editing (null while adding a new one).
   let publishTarget: { id: string; title: string; pagePaths: string[]; startDate: string; endDate: string; publishingBranchId: number | null; publications: FlyerPublication[] } | null = null;
   let publishing = false;
@@ -93,20 +93,18 @@
 
   onMount(async () => {
     mounted = true;
-    const [offersResult, contextsResult, branchesResult] = await Promise.all([
-      supabase.from('flyer_offers').select('id, template_name, start_date, end_date, offer_names:offer_name_id(name_en, name_ar)').eq('is_active', true).order('created_at', { ascending: false }),
-      supabase.from('flyer_offer_contexts').select('id, name, description').eq('is_active', true).order('sort_order'),
-      supabase.from('branches').select('id, name_en, name_ar').eq('is_active', true).order('name_en')
-    ]);
-    if (offersResult.error) error = `Could not load offers: ${offersResult.error.message}`;
-    else offers = offersResult.data || [];
-    if (!contextsResult.error) {
-      contexts = contextsResult.data || [];
-      // "General Supermarket Offer" is seeded first (sort_order 0) — the required default per spec,
-      // since most promotions mix products from several departments.
-      if (!contextId && contexts.length) contextId = contexts[0].id;
+    // One RPC round trip instead of three separate table reads.
+    const { data, error: initError } = await supabase.rpc('get_ai_flyer_generator_init_data');
+    if (initError || !data?.success) {
+      error = `Could not load offers: ${initError?.message || data?.error || 'unknown error'}`;
+      return;
     }
-    if (!branchesResult.error) branches = branchesResult.data || [];
+    offers = data.offers || [];
+    contexts = data.contexts || [];
+    // "General Supermarket Offer" is seeded first (sort_order 0) — the required default per spec,
+    // since most promotions mix products from several departments.
+    if (!contextId && contexts.length) contextId = contexts[0].id;
+    branches = data.branches || [];
   });
 
   function discardGeneration() {
@@ -431,25 +429,49 @@
         if (result.error) throw result.error;
         paths.push(path);
       }
-      const result = await supabase.from('ai_generated_flyers').insert({ id, offer_id: snapshot.offer.id, title: title.trim() || 'AI Flyer', start_date: snapshot.offer.start_date, end_date: snapshot.offer.end_date, page_count: paths.length, product_count: snapshot.products.length, page_paths: paths, snapshot, model: snapshot.model });
-      if (result.error) throw result.error;
+      await saveFlyerRecord(id, paths);
       savedId = id; success = 'Flyer saved. You can find it in AI Generated Flyers.';
     } catch (e) {
-      // Check ambiguous network failures before removing files that a saved record may reference.
-      const check = await supabase.from('ai_generated_flyers').select('id').eq('id', id).maybeSingle();
-      if (check.data) { savedId = id; success = 'Flyer saved.'; }
-      else {
-        if (!check.error && paths.length) await supabase.storage.from(bucket).remove(paths);
-        error = e instanceof Error ? e.message : (e as any)?.message || 'Save failed.';
-      }
+      if (paths.length) await supabase.storage.from(bucket).remove(paths);
+      error = e instanceof Error ? e.message : (e as any)?.message || 'Save failed.';
     } finally { busy = false; progress = ''; }
   }
 
+  // create_ai_generated_flyer inserts with ON CONFLICT (id) DO NOTHING, so it's safe to retry
+  // with the same client-generated id — a retry after an ambiguous network failure either
+  // confirms the first attempt already landed or completes it, instead of erroring. One retry
+  // replaces the old "check if it already landed" follow-up query.
+  async function saveFlyerRecord(id: string, paths: string[], retried = false): Promise<void> {
+    try {
+      const { data, error: rpcError } = await supabase.rpc('create_ai_generated_flyer', {
+        p_id: id,
+        p_offer_id: snapshot!.offer.id,
+        p_title: title.trim() || 'AI Flyer',
+        p_start_date: snapshot!.offer.start_date,
+        p_end_date: snapshot!.offer.end_date,
+        p_page_count: paths.length,
+        p_product_count: snapshot!.products.length,
+        p_page_paths: paths,
+        p_snapshot: snapshot,
+        p_model: snapshot!.model
+      });
+      if (rpcError) throw rpcError;
+      if (!data?.success) throw new Error(data?.error || 'Save failed.');
+    } catch (e) {
+      if (retried) throw e;
+      await saveFlyerRecord(id, paths, true);
+    }
+  }
+
+  // get_ai_flyer_library excludes any flyer whose every publication has already expired (still
+  // shows one that was never published, or still has a live/paused publication) — filtered and
+  // paginated server-side, so "has more" stays correct instead of a client-side filter shrinking
+  // an already-sliced page.
   async function loadLibrary() {
     loadingLibrary = true; libraryError = ''; success = '';
-    const result = await supabase.from('ai_generated_flyers').select('id,title,start_date,end_date,page_count,product_count,page_paths,created_at,context:snapshot->context,publications:ai_flyer_publications(branch_id,page_paths,offer:view_offer_id(status,start_date,start_time,end_date,end_time))').order('created_at', { ascending: false }).range(libraryPage * 20, libraryPage * 20 + 20);
-    if (result.error) libraryError = `Could not load saved flyers: ${result.error.message}`;
-    else { hasMore = result.data.length > 20; library = result.data.slice(0, 20); }
+    const { data, error: rpcError } = await supabase.rpc('get_ai_flyer_library', { p_page: libraryPage, p_page_size: 20 });
+    if (rpcError || !data?.success) libraryError = `Could not load saved flyers: ${rpcError?.message || data?.error || 'unknown error'}`;
+    else { hasMore = !!data.has_more; library = data.data || []; }
     loadingLibrary = false;
   }
   // A flyer can be published to several branches at once — one badge per publication, instead of
@@ -465,7 +487,7 @@
   }
   function branchLabel(branchId: number): string {
     const b = branches.find(x => x.id === branchId);
-    return b ? b.name_en : `Branch ${branchId}`;
+    return b ? (b.location_en ? `${b.name_en} — ${b.location_en}` : b.name_en) : `Branch ${branchId}`;
   }
   // Delete the database row first, then its page files — the storage cleanup policy only permits
   // removing a page file once no ai_generated_flyers row references it any more (see
@@ -475,8 +497,9 @@
     if (!confirm(`Delete "${row.title}"? This cannot be undone.`)) return;
     deletingId = row.id; libraryError = '';
     try {
-      const result = await supabase.from('ai_generated_flyers').delete().eq('id', row.id);
-      if (result.error) throw result.error;
+      const { data, error: rpcError } = await supabase.rpc('delete_ai_generated_flyer', { p_id: row.id });
+      if (rpcError) throw rpcError;
+      if (!data?.success) throw new Error(data?.error || 'Delete failed.');
       await supabase.storage.from(bucket).remove(row.page_paths);
       library = library.filter(r => r.id !== row.id);
     } catch (e) { libraryError = e instanceof Error ? e.message : 'Could not delete this flyer.'; }
@@ -506,6 +529,26 @@
     if (!isoDate) return '';
     const [year, month, day] = isoDate.split('-');
     return `${day}/${month}/${year}`;
+  }
+  // Read-only admin-UI display (offer dropdown, library table) — dd-mm-yyyy / 12-hour, distinct
+  // from toDisplayDate above (which feeds the editable Publish date inputs and must stay
+  // slash-separated to match toISODate's parsing).
+  function formatDisplayDate(isoDate: string): string {
+    if (!isoDate) return '';
+    const [year, month, day] = isoDate.split('-');
+    return `${day}-${month}-${year}`;
+  }
+  function formatDisplayDateTime(isoTimestamp: string): string {
+    if (!isoTimestamp) return '';
+    const d = new Date(isoTimestamp);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const period = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12; if (hours === 0) hours = 12;
+    return `${day}-${month}-${year}, ${String(hours).padStart(2, '0')}:${minutes} ${period}`;
   }
   function convert12HourTo24Hour(hour: string, period: string): string {
     let h = parseInt(hour, 10);
@@ -882,7 +925,7 @@
     <h2>Generate With AI</h2>
     <p>Select an offer, enter its headline, then get AI color options for the artwork before generating. All pages share the same artwork and follow the offer’s page order.</p>
     <div class="toolbar">
-      <label>Active offer<select bind:value={offerId} on:change={changeOffer} disabled={busy}><option value="">Select an offer</option>{#each offers as offer}<option value={offer.id}>{offer.offer_names?.name_en || offer.offer_names?.name_ar || offer.template_name} · {offer.start_date} — {offer.end_date}</option>{/each}</select></label>
+      <label>Active offer<select bind:value={offerId} on:change={changeOffer} disabled={busy}><option value="">Select an offer</option>{#each offers as offer}<option value={offer.id}>{offer.offer_names?.name_en || offer.offer_names?.name_ar || offer.template_name} · {formatDisplayDate(offer.start_date)} — {formatDisplayDate(offer.end_date)}</option>{/each}</select></label>
       <label>Offer name<input bind:value={offerName} on:input={discardGeneration} maxlength="200" disabled={busy} placeholder="Enter the offer headline" /></label>
       <label>Offer context<select bind:value={contextId} disabled={busy} title={selectedContext?.description || ''}>{#each contexts as context}<option value={context.id}>{context.name}</option>{/each}</select></label>
       <button disabled={!offerId || !offerName.trim() || !contextId || busy || loadingThemes} on:click={getColorOptions}>{loadingThemes ? 'Getting options…' : 'Get Color Options'}</button>
@@ -910,7 +953,7 @@
     <div class="toolbar"><h2>AI Generated Flyers</h2><button disabled={loadingLibrary} on:click={loadLibrary}>Refresh</button></div>
     {#if libraryError}<p class="error" role="alert">{libraryError}</p>{/if}
     {#if loadingLibrary}<p>Loading saved flyers…</p>{:else if !library.length && !libraryError}<p>No AI flyers have been saved yet.</p>{:else}
-      <div class="table-scroll"><table><thead><tr><th>Flyer</th><th>Offer dates</th><th>Products</th><th>Pages</th><th>Saved</th><th>Published to</th><th>Action</th></tr></thead><tbody>{#each library as row}<tr><td>{row.title}</td><td>{row.start_date} — {row.end_date}</td><td>{row.product_count}</td><td>{row.page_count}</td><td>{new Date(row.created_at).toLocaleString()}</td><td class="pub-chips">{#if row.publications?.length}{#each row.publications as pub (pub.branch_id)}<span class="status-badge {publicationStatusBadge(pub).cls}">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}{#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={previewBusy || !!deletingId || unpublishingKey === `${row.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(row, pub.branch_id)}>✕</button>{/if}</span>{/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</td><td class="row-actions"><button disabled={previewBusy || !!deletingId} on:click={() => openPreview(row)}>Preview</button><button disabled={previewBusy || !!deletingId} on:click={() => openPublishDialog(row)}>Publish</button><button disabled={previewBusy || !!deletingId} on:click={() => deleteFlyer(row)}>{deletingId === row.id ? 'Deleting…' : 'Delete'}</button></td></tr>{/each}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Flyer</th><th>Offer dates</th><th>Products</th><th>Pages</th><th>Saved</th><th>Published to</th><th>Action</th></tr></thead><tbody>{#each library as row}<tr><td>{row.title}</td><td>{formatDisplayDate(row.start_date)} — {formatDisplayDate(row.end_date)}</td><td>{row.product_count}</td><td>{row.page_count}</td><td>{formatDisplayDateTime(row.created_at)}</td><td class="pub-chips"><div class="pub-chips">{#if row.publications?.length}{#each row.publications as pub (pub.branch_id)}<span class="status-badge {publicationStatusBadge(pub).cls}">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}{#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={previewBusy || !!deletingId || unpublishingKey === `${row.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(row, pub.branch_id)}>✕</button>{/if}</span>{/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</div></td><td><div class="row-actions"><button disabled={previewBusy || !!deletingId} on:click={() => openPreview(row)}>Preview</button><button disabled={previewBusy || !!deletingId} on:click={() => openPublishDialog(row)}>Publish</button><button disabled={previewBusy || !!deletingId} on:click={() => deleteFlyer(row)}>{deletingId === row.id ? 'Deleting…' : 'Delete'}</button></div></td></tr>{/each}</tbody></table></div>
       <div class="toolbar"><button disabled={!libraryPage || loadingLibrary} on:click={() => { libraryPage--; loadLibrary(); }}>Previous</button><span>Page {libraryPage + 1}</span><button disabled={!hasMore || loadingLibrary} on:click={() => { libraryPage++; loadLibrary(); }}>Next</button></div>
     {/if}
   {/if}
@@ -1022,7 +1065,7 @@
         <label>Branch
           <select bind:value={publishBranchId} disabled={publishing}>
             <option value="">Select a branch</option>
-            {#each branches as b}<option value={b.id}>{b.name_en}</option>{/each}
+            {#each branches as b}<option value={b.id}>{b.name_en}{b.location_en ? ` — ${b.location_en}` : ''}</option>{/each}
           </select>
         </label>
         <label>Offer name<input bind:value={publishOfferName} maxlength="255" disabled={publishing} /></label>
@@ -1069,7 +1112,15 @@
 {/if}
 
 <style>
-  .ai-workspace{padding:24px;color:#172033;background:#f5f7fb;min-height:100%;}h2{font-size:22px;font-weight:700;margin:0;}p{margin:12px 0;color:#475569;}.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:18px 0;}.toolbar h2{margin-right:auto;align-self:center;}label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;flex:1;min-width:200px;}select,input{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:10px;color:#172033;width:100%;}button{padding:10px 16px;border:1px solid #cbd5e1;background:white;border-radius:8px;font-weight:600;color:#172033;cursor:pointer;}button.primary{background:#4338ca;color:white;border-color:#4338ca;}button:disabled{opacity:.5;cursor:not-allowed;}.error{background:#fef2f2;color:#991b1b;padding:12px;border-radius:8px;overflow-wrap:anywhere;}.success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:8px;}.hint{font-size:12px;}.theme-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 18px;}.theme-option{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:13px;font-weight:600;cursor:pointer;}.theme-option.selected{border-color:#4338ca;background:#eef2ff;color:#3730a3;}.theme-option input{margin:0;}.previews{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}figure{margin:0;}figure img{width:100%;height:auto;background:white;box-shadow:0 2px 10px #0002;}figcaption{text-align:center;padding:8px;font-size:13px;}.tile-placeholder{aspect-ratio:2/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:white;box-shadow:0 2px 10px #0002;border-radius:4px;color:#64748b;font-size:13px;}.spinner{width:26px;height:26px;border:3px solid #c7d2fe;border-top-color:#4338ca;border-radius:50%;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}.tile-error{color:#991b1b;padding:16px;text-align:center;gap:12px;}.tile-error p{margin:0;color:inherit;}.render-host{position:fixed;left:-12000px;top:0;width:794px;pointer-events:none;}.table-scroll{overflow:auto;}.row-actions{display:flex;gap:8px;}table{width:100%;border-collapse:collapse;background:white;}th,td{padding:12px;text-align:left;border-bottom:1px solid #e2e8f0;}th{background:#eef2ff;font-size:13px;}.preview-overlay{position:fixed;inset:0;background:#0f172acc;z-index:10050;padding:24px;display:flex;justify-content:center;}.preview-dialog{background:#f5f7fb;border-radius:12px;overflow:auto;padding:24px;width:min(1050px,100%);}.saved-pages{max-width:794px;margin:auto;display:grid;gap:24px;}.status-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;}.status-badge.status-none{background:#e2e8f0;color:#475569;}.status-badge.status-published{background:#dcfce7;color:#166534;}.status-badge.status-unpublished{background:#fef3c7;color:#92400e;}.status-badge.status-expired{background:#fee2e2;color:#991b1b;}.publish-dialog{width:min(600px,100%);}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:16px 0;}.time-input-group{display:flex;align-items:center;gap:6px;}.hour-input,.minute-input{width:56px;text-align:center;}.time-separator{font-weight:700;color:#475569;}.period-select{width:auto;}input[type=number].hour-input::-webkit-outer-spin-button,input[type=number].hour-input::-webkit-inner-spin-button,input[type=number].minute-input::-webkit-outer-spin-button,input[type=number].minute-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .ai-workspace{padding:24px;color:#172033;background:#f5f7fb;min-height:100%;}h2{font-size:22px;font-weight:700;margin:0;}p{margin:12px 0;color:#475569;}.toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:18px 0;}.toolbar h2{margin-right:auto;align-self:center;}label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;flex:1;min-width:200px;}select,input{background:white;border:1px solid #cbd5e1;border-radius:8px;padding:10px;color:#172033;width:100%;}button{padding:10px 16px;border:1px solid #cbd5e1;background:white;border-radius:8px;font-weight:600;color:#172033;cursor:pointer;}button.primary{background:#4338ca;color:white;border-color:#4338ca;}button:disabled{opacity:.5;cursor:not-allowed;}.error{background:#fef2f2;color:#991b1b;padding:12px;border-radius:8px;overflow-wrap:anywhere;}.success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:8px;}.hint{font-size:12px;}.theme-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 18px;}.theme-option{display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:13px;font-weight:600;cursor:pointer;}.theme-option.selected{border-color:#4338ca;background:#eef2ff;color:#3730a3;}.theme-option input{margin:0;}.previews{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}figure{margin:0;}figure img{width:100%;height:auto;background:white;box-shadow:0 2px 10px #0002;}figcaption{text-align:center;padding:8px;font-size:13px;}.tile-placeholder{aspect-ratio:2/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:white;box-shadow:0 2px 10px #0002;border-radius:4px;color:#64748b;font-size:13px;}.spinner{width:26px;height:26px;border:3px solid #c7d2fe;border-top-color:#4338ca;border-radius:50%;animation:spin 1s linear infinite;}@keyframes spin{to{transform:rotate(360deg);}}.tile-error{color:#991b1b;padding:16px;text-align:center;gap:12px;}.tile-error p{margin:0;color:inherit;}.render-host{position:fixed;left:-12000px;top:0;width:794px;pointer-events:none;}.table-scroll{overflow:auto;border:1px solid #e2e8f0;border-radius:10px;}
+table{width:100%;border-collapse:collapse;background:white;}
+th,td{padding:12px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:middle;}
+th{background:#16a34a;color:white;font-size:13px;font-weight:700;white-space:nowrap;}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:#f8fafc;}
+td.pub-chips{max-width:320px;}
+th:last-child,td:last-child{white-space:nowrap;width:1%;}
+.row-actions{display:flex;gap:8px;}.preview-overlay{position:fixed;inset:0;background:#0f172acc;z-index:10050;padding:24px;display:flex;justify-content:center;}.preview-dialog{background:#f5f7fb;border-radius:12px;overflow:auto;padding:24px;width:min(1050px,100%);}.saved-pages{max-width:794px;margin:auto;display:grid;gap:24px;}.status-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;}.status-badge.status-none{background:#e2e8f0;color:#475569;}.status-badge.status-published{background:#dcfce7;color:#166534;}.status-badge.status-unpublished{background:#fef3c7;color:#92400e;}.status-badge.status-expired{background:#fee2e2;color:#991b1b;}.publish-dialog{width:min(600px,100%);}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:16px 0;}.time-input-group{display:flex;align-items:center;gap:6px;}.hour-input,.minute-input{width:56px;text-align:center;}.time-separator{font-weight:700;color:#475569;}.period-select{width:auto;}input[type=number].hour-input::-webkit-outer-spin-button,input[type=number].hour-input::-webkit-inner-spin-button,input[type=number].minute-input::-webkit-outer-spin-button,input[type=number].minute-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .saved-pages figcaption{display:flex;align-items:center;justify-content:center;gap:10px;}.edit-page-btn{padding:4px 12px;font-size:12px;}
 .edit-region-dialog{width:min(900px,100%);}
 .edit-canvas{position:relative;max-width:100%;width:fit-content;margin:12px auto;touch-action:none;cursor:crosshair;}
@@ -1078,7 +1129,7 @@
 .edit-result-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:white;}
 .edit-panel{background:white;border:1px solid #cbd5e1;border-radius:10px;padding:16px;margin-top:12px;}
 .edit-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}.edit-chips button{padding:6px 12px;font-size:12px;background:#eef2ff;border-color:#c7d2fe;color:#3730a3;}
-.pub-chips{display:flex;flex-wrap:wrap;gap:8px;}.pub-chips .status-badge{display:inline-flex;align-items:center;gap:6px;}
+div.pub-chips{display:flex;flex-wrap:wrap;gap:8px;}.pub-chips .status-badge{display:inline-flex;align-items:center;gap:6px;}
 .chip-x{padding:0;width:16px;height:16px;min-width:16px;border:none;background:rgba(0,0,0,.15);color:inherit;border-radius:50%;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}.chip-x:disabled{opacity:.5;cursor:not-allowed;}
 .publish-pages{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;}
 .publish-page{display:flex;flex-direction:column;align-items:center;gap:6px;width:110px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:12px;font-weight:600;cursor:pointer;}

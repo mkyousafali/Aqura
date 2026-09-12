@@ -157,48 +157,27 @@
     }
   }
   
-  async function loadActiveOffers() {
+  // Loads active offers, the lightweight template list, and custom fonts in one RPC round trip
+  // (get_manual_flyer_generator_init_data) instead of three separate table reads — same data,
+  // one request.
+  async function loadInitData() {
     isLoadingOffers = true;
-    errorMessage = '';
-    
-    try {
-      const { data, error } = await supabase
-        .from('flyer_offers')
-        .select('*, offer_names:offer_name_id(name_ar, name_en)')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      
-      activeOffers = data || [];
-    } catch (error: any) {
-      console.error('Error loading offers:', error);
-      errorMessage = `Failed to load offers: ${error.message}`;
-    } finally {
-      isLoadingOffers = false;
-    }
-  }
-  
-  async function loadFlyerTemplates() {
     isLoadingTemplates = true;
     errorMessage = '';
-    
+
     try {
-      const { data, error } = await supabase
-        .from('flyer_templates')
-        .select('id, name, description, is_default, is_active, category, usage_count, created_at')
-        .eq('is_active', true)
-        .is('deleted_at', null)
-        .order('is_default', { ascending: false })
-        .order('usage_count', { ascending: false });
-      
+      const { data, error } = await supabase.rpc('get_manual_flyer_generator_init_data');
       if (error) throw error;
-      
-      flyerTemplates = data || [];
+      if (!data?.success) throw new Error(data?.error || 'Failed to load initial data');
+
+      activeOffers = data.offers || [];
+      flyerTemplates = data.templates || [];
+      await applyCustomFonts(data.fonts || []);
     } catch (error: any) {
-      console.error('Error loading templates:', error);
-      errorMessage = `Failed to load templates: ${error.message}`;
+      console.error('Error loading initial data:', error);
+      errorMessage = `Failed to load offers/templates: ${error.message}`;
     } finally {
+      isLoadingOffers = false;
       isLoadingTemplates = false;
     }
   }
@@ -208,23 +187,17 @@
     
     isLoadingSelectedTemplate = true;
     try {
-      const { data, error } = await supabase
-        .from('flyer_templates')
-        .select('id, name, description, first_page_image_url, sub_page_image_urls, first_page_configuration, sub_page_configurations, metadata, is_active, is_default, category, usage_count, created_at')
-        .eq('id', selectedTemplateId)
-        .single();
-      
+      const { data, error } = await supabase.rpc('get_flyer_template_detail', { p_template_id: selectedTemplateId });
       if (error) throw error;
-      
-      if (data) {
-        // Replace the lightweight entry with the full data
-        const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
-        if (index !== -1) {
-          flyerTemplates[index] = data;
-          flyerTemplates = [...flyerTemplates];
-        }
-        autoAssignProducts();
+      if (!data?.success) throw new Error(data?.error || 'Template not found');
+
+      // Replace the lightweight entry with the full data
+      const index = flyerTemplates.findIndex(t => t.id === selectedTemplateId);
+      if (index !== -1) {
+        flyerTemplates[index] = data.data;
+        flyerTemplates = [...flyerTemplates];
       }
+      autoAssignProducts();
     } catch (error: any) {
       console.error('Error loading template details:', error);
       errorMessage = `Failed to load template: ${error.message}`;
@@ -232,30 +205,28 @@
       isLoadingSelectedTemplate = false;
     }
   }
-  
+
   async function saveTemplateConfiguration() {
     if (!selectedTemplateId) {
       errorMessage = 'No template selected';
       return;
     }
-    
+
     const selectedTemplate = flyerTemplates.find(t => t.id === selectedTemplateId);
     if (!selectedTemplate) {
       errorMessage = 'Template not found';
       return;
     }
-    
+
     try {
-      const { error } = await supabase
-        .from('flyer_templates')
-        .update({
-          first_page_configuration: selectedTemplate.first_page_configuration,
-          sub_page_configurations: selectedTemplate.sub_page_configurations
-        })
-        .eq('id', selectedTemplateId);
-      
+      const { data, error } = await supabase.rpc('save_flyer_template_configuration', {
+        p_template_id: selectedTemplateId,
+        p_first_page_configuration: selectedTemplate.first_page_configuration,
+        p_sub_page_configurations: selectedTemplate.sub_page_configurations
+      });
       if (error) throw error;
-      
+      if (!data?.success) throw new Error(data?.error || 'Save failed');
+
       successMessage = 'Template configuration saved successfully!';
       setTimeout(() => successMessage = '', 3000);
     } catch (error: any) {
@@ -1202,11 +1173,11 @@
   }
   
   function formatDate(dateString: string): string {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
   }
   
 
@@ -1516,17 +1487,13 @@
     }
   }
   
-  async function loadCustomFonts() {
+  // Registers custom web fonts via FontFace — the font list itself now comes from
+  // get_manual_flyer_generator_init_data (called by loadInitData), this just does the
+  // client-side loading/registration those font rows describe.
+  async function applyCustomFonts(fonts: any[]) {
     try {
-      const { data, error } = await supabase
-        .from('shelf_paper_fonts')
-        .select('*')
-        .order('name', { ascending: true });
-      
-      if (error) throw error;
-      
       // Load all fonts in parallel instead of sequentially for faster loading
-      const fontPromises = (data || []).map(async (font: any) => {
+      const fontPromises = fonts.map(async (font: any) => {
         try {
           const fontFace = new FontFace(font.name, `url(${font.font_url})`);
           await fontFace.load();
@@ -1537,14 +1504,12 @@
       });
       await Promise.all(fontPromises);
     } catch (error) {
-      console.error('Error loading custom fonts:', error);
+      console.error('Error applying custom fonts:', error);
     }
   }
-  
+
   onMount(() => {
-    loadActiveOffers();
-    loadFlyerTemplates();
-    loadCustomFonts();
+    loadInitData();
   });
 </script>
 

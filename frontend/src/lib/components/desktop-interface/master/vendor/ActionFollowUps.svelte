@@ -531,11 +531,13 @@
 	async function approvePo(poId: number) {
 		approvalActioning = true;
 		try {
+			const rec = records.find(r => r.id === poId);
 			const empName = await getMyEmployeeName();
 			const { data, error } = await supabase.rpc('approve_action_followup_po', {
 				p_po_id: poId, p_approver_id: $currentUser?.id, p_approver_name: empName
 			});
 			if (error) throw error;
+			if (rec) sendPoStatusNotification(rec, 'approved', '', empName);
 			await loadRecords();
 		} catch (err: any) { console.error('Error approving:', err); }
 		finally { approvalActioning = false; }
@@ -567,12 +569,15 @@
 		if (rejectingPoId === null) return;
 		approvalActioning = true;
 		try {
+			const rec = records.find(r => r.id === rejectingPoId);
+			const reason = rejectReason.trim();
 			const empName = await getMyEmployeeName();
 			const { data, error } = await supabase.rpc('reject_action_followup_po', {
 				p_po_id: rejectingPoId, p_approver_id: $currentUser?.id,
-				p_approver_name: empName, p_reason: rejectReason.trim() || null
+				p_approver_name: empName, p_reason: reason || null
 			});
 			if (error) throw error;
+			if (rec) sendPoStatusNotification(rec, 'rejected', reason, empName);
 			showRejectModal = false;
 			rejectingPoId = null;
 			await loadRecords();
@@ -609,6 +614,24 @@
 				target_users: eligible.map(a => a.user_id)
 			}, $currentUser?.id || '');
 		} catch (err) { console.error('Error sending notifications:', err); }
+	}
+
+	// Tells the person who created the PO follow-up that an approver acted on it —
+	// approvePo/confirmReject call this right after their RPC succeeds.
+	async function sendPoStatusNotification(rec: any, status: 'approved' | 'rejected', reason: string, approverName: string) {
+		try {
+			if (!rec?.created_by) return; // no creator on record (shouldn't happen) — nothing to notify
+			const verb = status === 'approved' ? 'approved' : 'rejected';
+			const reasonSuffix = status === 'rejected' && reason ? ` Reason: ${reason}.` : '';
+			await notificationService.createNotification({
+				title: status === 'approved' ? 'PO Follow-Up Approved' : 'PO Follow-Up Rejected',
+				message: `${approverName || 'An approver'} ${verb} your PO follow-up for ${rec.vendor_name} (${rec.branch_name}) - Amount: ${parseFloat(rec.po_amount).toFixed(2)}.${reasonSuffix}`,
+				type: status === 'approved' ? 'success' : 'warning',
+				priority: 'high',
+				target_type: 'specific_users',
+				target_users: [rec.created_by]
+			}, $currentUser?.id || '');
+		} catch (err) { console.error('Error sending PO status notification:', err); }
 	}
 
 	async function loadBranches() {

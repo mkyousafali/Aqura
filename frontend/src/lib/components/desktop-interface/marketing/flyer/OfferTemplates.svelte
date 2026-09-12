@@ -1003,7 +1003,7 @@
 		if (mobileSearchDebounce) { clearTimeout(mobileSearchDebounce); mobileSearchDebounce = null; }
 	}
 
-	// --- Barcode scanning (mobile search field) ---
+	// --- Barcode scanning (mobile search field + Create New Product barcode field) ---
 	let scanning = false;
 	let scanVideoEl: HTMLVideoElement;
 	let scanStream: MediaStream | null = null;
@@ -1012,8 +1012,12 @@
 	let scanCtx: CanvasRenderingContext2D | null = null;
 	let barcodeDetector: any = null;
 	let scanError = '';
+	// Which field a scan result should be written to — the search box (default,
+	// also filters the list) or the Create New Product form's barcode field.
+	let scanTarget: 'search' | 'newProduct' = 'search';
 
-	async function startScan() {
+	async function startScan(target: 'search' | 'newProduct' = 'search') {
+		scanTarget = target;
 		scanError = '';
 		scanning = true;
 		try {
@@ -1085,8 +1089,12 @@
 				}
 
 				if (barcodes.length > 0) {
-					searchQuery = barcodes[0].rawValue;
-					if (mobile) loadMobileProducts(true);
+					if (scanTarget === 'newProduct') {
+						newProductForm.barcode = barcodes[0].rawValue;
+					} else {
+						searchQuery = barcodes[0].rawValue;
+						if (mobile) loadMobileProducts(true);
+					}
 					stopScan();
 				}
 			} catch (_) {}
@@ -1630,13 +1638,41 @@
 										placeholder="Enter barcode"
 										class="field-border flex-1 px-3 py-2 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none {isEditingProduct ? 'bg-gray-100 text-gray-500' : ''}"
 									/>
+									{#if !isEditingProduct}
+										<button
+											type="button"
+											on:click={scanning ? stopScan : () => startScan('newProduct')}
+											class="w-9 h-9 flex items-center justify-center bg-green-600 text-white rounded-lg hover:bg-green-700 flex-shrink-0"
+											title="Scan barcode"
+											aria-label="Scan barcode"
+										>
+											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+												<path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+												<line x1="7" y1="12" x2="17" y2="12"/>
+											</svg>
+										</button>
+									{/if}
 									<button
 										type="button"
 										on:click={checkNewProductImage}
 										disabled={isCheckingNewProductImage}
-										class="px-3 py-2 text-xs font-semibold bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 flex-shrink-0"
+										class="w-9 h-9 flex items-center justify-center bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 flex-shrink-0"
+										title="Find image for this barcode"
+										aria-label="Find image for this barcode"
 									>
-										{isCheckingNewProductImage ? '...' : 'Find Image'}
+										{#if isCheckingNewProductImage}
+											<svg class="animate-spin" width="16" height="16" fill="none" viewBox="0 0 24 24">
+												<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+												<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+											</svg>
+										{:else}
+											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<rect x="3" y="3" width="18" height="18" rx="2"/>
+												<circle cx="8.5" cy="8.5" r="1.5"/>
+												<path d="M21 15l-5-5L5 21"/>
+											</svg>
+										{/if}
 									</button>
 								</div>
 							</div>
