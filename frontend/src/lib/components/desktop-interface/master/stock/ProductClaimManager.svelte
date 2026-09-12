@@ -590,6 +590,33 @@
 	let assignEmployeeList: { id: string; name: string }[] = [];
 	let assignEmployeeLoading = false;
 	let assignProcessing = false;
+	let assignSelectedBranch = '';
+	let assignSelectedBarcodes = new Set<string>();
+
+	$: assignBranchProducts = assignIsMainTable && assignItem && assignSelectedBranch
+		? assignItem.products.filter((p: InProcessProduct) => String(p.branch_id) === assignSelectedBranch)
+		: [];
+
+	function selectAssignBranch(branchId: string) {
+		assignSelectedBranch = branchId;
+		assignSelectedBarcodes.clear();
+		assignSelectedBarcodes = assignSelectedBarcodes;
+	}
+
+	function toggleAssignProduct(barcode: string) {
+		if (assignSelectedBarcodes.has(barcode)) assignSelectedBarcodes.delete(barcode);
+		else assignSelectedBarcodes.add(barcode);
+		assignSelectedBarcodes = assignSelectedBarcodes;
+	}
+
+	function toggleAllAssignProducts() {
+		if (assignSelectedBarcodes.size === assignBranchProducts.length) assignSelectedBarcodes.clear();
+		else {
+			assignSelectedBarcodes.clear();
+			for (const product of assignBranchProducts) assignSelectedBarcodes.add(product.barcode);
+		}
+		assignSelectedBarcodes = assignSelectedBarcodes;
+	}
 
 	async function loadAssignEmployees() {
 		assignEmployeeLoading = true;
@@ -878,6 +905,8 @@
 		assignIsMainTable = Array.isArray(item.products);
 		assignSelectedEmployee = null;
 		assignEmployeeSearch = '';
+		assignSelectedBranch = assignIsMainTable ? '' : String(item.branch_id);
+		assignSelectedBarcodes = new Set(assignIsMainTable ? [] : [item.barcode]);
 		showAssignModal = true;
 		if (assignEmployeeList.length === 0) {
 			loadAssignEmployees();
@@ -891,9 +920,8 @@
 		const oldEmployeeId = assignIsMainTable ? assignItem.employee_id : (selectedInProcessEmployee?.employee_id || assignItem.employee_id);
 		if (!oldEmployeeId) return;
 
-		const barcodes: string[] = assignIsMainTable
-			? assignItem.products.map((p: any) => p.barcode)
-			: [assignItem.barcode];
+		if (!assignSelectedBranch || assignSelectedBarcodes.size === 0) return;
+		const barcodes = [...assignSelectedBarcodes];
 
 		assignProcessing = true;
 		try {
@@ -901,7 +929,8 @@
 				.rpc('assign_in_process_products', {
 					p_old_employee_id: oldEmployeeId,
 					p_new_employee_id: newEmployeeId,
-					p_barcodes: barcodes
+					p_barcodes: barcodes,
+					p_branch_id: Number(assignSelectedBranch)
 				});
 			if (rpcErr) throw rpcErr;
 
@@ -1674,7 +1703,7 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm" on:click={() => { showAssignModal = false; assignItem = null; }}>
-		<div class="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[600px] flex flex-col overflow-hidden border border-slate-200" on:click|stopPropagation dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+		<div class="bg-white rounded-2xl shadow-2xl w-[480px] max-h-[90vh] flex flex-col overflow-hidden border border-slate-200" on:click|stopPropagation dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 			<!-- Modal Header -->
 			<div class="px-6 py-4 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
 				<div class="flex items-center gap-2">
@@ -1687,11 +1716,44 @@
 			<!-- Info -->
 			<div class="px-6 py-3 bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
 				{#if assignIsMainTable && assignItem}
-					<span class="font-bold text-amber-700">{assignItem.product_count || assignItem.products?.length || 0}</span> {$locale === 'ar' ? 'منتج من' : 'product(s) from'} <span class="font-bold">{assignItem.name || assignItem.employee_id}</span>
+					<span class="font-bold">{assignItem.name || assignItem.employee_id}</span> —
+					<span class="font-bold text-amber-700">{assignSelectedBarcodes.size}</span> {$locale === 'ar' ? 'منتج محدد' : 'product(s) selected'}
 				{:else if assignItem}
 					<span class="font-bold text-emerald-700">{assignItem.barcode}</span> — {assignItem.product_name || ''}
 				{/if}
 			</div>
+
+			{#if assignIsMainTable && assignItem}
+				<div class="px-6 py-3 border-b border-slate-200 bg-white space-y-3">
+					<div>
+						<label for="assign-branch" class="block text-[10px] font-bold uppercase text-slate-500 mb-1">{$locale === 'ar' ? 'الفرع' : 'Branch'}</label>
+						<select id="assign-branch" value={assignSelectedBranch} on:change={(event) => selectAssignBranch(event.currentTarget.value)} class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-400">
+							<option value="">{$locale === 'ar' ? '-- اختر الفرع --' : '-- Select Branch --'}</option>
+							{#each Object.keys(assignItem.branch_counts || {}) as branchId}
+								<option value={branchId}>{getBranchDisplay(Number(branchId))} ({assignItem.branch_counts[branchId]})</option>
+							{/each}
+						</select>
+					</div>
+
+					{#if assignSelectedBranch}
+						<div class="border border-slate-200 rounded-xl overflow-hidden">
+							<label class="flex items-center gap-2 px-3 py-2 bg-amber-50 border-b border-amber-100 text-xs font-bold text-amber-800 cursor-pointer">
+								<input type="checkbox" checked={assignBranchProducts.length > 0 && assignSelectedBarcodes.size === assignBranchProducts.length} on:change={toggleAllAssignProducts} class="accent-amber-600" />
+								{$locale === 'ar' ? 'تحديد كل منتجات الفرع' : 'Select all products in this branch'}
+							</label>
+							<div class="max-h-36 overflow-auto divide-y divide-slate-100">
+								{#each assignBranchProducts as product}
+											<label class="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer text-xs">
+									<input type="checkbox" checked={assignSelectedBarcodes.has(product.barcode)} on:change={() => toggleAssignProduct(product.barcode)} class="accent-amber-600" />
+									<span class="font-mono font-bold text-emerald-700">{product.barcode}</span>
+									<span class="truncate text-slate-600">{product.product_name || '—'}</span>
+								</label>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Search -->
 			<div class="px-6 py-3 border-b border-slate-100">
@@ -1707,7 +1769,7 @@
 			</div>
 
 			<!-- Employee List -->
-			<div class="flex-1 overflow-auto px-3 py-2 min-h-[200px] max-h-[320px]">
+			<div class="flex-1 min-h-0 overflow-auto px-3 py-2 max-h-[320px]">
 				{#if assignEmployeeLoading}
 					<div class="flex items-center justify-center py-8">
 						<div class="text-3xl animate-bounce">👤</div>
@@ -1738,7 +1800,7 @@
 			</div>
 
 			<!-- Footer -->
-			<div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+			<div class="shrink-0 px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
 				<div class="text-xs text-slate-500">
 					{#if assignSelectedEmployee}
 						<span class="font-bold text-amber-700">{assignSelectedEmployee.name}</span> <span class="text-slate-400">({assignSelectedEmployee.id})</span>
@@ -1755,7 +1817,7 @@
 					</button>
 					<button
 						class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-						disabled={!assignSelectedEmployee || assignProcessing}
+						disabled={!assignSelectedEmployee || !assignSelectedBranch || assignSelectedBarcodes.size === 0 || assignProcessing}
 						on:click={confirmAssign}
 					>
 						{assignProcessing ? '...' : ($locale === 'ar' ? 'تعيين' : 'Assign')}

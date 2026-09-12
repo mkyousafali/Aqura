@@ -38,6 +38,7 @@ function prettyButtonName(code: string): string {
 		WA_DASHBOARD: 'WhatsApp Dashboard',
 		LC_PLANNER: 'LC Planner',
 		ACTION_FOLLOW_UPS: 'Action Follow-Ups',
+		INTERNAL_EXPENSES: 'Internal Expenses',
 		PC_LOCK_GUARD: 'PC Lock Guard'
 	};
 	if (specialNames[code]) return specialNames[code];
@@ -88,7 +89,7 @@ const structure: Record<string, Record<string, string[]>> = {
 		OPERATIONS: [
 			'START_RECEIVING', 'RECEIVING_RECORDS', 'PENDING_RECEIVING_RECORDS',
 			'STOCK_PRODUCT_REQUEST', 'STOCK_ERP_PRODUCTS', 'STOCK_PRODUCT_CLAIM_MANAGER', 'STOCK_EXPIRY_CONTROL',
-			'ACTION_FOLLOW_UPS'
+			'ACTION_FOLLOW_UPS', 'INTERNAL_EXPENSES'
 		],
 		REPORTS: ['VENDOR_RECORDS']
 	},

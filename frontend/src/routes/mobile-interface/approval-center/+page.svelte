@@ -19,6 +19,8 @@
 	let myDayOffRequests = []; // My created day off requests
 	let boxEditRequests = []; // Box edit requests requiring approval
 	let myBoxEditRequests = []; // My box edit requests
+	let poFollowupApprovals = []; // Action Follow-Up PO requests requiring approval
+	let internalExpenseApprovals = []; // Internal consumption requests requiring approval
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
 	let selectedStatus = 'pending';
@@ -105,6 +107,7 @@
 			approvalPerms.can_approve_recurring_bill ||
 			approvalPerms.can_approve_vendor_payments ||
 			approvalPerms.can_approve_leave_requests ||
+			approvalPerms.can_approve_purchase_vouchers ||
 			approvalPerms.can_approve_closed_box_edit;
 	} else {
 		userCanApprove = false;
@@ -170,6 +173,16 @@
 	myBoxEditRequests = rpcResult.my_box_edit_requests || [];
 	console.log('✅ Box edit requests:', boxEditRequests.length);
 
+	// Action Follow-Up PO approvals are provided by a dedicated, user/branch-scoped RPC.
+	await loadPoFollowupApprovals();
+	if (poFollowupApprovals.length > 0) userCanApprove = true;
+	console.log('✅ PO follow-up approvals:', poFollowupApprovals.length);
+
+	// Internal consumption approvals (loaded separately, branch-scoped like PO follow-ups)
+	await loadInternalExpenseApprovals();
+	if (internalExpenseApprovals.length > 0) userCanApprove = true;
+	console.log('✅ Internal consumption approvals:', internalExpenseApprovals.length);
+
 	// Enrich vendor payments with employee names
 	vendorPayments = vendorPayments.map(v => {
 		if (v.requester?.id && employeeNamesMap[v.requester.id]) {
@@ -184,7 +197,7 @@
 	rejectedPaymentSchedules = [];
 
 	// Calculate stats (only pending for now, historical data will be loaded on demand)
-	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length + boxEditRequests.length;
+	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + dayOffRequests.length + boxEditRequests.length + poFollowupApprovals.length + internalExpenseApprovals.length;
 	stats.approved = 0;
 	stats.rejected = 0;
 	stats.total = stats.pending;
@@ -207,6 +220,32 @@
 		notifications.add({ type: 'error', message: t('Error loading requisitions: ', 'خطأ في تحميل الطلبات: ') + err.message });
 	} finally {
 		loading = false;
+	}
+}
+
+async function loadPoFollowupApprovals() {
+	if (!$currentUser?.id) return;
+	try {
+		const { supabase } = await import('$lib/utils/supabase');
+		const { data, error } = await supabase.rpc('get_pending_po_approvals', { p_user_id: $currentUser.id });
+		if (error) throw error;
+		poFollowupApprovals = data?.success ? (data.data || []) : [];
+	} catch (err) {
+		console.error('Error loading PO follow-up approvals:', err);
+		poFollowupApprovals = [];
+	}
+}
+
+async function loadInternalExpenseApprovals() {
+	if (!$currentUser?.id) return;
+	try {
+		const { supabase } = await import('$lib/utils/supabase');
+		const { data, error } = await supabase.rpc('get_pending_internal_expense_approvals', { p_user_id: $currentUser.id });
+		if (error) throw error;
+		internalExpenseApprovals = data?.success ? (data.data || []) : [];
+	} catch (err) {
+		console.error('Error loading internal consumption approvals:', err);
+		internalExpenseApprovals = [];
 	}
 }
 
@@ -449,6 +488,12 @@ async function loadHistoricalData() {
 				...filteredDayOffs.map(d => ({ ...d, item_type: 'day_off' })),
 				...(selectedStatus === 'pending' || selectedStatus === 'all'
 					? boxEditRequests.map(b => ({ ...b, item_type: 'box_edit' }))
+					: []),
+				...(selectedStatus === 'pending' || selectedStatus === 'all'
+					? poFollowupApprovals.map(p => ({ ...p, item_type: 'po_followup' }))
+					: []),
+				...(selectedStatus === 'pending' || selectedStatus === 'all'
+					? internalExpenseApprovals.map(ie => ({ ...ie, item_type: 'internal_expense' }))
 					: [])
 			];
 		} else {
@@ -521,6 +566,33 @@ async function loadHistoricalData() {
 	function closeDetail() {
 		showDetailModal = false;
 		selectedRequisition = null;
+	}
+
+	// Internal Consumption Request: dedicated detail view (separate from the
+	// generic Detail Modal above since it needs its own Previous/Next photo
+	// browser across a request's products).
+	let showInternalExpenseDetail = false;
+	let internalExpenseDetailReq = null;
+	let internalExpenseDetailPhotoIndex = 0;
+
+	function openInternalExpenseDetail(req) {
+		internalExpenseDetailReq = req;
+		internalExpenseDetailPhotoIndex = 0;
+		showInternalExpenseDetail = true;
+	}
+
+	function closeInternalExpenseDetail() {
+		showInternalExpenseDetail = false;
+		internalExpenseDetailReq = null;
+	}
+
+	function prevInternalExpensePhoto() {
+		if (internalExpenseDetailPhotoIndex > 0) internalExpenseDetailPhotoIndex -= 1;
+	}
+
+	function nextInternalExpensePhoto() {
+		const items = internalExpenseDetailReq?.items || [];
+		if (internalExpenseDetailPhotoIndex < items.length - 1) internalExpenseDetailPhotoIndex += 1;
 	}
 
 	// Open confirmation modal
@@ -681,6 +753,130 @@ async function loadHistoricalData() {
 		} catch (err) {
 			console.error('Error rejecting box edit:', err);
 			notifications.add({ type: 'error', message: 'Failed to reject box edit request' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	// Action Follow-Up PO: Approve
+	async function approvePoFollowup(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const empName = $currentUser?.username || '';
+			const { data, error } = await supabase.rpc('approve_action_followup_po', {
+				p_po_id: req.id, p_approver_id: $currentUser.id, p_approver_name: empName
+			});
+			if (error) throw error;
+			if (data && data.success === false) throw new Error(data.error || 'Failed to approve');
+			notifications.add({ type: 'success', message: 'PO Follow-Up approved / تمت الموافقة على متابعة أمر الشراء' });
+			poFollowupApprovals = poFollowupApprovals.filter(p => p.id !== req.id);
+			filterRequisitions();
+		} catch (err) {
+			console.error('Error approving PO follow-up:', err);
+			notifications.add({ type: 'error', message: 'Failed to approve PO Follow-Up' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	// Action Follow-Up PO: Reject
+	async function rejectPoFollowup(req) {
+		if (isProcessing) return;
+		const reason = prompt('Rejection reason (optional):');
+		isProcessing = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const empName = $currentUser?.username || '';
+			const { data, error } = await supabase.rpc('reject_action_followup_po', {
+				p_po_id: req.id, p_approver_id: $currentUser.id, p_approver_name: empName, p_reason: reason || null
+			});
+			if (error) throw error;
+			if (data && data.success === false) throw new Error(data.error || 'Failed to reject');
+			notifications.add({ type: 'success', message: 'PO Follow-Up rejected / تم رفض متابعة أمر الشراء' });
+			poFollowupApprovals = poFollowupApprovals.filter(p => p.id !== req.id);
+			filterRequisitions();
+		} catch (err) {
+			console.error('Error rejecting PO follow-up:', err);
+			notifications.add({ type: 'error', message: 'Failed to reject PO Follow-Up' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	// Internal Consumption Request: Approve
+	async function approveInternalExpenseRequest(req) {
+		if (isProcessing) return;
+		isProcessing = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const empName = $currentUser?.username || '';
+			const { data, error } = await supabase.rpc('approve_internal_expense_request', {
+				p_id: req.id, p_approver_id: $currentUser.id, p_approver_name: empName
+			});
+			if (error) throw error;
+			if (data && data.success === false) throw new Error(data.error || 'Failed to approve');
+
+			if (req.requester_id) {
+				try {
+					await notificationService.createNotification({
+						title: 'Internal Consumption Request Approved / تمت الموافقة على طلب الاستهلاك الداخلي',
+						message: `${empName || 'An approver'} approved your internal consumption request for ${req.branch_name}.`,
+						type: 'success',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [req.requester_id]
+					}, $currentUser?.id || empName || 'System');
+				} catch (notifError) {
+					console.error('⚠️ Failed to send approval notification:', notifError);
+				}
+			}
+
+			notifications.add({ type: 'success', message: 'Internal consumption request approved / تمت الموافقة' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error approving internal consumption request:', err);
+			notifications.add({ type: 'error', message: 'Failed to approve internal consumption request' });
+		} finally {
+			isProcessing = false;
+		}
+	}
+
+	// Internal Consumption Request: Reject
+	async function rejectInternalExpenseRequest(req) {
+		if (isProcessing) return;
+		const reason = prompt('Rejection reason (optional):');
+		isProcessing = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const empName = $currentUser?.username || '';
+			const { data, error } = await supabase.rpc('reject_internal_expense_request', {
+				p_id: req.id, p_approver_id: $currentUser.id, p_approver_name: empName, p_reason: reason || null
+			});
+			if (error) throw error;
+			if (data && data.success === false) throw new Error(data.error || 'Failed to reject');
+
+			if (req.requester_id) {
+				try {
+					await notificationService.createNotification({
+						title: 'Internal Consumption Request Rejected / تم رفض طلب الاستهلاك الداخلي',
+						message: `${empName || 'An approver'} rejected your internal consumption request for ${req.branch_name}.${reason ? ' Reason: ' + reason + '.' : ''}`,
+						type: 'warning',
+						priority: 'high',
+						target_type: 'specific_users',
+						target_users: [req.requester_id]
+					}, $currentUser?.id || empName || 'System');
+				} catch (notifError) {
+					console.error('⚠️ Failed to send rejection notification:', notifError);
+				}
+			}
+
+			notifications.add({ type: 'success', message: 'Internal consumption request rejected / تم الرفض' });
+			await loadRequisitions();
+		} catch (err) {
+			console.error('Error rejecting internal consumption request:', err);
+			notifications.add({ type: 'error', message: 'Failed to reject internal consumption request' });
 		} finally {
 			isProcessing = false;
 		}
@@ -1336,7 +1532,7 @@ async function rejectRequisition(reason) {
 						class="req-card"
 					>
 						<div class="card-header">
-							<div class="card-title" on:click={() => openDetail(req)}>
+							<div class="card-title" on:click={() => req.item_type === 'internal_expense' ? openInternalExpenseDetail(req) : openDetail(req)}>
 								{#if req.item_type === 'requisition'}
 							<!-- Expense Requisition Card -->
 							<div class="req-header">
@@ -1529,15 +1725,60 @@ async function rejectRequisition(reason) {
 									<span class="value">{req.created_at ? timeAgo(req.created_at) : '-'}</span>
 								</div>
 							</div>
+						{:else if req.item_type === 'po_followup'}
+							<!-- Action Follow-Up PO Approval Card -->
+							<div class="req-header">
+								<div class="req-number">
+									<span class="schedule-badge" style="background:#dbeafe;color:#1e40af;">📌 {t('PO Follow-Up', 'متابعة أمر شراء')}</span>
+								</div>
+								<div class="status-badge status-pending">{t('Pending', 'قيد الانتظار')}</div>
+							</div>
+							<div class="req-details">
+								<div class="info-row"><span class="label">{t('Branch', 'الفرع')}:</span><span class="value">{req.branch_name || '-'}</span></div>
+								<div class="info-row"><span class="label">{t('Vendor', 'المورد')}:</span><span class="value">{req.vendor_name || '-'}</span></div>
+								<div class="info-row"><span class="label">{t('Amount', 'المبلغ')}:</span><span class="value amount">{parseFloat(req.po_amount || 0).toFixed(2)}</span></div>
+								<div class="info-row"><span class="label">{t('Payment', 'الدفع')}:</span><span class="value">{req.payment_mode === 'spot' ? t('Spot', 'فوري') : t('Credit', 'آجل')}{req.credit_period ? ` (${req.credit_period} ${t('days', 'يوم')})` : ''}</span></div>
+								<div class="info-row"><span class="label">{t('Expected delivery', 'التسليم المتوقع')}:</span><span class="value">{req.expected_delivery_date || '-'}</span></div>
+							</div>
+						{:else if req.item_type === 'internal_expense'}
+							<!-- Internal Consumption Request Card -->
+							<div class="req-header">
+								<div class="req-number">
+									<span class="schedule-badge box-edit">🧾 {t('Internal Consumption', 'استهلاك داخلي')}</span>
+								</div>
+								<div class="status-badge status-pending">
+									{t('Pending', 'قيد الانتظار')}
+								</div>
+							</div>
+							<div class="req-info">
+								<div class="info-row">
+									<span class="label">{t('Branch', 'الفرع')}:</span>
+									<span class="value">{req.branch_name || '-'}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">{t('Requested by', 'طلب بواسطة')}:</span>
+									<span class="value">👤 {req.requester_name || '-'}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">{t('Products', 'المنتجات')}:</span>
+									<span class="value">{(req.items || []).length}</span>
+								</div>
+								<div class="info-row">
+									<span class="label">{t('Requested on', 'تاريخ الطلب')}:</span>
+									<span class="value">{req.created_at ? timeAgo(req.created_at) : '-'}</span>
+								</div>
+							</div>
 						{/if}
 						</div>
 					</div>
 					<!-- Action Buttons -->
-					{#if ((req.item_type === 'requisition' && req.status === 'pending') || 
-					      (req.item_type === 'payment_schedule' && req.approval_status === 'pending') || 
+					{#if ((req.item_type === 'requisition' && req.status === 'pending') ||
+					      (req.item_type === 'payment_schedule' && req.approval_status === 'pending') ||
 					      (req.item_type === 'vendor_payment') ||
 					      (req.item_type === 'day_off' && req.approval_status === 'pending') ||
-					      (req.item_type === 'box_edit' && req.status === 'sent_for_approval')) && 
+					      (req.item_type === 'box_edit' && req.status === 'sent_for_approval') ||
+					      (req.item_type === 'po_followup') ||
+					      (req.item_type === 'internal_expense')) &&
 					     activeSection === 'approvals' && userCanApprove}
 						<div class="card-actions">
 							{#if req.item_type === 'day_off'}
@@ -1552,6 +1793,23 @@ async function rejectRequisition(reason) {
 									✅ {t('Approve', 'موافقة')}
 								</button>
 								<button class="btn-reject-card" on:click|stopPropagation={() => rejectBoxEditRequest(req)} disabled={isProcessing}>
+									❌ {t('Reject', 'رفض')}
+								</button>
+							{:else if req.item_type === 'po_followup'}
+								<button class="btn-approve-card" on:click|stopPropagation={() => approvePoFollowup(req)} disabled={isProcessing}>
+									✅ {t('Approve', 'موافقة')}
+								</button>
+								<button class="btn-reject-card" on:click|stopPropagation={() => rejectPoFollowup(req)} disabled={isProcessing}>
+									❌ {t('Reject', 'رفض')}
+								</button>
+							{:else if req.item_type === 'internal_expense'}
+								<button class="btn-view-card" on:click|stopPropagation={() => openInternalExpenseDetail(req)}>
+									👁️ {t('View', 'عرض')}
+								</button>
+								<button class="btn-approve-card" on:click|stopPropagation={() => approveInternalExpenseRequest(req)} disabled={isProcessing}>
+									✅ {t('Approve', 'موافقة')}
+								</button>
+								<button class="btn-reject-card" on:click|stopPropagation={() => rejectInternalExpenseRequest(req)} disabled={isProcessing}>
 									❌ {t('Reject', 'رفض')}
 								</button>
 							{:else}
@@ -1812,6 +2070,105 @@ async function rejectRequisition(reason) {
 					</div>
 				{/if}
 			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Internal Consumption Request Detail Modal -->
+{#if showInternalExpenseDetail && internalExpenseDetailReq}
+	<div class="modal-overlay" on:click={closeInternalExpenseDetail}>
+		<div class="modal-content" on:click|stopPropagation>
+			<div class="modal-header">
+				<h2>🧾 {t('Internal Consumption Request', 'طلب استهلاك داخلي')}</h2>
+				<button class="close-btn" on:click={closeInternalExpenseDetail}>✕</button>
+			</div>
+
+			<div class="modal-body">
+				<div class="detail-section">
+					<div class="detail-item">
+						<span class="label">{t('Status', 'الحالة')}:</span>
+						<span class="value">
+							{internalExpenseDetailReq.status === 'requested' ? t('Pending', 'قيد الانتظار') : internalExpenseDetailReq.status === 'approved' ? t('Approved', 'مقبول') : t('Rejected', 'مرفوض')}
+						</span>
+					</div>
+					<div class="detail-item">
+						<span class="label">{t('Branch', 'الفرع')}:</span>
+						<span class="value">{internalExpenseDetailReq.branch_name || '-'}</span>
+					</div>
+					<div class="detail-item">
+						<span class="label">{t('Requester', 'مقدم الطلب')}:</span>
+						<span class="value">👤 {internalExpenseDetailReq.requester_name || '-'}</span>
+					</div>
+					<div class="detail-item">
+						<span class="label">{t('Requested on', 'تاريخ الطلب')}:</span>
+						<span class="value">{internalExpenseDetailReq.created_at ? formatDate(internalExpenseDetailReq.created_at) : '-'}</span>
+					</div>
+					{#if internalExpenseDetailReq.approved_by_name}
+						<div class="detail-item">
+							<span class="label">{t('Approved by', 'اعتمد بواسطة')}:</span>
+							<span class="value">👤 {internalExpenseDetailReq.approved_by_name}</span>
+						</div>
+					{/if}
+					{#if internalExpenseDetailReq.rejected_by_name}
+						<div class="detail-item">
+							<span class="label">{t('Rejected by', 'رفض بواسطة')}:</span>
+							<span class="value">👤 {internalExpenseDetailReq.rejected_by_name}</span>
+						</div>
+					{/if}
+					{#if internalExpenseDetailReq.rejection_reason}
+						<div class="detail-item">
+							<span class="label">{t('Rejection reason', 'سبب الرفض')}:</span>
+							<span class="value">{internalExpenseDetailReq.rejection_reason}</span>
+						</div>
+					{/if}
+				</div>
+
+				<div class="ie-products-section">
+					<h3 class="ie-products-title">
+						{t('Requested Products', 'المنتجات المطلوبة')} ({(internalExpenseDetailReq.items || []).length})
+					</h3>
+					{#if (internalExpenseDetailReq.items || []).length > 0}
+						{@const item = internalExpenseDetailReq.items[internalExpenseDetailPhotoIndex]}
+						<div class="ie-photo-viewer">
+							<img src={item.photo_url} alt="Barcode / product photo" class="ie-photo-viewer-img" />
+							<div class="ie-photo-meta">
+								<span>{t('Product', 'منتج')} #{internalExpenseDetailPhotoIndex + 1} / {internalExpenseDetailReq.items.length}</span>
+								<span>{t('Quantity', 'الكمية')}: <strong>{item.quantity}</strong></span>
+							</div>
+							{#if internalExpenseDetailReq.items.length > 1}
+								<div class="ie-photo-nav">
+									<button class="close-btn ie-nav-btn" on:click={prevInternalExpensePhoto} disabled={internalExpenseDetailPhotoIndex === 0}>
+										← {t('Previous', 'السابق')}
+									</button>
+									<span class="ie-photo-position">{internalExpenseDetailPhotoIndex + 1} / {internalExpenseDetailReq.items.length}</span>
+									<button class="close-btn ie-nav-btn" on:click={nextInternalExpensePhoto} disabled={internalExpenseDetailPhotoIndex >= internalExpenseDetailReq.items.length - 1}>
+										{t('Next', 'التالي')} →
+									</button>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			{#if internalExpenseDetailReq.status === 'requested' && activeSection === 'approvals'}
+				<div class="ie-detail-actions">
+					<button
+						class="btn-approve-card"
+						on:click={() => { const req = internalExpenseDetailReq; closeInternalExpenseDetail(); approveInternalExpenseRequest(req); }}
+						disabled={isProcessing}
+					>
+						✅ {t('Approve', 'موافقة')}
+					</button>
+					<button
+						class="btn-reject-card"
+						on:click={() => { const req = internalExpenseDetailReq; closeInternalExpenseDetail(); rejectInternalExpenseRequest(req); }}
+						disabled={isProcessing}
+					>
+						❌ {t('Reject', 'رفض')}
+					</button>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -2103,6 +2460,28 @@ async function rejectRequisition(reason) {
 		cursor: not-allowed;
 	}
 
+	.btn-view-card {
+		flex: 1;
+		padding: 0.4rem;
+		border: none;
+		border-radius: 5px;
+		font-size: 0.76rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.2rem;
+		background: #3B82F6;
+		color: white;
+	}
+
+	.btn-view-card:active {
+		background: #2563EB;
+		transform: scale(0.98);
+	}
+
 	.req-card:active {
 		transform: none;
 	}
@@ -2318,6 +2697,78 @@ async function rejectRequisition(reason) {
 		font-weight: 600;
 		font-size: 0.76rem;
 		text-align: right;
+	}
+
+	.ie-products-section {
+		margin-top: 0.8rem;
+		padding-top: 0.8rem;
+		border-top: 1px solid #E5E7EB;
+	}
+
+	.ie-products-title {
+		margin: 0 0 0.5rem;
+		font-size: 0.82rem;
+		color: #1F2937;
+	}
+
+	.ie-photo-viewer {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: #F9FAFB;
+		border-radius: 8px;
+		border: 1px solid #E5E7EB;
+	}
+
+	.ie-photo-viewer-img {
+		max-width: 100%;
+		max-height: 220px;
+		border-radius: 8px;
+		border: 1px solid #E5E7EB;
+		object-fit: contain;
+		background: white;
+	}
+
+	.ie-photo-meta {
+		display: flex;
+		gap: 1rem;
+		font-size: 0.76rem;
+		color: #4B5563;
+	}
+
+	.ie-photo-nav {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.ie-nav-btn {
+		width: auto;
+		height: auto;
+		border-radius: 6px;
+		padding: 0.35rem 0.6rem;
+		font-size: 0.74rem;
+		font-weight: 600;
+	}
+
+	.ie-nav-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.ie-photo-position {
+		font-size: 0.74rem;
+		font-weight: 600;
+		color: #6B7280;
+	}
+
+	.ie-detail-actions {
+		display: flex;
+		gap: 0.6rem;
+		padding: 0.6rem;
+		border-top: 1px solid #E5E7EB;
 	}
 
 	.amount-large {

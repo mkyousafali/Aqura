@@ -27,6 +27,7 @@
 	import ManageVendor from '$lib/components/desktop-interface/master/vendor/ManageVendor.svelte';
 	import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
 	import UploadVendor from '$lib/components/desktop-interface/master/vendor/UploadVendor.svelte';
+	import InternalExpenses from '$lib/components/desktop-interface/master/vendor/InternalExpenses.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
 	import LCPlanner from '$lib/components/desktop-interface/master/finance/LCPlanner.svelte';
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
@@ -353,6 +354,7 @@
 		'STOCK_OFFER_COST_MANAGER': 'nav.offerCostManager',
 		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl',
 		'ACTION_FOLLOW_UPS': 'nav.actionFollowUps',
+		'INTERNAL_EXPENSES': 'nav.internalExpenses',
 		'WA_DASHBOARD': 'nav.whatsappDashboard',
 		'WA_LIVE_CHAT': 'nav.whatsappLiveChat',
 		'WA_BROADCASTS': 'nav.whatsappBroadcasts',
@@ -545,7 +547,7 @@
 		DeliveryReports: [],
 		VendorDashboard: ["RECEIVING"],
 		VendorManager: ["UPLOAD_VENDOR","CREATE_VENDOR","MANAGE_VENDOR","DEFAULT_POSITIONS","STOCK_PO_REQUESTS","STOCK_STOCK_REQUESTS","STOCK_BT_REQUESTS","STOCK_NEAR_EXPIRY_REQUESTS","STOCK_CUSTOMER_PRODUCT_REQUESTS","STOCK_OFFER_COST_MANAGER"],
-		VendorOperations: ["START_RECEIVING","RECEIVING_RECORDS","STOCK_PRODUCT_REQUEST","STOCK_ERP_PRODUCTS","STOCK_PRODUCT_CLAIM_MANAGER","STOCK_EXPIRY_CONTROL","ACTION_FOLLOW_UPS"],
+		VendorOperations: ["START_RECEIVING","RECEIVING_RECORDS","STOCK_PRODUCT_REQUEST","STOCK_ERP_PRODUCTS","STOCK_PRODUCT_CLAIM_MANAGER","STOCK_EXPIRY_CONTROL","ACTION_FOLLOW_UPS","INTERNAL_EXPENSES"],
 		VendorReports: ["VENDOR_RECORDS"],
 		MediaDashboard: [],
 		MediaManage: ["PRODUCT_MASTER","VARIATION_MANAGER","OFFER_MANAGER","FLYER_TEMPLATES","FLYER_SETTINGS","NORMAL_PAPER_MANAGER","ONE_DAY_OFFER_MANAGER","SOCIAL_LINK_MANAGER","SHELF_PAPER_TEMPLATE_DESIGNER"],
@@ -2388,6 +2390,7 @@ function openApprovalCenter() {
 			'STOCK_OFFER_COST_MANAGER': openOfferCostManager,
 			'STOCK_EXPIRY_CONTROL': openExpiryControl,
 			'ACTION_FOLLOW_UPS': openActionFollowUps,
+			'INTERNAL_EXPENSES': openInternalExpenses,
 			'WA_DASHBOARD': openWADashboard,
 			'WA_LIVE_CHAT': openWALiveChat,
 			'WA_BROADCASTS': openWABroadcasts,
@@ -2930,6 +2933,28 @@ function openApprovalCenter() {
 			position: { 
 				x: 180 + (Math.random() * 100),
 				y: 120 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openInternalExpenses() {
+		collapseAllMenus();
+		const windowId = generateWindowId('internal-expenses');
+
+		openWindow({
+			id: windowId,
+			title: t('nav.internalExpenses') || 'Internal Expenses',
+			component: InternalExpenses,
+			componentName: "InternalExpenses",
+			icon: '🧾',
+			size: { width: 1100, height: 700 },
+			position: {
+				x: 180 + (Math.random() * 100),
+				y: 120 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -4662,6 +4687,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openActionFollowUps}>
 								<span class="menu-icon">📌</span>
 								<span class="menu-text">{t('nav.actionFollowUps') || 'Action Follow-Ups'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('INTERNAL_EXPENSES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openInternalExpenses}>
+								<span class="menu-icon">🧾</span>
+								<span class="menu-text">{t('nav.internalExpenses') || 'Internal Expenses'}</span>
 							</button>
 						</div>
 					{/if}
