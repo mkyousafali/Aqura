@@ -9,7 +9,6 @@
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
-	import { mobileThemeStore } from '$lib/stores/mobileThemeStore';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
@@ -217,12 +216,7 @@
 		
 		loadBadgeCounts(true); // Silent refresh counts when user changes
 		loadButtonPermissions(); // Load button permissions when user changes
-		
-		// Load user's mobile theme
-		if ($currentUser?.id) {
-			mobileThemeStore.loadUserTheme($currentUser.id);
-		}
-		
+
 		// Restart notification sound system for new user
 		// ðŸ”´ DISABLED: Real-time notification listener disabled
 		// startNotificationListener();
@@ -1013,17 +1007,6 @@
 					<span class="menu-item-text">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
 				</a>
 			{/if}
-			<a href="/mobile-interface/theme-manager" class="menu-item" on:click={() => showMenu = false} title="Theme Manager">
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<circle cx="12" cy="12" r="1"/>
-					<path d="M12 1v6m0 6v6"/>
-					<path d="M4.22 4.22l4.24 4.24m-2.83 5.08l4.24 4.24"/>
-					<path d="M19.78 4.22l-4.24 4.24m2.83 5.08l-4.24 4.24"/>
-					<path d="M1 12h6m6 0h6"/>
-					<path d="M4.22 19.78l4.24-4.24m5.08 2.83l4.24-4.24"/>
-				</svg>
-				<span class="menu-item-text">{getTranslation('mobile.themeManager') || 'Theme Manager'}</span>
-			</a>
 			<div class="menu-item menu-language" title={getTranslation('mobile.language')} on:click={(e) => {
 				const languageBtn = e.currentTarget.querySelector('.language-btn');
 				if (languageBtn) languageBtn.click();
@@ -1080,10 +1063,10 @@
 			<!-- Orders / Delivery Menu Button (FIRST) -->
 			<div class="nav-item-menu-container">
 				<button class="nav-item orders-btn" on:click={() => { showOrdersMenu = !showOrdersMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showOrdersMenu || $page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
-					{#if newOrdersCount > 0}
-						<span class="nav-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
-					{/if}
 					<div class="nav-icon">
+						{#if newOrdersCount > 0}
+							<span class="nav-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
+						{/if}
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<rect x="1" y="3" width="15" height="13" rx="2"/>
 							<path d="M16 8h4l3 3v5a2 2 0 0 1-2 2h-1"/>
@@ -1119,10 +1102,10 @@
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
 				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showOrdersMenu = false; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance') || $page.url.pathname.startsWith('/mobile-interface/team-receiving-tasks')}>
-					{#if taskCount > 0}
-						<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
-					{/if}
 					<div class="nav-icon">
+						{#if taskCount > 0}
+							<span class="nav-badge">{taskCount > 99 ? '99+' : taskCount}</span>
+						{/if}
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-4"/>
 							<rect x="9" y="7" width="6" height="5"/>
@@ -1184,10 +1167,10 @@
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
 				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/support')}>
-					{#if incidentCount > 0}
-						<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
-					{/if}
 					<div class="nav-icon">
+						{#if incidentCount > 0}
+							<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
+						{/if}
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
 							<line x1="12" y1="9" x2="12" y2="13"/>
@@ -1597,7 +1580,7 @@
 
 	/* Global Mobile Header */
 	.global-mobile-header {
-		background: var(--theme-header-bg, linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%));
+		background: var(--theme-header-bg, #1261A0);
 		color: var(--theme-header-text, white);
 		padding: 0.8rem 1.2rem;
 		padding-top: calc(0.8rem + env(safe-area-inset-top));
@@ -2078,8 +2061,8 @@
 
 	.nav-badge {
 		position: absolute;
-		top: -5px; /* Reduced from -6px */
-		right: -5px; /* Reduced from -6px */
+		top: -3px;
+		right: -3px;
 		background: var(--theme-badge-error-bg, #EF4444);
 		color: var(--theme-badge-error-text, white);
 		font-size: 0.5rem; /* Reduced from 0.625rem */

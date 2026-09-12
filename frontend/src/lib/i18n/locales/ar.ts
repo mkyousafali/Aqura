@@ -623,7 +623,6 @@ export const arabicLocale: LocaleData = {
     mobile: {
       home: "الرئيسية",
       language: "اللغة",
-      themeManager: "مدير المواضيع",
       logout: "تسجيل الخروج",
       dashboard: "لوحة التحكم",
       tasks: "المهام",

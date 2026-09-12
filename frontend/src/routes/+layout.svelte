@@ -48,6 +48,13 @@
 	let needRefresh;
 	let updateServiceWorker;
 
+	// True only for the brief window right after this app instance starts up (Android app
+	// cold start, PWA relaunch, or a fresh browser/tab load). An update found during this
+	// window is applied and reloaded automatically — the user hasn't started anything yet.
+	// An update found later (the recurring 30s poll below, while the app stays open) only
+	// shows the manual "Update" badge, so an in-progress task is never interrupted.
+	let isFreshOpenUpdate = true;
+
 	// Sync local showUpdatePrompt with global store
 	$: {
 		updateAvailable.set(showUpdatePrompt);
@@ -681,12 +688,15 @@
 						// Handle controller change (when new SW takes control)
 						navigator.serviceWorker.addEventListener('controllerchange', () => {
 							console.log('🔄 PWA Service Worker controller changed');
-							// ONLY reload when user explicitly clicked the update button
-							if (userClickedUpdate) {
-								console.log('✅ User-initiated update — reloading page');
+							// Reload when the user explicitly clicked the update button, OR when
+							// this update was found right at app open (fresh launch/reopen) —
+							// otherwise (a mid-session background detection) leave the running
+							// session alone and just let the manual "Update" badge show.
+							if (userClickedUpdate || isFreshOpenUpdate) {
+								console.log('✅ Applying update — reloading page', { userClickedUpdate, isFreshOpenUpdate });
 								window.location.reload();
 							} else {
-								console.log('⏭️ Auto update detected — NOT reloading (user did not click update)');
+								console.log('⏭️ Auto update detected mid-session — NOT reloading (user did not click update)');
 							}
 						});
 						
@@ -730,7 +740,15 @@
 						// Check for updates immediately and then every 30 seconds
 						checkForUpdates();
 						setInterval(checkForUpdates, 30000);
-						
+
+						// Close the "fresh open" window a few seconds after the open-time check —
+						// long enough for that check's install/activate/reload to complete, short
+						// enough to stay well before the next 30s poll. Anything found after this
+						// point is a genuine mid-session update and must wait for the user's tap.
+						setTimeout(() => {
+							isFreshOpenUpdate = false;
+						}, 15000);
+
 						console.log('✅ PWA initialization completed');
 					} else {
 						console.warn('⚠️ Service Workers not supported');

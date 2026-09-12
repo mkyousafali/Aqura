@@ -616,7 +616,6 @@ export const englishLocale: LocaleData = {
     mobile: {
       home: "Home",
       language: "Language",
-      themeManager: "Theme Manager",
       logout: "Logout",
       dashboard: "Dashboard",
       tasks: "Tasks",

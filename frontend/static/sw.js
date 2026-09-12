@@ -27,8 +27,11 @@ if (workbox) {
 	console.error('[ServiceWorker] Workbox failed to load');
 }
 
-// Do NOT skipWaiting automatically — let the user choose when to update
-// skipWaiting is only called when user clicks "Update Now" via SKIP_WAITING message
+// NOTE: self.skipWaiting() is called unconditionally in the 'install' handler below,
+// so a new version always finishes activating on its own shortly after it's detected —
+// this app doesn't gate that. What IS gated (client-side, in the root +layout.svelte)
+// is whether the open page reloads to actually use it: automatically right after this
+// app instance starts up (fresh open), otherwise only when the user taps "Update".
 self.addEventListener('activate', event => {
   event.waitUntil(
     (async () => {

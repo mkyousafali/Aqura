@@ -1254,7 +1254,25 @@
 		background: rgba(156, 163, 175, 0.1);
 		color: #9CA3AF;
 	}
-	
+
+	/* ERP Access - Blue */
+	.erp-access-card .stat-icon {
+		background: rgba(59, 130, 246, 0.1) !important;
+		color: #3B82F6 !important;
+	}
+
+	/* My Profile - Indigo */
+	.my-profile-card .stat-icon {
+		background: rgba(99, 102, 241, 0.1) !important;
+		color: #6366F1 !important;
+	}
+
+	/* Scan Request - Emerald */
+	.scan-request-card .stat-icon {
+		background: rgba(16, 185, 129, 0.1) !important;
+		color: #10B981 !important;
+	}
+
 	.stat-card.clickable {
 		cursor: pointer;
 		border: 2px solid transparent;
