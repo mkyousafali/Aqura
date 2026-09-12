@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Aqura</string>
+    <string name="loading">Loading Aqura…</string>
+    <string name="offline_title">Unable to load Aqura</string>
+    <string name="offline_message">Check your internet connection and try again.</string>
+    <string name="retry">Retry</string>
+</resources>

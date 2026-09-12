@@ -2,6 +2,7 @@
 // This function sends web push notifications to subscribed users
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
+import { SignJWT, importPKCS8 } from 'https://esm.sh/jose@5.9.6'
 
 // CORS headers for browser requests
 const corsHeaders = {
@@ -25,13 +26,71 @@ interface PushSubscriptionData {
   id: string;
   user_id: string;
   subscription: {
-    endpoint: string;
-    keys: {
+    endpoint?: string;
+    provider?: string;
+    token?: string;
+    keys?: {
       p256dh: string;
       auth: string;
     };
   };
   is_active: boolean;
+}
+
+let cachedGoogleToken: { token: string; expiresAt: number } | null = null
+
+async function getGoogleAccessToken(): Promise<{ token: string; projectId: string }> {
+  const projectId = Deno.env.get('FIREBASE_PROJECT_ID')
+  const clientEmail = Deno.env.get('FIREBASE_CLIENT_EMAIL')
+  const privateKeyB64 = Deno.env.get('FIREBASE_PRIVATE_KEY_B64')
+  if (!projectId || !clientEmail || !privateKeyB64) throw new Error('Firebase server credentials are not configured')
+
+  if (cachedGoogleToken && cachedGoogleToken.expiresAt > Date.now() + 60_000) {
+    return { token: cachedGoogleToken.token, projectId }
+  }
+
+  const privateKey = new TextDecoder().decode(Uint8Array.from(atob(privateKeyB64), c => c.charCodeAt(0)))
+  const now = Math.floor(Date.now() / 1000)
+  const assertion = await new SignJWT({ scope: 'https://www.googleapis.com/auth/firebase.messaging' })
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .setIssuer(clientEmail)
+    .setSubject(clientEmail)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(await importPKCS8(privateKey, 'RS256'))
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion })
+  })
+  if (!response.ok) throw new Error(`Firebase OAuth failed (${response.status})`)
+  const result = await response.json()
+  cachedGoogleToken = { token: result.access_token, expiresAt: Date.now() + (result.expires_in * 1000) }
+  return { token: result.access_token, projectId }
+}
+
+async function sendFcm(token: string, notificationId: string, payload: PushPayload): Promise<void> {
+  const auth = await getGoogleAccessToken()
+  const response = await fetch(`https://fcm.googleapis.com/v1/projects/${auth.projectId}/messages:send`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: { token, data: {
+      title: payload.title || 'Aqura',
+      body: payload.body || '',
+      url: payload.url || '',
+      type: payload.type || '',
+      notificationId: notificationId || '',
+      data: JSON.stringify(payload.data || {})
+    }, android: { priority: 'high' } } })
+  })
+  if (!response.ok) {
+    const detail = await response.text()
+    const error = new Error(`FCM send failed (${response.status}): ${detail.slice(0, 300)}`) as Error & { statusCode?: number }
+    error.statusCode = response.status
+    throw error
+  }
 }
 
 Deno.serve(async (req) => {
@@ -118,6 +177,12 @@ Deno.serve(async (req) => {
     const results = await Promise.allSettled(
       subscriptions.map(async (sub: PushSubscriptionData) => {
         try {
+          if (sub.subscription?.provider === 'fcm' && sub.subscription.token) {
+            await sendFcm(sub.subscription.token, notificationId, payload)
+            await supabase.from('push_subscriptions').update({ last_used_at: new Date().toISOString(), failed_deliveries: 0 }).eq('id', sub.id)
+            return { success: true, userId: sub.user_id }
+          }
+
           // Use web-push library (imported via npm specifier)
           const webpush = await import('https://esm.sh/web-push@3.6.6')
           
@@ -143,7 +208,7 @@ Deno.serve(async (req) => {
 
           // Send push notification
           await webpush.sendNotification(
-            sub.subscription,
+            sub.subscription as any,
             notificationPayload
           )
 

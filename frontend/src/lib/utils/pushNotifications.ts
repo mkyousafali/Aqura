@@ -12,6 +12,51 @@ import { currentUser } from './persistentAuth';
 // Prevents autoSubscribePush() from silently re-subscribing this device just
 // because it becomes the "latest" one for its interface.
 const PUSH_MANUALLY_DISABLED_KEY = 'aqura-push-manually-disabled';
+const NATIVE_PUSH_ENABLED_KEY = 'aqura-native-push-enabled';
+
+type AquraAndroidBridge = {
+  isNativeApp(): boolean;
+  requestPushToken(): void;
+};
+
+function getAndroidBridge(): AquraAndroidBridge | null {
+  return (window as Window & { AquraAndroid?: AquraAndroidBridge }).AquraAndroid ?? null;
+}
+
+async function requestNativePushToken(): Promise<string> {
+  const bridge = getAndroidBridge();
+  if (!bridge) throw new Error('Android notification bridge is unavailable');
+
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener('aqura:fcm-token', onToken as EventListener);
+      reject(new Error('Timed out while enabling Android notifications'));
+    }, 15000);
+    const onToken = (event: CustomEvent<{ token?: string; permission?: string }>) => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('aqura:fcm-token', onToken as EventListener);
+      if (event.detail?.token) resolve(event.detail.token);
+      else reject(new Error(event.detail?.permission === 'denied' ? 'Notification permission denied' : 'Unable to obtain FCM token'));
+    };
+    window.addEventListener('aqura:fcm-token', onToken as EventListener, { once: true });
+    bridge.requestPushToken();
+  });
+}
+
+async function saveNativePushToken(token: string, reactivate = false): Promise<void> {
+  const user = get(currentUser);
+  if (!user?.id) throw new Error('User not logged in');
+  const endpoint = `fcm:${token}`;
+  const { data, error } = await supabase.rpc('save_push_subscription_scoped', {
+    p_user_id: user.id,
+    p_endpoint: endpoint,
+    p_subscription: { provider: 'fcm', token },
+    p_user_agent: navigator.userAgent,
+    p_interface_type: user.interfaceType ?? 'mobile',
+    p_reactivate: reactivate
+  });
+  if (error || data?.success === false) throw error ?? new Error(data?.error || 'Failed to save Android push token');
+}
 
 // Convert VAPID key from base64 to Uint8Array
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -29,13 +74,16 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
  * Check if push notifications are supported in this browser
  */
 export function isPushSupported(): boolean {
-  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  return getAndroidBridge() !== null || ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window);
 }
 
 /**
  * Get current push notification permission status
  */
 export function getPermissionStatus(): NotificationPermission {
+  if (getAndroidBridge()) {
+    return localStorage.getItem(NATIVE_PUSH_ENABLED_KEY) === '1' ? 'granted' : 'default';
+  }
   if (!isPushSupported()) {
     return 'denied';
   }
@@ -46,6 +94,10 @@ export function getPermissionStatus(): NotificationPermission {
  * Request notification permission from the user
  */
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (getAndroidBridge()) {
+    await requestNativePushToken();
+    return 'granted';
+  }
   if (!isPushSupported()) {
     throw new Error('Push notifications are not supported in this browser');
   }
@@ -63,6 +115,14 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
   try {
     console.log('📬 [Push] Starting subscription process...');
     
+    if (getAndroidBridge()) {
+      const token = await requestNativePushToken();
+      await saveNativePushToken(token, true);
+      localStorage.removeItem(PUSH_MANUALLY_DISABLED_KEY);
+      localStorage.setItem(NATIVE_PUSH_ENABLED_KEY, '1');
+      return { endpoint: `fcm:${token}` } as PushSubscription;
+    }
+
     // Check if supported
     if (!isPushSupported()) {
       throw new Error('Push notifications not supported');
@@ -178,6 +238,13 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
  */
 export async function unsubscribeFromPushNotifications(): Promise<boolean> {
   try {
+    if (getAndroidBridge()) {
+      const token = await requestNativePushToken();
+      await disablePushSubscriptionForDevice(`fcm:${token}`);
+      localStorage.setItem(PUSH_MANUALLY_DISABLED_KEY, '1');
+      localStorage.removeItem(NATIVE_PUSH_ENABLED_KEY);
+      return true;
+    }
     if (!isPushSupported()) {
       return false;
     }
@@ -319,6 +386,7 @@ async function removePushSubscription(endpoint: string): Promise<void> {
  */
 export async function hasActiveSubscription(): Promise<boolean> {
   try {
+    if (getAndroidBridge()) return localStorage.getItem(NATIVE_PUSH_ENABLED_KEY) === '1';
     if (!isPushSupported()) {
       return false;
     }
@@ -389,6 +457,16 @@ export async function sendTestNotification(): Promise<void> {
  */
 export async function autoSubscribePush(): Promise<void> {
   try {
+    if (getAndroidBridge()) {
+      const user = get(currentUser);
+      if (!user?.id || localStorage.getItem(PUSH_MANUALLY_DISABLED_KEY) === '1') return;
+      const token = await requestNativePushToken();
+      await saveNativePushToken(token);
+      localStorage.setItem(NATIVE_PUSH_ENABLED_KEY, '1');
+      console.log('📬 [Push-Auto] Android FCM token registered');
+      return;
+    }
+
     if (!isPushSupported()) {
       console.log('📬 [Push-Auto] Push not supported in this browser, skipping');
       return;
