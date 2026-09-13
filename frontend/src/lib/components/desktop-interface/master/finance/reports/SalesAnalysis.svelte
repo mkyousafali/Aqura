@@ -28,7 +28,15 @@
 	const displayName = (row: { productName: string; productNameAr: string }) =>
 		(isArabic ? row.productNameAr || row.productName : row.productName || row.productNameAr) || '—';
 
-	interface Branch { branch_id: number; branch_name: string }
+	interface Branch {
+		branch_id: number;
+		branch_name: string;
+		erp_branch_id: number;
+		name_en: string;
+		name_ar: string;
+		location_en: string;
+		location_ar: string;
+	}
 	interface DaySummary {
 		netSales: number;
 		grossSales: number;
@@ -60,6 +68,7 @@
 
 	let branches: Branch[] = [];
 	let selectedBranchId: number | null = null;
+	$: selectedErpBranchId = branches.find((branch) => branch.branch_id === selectedBranchId)?.erp_branch_id ?? null;
 
 	const now = new Date();
 	let selectedYear = now.getFullYear();
@@ -89,7 +98,7 @@
 	let selectedDateStr = '';
 	let previousDateStr = '';
 
-	type GpFilterMode = 'less' | 'more' | 'zeroCost';
+	type GpFilterMode = 'less' | 'zeroCost';
 	let gpFilterMode: GpFilterMode = 'less';
 	let gpFilterValue = '';
 	let loadingItems = false;
@@ -126,19 +135,45 @@
 	async function loadBranches() {
 		loadingBranches = true;
 		try {
-			const { data, error } = await supabase
+			const { data: connections, error } = await supabase
 				.from('erp_connections')
-				.select('branch_id, branch_name')
+				.select('branch_id, branch_name, erp_branch_id')
 				.eq('is_active', true)
 				.order('branch_id', { ascending: true });
 			if (error) throw error;
-			branches = (data || []).filter((b: any) => b.branch_id != null);
+
+			const activeConnections = (connections || []).filter((connection: any) => connection.branch_id != null);
+			const branchIds = activeConnections.map((connection: any) => connection.branch_id);
+			const { data: branchDetails, error: branchError } = branchIds.length
+				? await supabase.from('branches').select('id, name_en, name_ar, location_en, location_ar').in('id', branchIds)
+				: { data: [], error: null };
+			if (branchError) throw branchError;
+
+			const detailsById = new Map((branchDetails || []).map((branch: any) => [branch.id, branch]));
+			branches = activeConnections.map((connection: any) => {
+				const details: any = detailsById.get(connection.branch_id) || {};
+				return {
+					...connection,
+					name_en: details.name_en || connection.branch_name || '',
+					name_ar: details.name_ar || details.name_en || connection.branch_name || '',
+					location_en: details.location_en || '',
+					location_ar: details.location_ar || details.location_en || ''
+				};
+			});
 			if (branches.length && selectedBranchId === null) selectedBranchId = branches[0].branch_id;
 		} catch (err: any) {
 			summaryError = err.message || ui('Failed to load branches', 'تعذر تحميل الفروع');
 		} finally {
 			loadingBranches = false;
 		}
+	}
+
+	function branchLabel(branch: Branch, useArabic: boolean): string {
+		const name = useArabic ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar);
+		const location = useArabic
+			? (branch.location_ar || branch.location_en)
+			: (branch.location_en || branch.location_ar);
+		return location ? `${name} - ${location}` : name;
 	}
 
 	async function queryBridge(sql: string): Promise<any> {
@@ -154,7 +189,7 @@
 		return body;
 	}
 
-	function daySummarySql(dateStr: string) {
+	function daySummarySql(dateStr: string, erpBranchId: number) {
 		return `
 			SELECT
 				SUM(CASE WHEN VoucherType='SI' THEN GrandTotal ELSE 0 END) AS GrossSales,
@@ -165,17 +200,21 @@
 				SUM(CASE WHEN VoucherType='SR' THEN 1 ELSE 0 END) AS ReturnBills,
 				SUM(CASE WHEN VoucherType='SI' THEN TotalDiscount ELSE 0 END) AS TotalDiscount
 			FROM InvTransactionMaster
-			WHERE CAST(TransactionDate AS DATE) = '${dateStr}' AND VoucherType IN ('SI','SR') AND IsActive = 1
+			WHERE BranchID = ${erpBranchId}
+			  AND TransactionDate >= '${dateStr}' AND TransactionDate < DATEADD(day, 1, '${dateStr}')
+			  AND VoucherType IN ('SI','SR') AND IsActive = 1
 		`;
 	}
 
-	function distinctItemsSql(dateStr: string) {
+	function distinctItemsSql(dateStr: string, erpBranchId: number) {
 		return `
 			SELECT COUNT(DISTINCT pb.ProductID) AS DistinctItems
 			FROM InvTransactionDetails d
 			INNER JOIN InvTransactionMaster m ON d.InvTransactionMasterID = m.InvTransactionMasterID AND d.BranchID = m.BranchID
-			INNER JOIN ProductBatches pb ON d.ProductBatchID = pb.ProductBatchID
-			WHERE CAST(m.TransactionDate AS DATE) = '${dateStr}' AND m.VoucherType = 'SI' AND m.IsActive = 1
+			INNER JOIN ProductBatches pb ON d.ProductBatchID = pb.ProductBatchID AND pb.BranchID = d.BranchID
+			WHERE m.BranchID = ${erpBranchId}
+			  AND m.TransactionDate >= '${dateStr}' AND m.TransactionDate < DATEADD(day, 1, '${dateStr}')
+			  AND m.VoucherType = 'SI' AND m.IsActive = 1
 		`;
 	}
 
@@ -193,7 +232,7 @@
 	}
 
 	async function runAnalysis() {
-		if (!selectedBranchId) {
+		if (!selectedBranchId || selectedErpBranchId === null) {
 			summaryError = ui('Choose a branch first', 'اختر الفرع أولاً');
 			return;
 		}
@@ -205,14 +244,16 @@
 		itemsError = '';
 		noCostRows = [];
 		try {
+			const erpBranchId = selectedErpBranchId;
+			if (erpBranchId === null) throw new Error(ui('The selected branch has no ERP Branch ID mapping', 'لا يوجد معرّف فرع ERP للفرع المحدد'));
 			selectedDateStr = toDateStr(selectedYear, selectedMonth, selectedDay);
 			const prev = previousCalendarDay(selectedYear, selectedMonth, selectedDay);
 			previousDateStr = toDateStr(prev.y, prev.m, prev.d);
 
 			const [selRes, prevRes, distinctRes] = await Promise.all([
-				queryBridge(daySummarySql(selectedDateStr)),
-				queryBridge(daySummarySql(previousDateStr)),
-				queryBridge(distinctItemsSql(selectedDateStr))
+				queryBridge(daySummarySql(selectedDateStr, erpBranchId)),
+				queryBridge(daySummarySql(previousDateStr, erpBranchId)),
+				queryBridge(distinctItemsSql(selectedDateStr, erpBranchId))
 			]);
 
 			selectedDaySummary = toDaySummary(selRes?.recordset?.[0], Number(distinctRes?.recordset?.[0]?.DistinctItems) || 0);
@@ -240,6 +281,44 @@
 
 	function setGpFilter(which: GpFilterMode) {
 		gpFilterMode = which;
+	}
+
+	function groupIdenticalItemRows(rows: ItemRow[]): ItemRow[] {
+		const grouped = new Map<string, { row: ItemRow; billNumbers: Set<string> }>();
+
+		for (const row of rows) {
+			// Bill No is deliberately excluded. Every other displayed value, including
+			// voucher type and both language names, must match exactly before rows merge.
+			const key = JSON.stringify([
+				row.voucherType,
+				row.barcode,
+				row.productName,
+				row.productNameAr,
+				row.unitName,
+				row.soldQty,
+				row.unitConversionQty,
+				row.soldRate,
+				row.lastPurchaseRate,
+				row.costSource,
+				row.cost,
+				row.vatPercent,
+				row.gpAmount,
+				row.gpPercent,
+				row.lastPurchaseDate
+			]);
+			const existing = grouped.get(key);
+			if (existing) {
+				existing.billNumbers.add(row.billNo);
+			} else {
+				grouped.set(key, { row: { ...row }, billNumbers: new Set([row.billNo]) });
+			}
+		}
+
+		const billSorter = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+		return Array.from(grouped.values(), ({ row, billNumbers }) => ({
+			...row,
+			billNo: Array.from(billNumbers).sort(billSorter.compare).join(', ')
+		}));
 	}
 
 	// Unit-aware, per-bill item query.
@@ -293,14 +372,14 @@
 	// Reports one row per sold bill line (not aggregated across the day) so
 	// Bill Number is meaningful and every number here is traceable back to one
 	// specific transaction.
-	function itemsSql(dateStr: string) {
+	function itemsSql(dateStr: string, erpBranchId: number) {
 		// NOTE: the ERP bridge only accepts statements that literally start with
 		// SELECT — a leading WITH (CTE) gets rejected with 403 "Only SELECT
 		// queries are allowed" (confirmed against the live bridge). Use a plain
 		// derived subquery instead of a CTE for that reason.
-		const knownUnitCheck = (unitIdExpr: string) => `
-			(${unitIdExpr} IN (pb.PackingUnitID, pb.DefPurchaseUnitID, pb.DefSalesUnitID, pb.DefReportUnitID, pb.Unit2ID, pb.Unit3ID)
-			 OR EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.ProductBatchID = d.ProductBatchID AND pu3.UnitID = ${unitIdExpr}))
+		const knownUnitCheck = (unitIdExpr: string, batchAlias = 'pb', productBatchIdExpr = 'd.ProductBatchID', branchIdExpr = 'd.BranchID') => `
+			(${unitIdExpr} IN (${batchAlias}.PackingUnitID, ${batchAlias}.DefPurchaseUnitID, ${batchAlias}.DefSalesUnitID, ${batchAlias}.DefReportUnitID, ${batchAlias}.Unit2ID, ${batchAlias}.Unit3ID)
+			 OR EXISTS (SELECT 1 FROM ProductUnits pu3 WHERE pu3.BranchID = ${branchIdExpr} AND pu3.ProductBatchID = ${productBatchIdExpr} AND pu3.UnitID = ${unitIdExpr}))
 		`;
 		const factorExpr = (multiFactorCol: string, unitIdExpr: string) => `
 			COALESCE(${multiFactorCol},
@@ -333,30 +412,74 @@
 				d.NetAmount AS NetAmount
 			FROM InvTransactionDetails d
 			INNER JOIN InvTransactionMaster m ON d.InvTransactionMasterID = m.InvTransactionMasterID AND d.BranchID = m.BranchID
-			INNER JOIN ProductBatches pb ON d.ProductBatchID = pb.ProductBatchID
-			INNER JOIN Products p ON pb.ProductID = p.ProductID
-			LEFT JOIN UnitOfMeasures uSold ON uSold.UnitID = d.UnitID
-			LEFT JOIN ProductUnits puSold ON puSold.ProductBatchID = d.ProductBatchID AND puSold.UnitID = d.UnitID
+			INNER JOIN ProductBatches pb ON d.ProductBatchID = pb.ProductBatchID AND pb.BranchID = d.BranchID
+			INNER JOIN Products p ON pb.ProductID = p.ProductID AND p.BranchID = pb.BranchID
+			LEFT JOIN UnitOfMeasures uSold ON uSold.UnitID = d.UnitID AND uSold.BranchID = d.BranchID
 			OUTER APPLY (
-				SELECT TOP 1 d2.UnitID AS PurchaseUnitID, d2.UnitPrice AS LastPurchaseRate,
-				       m2.TransactionDate AS LastPurchaseDate, m2.VoucherType AS SourceVoucherType
-				FROM InvTransactionDetails d2
-				INNER JOIN InvTransactionMaster m2 ON d2.InvTransactionMasterID = m2.InvTransactionMasterID AND d2.BranchID = m2.BranchID
-				WHERE d2.ProductBatchID = d.ProductBatchID AND m2.VoucherType IN ('PI','GRN','MFR') AND m2.IsActive = 1
-				  AND ${knownUnitCheck('d2.UnitID')}
-				ORDER BY m2.TransactionDate DESC, d2.InvTransactionDetailID DESC
-			) lp
-			LEFT JOIN ProductUnits puPurch ON puPurch.ProductBatchID = d.ProductBatchID AND puPurch.UnitID = lp.PurchaseUnitID
+				SELECT TOP 1 pu.MultiFactor
+				FROM ProductUnits pu
+				WHERE pu.ProductBatchID = d.ProductBatchID AND pu.UnitID = d.UnitID AND pu.BranchID = d.BranchID
+			) puSold
+			LEFT JOIN (
+				SELECT ranked.ProductBatchID, ranked.PurchaseUnitID, ranked.LastPurchaseRate,
+				       ranked.LastPurchaseDate, ranked.SourceVoucherType
+				FROM (
+					SELECT d2.ProductBatchID, d2.UnitID AS PurchaseUnitID, d2.UnitPrice AS LastPurchaseRate,
+					       m2.TransactionDate AS LastPurchaseDate, m2.VoucherType AS SourceVoucherType,
+					       ROW_NUMBER() OVER (PARTITION BY d2.ProductBatchID ORDER BY m2.TransactionDate DESC, d2.InvTransactionDetailID DESC) AS rn
+					FROM InvTransactionDetails d2
+					INNER JOIN InvTransactionMaster m2 ON d2.InvTransactionMasterID = m2.InvTransactionMasterID AND d2.BranchID = m2.BranchID
+					INNER JOIN ProductBatches pb2 ON pb2.ProductBatchID = d2.ProductBatchID AND pb2.BranchID = d2.BranchID
+					INNER JOIN (
+						SELECT DISTINCT d0.ProductBatchID
+						FROM InvTransactionDetails d0
+						INNER JOIN InvTransactionMaster m0 ON d0.InvTransactionMasterID = m0.InvTransactionMasterID AND d0.BranchID = m0.BranchID
+						WHERE d0.BranchID = ${erpBranchId} AND m0.BranchID = ${erpBranchId}
+						  AND m0.TransactionDate >= '${dateStr}' AND m0.TransactionDate < DATEADD(day, 1, '${dateStr}')
+						  AND m0.VoucherType IN ('SI','SR') AND m0.IsActive = 1
+					) sold2 ON sold2.ProductBatchID = d2.ProductBatchID
+					WHERE d2.BranchID = ${erpBranchId} AND m2.BranchID = ${erpBranchId}
+					  AND m2.VoucherType IN ('PI','GRN','MFR') AND m2.IsActive = 1
+					  AND ${knownUnitCheck('d2.UnitID', 'pb2', 'd2.ProductBatchID', 'd2.BranchID')}
+				) ranked
+				WHERE ranked.rn = 1
+			) lp ON lp.ProductBatchID = d.ProductBatchID
 			OUTER APPLY (
-				SELECT TOP 1 d3.UnitID AS PurchaseUnitID, d3.UnitPrice AS LastPurchaseRate, m3.TransactionDate AS LastPurchaseDate
-				FROM InvTransactionDetails d3
-				INNER JOIN InvTransactionMaster m3 ON d3.InvTransactionMasterID = m3.InvTransactionMasterID AND d3.BranchID = m3.BranchID
-				WHERE d3.ProductBatchID = d.ProductBatchID AND m3.VoucherType = 'BTI' AND m3.IsActive = 1
-				  AND ${knownUnitCheck('d3.UnitID')}
-				ORDER BY m3.TransactionDate DESC, d3.InvTransactionDetailID DESC
-			) lpBti
-			LEFT JOIN ProductUnits puBti ON puBti.ProductBatchID = d.ProductBatchID AND puBti.UnitID = lpBti.PurchaseUnitID
-			WHERE CAST(m.TransactionDate AS DATE) = '${dateStr}' AND m.VoucherType IN ('SI','SR') AND m.IsActive = 1
+				SELECT TOP 1 pu.MultiFactor
+				FROM ProductUnits pu
+				WHERE pu.ProductBatchID = d.ProductBatchID AND pu.UnitID = lp.PurchaseUnitID AND pu.BranchID = d.BranchID
+			) puPurch
+			LEFT JOIN (
+				SELECT ranked.ProductBatchID, ranked.PurchaseUnitID, ranked.LastPurchaseRate, ranked.LastPurchaseDate
+				FROM (
+					SELECT d3.ProductBatchID, d3.UnitID AS PurchaseUnitID, d3.UnitPrice AS LastPurchaseRate,
+					       m3.TransactionDate AS LastPurchaseDate,
+					       ROW_NUMBER() OVER (PARTITION BY d3.ProductBatchID ORDER BY m3.TransactionDate DESC, d3.InvTransactionDetailID DESC) AS rn
+					FROM InvTransactionDetails d3
+					INNER JOIN InvTransactionMaster m3 ON d3.InvTransactionMasterID = m3.InvTransactionMasterID AND d3.BranchID = m3.BranchID
+					INNER JOIN ProductBatches pb3 ON pb3.ProductBatchID = d3.ProductBatchID AND pb3.BranchID = d3.BranchID
+					INNER JOIN (
+						SELECT DISTINCT d0.ProductBatchID
+						FROM InvTransactionDetails d0
+						INNER JOIN InvTransactionMaster m0 ON d0.InvTransactionMasterID = m0.InvTransactionMasterID AND d0.BranchID = m0.BranchID
+						WHERE d0.BranchID = ${erpBranchId} AND m0.BranchID = ${erpBranchId}
+						  AND m0.TransactionDate >= '${dateStr}' AND m0.TransactionDate < DATEADD(day, 1, '${dateStr}')
+						  AND m0.VoucherType IN ('SI','SR') AND m0.IsActive = 1
+					) sold3 ON sold3.ProductBatchID = d3.ProductBatchID
+					WHERE d3.BranchID = ${erpBranchId} AND m3.BranchID = ${erpBranchId}
+					  AND m3.VoucherType = 'BTI' AND m3.IsActive = 1
+					  AND ${knownUnitCheck('d3.UnitID', 'pb3', 'd3.ProductBatchID', 'd3.BranchID')}
+				) ranked
+				WHERE ranked.rn = 1
+			) lpBti ON lpBti.ProductBatchID = d.ProductBatchID
+			OUTER APPLY (
+				SELECT TOP 1 pu.MultiFactor
+				FROM ProductUnits pu
+				WHERE pu.ProductBatchID = d.ProductBatchID AND pu.UnitID = lpBti.PurchaseUnitID AND pu.BranchID = d.BranchID
+			) puBti
+			WHERE m.BranchID = ${erpBranchId}
+			  AND m.TransactionDate >= '${dateStr}' AND m.TransactionDate < DATEADD(day, 1, '${dateStr}')
+			  AND m.VoucherType IN ('SI','SR') AND m.IsActive = 1
 		`;
 	}
 
@@ -377,7 +500,9 @@
 
 		loadingItems = true;
 		try {
-			const result = await queryBridge(itemsSql(selectedDateStr));
+			const erpBranchId = selectedErpBranchId;
+			if (erpBranchId === null) throw new Error(ui('The selected branch has no ERP Branch ID mapping', 'لا يوجد معرّف فرع ERP للفرع المحدد'));
+			const result = await queryBridge(itemsSql(selectedDateStr, erpBranchId));
 			const rows: ItemRow[] = (result?.recordset || [])
 				.map((r: any) => {
 					const soldQty = Number(r.Qty) || 0;
@@ -479,11 +604,12 @@
 			// convert) and found nothing — not that we're excluding the item.
 			// Per instruction, these are ALWAYS shown, independent of which GP%
 			// filter is active, clearly flagged rather than dropped.
-			noCostRows = rows
+			const groupedRows = groupIdenticalItemRows(rows);
+			noCostRows = groupedRows
 				.filter((r: ItemRow) => r.cost === null)
 				.sort((a: ItemRow, b: ItemRow) => (b.soldQty * b.soldRate) - (a.soldQty * a.soldRate));
 
-			const withCost = rows.filter((r: ItemRow) => r.cost !== null);
+			const withCost = groupedRows.filter((r: ItemRow) => r.cost !== null);
 
 			if (gpFilterMode === 'zeroCost') {
 				itemRows = withCost
@@ -491,9 +617,8 @@
 					.sort((a: ItemRow, b: ItemRow) => (b.soldQty * b.soldRate) - (a.soldQty * a.soldRate));
 			} else {
 				itemRows = withCost
-					.filter((r: ItemRow) => r.gpPercent !== null)
-					.filter((r: ItemRow) => (gpFilterMode === 'less' ? r.gpPercent! < threshold : r.gpPercent! > threshold))
-					.sort((a: ItemRow, b: ItemRow) => (gpFilterMode === 'less' ? a.gpPercent! - b.gpPercent! : b.gpPercent! - a.gpPercent!));
+					.filter((r: ItemRow) => r.gpPercent !== null && r.gpPercent < threshold)
+					.sort((a: ItemRow, b: ItemRow) => a.gpPercent! - b.gpPercent!);
 			}
 			hasAnalyzedItems = true;
 		} catch (err: any) {
@@ -510,7 +635,7 @@
 			<label>{ui('Branch', 'الفرع')}</label>
 			<select bind:value={selectedBranchId} disabled={loadingBranches}>
 				{#each branches as b (b.branch_id)}
-					<option value={b.branch_id}>{b.branch_name}</option>
+					<option value={b.branch_id}>{branchLabel(b, isArabic)}</option>
 				{/each}
 			</select>
 		</div>
@@ -604,10 +729,6 @@
 				{ui('Less Than', 'أقل من')}
 			</label>
 			<label class="sa-checkbox">
-				<input type="checkbox" checked={gpFilterMode === 'more'} on:change={() => setGpFilter('more')} />
-				{ui('More Than', 'أكثر من')}
-			</label>
-			<label class="sa-checkbox">
 				<input type="checkbox" checked={gpFilterMode === 'zeroCost'} on:change={() => setGpFilter('zeroCost')} />
 				{ui('0 Cost', 'تكلفة صفر')}
 			</label>
@@ -660,7 +781,7 @@
 					<tbody>
 						{#each itemRows as row}
 							<tr>
-								<td>{row.billNo}</td>
+								<td class="sa-bill-numbers" title={row.billNo}>{row.billNo}</td>
 								<td>{row.voucherType}</td>
 								<td>{row.barcode}</td>
 								<td dir={isArabic ? 'rtl' : 'ltr'}>{displayName(row)}</td>
@@ -712,7 +833,7 @@
 						<tbody>
 							{#each noCostRows as row}
 								<tr>
-									<td>{row.billNo}</td>
+									<td class="sa-bill-numbers" title={row.billNo}>{row.billNo}</td>
 									<td>{row.voucherType}</td>
 									<td>{row.barcode}</td>
 									<td dir={isArabic ? 'rtl' : 'ltr'}>{displayName(row)}</td>
@@ -923,6 +1044,12 @@
 		border-bottom: 1px solid #e5e7eb;
 		text-align: start;
 		white-space: nowrap;
+	}
+	.sa-table td.sa-bill-numbers {
+		min-width: 150px;
+		max-width: 280px;
+		white-space: normal;
+		line-height: 1.45;
 	}
 	.sa-table th {
 		background: #f9fafb;
