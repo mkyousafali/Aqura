@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, currentLocale } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	// User Actions tab embeds the standalone live-query report directly — single implementation,
 	// shared between its own window and this tab, per the "live data only, one place" decision.
@@ -9,6 +9,9 @@
 	interface BranchOption {
 		id: number;
 		name_en: string;
+		name_ar: string;
+		location_en: string;
+		location_ar: string;
 	}
 
 	interface FlaggedEvent {
@@ -146,7 +149,7 @@
 	$: lcFilteredResults = lcResults.filter(
 		(r) =>
 			(!lcSelectedPosCounter || posCounterLabel(r.event, lcCounterNames) === lcSelectedPosCounter) &&
-			(!lcSelectedUser || (r.tillUserName || 'Unknown') === lcSelectedUser) &&
+			(!lcSelectedUser || (r.tillUserName || $t('drawerMonitor.unknownUser')) === lcSelectedUser) &&
 			(!lcSelectedKickOnly || (r.event.is_small_print && isKickSized(r.event.byte_size)))
 	);
 
@@ -192,6 +195,43 @@
 		const data = await response.json();
 		if (!data.success) throw new Error(data.error || $t('drawerMonitor.liveErpQueryFailed'));
 		return data.recordset || [];
+	}
+
+	function branchDisplayName(branch: BranchOption): string {
+		const name = $currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar);
+		const location = $currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar);
+		return location ? `${name} - ${location}` : name;
+	}
+
+	async function loadLocalizedErpUserNames(aquraBranchId: number): Promise<Map<string, string>> {
+		const result = new Map<string, string>();
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: credentials, error: credentialError } = await supabase
+				.from('user_erp_credentials')
+				.select('user_id, erp_username')
+				.eq('aqura_branch_id', aquraBranchId);
+			if (credentialError) throw credentialError;
+			if (!credentials?.length) return result;
+
+			const userIds = Array.from(new Set(credentials.map((row: any) => row.user_id).filter(Boolean)));
+			const { data: employees, error: employeeError } = await supabase
+				.from('hr_employee_master')
+				.select('user_id, name_en, name_ar')
+				.in('user_id', userIds);
+			if (employeeError) throw employeeError;
+			const employeeByUserId = new Map((employees || []).map((employee: any) => [employee.user_id, employee]));
+			for (const credential of credentials) {
+				const employee: any = employeeByUserId.get(credential.user_id);
+				const displayName = $currentLocale === 'ar'
+					? (employee?.name_ar || employee?.name_en)
+					: (employee?.name_en || employee?.name_ar);
+				if (credential.erp_username && displayName) result.set(String(credential.erp_username).toUpperCase(), displayName);
+			}
+		} catch (err) {
+			console.warn('Unable to resolve localized ERP user names for live check:', err);
+		}
+		return result;
 	}
 
 	async function runLiveCheck() {
@@ -266,11 +306,14 @@
 				WHERE cs.BranchID = ${erpBranchId}
 				  AND cs.TransactionDate BETWEEN DATEADD(day, -1, '${lcDate}') AND '${lcDate}'
 			`;
-			const [livePrints, rawShifts] = await Promise.all([
+			const [livePrints, rawShifts, localizedUserNames] = await Promise.all([
 				runLiveErpQuery(sql, conn.branch_id),
-				runLiveErpQuery(csSql, conn.branch_id)
+				runLiveErpQuery(csSql, conn.branch_id),
+				loadLocalizedErpUserNames(conn.branch_id)
 			]);
-			const shifts = buildCounterShiftRows(rawShifts);
+			const resolveUserName = (userName: string | null): string | null =>
+				userName ? (localizedUserNames.get(String(userName).toUpperCase()) || userName) : null;
+			const shifts = buildCounterShiftRows(rawShifts).map((shift) => ({ ...shift, userName: resolveUserName(shift.userName) }));
 
 			lcResults = flaggedEvents.map((e) => {
 				const eventMs = naiveMs(e.event_time);
@@ -297,20 +340,20 @@
 					}
 				}
 				return {
-					event: e,
+					event: { ...e, user_name: resolveUserName(e.user_name) },
 					liveMatchFound: !!best,
 					liveMatchCount: livePrints.filter(
 						(p: any) => e.erp_counter_id == null || String(p.CounterID) === String(e.erp_counter_id)
 					).length,
 					liveVoucherNumber: best?.VoucherNumber ? String(best.VoucherNumber) : null,
-					liveUserName: best?.UserName || null,
+					liveUserName: resolveUserName(best?.UserName || null),
 					liveSecondsDiff: best ? bestDiffSec : null,
 					tillUserName: e.erp_counter_id != null ? findTillUser(shifts, String(e.erp_counter_id), eventMs) : null
 				};
 			});
 		} catch (err: any) {
 			console.error('Error running live ERP check:', err);
-			lcError = err.message || $t('drawerMonitor.failedToRunLiveCheck');
+			lcError = $currentLocale === 'ar' ? $t('drawerMonitor.failedToRunLiveCheck') : (err.message || $t('drawerMonitor.failedToRunLiveCheck'));
 		} finally {
 			lcLoading = false;
 			lcHasRun = true;
@@ -329,7 +372,7 @@
 			const { supabase } = await import('$lib/utils/supabase');
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en')
+				.select('id, name_en, name_ar, location_en, location_ar')
 				.eq('is_active', true)
 				.order('name_en');
 			if (error) throw error;
@@ -350,9 +393,11 @@
 		const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso || '');
 		if (!match) return iso;
 		const [, year, month, day, hour, minute, second] = match;
-		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		const monthNames = $currentLocale === 'ar'
+			? ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
+			: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 		const h = parseInt(hour, 10);
-		const ampm = h >= 12 ? 'PM' : 'AM';
+		const ampm = $currentLocale === 'ar' ? (h >= 12 ? 'م' : 'ص') : (h >= 12 ? 'PM' : 'AM');
 		const h12 = h % 12 === 0 ? 12 : h % 12;
 		return `${monthNames[parseInt(month, 10) - 1]} ${parseInt(day, 10)}, ${year} ${String(h12).padStart(2, '0')}:${minute}:${second} ${ampm}`;
 	}
@@ -413,14 +458,14 @@
 
 	function formatSeconds(n: number | null): string {
 		if (n === null || n === undefined) return '-';
-		return `${Math.abs(n).toFixed(1)}s`;
+		return `${Math.abs(n).toFixed(1)}${$currentLocale === 'ar' ? ' ث' : 's'}`;
 	}
 
 	function formatBytes(n: number | null): string {
 		if (n === null || n === undefined) return '-';
-		if (n < 1024) return `${n} B`;
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+		if (n < 1024) return `${n} ${$currentLocale === 'ar' ? 'بايت' : 'B'}`;
+		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} ${$currentLocale === 'ar' ? 'ك.ب' : 'KB'}`;
+		return `${(n / (1024 * 1024)).toFixed(1)} ${$currentLocale === 'ar' ? 'م.ب' : 'MB'}`;
 	}
 
 	// The "kick?" badge should only call out prints tiny enough to actually display in bytes
@@ -669,7 +714,7 @@
 			<label for="lc-branch-select">{$t('common.branch')}</label>
 			<select id="lc-branch-select" bind:value={lcSelectedBranchId}>
 				{#each branches.filter((b) => erpConnections.some((c) => c.branch_id === b.id)) as b}
-					<option value={b.id}>{b.name_en}</option>
+					<option value={b.id}>{branchDisplayName(b)}</option>
 				{/each}
 			</select>
 		</div>

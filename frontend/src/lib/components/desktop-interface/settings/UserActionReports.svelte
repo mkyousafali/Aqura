@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { _ as t } from '$lib/i18n';
+	import { _ as t, currentLocale } from '$lib/i18n';
 
 	export let hideHeader = false;
 
 	interface BranchOption {
 		branch_id: number;
-		branch_name: string;
+		branch_name_en: string;
+		branch_name_ar: string;
+		location_en: string;
+		location_ar: string;
 		tunnel_url: string;
 		erp_branch_id: number;
 	}
@@ -16,6 +19,10 @@
 	interface Entry {
 		time: string;
 		counter: string;
+		counterId?: number | null;
+		branchId?: number;
+		erpBranchId?: number;
+		productBatchId?: number | null;
 		actor: string;
 		authorizedBy: string | null;
 		kind: string;
@@ -24,6 +31,23 @@
 		isItemLevel: boolean;
 		remarks?: string | null;
 		actionPerformed?: string | null;
+	}
+
+	interface SiBillDetail {
+		transactionMasterId: string;
+		billNumber: string;
+		billTime: string;
+		billDate: string;
+	}
+
+	interface SiBillItem {
+		productBatchId: number | null;
+		barcode: string;
+		productName: string;
+		quantity: number;
+		rate: number;
+		amount: number;
+		isVoidedItem: boolean;
 	}
 
 	interface SummaryRow {
@@ -207,6 +231,12 @@
 	let cappedGenericRows = false;
 	let exporting = false;
 	let reportContext = { branch: '', from: '', to: '' };
+	let siDetailsByGroup: Record<string, SiBillDetail[]> = {};
+	let siDetailsLoading: Record<string, boolean> = {};
+	let siDetailsError: Record<string, string> = {};
+	let siBillItems: Record<string, SiBillItem[]> = {};
+	let siBillItemsLoading: Record<string, boolean> = {};
+	let siBillItemsError: Record<string, string> = {};
 
 	async function exportCanceledProducts() {
 		if (exporting || loading || !filteredEntries.length) return;
@@ -346,6 +376,115 @@
 		expandedGroups = expandedGroups; // trigger reactivity
 	}
 
+	function isVoidItemKind(kind: string): boolean {
+		return kind === 'Void selected item' || kind === 'Remove a row from list';
+	}
+
+	async function fetchPostVoidSiDetails(group: any) {
+		const source = group.items?.[0] as Entry | undefined;
+		if (!source?.branchId || source.erpBranchId == null || source.counterId == null) {
+			siDetailsError = { ...siDetailsError, [group.key]: $t('userActionReports.counterDetailsUnavailable') };
+			return;
+		}
+
+		const timestamp = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/.exec(source.time || '');
+		if (!timestamp) {
+			siDetailsError = { ...siDetailsError, [group.key]: $t('userActionReports.invalidVoidTimestamp') };
+			return;
+		}
+
+		siDetailsLoading = { ...siDetailsLoading, [group.key]: true };
+		siDetailsError = { ...siDetailsError, [group.key]: '' };
+		try {
+			const voidDateTime = `${timestamp[1]} ${timestamp[2]}`;
+			const sql = `
+				SELECT TOP 5 InvTransactionMasterID, VoucherPrefix, VoucherNumber, TransactionDate,
+				       COALESCE(CreatedDate, SystemDateTime) AS BillDateTime
+				FROM InvTransactionMaster
+				WHERE BranchID = ${source.erpBranchId}
+				  AND CounterID = ${source.counterId}
+				  AND VoucherType = 'SI' AND IsActive = 1
+				  AND COALESCE(CreatedDate, SystemDateTime) > '${voidDateTime}'
+				ORDER BY COALESCE(CreatedDate, SystemDateTime) ASC, InvTransactionMasterID ASC
+			`;
+			const rows = await runQuery(sql, source.branchId);
+			siDetailsByGroup = {
+				...siDetailsByGroup,
+				[group.key]: rows.map((row: any) => ({
+					transactionMasterId: String(row.InvTransactionMasterID),
+					billNumber: [row.VoucherPrefix, row.VoucherNumber].filter((value) => value !== null && value !== undefined && value !== '').join('') || '-',
+					billTime: formatBillTime(row.BillDateTime),
+					billDate: formatBillDate(row.TransactionDate || row.BillDateTime)
+				}))
+			};
+		} catch (err: any) {
+			siDetailsError = {
+				...siDetailsError,
+				[group.key]: $currentLocale === 'ar' ? $t('userActionReports.failedToFetchSiBills') : (err.message || $t('userActionReports.failedToFetchSiBills'))
+			};
+		} finally {
+			siDetailsLoading = { ...siDetailsLoading, [group.key]: false };
+		}
+	}
+
+	async function fetchSiBillItems(group: any, bill: SiBillDetail) {
+		const source = group.items?.[0] as Entry | undefined;
+		const detailKey = `${group.key}|${bill.transactionMasterId}`;
+		if (!source?.branchId || source.erpBranchId == null || !/^\d+$/.test(bill.transactionMasterId)) {
+			siBillItemsError = { ...siBillItemsError, [detailKey]: $t('userActionReports.billDetailsUnavailable') };
+			return;
+		}
+
+		// Pressing the button again collapses an already loaded bill.
+		if (siBillItems[detailKey]) {
+			const next = { ...siBillItems };
+			delete next[detailKey];
+			siBillItems = next;
+			return;
+		}
+
+		siBillItemsLoading = { ...siBillItemsLoading, [detailKey]: true };
+		siBillItemsError = { ...siBillItemsError, [detailKey]: '' };
+		try {
+			const sql = `
+				SELECT d.ProductBatchID,
+				       ISNULL(NULLIF(pb.MannualBarcode, ''), CAST(pb.AutoBarcode AS varchar(50))) AS Barcode,
+				       p.ProductName, p.ItemNameinSecondLanguage, d.Quantity, d.UnitPrice, d.NetAmount
+				FROM InvTransactionDetails d
+				LEFT JOIN ProductBatches pb ON pb.ProductBatchID = d.ProductBatchID AND pb.BranchID = d.BranchID
+				LEFT JOIN Products p ON p.ProductID = pb.ProductID AND p.BranchID = pb.BranchID
+				WHERE d.BranchID = ${source.erpBranchId}
+				  AND d.InvTransactionMasterID = ${bill.transactionMasterId}
+				ORDER BY d.InvTransactionDetailID ASC
+			`;
+			const rows = await runQuery(sql, source.branchId);
+			const voidedProductBatchIds = new Set(
+				(group.items as Entry[])
+					.map((item) => item.productBatchId)
+					.filter((id): id is number => id != null)
+			);
+			siBillItems = {
+				...siBillItems,
+				[detailKey]: rows.map((row: any) => ({
+					productBatchId: row.ProductBatchID == null ? null : Number(row.ProductBatchID),
+					barcode: row.Barcode || '-',
+					productName: ($currentLocale === 'ar' && row.ItemNameinSecondLanguage) || row.ProductName || row.ItemNameinSecondLanguage || '-',
+					quantity: Number(row.Quantity) || 0,
+					rate: Number(row.UnitPrice) || 0,
+					amount: Number(row.NetAmount) || 0,
+					isVoidedItem: row.ProductBatchID != null && voidedProductBatchIds.has(Number(row.ProductBatchID))
+				}))
+			};
+		} catch (err: any) {
+			siBillItemsError = {
+				...siBillItemsError,
+				[detailKey]: $currentLocale === 'ar' ? $t('userActionReports.failedToFetchBillItems') : (err.message || $t('userActionReports.failedToFetchBillItems'))
+			};
+		} finally {
+			siBillItemsLoading = { ...siBillItemsLoading, [detailKey]: false };
+		}
+	}
+
 	$: totalItems = filteredEntries.length;
 	$: totalAmount = filteredEntries.reduce((sum, r) => sum + (r.amount || 0), 0);
 	$: cancelAmount = filteredEntries.filter(r => r.kind === 'Cancel selected product list').reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -384,15 +523,28 @@
 				.order('branch_id');
 
 			if (erpErr) throw erpErr;
+			const branchIds = (erpConns || []).map((connection: any) => connection.branch_id);
+			const { data: branchData, error: branchError } = await supabase
+				.from('branches')
+				.select('id, name_en, name_ar, location_en, location_ar')
+				.in('id', branchIds);
+			if (branchError) throw branchError;
+			const branchById = new Map((branchData || []).map((branch: any) => [Number(branch.id), branch]));
 
 			branches = (erpConns || [])
 				.filter((c: any) => c.tunnel_url)
-				.map((c: any) => ({
-					branch_id: c.branch_id,
-					branch_name: c.branch_name || $t('drawerMonitor.branchFallback', { id: c.branch_id }),
-					tunnel_url: c.tunnel_url,
-					erp_branch_id: c.erp_branch_id
-				}));
+				.map((c: any) => {
+					const branch = branchById.get(Number(c.branch_id)) as any;
+					return {
+						branch_id: Number(c.branch_id),
+						branch_name_en: branch?.name_en || c.branch_name || `Branch ${c.branch_id}`,
+						branch_name_ar: branch?.name_ar || branch?.name_en || c.branch_name || `فرع ${c.branch_id}`,
+						location_en: branch?.location_en || '',
+						location_ar: branch?.location_ar || branch?.location_en || '',
+						tunnel_url: c.tunnel_url,
+						erp_branch_id: c.erp_branch_id
+					};
+				});
 
 			if (branches.length > 0 && !selectedBranchId) {
 				selectedBranchId = branches[0].branch_id;
@@ -416,6 +568,45 @@
 		return data.recordset || [];
 	}
 
+	function getBranchDisplayName(branch: BranchOption): string {
+		const isArabic = $currentLocale === 'ar';
+		const name = isArabic ? (branch.branch_name_ar || branch.branch_name_en) : (branch.branch_name_en || branch.branch_name_ar);
+		const location = isArabic ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar);
+		return location ? `${name} - ${location}` : name;
+	}
+
+	async function loadErpUserDisplayNames(aquraBranchId: number): Promise<any[]> {
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: credentials, error: credentialError } = await supabase
+				.from('user_erp_credentials')
+				.select('user_id, erp_username')
+				.eq('aqura_branch_id', aquraBranchId);
+			if (credentialError) throw credentialError;
+			if (!credentials?.length) return [];
+
+			const userIds = Array.from(new Set(credentials.map((row: any) => row.user_id).filter(Boolean)));
+			const { data: employees, error: employeeError } = await supabase
+				.from('hr_employee_master')
+				.select('user_id, name_en, name_ar')
+				.in('user_id', userIds);
+			if (employeeError) throw employeeError;
+
+			const namesByUserId = new Map<any, { name_en: string | null; name_ar: string | null }>(
+				(employees || []).map((employee: any) => [employee.user_id, { name_en: employee.name_en, name_ar: employee.name_ar }])
+			);
+			return credentials
+				.map((credential: any) => ({
+					erp_username: credential.erp_username,
+					...(namesByUserId.get(credential.user_id) || { name_en: null, name_ar: null })
+				}))
+				.filter((row: any) => row.name_en || row.name_ar);
+		} catch (err) {
+			console.warn('Unable to resolve localized ERP user names:', err);
+			return [];
+		}
+	}
+
 	async function loadReport() {
 		if (!selectedBranchId) return;
 		if (!DATE_RE.test(dateFrom) || !DATE_RE.test(dateTo)) {
@@ -425,18 +616,25 @@
 
 		const branch = branches.find((b) => b.branch_id === selectedBranchId);
 		if (!branch) return;
-		const requestedContext = { branch: branch.branch_name, from: dateFrom, to: dateTo };
+		const requestedContext = { branch: getBranchDisplayName(branch), from: dateFrom, to: dateTo };
 
 		loading = true;
 		errorMessage = '';
 		allEntries = [];
 		expandedGroups = new Set();
+		siDetailsByGroup = {};
+		siDetailsLoading = {};
+		siDetailsError = {};
+		siBillItems = {};
+		siBillItemsLoading = {};
+		siBillItemsError = {};
 		selectedKind = null;
 		selectedCashier = null;
 		cappedItemRows = false;
 		cappedGenericRows = false;
 
 		try {
+			const isArabic = $currentLocale === 'ar';
 			// This ERP database is shared across multiple physical branches (confirmed via schema:
 			// UserActions/VoidItems/Counter all have a BranchID column, and branch 1's DB alone
 			// contains BranchID values 0-4 mixed together) — every query MUST filter by this
@@ -449,7 +647,8 @@
 			// LEFT JOIN below must also match on BranchID, otherwise one VoidItems row fans out into
 			// multiple duplicate result rows (one per branch sharing that same ID).
 			const itemSql = `
-				SELECT TOP ${ROW_CAP} vi.CreatedDate, c.CounterName, u.UserName AS Cashier, p.ProductName, vi.Total, vi.Remarks,
+				SELECT TOP ${ROW_CAP} vi.CreatedDate, vi.CounterID, vi.ProductBatchID, c.CounterName, u.UserName AS Cashier,
+					p.ProductName, p.ItemNameinSecondLanguage, vi.Total, vi.Remarks,
 					matched.AuthorizedBy, matched.ActionPerformed AS MatchedAction
 				FROM VoidItems vi
 				LEFT JOIN Users u ON u.UserID = vi.UserID AND u.BranchID = ${erpBranchId}
@@ -533,10 +732,22 @@
 				ORDER BY ua.DateTimeOfAction DESC
 			`;
 
-			const [items, generic] = await Promise.all([
+			const [items, generic, erpUserNames] = await Promise.all([
 				runQuery(itemSql, branch.branch_id),
-				runQuery(genericSql, branch.branch_id)
+				runQuery(genericSql, branch.branch_id),
+				loadErpUserDisplayNames(branch.branch_id)
 			]);
+
+			const userNameByErpUsername = new Map<string, string>();
+			for (const row of erpUserNames) {
+				if (!row.erp_username) continue;
+				const displayName = (isArabic && row.name_ar) || row.name_en || row.name_ar;
+				if (displayName) userNameByErpUsername.set(String(row.erp_username).toUpperCase(), displayName);
+			}
+			function resolveUserName(erpUsername: string | null): string | null {
+				if (!erpUsername) return erpUsername;
+				return userNameByErpUsername.get(String(erpUsername).toUpperCase()) || erpUsername;
+			}
 
 			cappedItemRows = items.length >= ROW_CAP;
 			cappedGenericRows = generic.length >= ROW_CAP;
@@ -544,10 +755,14 @@
 			const itemEntries: Entry[] = items.map((r: any) => ({
 				time: r.CreatedDate,
 				counter: r.CounterName,
-				actor: r.Cashier,
-				authorizedBy: r.AuthorizedBy,
+				counterId: r.CounterID == null ? null : Number(r.CounterID),
+				branchId: branch.branch_id,
+				erpBranchId,
+				productBatchId: r.ProductBatchID == null ? null : Number(r.ProductBatchID),
+				actor: resolveUserName(r.Cashier) || '-',
+				authorizedBy: resolveUserName(r.AuthorizedBy),
 				kind: deriveAuthorizeKind(r.MatchedAction, null),
-				detail: r.ProductName,
+				detail: (isArabic && r.ItemNameinSecondLanguage) || r.ProductName || r.ItemNameinSecondLanguage || '-',
 				amount: r.Total,
 				remarks: r.Remarks,
 				actionPerformed: r.MatchedAction,
@@ -599,8 +814,8 @@
 				.map((r: any) => ({
 					time: r.time,
 					counter: r.counter,
-					actor: r.isAuthorize ? (r.requestingUser || '-') : r.userName,
-					authorizedBy: r.isAuthorize ? r.userName : (r.isSave ? findSaveAuthorizer(r.counterId, r.ms) : null),
+					actor: resolveUserName(r.isAuthorize ? (r.requestingUser || '-') : r.userName) || '-',
+					authorizedBy: resolveUserName(r.isAuthorize ? r.userName : (r.isSave ? findSaveAuthorizer(r.counterId, r.ms) : null)),
 					kind: r.kind,
 					detail: r.detail,
 					amount: r.returnAmount ?? null,
@@ -626,11 +841,27 @@
 		const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
 		if (!match) return iso;
 		const [, year, month, day, hour, minute, second] = match;
-		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		const monthNames = $currentLocale === 'ar'
+			? ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
+			: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 		const h = parseInt(hour, 10);
-		const ampm = h >= 12 ? 'PM' : 'AM';
+		const ampm = $currentLocale === 'ar' ? (h >= 12 ? 'م' : 'ص') : (h >= 12 ? 'PM' : 'AM');
 		const h12 = h % 12 === 0 ? 12 : h % 12;
 		return `${monthNames[parseInt(month, 10) - 1]} ${parseInt(day, 10)}, ${year} ${String(h12).padStart(2, '0')}:${minute}:${second} ${ampm}`;
+	}
+
+	function formatBillTime(iso: string | null): string {
+		const match = /T(\d{2}):(\d{2}):(\d{2})/.exec(iso || '');
+		if (!match) return '-';
+		const hour = Number(match[1]);
+		const ampm = $currentLocale === 'ar' ? (hour >= 12 ? 'م' : 'ص') : (hour >= 12 ? 'PM' : 'AM');
+		const hour12 = hour % 12 || 12;
+		return `${String(hour12).padStart(2, '0')}:${match[2]}:${match[3]} ${ampm}`;
+	}
+
+	function formatBillDate(iso: string | null): string {
+		const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+		return match ? `${match[1]}-${match[2]}-${match[3]}` : '-';
 	}
 
 	function formatAmount(n: number): string {
@@ -664,7 +895,7 @@
 			<label for="branch-select">{$t('common.branch')}</label>
 			<select id="branch-select" bind:value={selectedBranchId} disabled={loadingBranches}>
 				{#each branches as b}
-					<option value={b.branch_id}>{b.branch_name}</option>
+					<option value={b.branch_id}>{getBranchDisplayName(b)}</option>
 				{/each}
 			</select>
 		</div>
@@ -786,6 +1017,59 @@
 									<td class="amount-cell">{g.isItemLevel ? formatAmount(g.total) : '-'}</td>
 								</tr>
 								{#if expandedGroups.has(g.key)}
+									{#if g.isItemLevel && isVoidItemKind(g.kind)}
+										<tr class="fetch-details-row">
+											<td></td>
+											<td colspan="7">
+												<button class="fetch-details-btn" type="button" on:click|stopPropagation={() => fetchPostVoidSiDetails(g)} disabled={siDetailsLoading[g.key]}>
+											{siDetailsLoading[g.key] ? $t('userActionReports.fetching') : $t('userActionReports.fetchDetails')}
+												</button>
+												{#if siDetailsError[g.key]}
+													<div class="si-details-error">{siDetailsError[g.key]}</div>
+												{:else if siDetailsByGroup[g.key]}
+													{#if siDetailsByGroup[g.key].length > 0}
+														<table class="si-details-table">
+															<thead><tr><th>{$t('userActionReports.siBillNumber')}</th><th>{$t('userActionReports.billTime')}</th><th>{$t('userActionReports.billDate')}</th><th>{$t('userActionReports.action')}</th></tr></thead>
+															<tbody>
+																{#each siDetailsByGroup[g.key] as bill}
+																	{@const detailKey = `${g.key}|${bill.transactionMasterId}`}
+																	<tr>
+																		<td>{bill.billNumber}</td><td>{bill.billTime}</td><td>{bill.billDate}</td>
+																		<td>
+																			<button class="get-bill-items-btn" type="button" on:click|stopPropagation={() => fetchSiBillItems(g, bill)} disabled={siBillItemsLoading[detailKey]}>
+																						{siBillItemsLoading[detailKey] ? $t('userActionReports.loadingDetails') : siBillItems[detailKey] ? $t('userActionReports.hideDetails') : $t('userActionReports.getDetails')}
+																			</button>
+																		</td>
+																	</tr>
+																	{#if siBillItemsError[detailKey]}
+																		<tr><td colspan="4" class="si-details-error">{siBillItemsError[detailKey]}</td></tr>
+																	{:else if siBillItems[detailKey]}
+																		<tr class="bill-items-row">
+																			<td colspan="4">
+																				<table class="bill-items-table">
+																							<thead><tr><th>{$t('userActionReports.barcode')}</th><th>{$t('userActionReports.item')}</th><th>{$t('userActionReports.quantity')}</th><th>{$t('userActionReports.rate')}</th><th>{$t('userActionReports.amount')}</th></tr></thead>
+																					<tbody>
+																						{#each siBillItems[detailKey] as billItem}
+																							<tr class:voided-bill-item={billItem.isVoidedItem}>
+																									<td>{billItem.barcode}</td><td>{billItem.productName}{#if billItem.isVoidedItem} <span class="void-match-badge">{$t('userActionReports.voidedItem')}</span>{/if}</td>
+																								<td>{billItem.quantity}</td><td>{formatAmount(billItem.rate)}</td><td>{formatAmount(billItem.amount)}</td>
+																							</tr>
+																						{/each}
+																					</tbody>
+																				</table>
+																			</td>
+																		</tr>
+																	{/if}
+																{/each}
+															</tbody>
+														</table>
+													{:else}
+														<div class="si-details-empty">{$t('userActionReports.noLaterSiBill')}</div>
+													{/if}
+												{/if}
+											</td>
+										</tr>
+									{/if}
 									{#each g.items as item}
 										<tr class="detail-row">
 											<td></td>
@@ -1293,6 +1577,32 @@
 		background: rgba(100, 116, 139, 0.15);
 		color: #475569;
 	}
+
+	.fetch-details-row > td { background: rgba(255, 247, 237, 0.75); }
+	.fetch-details-btn {
+		padding: 0.42rem 0.85rem; border: 1px solid #ea580c; border-radius: 8px;
+		background: #fff7ed; color: #c2410c; font-size: 0.76rem; font-weight: 700; cursor: pointer;
+	}
+	.fetch-details-btn:hover:not(:disabled) { background: #ffedd5; }
+	.fetch-details-btn:disabled { opacity: 0.55; cursor: wait; }
+	.si-details-table { width: auto; min-width: 430px; margin-top: 0.65rem; border: 1px solid #fed7aa; border-radius: 8px; overflow: hidden; }
+	.si-details-table thead th { position: static; background: #ffedd5; color: #9a3412; }
+	.si-details-table tbody td { background: #fff; color: #7c2d12; }
+	.get-bill-items-btn {
+		padding: 0.3rem 0.65rem; border: 1px solid #2563eb; border-radius: 7px;
+		background: #eff6ff; color: #1d4ed8; font-size: 0.7rem; font-weight: 700; cursor: pointer;
+	}
+	.get-bill-items-btn:hover:not(:disabled) { background: #dbeafe; }
+	.get-bill-items-btn:disabled { opacity: 0.55; cursor: wait; }
+	.si-details-table .bill-items-row > td { padding: 0.55rem; background: #f8fafc; }
+	.bill-items-table { width: 100%; margin: 0; border: 1px solid #cbd5e1; }
+	.bill-items-table thead th { background: #e2e8f0; color: #334155; }
+	.bill-items-table tbody td { color: #334155; border-color: #e2e8f0; }
+	.bill-items-table tbody tr.voided-bill-item td { background: #fef2f2; color: #991b1b; font-weight: 700; }
+	.void-match-badge { display: inline-block; margin-left: 0.45rem; padding: 0.12rem 0.4rem; border-radius: 999px; background: #dc2626; color: #fff; font-size: 0.62rem; }
+	.si-details-error, .si-details-empty { margin-top: 0.55rem; font-size: 0.76rem; font-weight: 600; }
+	.si-details-error { color: #b91c1c; }
+	.si-details-empty { color: #9a3412; }
 
 	.empty-state {
 		text-align: center;
