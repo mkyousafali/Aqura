@@ -38,6 +38,7 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Paid Manager": "PAID_MANAGER",
   "Expense Tracker": "EXPENSE_TRACKER",
   "Sales Report": "SALES_REPORT",
+  "Sales Analysis": "SALES_ANALYSIS",
   "Monthly Breakdown": "MONTHLY_BREAKDOWN",
   "Over dues": "OVER_DUES",
   "Vendor Payments": "VENDOR_PAYMENTS",
