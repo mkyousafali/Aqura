@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
 	// User Actions tab embeds the standalone live-query report directly — single implementation,
 	// shared between its own window and this tab, per the "live data only, one place" decision.
 	import UserActionReports from './UserActionReports.svelte';
@@ -23,11 +24,15 @@
 		printer_name: string | null;
 		erp_counter_id: number | null;
 		is_small_print: boolean;
+		// Always null now — the erp_user_actions-based server-side matching this used to
+		// compute was removed along with ERP sync 2026-09 (see get_flagged_drawer_events).
+		// Kept in the shape for compatibility; the Live ERP Check tab computes its own
+		// liveMatchFound independently instead, which is what's actually displayed.
 		matched_action_name: string | null;
 		matched_voucher_number: string | null;
 		matched_user_name: string | null;
 		seconds_to_match: number | null;
-		is_flagged: boolean;
+		is_flagged: boolean | null;
 	}
 
 	let activeTab: 'useractions' | 'livecheck' | 'syncstatus' | 'erpcounters' = 'useractions';
@@ -269,13 +274,13 @@
 
 			lcResults = flaggedEvents.map((e) => {
 				const eventMs = naiveMs(e.event_time);
-				// +10s tolerance ONLY (not symmetric), same as the main Flagger's DB-side matching —
-				// the spooler-captured print event is what triggers the ERP's own Print log entry (the
-				// DB write happens after the physical print job runs), so the ERP action can only
-				// follow that event, never precede it. Counter-scoped when the flagged event has an
-				// erp_counter_id recorded (falls back to branch-wide time-only matching for events
-				// captured before the till's counter was configured).
-				const toleranceMs = 10000;
+				// +15s tolerance ONLY (not symmetric) — the spooler-captured print event is what
+				// triggers the ERP's own Print log entry (the DB write happens after the physical
+				// print job runs), so the ERP action can only follow that event, never precede it.
+				// Counter-scoped when the flagged event has an erp_counter_id recorded (falls back to
+				// branch-wide time-only matching for events captured before the till's counter was
+				// configured).
+				const toleranceMs = 15000;
 				let best: any = null;
 				let bestDiffSec: number | null = null;
 				for (const p of livePrints) {
@@ -451,6 +456,10 @@
 	let syncStatusLoading = false;
 	let syncStatusError = '';
 	let syncStatusSelectedBranchId: number | null = null; // null = all branches
+	let syncInstallationToDelete: SyncAppStatus | null = null;
+	let deleteSyncInstallationLoading = false;
+	let deleteSyncInstallationError = '';
+	let onlineDeletionAcknowledged = false;
 
 	// Distinct branches present in the loaded devices, for the filter dropdown — built from the
 	// devices themselves (branch_id/branch_name) rather than the global `branches` list, so it only
@@ -487,6 +496,46 @@
 		const h = Math.floor(mins / 60);
 		const m = Math.round(mins % 60);
 		return $t('drawerMonitor.hoursMinutesAgo', { h, m });
+	}
+
+	function openSyncInstallationDelete(status: SyncAppStatus) {
+		if (!$currentUser?.isMasterAdmin) return;
+		syncInstallationToDelete = status;
+		deleteSyncInstallationError = '';
+		onlineDeletionAcknowledged = false;
+	}
+
+	function closeSyncInstallationDelete() {
+		if (deleteSyncInstallationLoading) return;
+		syncInstallationToDelete = null;
+		deleteSyncInstallationError = '';
+		onlineDeletionAcknowledged = false;
+	}
+
+	async function deleteSyncInstallation() {
+		const installation = syncInstallationToDelete;
+		if (!$currentUser?.isMasterAdmin || !$currentUser.token || !installation) return;
+		if (installation.is_online && !onlineDeletionAcknowledged) return;
+
+		deleteSyncInstallationLoading = true;
+		deleteSyncInstallationError = '';
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.rpc('delete_sync_app_installation', {
+				p_session_token: $currentUser.token,
+				p_device_id: installation.device_id
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Failed to delete the installation record.');
+
+			syncStatuses = syncStatuses.filter((status) => status.device_id !== installation.device_id);
+			syncInstallationToDelete = null;
+			onlineDeletionAcknowledged = false;
+		} catch (err: any) {
+			deleteSyncInstallationError = err.message || 'Failed to delete the installation record.';
+		} finally {
+			deleteSyncInstallationLoading = false;
+		}
 	}
 
 	// --- ERP Counters sync (ERP Counters tab) ---
@@ -675,7 +724,6 @@
 									<th>{$t('drawerMonitor.colPrinter')}</th>
 									<th>{$t('drawerMonitor.colSize')}</th>
 									<th>{$t('drawerMonitor.colUserLocal')}</th>
-									<th>{$t('drawerMonitor.colSupabaseStatus')}</th>
 									<th>{$t('drawerMonitor.colLiveErpMatch')}</th>
 									<th>{$t('drawerMonitor.colMatchCount')}</th>
 									<th>{$t('drawerMonitor.colClosestVoucher')}</th>
@@ -695,13 +743,6 @@
 											{#if r.event.is_small_print && isKickSized(r.event.byte_size)}<span class="small-print-badge">{$t('drawerMonitor.kickBadge')}</span>{/if}
 										</td>
 										<td>{r.event.user_name || '-'}</td>
-										<td>
-											{#if r.event.is_flagged}
-												<span class="status-badge flagged">{$t('drawerMonitor.flaggedBadge')}</span>
-											{:else}
-												<span class="status-badge ok">{$t('drawerMonitor.matchedBadge')}</span>
-											{/if}
-										</td>
 										<td>
 											{#if r.liveMatchFound}
 												<span class="status-badge ok">{$t('drawerMonitor.foundLiveBadge')}</span>
@@ -805,6 +846,7 @@
 							<th>{$t('drawerMonitor.colLastSync')}</th>
 							<th>{$t('drawerMonitor.colLastError')}</th>
 							<th>{$t('drawerMonitor.colVersion')}</th>
+							{#if $currentUser?.isMasterAdmin}<th>Action</th>{/if}
 						</tr>
 					</thead>
 					<tbody>
@@ -827,6 +869,11 @@
 								<td>{s.last_sync_at ? formatTime(s.last_sync_at) : $t('drawerMonitor.never')}</td>
 								<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title={s.last_error || ''}>{s.last_error || '✅'}</td>
 								<td>{s.app_version || '-'}</td>
+								{#if $currentUser?.isMasterAdmin}
+									<td>
+										<button class="delete-installation-btn" type="button" on:click={() => openSyncInstallationDelete(s)}>Delete</button>
+									</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
@@ -896,6 +943,55 @@
 	{/if}
 	</div>
 </div>
+
+{#if syncInstallationToDelete && $currentUser?.isMasterAdmin}
+	<div class="delete-modal-backdrop" role="presentation" on:click={closeSyncInstallationDelete}>
+		<div class="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-sync-title" on:click|stopPropagation>
+			<div class="delete-modal-header">
+				<div>
+					<h2 id="delete-sync-title">Delete Sync App Installation?</h2>
+					<p>This removes only this installed-app record. Other installations and sync data are not affected.</p>
+				</div>
+				<button class="delete-modal-close" type="button" aria-label="Close" on:click={closeSyncInstallationDelete} disabled={deleteSyncInstallationLoading}>×</button>
+			</div>
+
+			<div class="installation-details">
+				<div><span>Branch</span><strong>{syncInstallationToDelete.branch_name || '-'}</strong></div>
+				<div><span>Mode</span><strong>{syncInstallationToDelete.mode || '-'}</strong></div>
+				<div><span>Hostname / IP</span><strong>{syncInstallationToDelete.hostname || '-'}{syncInstallationToDelete.ip_address ? ` (${syncInstallationToDelete.ip_address})` : ''}</strong></div>
+				<div><span>Counter</span><strong>{syncInstallationToDelete.counter_name || '-'}</strong></div>
+				<div class="full-row"><span>Last Heartbeat</span><strong>{formatTime(syncInstallationToDelete.heartbeat_at)} ({formatMinutes(syncInstallationToDelete.minutes_since_heartbeat)})</strong></div>
+			</div>
+
+			{#if syncInstallationToDelete.is_online}
+				<div class="online-delete-warning">
+					<strong>Warning: this installation is currently Online.</strong>
+					<span>Deleting an active record may cause it to appear again on its next heartbeat.</span>
+					<label>
+						<input type="checkbox" bind:checked={onlineDeletionAcknowledged} />
+						I understand and still want to delete this online installation.
+					</label>
+				</div>
+			{/if}
+
+			{#if deleteSyncInstallationError}
+				<div class="delete-modal-error">{deleteSyncInstallationError}</div>
+			{/if}
+
+			<div class="delete-modal-actions">
+				<button class="cancel-delete-btn" type="button" on:click={closeSyncInstallationDelete} disabled={deleteSyncInstallationLoading}>Cancel</button>
+				<button
+					class="confirm-delete-btn"
+					type="button"
+					on:click={deleteSyncInstallation}
+					disabled={deleteSyncInstallationLoading || (syncInstallationToDelete.is_online && !onlineDeletionAcknowledged)}
+				>
+					{deleteSyncInstallationLoading ? 'Deleting…' : 'Delete Installation'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.drawer-monitor {
@@ -1018,6 +1114,41 @@
 	}
 	.run-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(220, 38, 38, 0.4); }
 	.run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.delete-installation-btn {
+		padding: 0.35rem 0.7rem; border: 1px solid #dc2626; border-radius: 8px;
+		background: #fff; color: #b91c1c; font-size: 0.75rem; font-weight: 700; cursor: pointer;
+	}
+	.delete-installation-btn:hover { background: #fee2e2; }
+
+	.delete-modal-backdrop {
+		position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
+		padding: 1rem; background: rgba(15, 23, 42, 0.62); backdrop-filter: blur(3px);
+	}
+	.delete-modal {
+		width: min(620px, 100%); overflow: hidden; border: 1px solid #fecaca; border-radius: 16px;
+		background: #fff; box-shadow: 0 24px 70px rgba(15, 23, 42, 0.3); color: #7f1d1d;
+	}
+	.delete-modal-header { display: flex; justify-content: space-between; gap: 1rem; padding: 1.2rem 1.3rem; border-bottom: 1px solid #fee2e2; }
+	.delete-modal-header h2 { margin: 0 0 0.3rem; font-size: 1.05rem; color: #991b1b; }
+	.delete-modal-header p { margin: 0; color: #64748b; font-size: 0.82rem; line-height: 1.4; }
+	.delete-modal-close { border: 0; background: transparent; color: #94a3b8; font-size: 1.5rem; cursor: pointer; }
+	.installation-details { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; padding: 1.1rem 1.3rem; }
+	.installation-details > div { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.7rem; border-radius: 10px; background: #fff7f7; }
+	.installation-details .full-row { grid-column: 1 / -1; }
+	.installation-details span { color: #9f1239; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.35px; }
+	.installation-details strong { color: #334155; font-size: 0.84rem; overflow-wrap: anywhere; }
+	.online-delete-warning { margin: 0 1.3rem 1rem; padding: 0.9rem; border: 1px solid #f59e0b; border-radius: 10px; background: #fffbeb; color: #92400e; }
+	.online-delete-warning > strong, .online-delete-warning > span { display: block; }
+	.online-delete-warning > span { margin-top: 0.2rem; font-size: 0.78rem; }
+	.online-delete-warning label { display: flex; align-items: flex-start; gap: 0.55rem; margin-top: 0.75rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+	.online-delete-warning input { margin-top: 0.1rem; accent-color: #dc2626; }
+	.delete-modal-error { margin: 0 1.3rem 1rem; padding: 0.7rem; border-radius: 8px; background: #fee2e2; color: #b91c1c; font-size: 0.8rem; font-weight: 600; }
+	.delete-modal-actions { display: flex; justify-content: flex-end; gap: 0.65rem; padding: 1rem 1.3rem; border-top: 1px solid #fee2e2; background: #fffafa; }
+	.cancel-delete-btn, .confirm-delete-btn { padding: 0.55rem 1rem; border-radius: 9px; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+	.cancel-delete-btn { border: 1px solid #cbd5e1; background: #fff; color: #475569; }
+	.confirm-delete-btn { border: 1px solid #b91c1c; background: #dc2626; color: #fff; }
+	.confirm-delete-btn:disabled, .cancel-delete-btn:disabled, .delete-modal-close:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.error-banner {
 		padding: 0.75rem 1rem; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.35);

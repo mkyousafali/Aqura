@@ -45,12 +45,44 @@
 	let addUserOptions: any[] = [];
 	let addUserOptionsLoading = false;
 	let selectedAddUserIds = new Set<string>();
+	let expandedButtonWiseSections = new Set<string>();
+	let expandedButtonWiseSubsections = new Set<string>();
 
 	$: selectedButton = allButtons.find(btn => btn.code === selectedButtonCode) || null;
 	$: buttonWiseButtons = allButtons.filter(btn => {
 		const q = buttonWiseSearch.trim().toLowerCase();
 		return !q || btn.name.toLowerCase().includes(q) || btn.code.toLowerCase().includes(q) || btn.section.toLowerCase().includes(q);
 	});
+	$: buttonWiseSectionGroups = (() => {
+		const sections: Array<{ name: string; subsections: Array<{ name: string; buttons: any[] }> }> = [];
+		for (const button of buttonWiseButtons) {
+			let section = sections.find(item => item.name === button.section);
+			if (!section) {
+				section = { name: button.section, subsections: [] };
+				sections.push(section);
+			}
+			let subsection = section.subsections.find(item => item.name === button.subsection);
+			if (!subsection) {
+				subsection = { name: button.subsection, buttons: [] };
+				section.subsections.push(subsection);
+			}
+			subsection.buttons.push(button);
+		}
+		return sections;
+	})();
+
+	function toggleButtonWiseSection(section: string) {
+		if (expandedButtonWiseSections.has(section)) expandedButtonWiseSections.delete(section);
+		else expandedButtonWiseSections.add(section);
+		expandedButtonWiseSections = expandedButtonWiseSections;
+	}
+
+	function toggleButtonWiseSubsection(section: string, subsection: string) {
+		const key = `${section}::${subsection}`;
+		if (expandedButtonWiseSubsections.has(key)) expandedButtonWiseSubsections.delete(key);
+		else expandedButtonWiseSubsections.add(key);
+		expandedButtonWiseSubsections = expandedButtonWiseSubsections;
+	}
 
 	// Kept in sync with the section names/order returned by /api/parse-sidebar
 	// (see [[button-permission-system-rewrite]]), which itself mirrors the
@@ -81,34 +113,6 @@
 		const headerHeight = tableContainer.querySelector('thead')?.getBoundingClientRect().height ?? 0;
 		const delta = el.getBoundingClientRect().top - tableContainer.getBoundingClientRect().top - headerHeight - 4;
 		tableContainer.scrollBy({ top: delta, behavior: 'smooth' });
-	}
-
-	const sectionOrder = [
-		'Delivery',
-		'Sourcing',
-		'Designer',
-		'Campaigns',
-		'Finance',
-		'HR',
-		'Tasks',
-		'Users',
-		'Loyalty',
-		'Controls',
-		'System',
-		'WhatsApp',
-		'Email'
-	];
-
-	const subsectionOrder = ['Dashboard', 'Manage', 'Operations', 'Reports'];
-
-	function sectionRank(section: string): number {
-		const i = sectionOrder.indexOf(section);
-		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
-	}
-
-	function subsectionRank(subsection: string): number {
-		const i = subsectionOrder.indexOf(subsection);
-		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
 	}
 
 	// Filtered buttons (reactive)
@@ -173,14 +177,10 @@
 				}
 			}
 		}
-		allButtons = flatButtons.sort((a, b) => {
-			const sr = sectionRank(a.section) - sectionRank(b.section);
-			if (sr !== 0) return sr;
-			const subr = subsectionRank(a.subsection) - subsectionRank(b.subsection);
-			if (subr !== 0) return subr;
-			return a.name.localeCompare(b.name);
-		});
-		availableSections = [...new Set(allButtons.map(b => b.section))].sort((a, b) => sectionRank(a) - sectionRank(b));
+		// The API catalog already follows the live Sidebar's section,
+		// subsection, and button order. Preserve that sequence exactly.
+		allButtons = flatButtons;
+		availableSections = [...new Set(allButtons.map(b => b.section))];
 	}
 
 	onMount(async () => {
@@ -322,22 +322,8 @@
 
 			if (!flatButtons.length) return;
 
-			allButtons = flatButtons.sort((a, b) => {
-				const sr = sectionRank(a.section) - sectionRank(b.section);
-				if (sr !== 0) return sr;
-				const sc = a.section.localeCompare(b.section);
-				if (sc !== 0) return sc;
-				const subr = subsectionRank(a.subsection) - subsectionRank(b.subsection);
-				if (subr !== 0) return subr;
-				const subc = a.subsection.localeCompare(b.subsection);
-				if (subc !== 0) return subc;
-				return a.name.localeCompare(b.name);
-			});
-
-			availableSections = [...new Set(allButtons.map((b: any) => b.section))].sort((a: string, b: string) => {
-				const sr = sectionRank(a) - sectionRank(b);
-				return sr !== 0 ? sr : a.localeCompare(b);
-			});
+			allButtons = flatButtons;
+			availableSections = [...new Set(allButtons.map((b: any) => b.section))];
 
 			const { data: perms } = await supabase
 				.from('button_permissions')
@@ -923,11 +909,32 @@
 					<input type="text" bind:value={buttonWiseSearch} placeholder="Search buttons..." class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" />
 				</div>
 				<div class="flex-1 overflow-y-auto">
-					{#each buttonWiseButtons as button (button.code)}
-						<button class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-sky-50 transition-all {selectedButtonCode === button.code ? 'bg-sky-50 border-l-[3px] border-l-sky-600' : ''}" on:click={() => selectButtonWise(button.code)}>
-							<div class="text-sm font-semibold text-slate-800">{button.name}</div>
-							<div class="text-[11px] text-slate-400 mt-0.5">{button.section} · {button.subsection} · {button.code}</div>
+					{#each buttonWiseSectionGroups as section (section.name)}
+						{@const sectionOpen = !!buttonWiseSearch.trim() || expandedButtonWiseSections.has(section.name)}
+						<button class="w-full flex items-center gap-2 px-4 py-3 text-left bg-slate-100 hover:bg-slate-200 border-b border-slate-200 text-sm font-black text-slate-700 uppercase tracking-wide" on:click={() => toggleButtonWiseSection(section.name)}>
+							<span class="w-4 text-slate-400">{sectionOpen ? '▾' : '▸'}</span>
+							<span>{sectionIcons[section.name] || '📁'}</span>
+							<span class="flex-1">{section.name}</span>
+							<span class="text-[10px] bg-white px-2 py-0.5 rounded-full text-slate-500">{section.subsections.reduce((count, item) => count + item.buttons.length, 0)}</span>
 						</button>
+						{#if sectionOpen}
+							{#each section.subsections as subsection (`${section.name}-${subsection.name}`)}
+								{@const subsectionKey = `${section.name}::${subsection.name}`}
+								{@const subsectionOpen = !!buttonWiseSearch.trim() || expandedButtonWiseSubsections.has(subsectionKey)}
+								<button class="w-full flex items-center gap-2 pl-7 pr-4 py-2 text-left bg-white hover:bg-sky-50 border-b border-slate-100 text-xs font-bold text-sky-700" on:click={() => toggleButtonWiseSubsection(section.name, subsection.name)}>
+									<span class="w-4 text-sky-400">{subsectionOpen ? '▾' : '▸'}</span>
+									<span class="flex-1">{subsection.name}</span>
+									<span class="text-[10px] text-slate-400">{subsection.buttons.length}</span>
+								</button>
+								{#if subsectionOpen}
+									{#each subsection.buttons as button (button.code)}
+										<button class="w-full text-left pl-14 pr-4 py-2.5 border-b border-slate-100 hover:bg-sky-50 transition-all text-sm font-semibold {selectedButtonCode === button.code ? 'bg-sky-100 text-sky-800 border-l-[3px] border-l-sky-600' : 'text-slate-700'}" on:click={() => selectButtonWise(button.code)}>
+											{button.name}
+										</button>
+									{/each}
+								{/if}
+							{/each}
+						{/if}
 					{/each}
 				</div>
 			</div>

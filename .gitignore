@@ -98,6 +98,9 @@ vite.config.ts.timestamp-*
 .idea/
 *.swp
 *.swo
+
+# Android app builds
+*.apk
 *~
 
 # OS generated files

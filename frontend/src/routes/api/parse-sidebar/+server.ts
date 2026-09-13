@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { englishLocale } from '$lib/i18n/locales/en';
 
 interface ButtonInfo {
 	code: string;
@@ -48,6 +49,38 @@ function prettyButtonName(code: string): string {
 		.split('_')
 		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
 		.join(' ');
+}
+
+function englishTranslation(keyPath: string): string | null {
+	let value: any = englishLocale.translations;
+	for (const key of keyPath.split('.')) {
+		if (!value || typeof value !== 'object' || !(key in value)) return null;
+		value = value[key];
+	}
+	return typeof value === 'string' ? value : null;
+}
+
+function extractSidebarButtonNames(sidebarCode: string): Map<string, string> {
+	const names = new Map<string, string>();
+	const guards = [...sidebarCode.matchAll(/isButtonAllowed\(['"]([A-Z_]+)['"]\)/g)];
+	for (let i = 0; i < guards.length; i += 1) {
+		const code = guards[i][1];
+		const start = guards[i].index ?? 0;
+		const end = i + 1 < guards.length ? (guards[i + 1].index ?? sidebarCode.length) : sidebarCode.length;
+		const segment = sidebarCode.slice(start, end);
+		const menuText = segment.match(/<span class="menu-text">([\s\S]*?)<\/span>/)?.[1]?.trim();
+		if (!menuText) continue;
+
+		// Prefer the exact English fallback rendered by the Sidebar, then its
+		// translation key, and finally plain text used by non-translated items.
+		const fallback = menuText.match(/\|\|\s*['"]([^'"]+)['"]/)?.[1];
+		const translationKey = menuText.match(/\bt\(['"]([^'"]+)['"]\)/)?.[1];
+		const translated = translationKey ? englishTranslation(translationKey) : null;
+		const plainText = menuText.includes('{') ? null : menuText.replace(/<[^>]+>/g, '').trim();
+		const name = fallback || translated || plainText;
+		if (name) names.set(code, name);
+	}
+	return names;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -207,9 +240,11 @@ export const GET: RequestHandler = async () => {
 		// the missing/extra diagnostics below. Not fatal if unavailable
 		// (e.g. certain serverless bundling setups).
 		let detectedButtonCodes = new Set<string>();
+		let sidebarButtonNames = new Map<string, string>();
 		try {
 			const sidebarPath = resolve('src/lib/components/desktop-interface/common/Sidebar.svelte');
 			const sidebarCode = readFileSync(sidebarPath, 'utf-8');
+			sidebarButtonNames = extractSidebarButtonNames(sidebarCode);
 			const buttonCodeRegex = /isButtonAllowed\(['"]([A-Z_]+)['"]\)/g;
 			let match: RegExpExecArray | null;
 			while ((match = buttonCodeRegex.exec(sidebarCode)) !== null) {
@@ -230,7 +265,7 @@ export const GET: RequestHandler = async () => {
 				codes.forEach((code) => catalogCodes.add(code));
 				const buttons = codes.map((code) => ({
 					code,
-					name: prettyButtonName(code)
+					name: sidebarButtonNames.get(code) || prettyButtonName(code)
 				}));
 
 				return {
