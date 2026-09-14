@@ -279,7 +279,7 @@
 				.or(`effective_to.is.null,effective_to.gte.${startDate}`)
 				.or(`effective_from.is.null,effective_from.lte.${endDate}`);
 
-			const newEmpIds = [...new Set((statusPeriods || []).map((p: any) => String(p.employee_id)))]
+			const newEmpIds = [...new Set<string>((statusPeriods || []).map((p: any) => String(p.employee_id)))]
 				.filter(id => !empMap.has(id));
 			if (newEmpIds.length > 0) {
 				const { data: newEmps } = await supabase
@@ -332,21 +332,26 @@
 
 			const empIdsInMap = Array.from(empMap.keys());
 
-			// Defensive overlay: override 'Absent' with approved leave status for any date
-			// where the employee has an approved day_off record. This corrects cases where
-			// an employee's employment status changed during an approved leave period, causing
-			// the Edge Function to exclude them and leave gaps in hr_analysed_attendance_data.
-			// Approved leave always has priority over Absent; no other statuses are affected.
+			// Use the source leave record so the dashboard can show the exact leave
+			// status, selected reason, supporting document and deduction setting.
 			if (empMap.size > 0) {
-				const { data: approvedLeaves } = await supabase
+				const { data: leaveRecords } = await supabase
 					.from('day_off')
-					.select('employee_id, day_off_date, is_deductible_on_salary')
+					.select(`
+						employee_id,
+						day_off_date,
+						approval_status,
+						is_deductible_on_salary,
+						document_url,
+						day_off_reason_id,
+						day_off_reasons (reason_en, reason_ar)
+					`)
 					.in('employee_id', empIdsInMap)
-					.eq('approval_status', 'approved')
+					.in('approval_status', ['pending', 'approved', 'rejected'])
 					.gte('day_off_date', startDate)
 					.lte('day_off_date', endDate);
 
-				for (const leave of approvedLeaves || []) {
+				for (const leave of leaveRecords || []) {
 					const empId = String(leave.employee_id);
 					const dateStr = typeof leave.day_off_date === 'string'
 						? leave.day_off_date.split('T')[0]
@@ -354,12 +359,24 @@
 					const emp = empMap.get(empId);
 					if (!emp) continue;
 					const dayEntry = emp.dayByDay[dateStr];
-					if (dayEntry && dayEntry.status === 'Absent') {
+					const canApplyLeaveStatus = dayEntry && ![
+						'Worked', 'Official Day Off', 'Official Holiday', 'Vacation', 'Resigned'
+					].includes(dayEntry.status);
+					if (canApplyLeaveStatus) {
+						const reason = Array.isArray(leave.day_off_reasons)
+							? leave.day_off_reasons[0]
+							: leave.day_off_reasons;
+						const leaveStatus = leave.approval_status === 'approved'
+							? (leave.is_deductible_on_salary ? 'Approved Leave (Deductible)' : 'Approved Leave (No Deduction)')
+							: leave.approval_status === 'rejected'
+								? (leave.is_deductible_on_salary ? 'Rejected-Deducted' : 'Rejected-Not Deducted')
+								: 'Pending Approval';
 						emp.dayByDay[dateStr] = {
 							...dayEntry,
-							status: leave.is_deductible_on_salary
-								? 'Approved Leave (Deductible)'
-								: 'Approved Leave (No Deduction)'
+							status: leaveStatus,
+							leaveReasonEn: reason?.reason_en || '',
+							leaveReasonAr: reason?.reason_ar || '',
+							documentUrl: leave.document_url || null
 						};
 					}
 				}
@@ -802,21 +819,110 @@
 			case 'Worked': return 'text-emerald-600';
 			case 'Incomplete': return 'text-red-500 font-bold';
 			case 'Unapproved Day Off': return 'text-rose-700 font-bold';
-			case 'Absent': return 'text-gray-700 font-bold';
-			case 'Official Day Off': return 'text-blue-600';
-			case 'Official Holiday': return 'text-indigo-600 font-semibold';
+			case 'Absent': return 'text-white font-bold';
+			case 'Official Day Off': return 'text-white font-semibold';
+			case 'Official Holiday': return 'text-white font-semibold';
 			case 'Approved Leave': return 'text-indigo-600';
 			case 'Approved Leave (Deductible)': return 'text-purple-600 font-semibold';
 			case 'Approved Leave (No Deduction)': return 'text-indigo-500';
-			case 'Pending Approval': return 'text-amber-600 font-semibold';
+			case 'Pending Approval': return 'text-white font-semibold';
 			case 'Rejected-Deducted': return 'text-red-700 font-bold';
 			case 'Rejected-Not Deducted': return 'text-red-500 font-semibold';
 			case 'Rejected Leave': return 'text-red-600 font-bold';
-			case 'Check-In Missing': return 'text-orange-600 font-bold';
-			case 'Check-Out Missing': return 'text-orange-500 font-bold';
+			case 'Check-In Missing': return 'text-white font-bold';
+			case 'Check-Out Missing': return 'text-white font-bold';
 			case 'Resigned': return 'text-slate-400 italic';
-			case 'Vacation': return 'text-blue-600 font-semibold';
+			case 'Vacation': return 'text-white font-semibold';
 			default: return 'text-slate-400';
+		}
+	}
+
+	function isCriticalAttendanceStatus(status: string): boolean {
+		return status === 'Absent' || status === 'Check-In Missing' || status === 'Check-Out Missing';
+	}
+
+	function isPendingAttendanceStatus(status: string): boolean {
+		return status === 'Pending Approval';
+	}
+
+	function isVacationAttendanceStatus(status: string): boolean {
+		return status === 'Vacation';
+	}
+
+	function isOfficialLeaveAttendanceStatus(status: string): boolean {
+		return status === 'Official Day Off' || status === 'Official Holiday';
+	}
+
+	function getDeductionIndicator(status: string): string | null {
+		if (status === 'Approved Leave (Deductible)' || status === 'Rejected-Deducted') {
+			return $locale === 'ar' ? 'الخصم: مفعل' : 'Deduction: ON';
+		}
+		if (status === 'Approved Leave (No Deduction)' || status === 'Rejected-Not Deducted') {
+			return $locale === 'ar' ? 'الخصم: غير مفعل' : 'Deduction: OFF';
+		}
+		return null;
+	}
+
+	function isDeductionEnabled(status: string): boolean {
+		return status === 'Approved Leave (Deductible)' || status === 'Rejected-Deducted';
+	}
+
+	let togglingDeductionKeys = new Set<string>();
+	let selectedLeaveDetail: { employeeId: string; employeeName: string; date: string; day: any } | null = null;
+
+	function openLeaveDetails(row: any, date: string) {
+		selectedLeaveDetail = {
+			employeeId: String(row.employeeId),
+			employeeName: row.employeeName,
+			date,
+			day: row.dayByDay[date]
+		};
+	}
+
+	async function toggleLeaveDeduction(employeeId: string, date: string, status: string) {
+		const key = `${employeeId}-${date}`;
+		if (togglingDeductionKeys.has(key)) return;
+
+		const nextEnabled = !isDeductionEnabled(status);
+		togglingDeductionKeys = new Set(togglingDeductionKeys).add(key);
+		try {
+			const { data: updatedLeaves, error } = await supabase
+				.from('day_off')
+				.update({ is_deductible_on_salary: nextEnabled })
+				.eq('employee_id', employeeId)
+				.eq('day_off_date', date)
+				.in('approval_status', ['approved', 'rejected'])
+				.select('id');
+
+			if (error) throw error;
+			if (!updatedLeaves?.length) throw new Error('No matching approved or rejected leave record was updated.');
+
+			const employeeRow = analysisData.find((row) => String(row.employeeId) === String(employeeId));
+			const dayEntry = employeeRow?.dayByDay?.[date];
+			if (dayEntry) {
+				const isApproved = status.startsWith('Approved Leave');
+				dayEntry.status = isApproved
+					? (nextEnabled ? 'Approved Leave (Deductible)' : 'Approved Leave (No Deduction)')
+					: (nextEnabled ? 'Rejected-Deducted' : 'Rejected-Not Deducted');
+				analysisData = [...analysisData];
+				if (
+					selectedLeaveDetail &&
+					selectedLeaveDetail.employeeId === String(employeeId) &&
+					selectedLeaveDetail.date === date
+				) {
+					selectedLeaveDetail = {
+						...selectedLeaveDetail,
+						day: { ...dayEntry }
+					};
+				}
+			}
+		} catch (error) {
+			console.error('Failed to update leave deduction:', error);
+			alert($locale === 'ar' ? 'تعذر تحديث حالة الخصم.' : 'Could not update the deduction setting.');
+		} finally {
+			const nextKeys = new Set(togglingDeductionKeys);
+			nextKeys.delete(key);
+			togglingDeductionKeys = nextKeys;
 		}
 	}
 </script>
@@ -957,8 +1063,17 @@
 									</div>
 								</td>
 								{#each datesInRange as date}
-									<td class="px-3 py-3 border-r text-center text-[10px] leading-tight w-[100px] group-hover:bg-emerald-100/50 transition-colors">
-										<div class={getStatusColor(row.dayByDay[date].status)}>
+									<td
+										class="px-2 py-1 border-r text-center text-[10px] leading-tight w-[100px] group-hover:bg-emerald-100/50 transition-colors"
+										class:critical-attendance-cell={isCriticalAttendanceStatus(row.dayByDay[date].status)}
+										class:pending-attendance-cell={isPendingAttendanceStatus(row.dayByDay[date].status)}
+										class:vacation-attendance-cell={isVacationAttendanceStatus(row.dayByDay[date].status)}
+										class:official-leave-attendance-cell={isOfficialLeaveAttendanceStatus(row.dayByDay[date].status)}
+									>
+										<div
+											class={getStatusColor(row.dayByDay[date].status)}
+											class:compact-leave-content={Boolean(row.dayByDay[date].leaveReasonEn || row.dayByDay[date].leaveReasonAr || row.dayByDay[date].documentUrl || getDeductionIndicator(row.dayByDay[date].status))}
+										>
 											{#if row.dayByDay[date].status === 'Worked'}
 											{#if row.dayByDay[date].workedMins > 0}
 												<div class="font-bold whitespace-nowrap {row.dayByDay[date].underMins > 0 ? 'text-red-700' : ''}">
@@ -973,9 +1088,14 @@
 											{:else}
 												<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">WORKED</span>
 												{/if}
-											{:else}
-												<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">{getStatusLabel(row.dayByDay[date].status)}</span>
-											{#if row.dayByDay[date].lateMins > 0}
+						{:else}
+							<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">{getStatusLabel(row.dayByDay[date].status)}</span>
+							{#if row.dayByDay[date].leaveReasonEn || row.dayByDay[date].leaveReasonAr || row.dayByDay[date].documentUrl || getDeductionIndicator(row.dayByDay[date].status)}
+								<button type="button" class="leave-details-button" on:click={() => openLeaveDetails(row, date)}>
+									ⓘ {$locale === 'ar' ? 'التفاصيل' : 'Details'}
+								</button>
+							{/if}
+										{#if row.dayByDay[date].lateMins > 0}
 													<div class="text-[8px] text-amber-700 font-bold">{$t('hr.processFingerprint.late_abbr')}: {formatMinutes(row.dayByDay[date].lateMins)}</div>
 												{/if}
 											{/if}
@@ -1000,6 +1120,56 @@
 		{/if}
 	</div>
 </div>
+
+{#if selectedLeaveDetail}
+	<div class="leave-detail-overlay">
+		<button type="button" class="leave-detail-backdrop" on:click={() => selectedLeaveDetail = null} aria-label={$locale === 'ar' ? 'إغلاق' : 'Close'}></button>
+		<div class="leave-detail-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={$locale === 'ar' ? 'تفاصيل الإجازة' : 'Leave details'}>
+			<div class="leave-detail-header">
+				<div>
+					<strong>{$locale === 'ar' ? 'تفاصيل الإجازة' : 'Leave Details'}</strong>
+					<small>{selectedLeaveDetail.employeeName} · {selectedLeaveDetail.date}</small>
+				</div>
+				<button type="button" class="leave-detail-close" on:click={() => selectedLeaveDetail = null} aria-label={$locale === 'ar' ? 'إغلاق' : 'Close'}>×</button>
+			</div>
+
+			<div class="leave-detail-row">
+				<span>{$locale === 'ar' ? 'الحالة' : 'Status'}</span>
+				<strong>{getStatusLabel(selectedLeaveDetail.day.status)}</strong>
+			</div>
+			<div class="leave-detail-row">
+				<span>{$locale === 'ar' ? 'سبب الإجازة' : 'Leave reason'}</span>
+				<strong>{$locale === 'ar'
+					? (selectedLeaveDetail.day.leaveReasonAr || selectedLeaveDetail.day.leaveReasonEn || '—')
+					: (selectedLeaveDetail.day.leaveReasonEn || selectedLeaveDetail.day.leaveReasonAr || '—')}</strong>
+			</div>
+			{#if selectedLeaveDetail.day.documentUrl}
+				<div class="leave-detail-row">
+					<span>{$locale === 'ar' ? 'المستند' : 'Document'}</span>
+					<a class="leave-modal-document" href={selectedLeaveDetail.day.documentUrl} target="_blank" rel="noopener noreferrer">
+						📄 {$locale === 'ar' ? 'عرض المستند' : 'View document'}
+					</a>
+				</div>
+			{/if}
+			{#if getDeductionIndicator(selectedLeaveDetail.day.status)}
+				<div class="leave-detail-row">
+					<span>{$locale === 'ar' ? 'الخصم' : 'Deduction'}</span>
+					<button
+						type="button"
+						class:enabled={isDeductionEnabled(selectedLeaveDetail.day.status)}
+						class="deduction-switch modal-switch"
+						aria-label={getDeductionIndicator(selectedLeaveDetail.day.status) || ''}
+						aria-pressed={isDeductionEnabled(selectedLeaveDetail.day.status)}
+						on:click={() => toggleLeaveDeduction(selectedLeaveDetail!.employeeId, selectedLeaveDetail!.date, selectedLeaveDetail!.day.status)}
+						disabled={togglingDeductionKeys.has(`${selectedLeaveDetail.employeeId}-${selectedLeaveDetail.date}`)}
+					>
+						<span class="deduction-switch-knob"></span>
+					</button>
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
 
 <style>
 	.analyze-all-window {
@@ -1026,5 +1196,294 @@
 	table {
 		min-width: 100%;
 		border-collapse: separate;
+	}
+
+	.analyze-all-window tbody tr > td {
+		border-bottom: 1px solid #94a3b8;
+	}
+
+	.critical-attendance-cell,
+	tr:hover .critical-attendance-cell {
+		background-color: #fee2e2 !important;
+		color: #b91c1c !important;
+	}
+
+	.critical-attendance-cell :global(*) {
+		color: #b91c1c !important;
+	}
+
+	.pending-attendance-cell,
+	tr:hover .pending-attendance-cell {
+		background-color: #ffedd5 !important;
+		color: #c2410c !important;
+	}
+
+	.pending-attendance-cell :global(*) {
+		color: #c2410c !important;
+	}
+
+	.vacation-attendance-cell,
+	tr:hover .vacation-attendance-cell {
+		background-color: #dcfce7 !important;
+		color: #15803d !important;
+	}
+
+	.vacation-attendance-cell :global(*) {
+		color: #15803d !important;
+	}
+
+	.official-leave-attendance-cell,
+	tr:hover .official-leave-attendance-cell {
+		background-color: #dcfce7 !important;
+		color: #15803d !important;
+	}
+
+	.official-leave-attendance-cell :global(*) {
+		color: #15803d !important;
+	}
+
+	.compact-leave-content {
+		align-items: center;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px 4px;
+		justify-content: center;
+		line-height: 1;
+	}
+
+	.compact-leave-content > span:first-child {
+		flex-basis: 100%;
+	}
+
+	.leave-details-button {
+		background: #2563eb !important;
+		border: 1px solid #1d4ed8;
+		border-radius: 9999px;
+		box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+		color: #ffffff !important;
+		cursor: pointer;
+		font-size: 8px;
+		font-weight: 800;
+		line-height: 1;
+		margin: 0;
+		padding: 3px 7px;
+		white-space: nowrap;
+	}
+
+	.leave-details-button:hover {
+		background: #1d4ed8 !important;
+		box-shadow: 0 2px 4px rgba(15, 23, 42, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.leave-details-button:active {
+		background: #1e40af !important;
+		box-shadow: none;
+		transform: translateY(0);
+	}
+
+	.leave-detail-overlay {
+		align-items: center;
+		background: rgba(15, 23, 42, 0.4);
+		display: flex;
+		inset: 0;
+		justify-content: center;
+		padding: 20px;
+		position: fixed;
+		z-index: 10000;
+	}
+
+	.leave-detail-modal {
+		background: #ffffff;
+		border: 1px solid #cbd5e1;
+		border-radius: 12px;
+		box-shadow: 0 20px 45px rgba(15, 23, 42, 0.24);
+		color: #1e293b;
+		max-width: 360px;
+		padding: 16px;
+		position: relative;
+		width: 100%;
+		z-index: 1;
+	}
+
+	.leave-detail-backdrop {
+		background: transparent;
+		border: 0;
+		inset: 0;
+		padding: 0;
+		position: absolute;
+	}
+
+	.leave-detail-header,
+	.leave-detail-row {
+		align-items: center;
+		display: flex;
+		justify-content: space-between;
+	}
+
+	.leave-detail-header {
+		border-bottom: 1px solid #e2e8f0;
+		margin-bottom: 8px;
+		padding-bottom: 10px;
+	}
+
+	.leave-detail-header small {
+		color: #64748b;
+		display: block;
+		font-size: 11px;
+		margin-top: 3px;
+	}
+
+	.leave-detail-close {
+		background: #f1f5f9;
+		border: 0;
+		border-radius: 50%;
+		color: #475569;
+		cursor: pointer;
+		font-size: 20px;
+		height: 28px;
+		line-height: 1;
+		width: 28px;
+	}
+
+	.leave-detail-row {
+		border-bottom: 1px solid #f1f5f9;
+		font-size: 12px;
+		gap: 16px;
+		min-height: 38px;
+		padding: 7px 0;
+	}
+
+	.leave-detail-row > span {
+		color: #64748b;
+		white-space: nowrap;
+	}
+
+	.leave-detail-row strong {
+		text-align: end;
+	}
+
+	.leave-modal-document {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 6px;
+		color: #1d4ed8;
+		font-size: 11px;
+		font-weight: 800;
+		padding: 5px 8px;
+		text-decoration: none;
+	}
+
+	.modal-switch {
+		height: 18px;
+		width: 34px;
+	}
+
+	.modal-switch .deduction-switch-knob {
+		height: 14px;
+		width: 14px;
+	}
+
+	.leave-reason {
+		font-size: 7px;
+		font-weight: 700;
+		line-height: 1;
+		margin: 0;
+		max-width: 52px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.leave-document-button {
+		align-items: center;
+		background: rgba(255, 255, 255, 0.8) !important;
+		border: 1px solid currentColor;
+		border-radius: 4px;
+		display: inline-flex;
+		font-size: 9px;
+		font-weight: 800;
+		height: 16px;
+		justify-content: center;
+		line-height: 1;
+		margin: 0;
+		padding: 1px 3px;
+		text-decoration: none;
+		width: 20px;
+	}
+
+	.leave-document-label,
+	.deduction-label {
+		display: none;
+	}
+
+	.leave-document-button:hover {
+		background: #ffffff !important;
+	}
+
+	.deduction-switch-row {
+		align-items: center;
+		display: flex;
+		font-size: 8px;
+		font-weight: 800;
+		gap: 0;
+		justify-content: center;
+		margin: 0;
+		white-space: nowrap;
+	}
+
+	.deduction-switch {
+		background: #94a3b8;
+		border: 1px solid rgba(255, 255, 255, 0.85);
+		border-radius: 9999px;
+		cursor: pointer;
+		display: inline-flex;
+		height: 12px;
+		opacity: 1;
+		padding: 1px;
+		transition: background-color 150ms ease;
+		width: 22px;
+	}
+
+	.deduction-switch:disabled {
+		cursor: wait;
+		opacity: 0.65;
+	}
+
+	.deduction-switch.enabled {
+		background: #16a34a;
+		justify-content: flex-end;
+	}
+
+	.deduction-switch-knob {
+		background: #ffffff;
+		border-radius: 50%;
+		display: block;
+		height: 8px;
+		width: 8px;
+	}
+
+	/* Larger, clearly filled switch inside the leave-details popup. */
+	.modal-switch {
+		background-color: #ef4444 !important;
+		border: 1px solid #dc2626;
+		box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.22);
+		height: 22px;
+		justify-content: flex-start;
+		padding: 2px;
+		transition: background-color 150ms ease, border-color 150ms ease;
+		width: 42px;
+	}
+
+	.modal-switch.enabled {
+		background-color: #16a34a !important;
+		border-color: #15803d;
+		justify-content: flex-end;
+	}
+
+	.modal-switch .deduction-switch-knob {
+		box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+		height: 16px;
+		width: 16px;
 	}
 </style>
