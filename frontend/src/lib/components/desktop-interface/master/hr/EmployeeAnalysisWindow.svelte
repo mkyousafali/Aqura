@@ -10,6 +10,8 @@
 	export let windowId: string;
 	export let initialStartDate: string = '';
 	export let initialEndDate: string = '';
+	/** Mobile embeds are read-only and supply a session-locked employee/date. */
+	export let mobileMode: boolean = false;
 
 	interface Employee {
 		id: string;
@@ -44,6 +46,7 @@
 	let transactionData: any[] = [];
 	let loadingTransactions = false;
 	let punchPairs: any[] = []; // Store paired check-ins and check-outs with metadata
+	let jumpToDate = initialEndDate || new Date().toISOString().split('T')[0];
 	let realtimeChannel: any = null;
 	let showAddPunchModal = false;
 	let modalData: any = null;
@@ -1049,6 +1052,69 @@
 	function getMultiShiftWorkingHoursForDate(dateStr: string): number {
 		const shifts = getMultiShiftsForDate(dateStr);
 		return shifts.reduce((sum, s) => sum + (Number(s.working_hours) || 0), 0);
+	}
+
+	function getDateCardId(dateStr: string): string {
+		return `attendance-card-${dateStr.split('-').reverse().join('-')}`;
+	}
+
+	async function jumpToSelectedDate() {
+		if (!jumpToDate) return;
+		await tick();
+		document.getElementById(`attendance-card-${jumpToDate}`)?.scrollIntoView({
+			behavior: 'smooth',
+			block: 'start'
+		});
+	}
+
+	/** Return only the highest-priority schedule that applies to this date. */
+	function getScheduledShiftsForDate(dateStr: string): any[] {
+		if (!dateStr) return [];
+		const [day, month, year] = dateStr.split('-');
+		const formattedDate = `${year}-${month}-${day}`;
+		const dayNum = getDayNameFromDate(dateStr);
+		const inEffectiveRange = (shift: any) =>
+			(!shift.date_from || formattedDate >= shift.date_from) &&
+			(!shift.date_to || formattedDate <= shift.date_to);
+
+		const dateMulti = multiShiftDateWise.filter(inEffectiveRange);
+		if (dateMulti.length > 0) return dateMulti;
+		const dateSingle = specialShiftDateWise.find((shift) => shift.shift_date === formattedDate);
+		if (dateSingle) return [dateSingle];
+
+		const weekdayMulti = multiShiftWeekday.filter((shift) => shift.weekday === dayNum && inEffectiveRange(shift));
+		if (weekdayMulti.length > 0) return weekdayMulti;
+		const weekdaySingle = specialShiftWeekday.find((shift) => shift.weekday === dayNum && inEffectiveRange(shift));
+		if (weekdaySingle) return [weekdaySingle];
+
+		const regularMultiForDate = multiShiftRegular.filter(inEffectiveRange);
+		if (regularMultiForDate.length > 0) return regularMultiForDate;
+		const regularForDate = regularShiftVersions.find(inEffectiveRange) || regularShift;
+		return regularForDate ? [regularForDate] : [];
+	}
+
+	function getDailyScheduleLabel(dateStr: string, pairs: any[]): string {
+		const specificDayOff = getSpecificDayOff(dateStr);
+		const isOff = isOfficialDayOff(dateStr) ||
+			isOfficialHoliday(dateStr) ||
+			specificDayOff?.approval_status === 'approved' ||
+			pairs.some((pair: any) => pair.isVacationDate);
+		if (isOff) return $locale === 'ar' ? 'إجازة' : 'OFF';
+
+		const shifts = getScheduledShiftsForDate(dateStr);
+		if (shifts.length === 0) return $locale === 'ar' ? 'لا يوجد جدول' : 'No schedule';
+		return shifts.map((shift) => {
+			const times = `${formatTime12Hour(shift.shift_start_time)}–${formatTime12Hour(shift.shift_end_time)}`;
+			const hours = Number(shift.working_hours) || 0;
+			return `${times} · ${hours}${$t('common.h')}`;
+		}).join(' / ');
+	}
+
+	/** Resolve the required work time for one day using shift precedence. */
+	function getRequiredWorkingMinutesForDate(dateStr: string): number {
+		return Math.round(getScheduledShiftsForDate(dateStr).reduce(
+			(sum, shift) => sum + (Number(shift.working_hours) || 0), 0
+		) * 60);
 	}
 
 	function timeToMinutes(timeStr: string): number {
@@ -2496,8 +2562,9 @@
 
 </script>
 
-<div class="employee-analysis-window bg-white h-full overflow-y-auto">
+<div class:employee-mobile-mode={mobileMode} class="employee-analysis-window bg-white h-full overflow-y-auto">
 	<!-- Sticky Header Section -->
+	{#if !mobileMode}
 	<div class="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm px-4 py-1">
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			
@@ -2514,14 +2581,16 @@
 						<span class="text-[9px] font-bold text-slate-500">#{employee.id}</span>
 					</div>
 					<div class="flex items-center gap-1.5">
-						<span class="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1 rounded">{$locale === 'ar' ? employee.branch_name_ar || employee.branch_name_en : employee.branch_name_en}</span>
+						{#if !mobileMode}
+							<span class="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1 rounded">{$locale === 'ar' ? employee.branch_name_ar || employee.branch_name_en : employee.branch_name_en}</span>
+						{/if}
 						<span class="text-[10px] text-slate-400 font-medium">{$locale === 'ar' ? employee.nationality_name_ar || employee.nationality_name_en : employee.nationality_name_en}</span>
 					</div>
 				</div>
 			</div>
 
 			<!-- Shift Group -->
-			{#if !loading && (regularShift || dayOffWeekday)}
+			{#if !mobileMode && !loading && (regularShift || dayOffWeekday)}
 				<div class="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm divide-x divide-slate-100">
 					{#if regularShift}
 						<div class="flex gap-4 px-3 py-1">
@@ -2551,7 +2620,8 @@
 				</div>
 			{/if}
 
-			<!-- Actions -->
+			<!-- Actions are intentionally unavailable in the employee mobile view. -->
+			{#if !mobileMode}
 			<div class="flex items-center gap-2">
 				<div class="flex items-center px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg shadow-inner h-8">
 					<input type="date" bind:value={startDate} class="text-[10px] font-bold border-none bg-transparent focus:ring-0 p-0 text-slate-700 w-24 uppercase" />
@@ -2584,11 +2654,26 @@
 					</button>
 				{/if}
 			</div>
+			{/if}
 		</div>
 	</div>
+	{/if}
 
 	<!-- Scrollable Content Section -->
-	<div class="px-6 pb-2 space-y-6">
+	<div class="analysis-content px-6 pb-2 space-y-6">
+	{#if mobileMode}
+		<div class="mobile-day-jump">
+			<label for="attendance-day-jump">{$locale === 'ar' ? 'انتقل إلى اليوم' : 'Jump to day'}</label>
+			<input
+				id="attendance-day-jump"
+				type="date"
+				min={startDate}
+				max={endDate}
+				bind:value={jumpToDate}
+				on:change={jumpToSelectedDate}
+			/>
+		</div>
+	{/if}
 
 	<!-- Transactions Table -->
 	{#if punchPairs.length > 0}
@@ -2601,6 +2686,25 @@
 					{@const holiday = isHoliday ? getOfficialHoliday(groupDate) : null}
 					{@const isSpecific = isSpecificDayOff(groupDate)}
 					{@const dayOff = isSpecific ? getSpecificDayOff(groupDate) : null}
+					{@const dailyScheduleLabel = getDailyScheduleLabel(groupDate, group.pairs)}
+					{@const dailyWorkedMinutes = group.pairs.reduce((sum: number, pair: any) => {
+						if (!pair.workedTime) return sum;
+						const [hours, minutes] = pair.workedTime.split(':').map(Number);
+						return sum + (hours * 60) + minutes;
+					}, 0)}
+					{@const dailyRequiredMinutes = (isOfficial || isHoliday || dayOff?.approval_status === 'approved' || group.pairs.some((pair: any) => pair.isVacationDate))
+						? 0 : getRequiredWorkingMinutesForDate(groupDate)}
+					{@const isDayUnderworked = dailyRequiredMinutes > dailyWorkedMinutes}
+					{@const hasDayLate = group.pairs.some((pair: any) => (pair.checkInEarlyLateTime?.late || 0) > 0)}
+					{@const firstWorkedPairIndex = group.pairs.findIndex((pair: any) => !!pair.workedTime)}
+					{@const weekdayName = getDayName(getDayNameFromDate(groupDate))}
+					{@const dailyStatusEmoji = group.pairs.some((pair: any) => pair.isVacationDate) ? '🏖️' :
+						isHoliday ? '🏛️' :
+						isOfficial || dayOff?.approval_status === 'approved' ? '🌴' :
+						group.pairs.every((pair: any) => pair.isEmptyDate) ? '❓' :
+						isDayUnderworked && hasDayLate ? '😡' :
+						isDayUnderworked ? '😠' :
+						hasDayLate ? '😢' : '👏'}
 
 					{#if group.pairs.length === 1 && group.pairs[0].isEmptyDate}
 						<!-- ── Empty Date Card ── -->
@@ -2610,7 +2714,7 @@
 						{@const isPending = isSpecific && (!dayOff?.approval_status || dayOff?.approval_status === 'pending')}
 						{@const isRejected = isSpecific && dayOff?.approval_status === 'rejected'}
 						{@const isUnapprovedLeave = !isApproved && !isPending && !isRejected && !isVacation}
-						<div class="border border-slate-300 rounded-lg overflow-hidden
+						<div id={getDateCardId(groupDate)} class="border border-slate-300 rounded-lg overflow-hidden
 							{isVacation ? 'bg-blue-50' :
 							 (isUnapprovedLeave && !isSpecific) ? 'bg-red-50' :
 							 isHoliday ? 'bg-indigo-50' :
@@ -2625,8 +2729,11 @@
 								 isPending ? 'bg-amber-500' :
 								 isRejected ? 'bg-rose-600' :
 								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
-								<span>{groupDate}</span>
-								<div class="flex gap-2">
+							<div class="daily-card-heading">
+									<span class="daily-date-with-emoji">{#if mobileMode}<span aria-hidden="true">{dailyStatusEmoji}</span>{/if}<span>{groupDate}</span></span>
+									{#if mobileMode}<span class="daily-schedule-badge">{dailyScheduleLabel}</span>{/if}
+								</div>
+								<div class="daily-status-badges flex gap-2">
 									{#if isVacation}
 										<span class="px-3 py-1 bg-blue-600 rounded-full text-sm font-semibold">
 											🏖️ {$t('employeeFiles.vacation') || 'Vacation'}
@@ -2690,11 +2797,14 @@
 						<!-- ── Date Card: 1 or more shift pairs ── -->
 						{@const allPairsComplete = group.pairs.every(p => p.checkInTxn && p.checkOutTxn && !p.checkInMissing && !p.checkOutMissing)}
 						{@const hasMultiShiftWithMissing = group.pairs.length > 1 && !allPairsComplete}
-						<div class="border border-slate-300 rounded-lg overflow-hidden">
+						<div id={getDateCardId(groupDate)} class="border rounded-lg overflow-hidden {isDayUnderworked && hasDayLate ? 'day-card-mixed-border' : isDayUnderworked ? 'border-red-500' : hasDayLate ? 'border-orange-400' : 'border-green-500'}">
 							<!-- Shared date header (once per date) -->
-							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : 'bg-blue-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
-								<span>{groupDate}</span>
-								<div class="flex gap-2">
+							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : isDayUnderworked && hasDayLate ? 'day-card-mixed-header' : isDayUnderworked ? 'bg-red-600' : hasDayLate ? 'bg-orange-500' : 'bg-green-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
+								<div class="daily-card-heading">
+									<span class="daily-date-with-emoji">{#if mobileMode}<span aria-hidden="true">{dailyStatusEmoji}</span>{/if}<span>{groupDate}</span></span>
+									{#if mobileMode}<span class="daily-schedule-badge">{dailyScheduleLabel}</span>{/if}
+								</div>
+								<div class="daily-status-badges flex gap-2">
 									{#if isHoliday}
 										<span class="px-3 py-1 bg-indigo-500 rounded-full text-sm font-semibold">
 											🏛️ {$locale === 'ar' ? (holiday?.name_ar || holiday?.name_en) : (holiday?.name_en || holiday?.name_ar)}
@@ -2826,12 +2936,15 @@
 															{$t('hr.processFingerprint.underworked')}: {underworkedH}{$t('common.h')} {underworkedM}{$t('common.m')}
 														</span>
 													{/if}
-													{#if overtimeReg}
+												{#if overtimeReg}
 														<span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
 															⏱️ {$t('hr.processFingerprint.overtime_registered')}: {Math.floor(overtimeReg.overtime_minutes / 60)}{$t('common.h')} {overtimeReg.overtime_minutes % 60}{$t('common.m')}
 														</span>
-													{/if}
-												</div>
+												{/if}
+												{#if mobileMode && pairIdx === firstWorkedPairIndex}
+													<span class="daily-weekday-name">{weekdayName}</span>
+												{/if}
+											</div>
 												{#if isOvertimeEligible(pair)}
 													<div class="mt-2 flex items-center gap-2">
 														<button
@@ -2913,17 +3026,28 @@
 		{@const totalEarlyMinutes = completePairs.reduce((sum, p) => sum + (p.lateEarlyTime?.early || 0), 0)}
 		{@const totalEarlyHours = Math.floor(totalEarlyMinutes / 60)}
 		{@const totalEarlyMins = totalEarlyMinutes % 60}
+		{@const totalRequiredMinutes = groupedPunchPairs.reduce((sum, group) => {
+			const specificDayOff = getSpecificDayOff(group.date);
+			const isExcusedNonWorkingDay = isOfficialDayOff(group.date) ||
+				isOfficialHoliday(group.date) ||
+				specificDayOff?.approval_status === 'approved' ||
+				group.pairs.some((pair: any) => pair.isVacationDate);
+			return sum + (isExcusedNonWorkingDay ? 0 : getRequiredWorkingMinutesForDate(group.date));
+		}, 0)}
+		{@const totalVarianceMinutes = totalWorkedMinutes - totalRequiredMinutes}
+		{@const varianceHours = Math.floor(Math.abs(totalVarianceMinutes) / 60)}
+		{@const varianceMins = Math.abs(totalVarianceMinutes) % 60}
 
-		<div class="sticky bottom-0 z-20 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-2 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
-			<div class="flex items-center justify-between mb-2 px-1">
-				<h3 class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">{$t('hr.processFingerprint.summary_for').replace('{startDate}', startDate).replace('{endDate}', endDate)}</h3>
-				<div class="flex items-center gap-1.5 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm">
+		<div class="analysis-summary sticky bottom-0 z-20 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-2 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+			<div class="analysis-summary-heading flex items-center justify-between mb-2 px-1">
+				<h3 class="analysis-summary-title text-[10px] font-black text-slate-500 uppercase tracking-tighter">{$t('hr.processFingerprint.summary_for').replace('{startDate}', startDate).replace('{endDate}', endDate)}</h3>
+				<div class="analysis-total-days flex items-center gap-1.5 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm">
 					<span class="text-[9px] font-bold text-slate-400 uppercase">{$t('hr.processFingerprint.total_days')}</span>
 					<span class="text-[10px] font-black text-slate-900 leading-none">{punchPairs.length}</span>
 				</div>
 			</div>
 			
-			<div class="grid grid-cols-5 gap-2">
+			<div class="analysis-summary-stats grid grid-cols-5 gap-2">
 				<!-- Mini Stats Row -->
 				{#each [
 					{ label: $t('hr.processFingerprint.complete_days'), val: completePairs.length, color: 'bg-green-500' },
@@ -2932,10 +3056,10 @@
 					{ label: $t('hr.shift.tabs.official_holidays'), val: officialHolidayDates.length, color: 'bg-indigo-500' },
 					{ label: $t('hr.processFingerprint.unapproved_leaves'), val: unapprovedLeaves.length, color: 'bg-red-500' }
 				] as item}
-					<div class="bg-white border border-slate-200 rounded p-1.5 flex flex-col items-center">
+					<div class="analysis-summary-stat bg-white border border-slate-200 rounded p-1.5 flex flex-col items-center">
 						<div class="flex items-center gap-1 mb-0.5">
 							<span class="w-1.5 h-1.5 rounded-full {item.color}"></span>
-							<span class="text-[8px] font-bold text-slate-400 uppercase leading-none truncate w-16">{item.label}</span>
+							<span class="analysis-summary-label text-[8px] font-bold text-slate-400 uppercase leading-none truncate w-16">{item.label}</span>
 						</div>
 						<span class="text-sm font-black text-slate-900 leading-none">{item.val}</span>
 					</div>
@@ -2943,33 +3067,28 @@
 			</div>
 			
 			<!-- Analytics Strip -->
-			<div class="mt-2 flex items-center gap-2">
+			<div class="analysis-summary-analytics mt-2 flex items-center gap-2">
 				<div class="flex-1 bg-indigo-600 rounded p-1.5 flex items-center justify-between px-3">
 					<span class="text-[9px] font-bold text-indigo-100 uppercase">{$t('hr.processFingerprint.worked')}</span>
 					<span class="text-sm font-black text-white leading-none">{totalWorkedHours}{$t('common.h')} {totalWorkedMins}{$t('common.m')}</span>
 				</div>
 
 				<div class="flex-1 bg-white border border-slate-200 rounded p-1.5 flex items-center justify-between px-3">
-					<span class="text-[9px] font-bold text-slate-400 uppercase">{$t('hr.processFingerprint.late')}/{$t('hr.processFingerprint.early')}</span>
-					<div class="flex gap-2">
-						<span class="text-[10px] font-black text-red-600">{$locale === 'ar' ? 'تأخير' : 'L'}: {totalLateHours}{$t('common.h')} {totalLateMins}{$t('common.m')}</span>
-						<span class="text-[10px] font-black text-orange-600">{$locale === 'ar' ? 'مبكر' : 'E'}: {totalEarlyHours}{$t('common.h')} {totalEarlyMins}{$t('common.m')}</span>
-					</div>
+					<span class="text-[9px] font-bold text-slate-400 uppercase">{$t('hr.processFingerprint.late')}</span>
+					<span class="text-[10px] font-black text-red-600">{totalLateHours}{$t('common.h')} {totalLateMins}{$t('common.m')}</span>
 				</div>
 
-				{#if regularShift}
-					{@const expectedHours = regularShift.working_hours || 0}
-					{@const expectedMinutes = expectedHours * 60}
-					{@const difference = totalWorkedMinutes - (completePairs.length * expectedMinutes)}
-					{@const diffHours = Math.floor(Math.abs(difference) / 60)}
-					{@const diffMins = Math.abs(difference) % 60}
-					<div class="flex-1 bg-white border border-slate-200 rounded p-1.5 flex items-center justify-between px-3">
-						<span class="text-[9px] font-bold text-slate-400 uppercase">{$locale === 'ar' ? 'الفرق' : 'Variance'}</span>
-						<span class={`text-[10px] font-black ${difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-							{difference >= 0 ? '+' : '-'}{diffHours}{$t('common.h')} {diffMins}{$t('common.m')}
-						</span>
-					</div>
-				{/if}
+				<div class="flex-1 bg-white border border-slate-200 rounded p-1.5 flex items-center justify-between px-3">
+					<span class="text-[9px] font-bold text-slate-400 uppercase">{$t('hr.processFingerprint.early')}</span>
+					<span class="text-[10px] font-black text-orange-600">{totalEarlyHours}{$t('common.h')} {totalEarlyMins}{$t('common.m')}</span>
+				</div>
+
+				<div class="flex-1 bg-white border border-slate-200 rounded p-1.5 flex items-center justify-between px-3">
+					<span class="text-[9px] font-bold text-slate-400 uppercase">{$locale === 'ar' ? 'الفرق' : 'Variance'}</span>
+					<span class={`text-[10px] font-black ${totalVarianceMinutes >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+						{totalVarianceMinutes >= 0 ? '+' : '-'}{varianceHours}{$t('common.h')} {varianceMins}{$t('common.m')}
+					</span>
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -3404,5 +3523,355 @@
 <style>
 	.employee-analysis-window {
 		background: white;
+	}
+
+	/* The desktop window keeps its existing layout. These rules only apply when
+	   the same analysis component is embedded by the mobile interface. */
+	.employee-mobile-mode {
+		box-sizing: border-box;
+		height: auto;
+		max-width: 100%;
+		min-height: 100%;
+		overflow-x: clip;
+		overflow-y: visible;
+		width: 100%;
+	}
+
+	.employee-mobile-mode :global(button) {
+		display: none !important;
+	}
+
+	@media (max-width: 768px) {
+		.employee-mobile-mode :global(*) {
+			box-sizing: border-box;
+			min-width: 0;
+		}
+
+		.employee-mobile-mode > :global(.sticky) {
+			position: sticky;
+			padding: 0.75rem;
+		}
+
+		.employee-mobile-mode > :global(.analysis-summary) {
+			-webkit-backdrop-filter: none;
+			backdrop-filter: none;
+			background: #ffffff;
+			bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+			left: 0;
+			max-height: calc(100dvh - 9rem);
+			overflow-y: auto;
+			position: fixed;
+			right: 0;
+			width: 100%;
+			z-index: 900;
+		}
+
+		.employee-mobile-mode > :global(.sticky) > :global(.flex) {
+			align-items: flex-start;
+			flex-direction: column;
+		}
+
+		.employee-mobile-mode > :global(.px-6) {
+			padding-bottom: 9rem;
+			padding-left: 0.5rem;
+			padding-right: 0.5rem;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.px-4) {
+			padding-left: 0.75rem;
+			padding-right: 0.75rem;
+		}
+
+		.employee-mobile-mode :global(.flex.items-center.justify-between) {
+			align-items: flex-start;
+			gap: 0.3rem;
+			flex-wrap: wrap;
+		}
+
+		.employee-mobile-mode :global(.space-y-4),
+		.employee-mobile-mode :global(.space-y-6) {
+			max-width: 100%;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.space-y-4 > div),
+		.employee-mobile-mode :global(.space-y-6 > div) {
+			max-width: 100%;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.flex.gap-2),
+		.employee-mobile-mode :global(.flex.gap-3) {
+			flex-wrap: wrap;
+		}
+
+		.employee-mobile-mode :global(.rounded-lg.overflow-hidden) {
+			max-width: 100%;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.font-mono) {
+			overflow-wrap: anywhere;
+		}
+
+		.employee-mobile-mode :global(.text-sm) {
+			font-size: 0.75rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary) {
+			padding: 0.35rem 0.5rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-heading) {
+			align-items: center;
+			display: grid;
+			gap: 0.35rem;
+			grid-template-columns: minmax(0, 1fr) auto;
+			margin-bottom: 0.3rem;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-title) {
+			font-size: 0.55rem;
+			line-height: 1.1;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.employee-mobile-mode :global(.analysis-total-days) {
+			flex-wrap: nowrap;
+			justify-self: end;
+			white-space: nowrap;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-stats) {
+			display: grid;
+			grid-template-columns: repeat(5, minmax(0, 1fr));
+			gap: 0.2rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-stat:last-child) {
+			grid-column: auto;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-stat) {
+			padding: 0.2rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-label) {
+			font-size: 0.55rem;
+			line-height: 1.05;
+			max-width: 100%;
+			overflow: visible;
+			text-align: center;
+			text-overflow: clip;
+			white-space: normal;
+			width: auto;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-analytics) {
+			align-items: stretch;
+			display: grid;
+			gap: 0.2rem;
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			margin-top: 0.3rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-analytics > div) {
+			align-items: center;
+			flex-direction: column;
+			gap: 0.1rem;
+			justify-content: center;
+			min-height: 2rem;
+			padding: 0.2rem 0.3rem;
+			text-align: center;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-analytics .text-sm) {
+			font-size: 0.58rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-summary-analytics .text-\[10px\]) {
+			font-size: 0.55rem;
+		}
+
+		.employee-mobile-mode :global(.daily-card-heading) {
+			align-items: center;
+			display: flex;
+			flex: 1 1 100%;
+			flex-direction: row;
+			gap: 0.5rem;
+			justify-content: space-between;
+			min-width: 0;
+			width: 100%;
+		}
+
+		.employee-mobile-mode :global(.daily-schedule-badge) {
+			align-self: center;
+			background: rgba(255, 255, 255, 0.18);
+			border: 1px solid rgba(255, 255, 255, 0.35);
+			border-radius: 0.375rem;
+			font-size: 0.65rem;
+			font-weight: 700;
+			line-height: 1.35;
+			max-width: 100%;
+			margin-left: auto;
+			padding: 0.12rem 0.3rem;
+			text-align: end;
+			white-space: normal;
+		}
+
+		.employee-mobile-mode :global(.daily-date-with-emoji) {
+			align-items: center;
+			background: transparent;
+			border: 0;
+			border-radius: 0;
+			display: inline-flex;
+			flex: 0 0 auto;
+			font-size: 0.7rem;
+			gap: 0.3rem;
+			padding: 0;
+			white-space: nowrap;
+		}
+
+		.employee-mobile-mode :global(.daily-date-with-emoji > span:first-child) {
+			align-items: center;
+			background: #ffffff;
+			border: 1px solid rgba(15, 23, 42, 0.2);
+			border-radius: 0.25rem;
+			display: inline-flex;
+			font-size: 0.78rem;
+			height: 1.15rem;
+			justify-content: center;
+			line-height: 1;
+			width: 1.15rem;
+		}
+
+		.employee-mobile-mode :global(.daily-date-with-emoji > span:last-child) {
+			background: rgba(255, 255, 255, 0.18);
+			border: 1px solid rgba(255, 255, 255, 0.35);
+			border-radius: 0.375rem;
+			padding: 0.12rem 0.3rem;
+		}
+
+		.employee-mobile-mode :global(.daily-status-badges:empty) {
+			display: none;
+		}
+
+		/* Compact attendance cards while retaining all analysis information. */
+		.employee-mobile-mode :global(.analysis-content) {
+			padding-top: 0.35rem;
+		}
+
+		.employee-mobile-mode :global(.mobile-day-jump) {
+			align-items: center;
+			background: #ffffff;
+			border: 1px solid #e2e8f0;
+			border-radius: 0.5rem;
+			display: flex;
+			gap: 0.5rem;
+			justify-content: space-between;
+			padding: 0.3rem 0.5rem;
+			position: sticky;
+			top: 0;
+			z-index: 25;
+		}
+
+		.employee-mobile-mode :global(.mobile-day-jump label) {
+			color: #64748b;
+			font-size: 0.65rem;
+			font-weight: 800;
+			white-space: nowrap;
+		}
+
+		.employee-mobile-mode :global(.mobile-day-jump input) {
+			background: #f8fafc;
+			border: 1px solid #cbd5e1;
+			border-radius: 0.375rem;
+			color: #0f172a;
+			font-size: 0.7rem;
+			font-weight: 700;
+			padding: 0.2rem 0.35rem;
+			width: auto;
+		}
+
+		.employee-mobile-mode :global([id^='attendance-card-']) {
+			scroll-margin-top: 3rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .space-y-4) {
+			padding: 0.35rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .space-y-4 > :not([hidden]) ~ :not([hidden])) {
+			margin-top: 0.35rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .px-4.py-2) {
+			padding: 0.2rem 0.35rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .px-4.py-3) {
+			padding: 0.4rem 0.5rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .px-4.py-6) {
+			padding: 0.6rem 0.5rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .px-3.py-1),
+		.employee-mobile-mode :global(.analysis-content .px-3.py-1\.5),
+		.employee-mobile-mode :global(.analysis-content .px-4.py-2.rounded-full) {
+			padding: 0.15rem 0.4rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .mt-3) {
+			margin-top: 0.3rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .mt-2) {
+			margin-top: 0.2rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .mb-2) {
+			margin-bottom: 0.2rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .gap-3) {
+			gap: 0.35rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .gap-2) {
+			gap: 0.25rem;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .text-sm) {
+			font-size: 0.7rem;
+			line-height: 1.15;
+		}
+
+		.employee-mobile-mode :global(.analysis-content .text-xs) {
+			font-size: 0.62rem;
+			line-height: 1.15;
+		}
+
+		.employee-mobile-mode :global(.daily-weekday-name) {
+			color: #475569;
+			font-size: 0.62rem;
+			font-weight: 800;
+			margin-inline-start: auto;
+		}
+
+		.employee-mobile-mode :global(.day-card-mixed-header) {
+			background: linear-gradient(110deg, #f97316 0%, #f97316 42%, #dc2626 58%, #dc2626 100%);
+		}
+
+		.employee-mobile-mode :global(.day-card-mixed-border) {
+			border-color: #dc2626;
+			box-shadow: inset 3px 0 0 #f97316, inset -3px 0 0 #dc2626;
+		}
 	}
 </style>
