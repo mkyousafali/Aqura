@@ -1,12 +1,38 @@
+import { get } from "svelte/store";
 import { supabase } from "./supabase";
 import { persistentAuthService, currentUser } from "./persistentAuth";
 import { notificationSoundManager } from "./inAppNotificationSounds";
 import { sendPushForNotification } from "./pushNotificationSender";
 
+/**
+ * Resolve the title/message a viewer should see: prefer their own-language
+ * column when the notification has one, otherwise fall back to the original
+ * combined title/message (covers historical rows and any creation path that
+ * hasn't been updated to populate the per-language columns yet).
+ */
+function resolveNotificationText(row: any): { title: string; message: string } {
+  const lang = get(currentUser)?.defaultLanguage;
+  if (lang === "en" && (row.title_en || row.message_en)) {
+    return { title: row.title_en || row.title, message: row.message_en || row.message };
+  }
+  if (lang === "ar" && (row.title_ar || row.message_ar)) {
+    return { title: row.title_ar || row.title, message: row.message_ar || row.message };
+  }
+  return { title: row.title, message: row.message };
+}
+
 // Types for notification management
 interface CreateNotificationRequest {
   title: string;
   message: string;
+  // Optional per-language variants. When both titleEn/titleAr (and/or
+  // messageEn/messageAr) are supplied, they're stored separately so each
+  // recipient can be shown/pushed only their own default_language version.
+  // Omitting them keeps the old single-`title`/`message` behavior unchanged.
+  titleEn?: string;
+  titleAr?: string;
+  messageEn?: string;
+  messageAr?: string;
   type:
     | "info"
     | "warning"
@@ -147,6 +173,10 @@ export class NotificationManagementService {
 							id,
 							title,
 							message,
+							title_en,
+							title_ar,
+							message_en,
+							message_ar,
 							type,
 							priority,
 							status,
@@ -197,9 +227,12 @@ export class NotificationManagementService {
           data?.map((recipient) => {
             const notification = recipient.notifications;
             const readState = readStatesMap.get(recipient.notification_id);
+            const resolved = resolveNotificationText(notification);
 
             return {
               ...notification,
+              title: resolved.title,
+              message: resolved.message,
               is_read: readState?.is_read || false,
               read_at: readState?.read_at || null,
             };
@@ -242,6 +275,10 @@ export class NotificationManagementService {
 						id,
 						title,
 						message,
+						title_en,
+						title_ar,
+						message_en,
+						message_ar,
 						type,
 						priority,
 						status,
@@ -292,12 +329,13 @@ export class NotificationManagementService {
         data?.map((recipient) => {
           const notification = recipient.notifications;
           const readState = readStatesMap.get(recipient.notification_id);
+          const resolved = resolveNotificationText(notification);
 
           return {
             id: notification.id,
             notification_id: recipient.notification_id,
-            title: notification.title,
-            message: notification.message,
+            title: resolved.title,
+            message: resolved.message,
             type: notification.type,
             priority: notification.priority,
             is_read: readState?.is_read || false,
@@ -493,6 +531,12 @@ export class NotificationManagementService {
       const notificationPayload = {
         title: notification.title,
         message: notification.message,
+        // Additive: only populated when the caller supplies per-language text.
+        // NULL here is fine — the read path falls back to title/message.
+        title_en: notification.titleEn || null,
+        title_ar: notification.titleAr || null,
+        message_en: notification.messageEn || null,
+        message_ar: notification.messageAr || null,
         type: validType,
         priority: validPriority,
         target_type: notification.target_type,
@@ -546,6 +590,12 @@ export class NotificationManagementService {
           {
             url: `/notifications?id=${data.id}`,
             type: data.type,
+          },
+          {
+            titleEn: data.title_en,
+            bodyEn: data.message_en,
+            titleAr: data.title_ar,
+            bodyAr: data.message_ar,
           }
         );
         console.log("✅ [NotificationManagement] Push notifications sent:", pushResult);
@@ -1171,6 +1221,12 @@ export class NotificationManagementService {
         .insert({
           title: notificationData.title,
           message: notificationData.message,
+          // Split per-language variants (already computed above) so each
+          // recipient can be shown/pushed only their own default_language.
+          title_en: `New Task Assigned: ${titleEn}`,
+          title_ar: `مهمة جديدة: ${titleAr}`,
+          message_en: msgEn,
+          message_ar: msgAr,
           type: notificationData.type,
           priority: notificationData.priority,
           target_type: notificationData.target_type,

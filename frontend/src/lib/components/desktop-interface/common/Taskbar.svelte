@@ -256,15 +256,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				console.log('🚪 [Taskbar] Persistent auth logout completed');
 			}
 			
-			// Clear local storage manually as backup
-			if (typeof window !== 'undefined' && window.localStorage) {
-				console.log('🚪 [Taskbar] Clearing localStorage...');
-				localStorage.removeItem('aqura-auth-token');
-				localStorage.removeItem('aqura-user');
-				localStorage.removeItem('aqura-session');
-				localStorage.removeItem('aqura-persistent-sessions');
-				localStorage.clear(); // Clear all local storage as extra measure
-			}
+			// persistentAuthService.logout() above already removes this device's
+			// session entry from the real session key ('aqura-device-session').
+			// Do NOT blanket-clear localStorage here — it also wipes unrelated,
+			// legitimately persistent device preferences (e.g. 'aqura-locale',
+			// the user's saved language) that must survive a logout.
 			
 			// Clear session storage too
 			if (typeof window !== 'undefined' && window.sessionStorage) {

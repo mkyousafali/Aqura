@@ -5,7 +5,23 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
-	import { locale, t } from '$lib/i18n';
+	import { locale, t, tFor } from '$lib/i18n';
+
+	// Builds title_en/title_ar/message_en/message_ar for a notification from the
+	// same i18n key already passed to t(), regardless of the acting admin's own
+	// current locale, so the recipient can be shown their own preferred language
+	// instead of the actor's. Context is built per-language via a factory
+	// function (lang) => ctx, since several interpolated values (approver name,
+	// category name) are themselves locale-dependent and must not be shared
+	// between the English and Arabic variants.
+	function bilingualFields(titleKey, titleCtxFor, msgKey, msgCtxFor) {
+		return {
+			titleEn: tFor('en', titleKey, titleCtxFor('en')),
+			titleAr: tFor('ar', titleKey, titleCtxFor('ar')),
+			messageEn: tFor('en', msgKey, msgCtxFor('en')),
+			messageAr: tFor('ar', msgKey, msgCtxFor('ar'))
+		};
+	}
 
 	let requisitions = [];
 	let paymentSchedules = []; // New: payment schedules requiring approval
@@ -81,6 +97,23 @@
 			if (currentUserEmployee.name_en) return currentUserEmployee.name_en;
 		}
 		return $currentUser?.username || t('approvalCenter.system');
+	}
+
+	// Language-specific variants of getCurrentUserName/getCategoryName, used when
+	// building a notification's title_en/title_ar/message_en/message_ar so the
+	// interpolated name/category script matches the notification's own language
+	// rather than the acting admin's current locale.
+	function getCurrentUserNameFor(lang) {
+		if (currentUserEmployee) {
+			if (lang === 'ar' && currentUserEmployee.name_ar) return currentUserEmployee.name_ar;
+			if (currentUserEmployee.name_en) return currentUserEmployee.name_en;
+		}
+		return $currentUser?.username || tFor(lang, 'approvalCenter.system');
+	}
+
+	function getCategoryNameFor(lang, nameEn, nameAr) {
+		if (lang === 'ar' && nameAr) return nameAr;
+		return nameEn || tFor(lang, 'approvalCenter.na');
 	}
 
 	// Get translated status text
@@ -859,6 +892,7 @@ async function loadHistoricalData() {
 					await notificationService.createNotification({
 						title: t('approvalCenter.pushPaymentScheduleApprovedTitle'),
 						message: t('approvalCenter.pushPaymentScheduleApprovedMsg', { type: scheduleData.schedule_type.replace('_', ' '), branch: scheduleData.branch_name, category: getCategoryName(scheduleData.expense_category_name_en, scheduleData.expense_category_name_ar), amount: parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), approver: getCurrentUserName() }),
+						...bilingualFields('approvalCenter.pushPaymentScheduleApprovedTitle', () => ({}), 'approvalCenter.pushPaymentScheduleApprovedMsg', (lang) => ({ type: scheduleData.schedule_type.replace('_', ' '), branch: scheduleData.branch_name, category: getCategoryNameFor(lang, scheduleData.expense_category_name_en, scheduleData.expense_category_name_ar), amount: parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), approver: getCurrentUserNameFor(lang) })),
 						type: 'assignment_approved',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -899,6 +933,7 @@ async function loadHistoricalData() {
 					await notificationService.createNotification({
 						title: t('approvalCenter.pushVendorPaymentApprovedTitle'),
 						message: t('approvalCenter.pushVendorPaymentApprovedMsg', { vendor: paymentData.vendor_name, billNumber: paymentData.bill_number, amount: parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), branch: paymentData.branch_name, approver: getCurrentUserName() }),
+						...bilingualFields('approvalCenter.pushVendorPaymentApprovedTitle', () => ({}), 'approvalCenter.pushVendorPaymentApprovedMsg', (lang) => ({ vendor: paymentData.vendor_name, billNumber: paymentData.bill_number, amount: parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), branch: paymentData.branch_name, approver: getCurrentUserNameFor(lang) })),
 						type: 'assignment_approved',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -960,6 +995,10 @@ async function loadHistoricalData() {
 						await notificationService.createNotification({
 							title: t('approvalCenter.pushPurchaseVoucherApprovedTitle', { type: issueTypeLabel }),
 							message: t('approvalCenter.pushPurchaseVoucherApprovedMsg', { description: descriptionLabel, book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, approver: getCurrentUserName() }),
+							titleEn: tFor('en', 'approvalCenter.pushPurchaseVoucherApprovedTitle', { type: isStockTransfer ? tFor('en', 'approvalCenter.pushStockTransferLabel') : tFor('en', 'approvalCenter.pushPurchaseVoucherLabel') }),
+							titleAr: tFor('ar', 'approvalCenter.pushPurchaseVoucherApprovedTitle', { type: isStockTransfer ? tFor('ar', 'approvalCenter.pushStockTransferLabel') : tFor('ar', 'approvalCenter.pushPurchaseVoucherLabel') }),
+							messageEn: tFor('en', 'approvalCenter.pushPurchaseVoucherApprovedMsg', { description: isStockTransfer ? tFor('en', 'approvalCenter.pushStockTransfer') : tFor('en', 'approvalCenter.pushYourPurchaseVoucher'), book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, approver: getCurrentUserNameFor('en') }),
+							messageAr: tFor('ar', 'approvalCenter.pushPurchaseVoucherApprovedMsg', { description: isStockTransfer ? tFor('ar', 'approvalCenter.pushStockTransfer') : tFor('ar', 'approvalCenter.pushYourPurchaseVoucher'), book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, approver: getCurrentUserNameFor('ar') }),
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -992,9 +1031,19 @@ async function loadHistoricalData() {
 						const dateInfo = selectedRequisition._dayCount > 1
 							? t('approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
 							: t('approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
+						const dateInfoEn = selectedRequisition._dayCount > 1
+							? tFor('en', 'approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
+							: tFor('en', 'approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
+						const dateInfoAr = selectedRequisition._dayCount > 1
+							? tFor('ar', 'approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
+							: tFor('ar', 'approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
 						await notificationService.createNotification({
 							title: t('approvalCenter.pushLeaveApprovedTitle'),
 							message: t('approvalCenter.pushLeaveApprovedMsg', { dateInfo, approver: getCurrentUserName() }),
+							titleEn: tFor('en', 'approvalCenter.pushLeaveApprovedTitle'),
+							titleAr: tFor('ar', 'approvalCenter.pushLeaveApprovedTitle'),
+							messageEn: tFor('en', 'approvalCenter.pushLeaveApprovedMsg', { dateInfo: dateInfoEn, approver: getCurrentUserNameFor('en') }),
+							messageAr: tFor('ar', 'approvalCenter.pushLeaveApprovedMsg', { dateInfo: dateInfoAr, approver: getCurrentUserNameFor('ar') }),
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1073,6 +1122,7 @@ async function loadHistoricalData() {
 						await notificationService.createNotification({
 							title: t('approvalCenter.pushRequisitionApprovedTitle'),
 							message: t('approvalCenter.pushRequisitionApprovedMsg', { reqNumber: reqData.requisition_number, requester: reqData.requester_name, branch: reqData.branch_name, category: getCategoryName(reqData.expense_category_name_en, reqData.expense_category_name_ar), amount: parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), approver: getCurrentUserName() }),
+							...bilingualFields('approvalCenter.pushRequisitionApprovedTitle', () => ({}), 'approvalCenter.pushRequisitionApprovedMsg', (lang) => ({ reqNumber: reqData.requisition_number, requester: reqData.requester_name, branch: reqData.branch_name, category: getCategoryNameFor(lang, reqData.expense_category_name_en, reqData.expense_category_name_ar), amount: parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), approver: getCurrentUserNameFor(lang) })),
 							type: 'assignment_approved',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1142,6 +1192,7 @@ async function loadHistoricalData() {
 					await notificationService.createNotification({
 						title: t('approvalCenter.pushPaymentScheduleRejectedTitle'),
 						message: t('approvalCenter.pushPaymentScheduleRejectedMsg', { type: scheduleData.schedule_type.replace('_', ' '), reason, branch: scheduleData.branch_name, category: getCategoryName(scheduleData.expense_category_name_en, scheduleData.expense_category_name_ar), amount: parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), rejector: getCurrentUserName() }),
+						...bilingualFields('approvalCenter.pushPaymentScheduleRejectedTitle', () => ({}), 'approvalCenter.pushPaymentScheduleRejectedMsg', (lang) => ({ type: scheduleData.schedule_type.replace('_', ' '), reason, branch: scheduleData.branch_name, category: getCategoryNameFor(lang, scheduleData.expense_category_name_en, scheduleData.expense_category_name_ar), amount: parseFloat(scheduleData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), rejector: getCurrentUserNameFor(lang) })),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -1182,6 +1233,7 @@ async function loadHistoricalData() {
 					await notificationService.createNotification({
 						title: t('approvalCenter.pushVendorPaymentRejectedTitle'),
 						message: t('approvalCenter.pushVendorPaymentRejectedMsg', { reason, vendor: paymentData.vendor_name, billNumber: paymentData.bill_number, amount: parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), branch: paymentData.branch_name, rejector: getCurrentUserName() }),
+						...bilingualFields('approvalCenter.pushVendorPaymentRejectedTitle', () => ({}), 'approvalCenter.pushVendorPaymentRejectedMsg', (lang) => ({ reason, vendor: paymentData.vendor_name, billNumber: paymentData.bill_number, amount: parseFloat(paymentData.final_bill_amount || paymentData.bill_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), branch: paymentData.branch_name, rejector: getCurrentUserNameFor(lang) })),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -1229,6 +1281,10 @@ async function loadHistoricalData() {
 						await notificationService.createNotification({
 							title: t('approvalCenter.pushPurchaseVoucherRejectedTitle', { type: issueTypeLabel }),
 							message: t('approvalCenter.pushPurchaseVoucherRejectedMsg', { description: descriptionLabel, reason, book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, rejector: getCurrentUserName() }),
+							titleEn: tFor('en', 'approvalCenter.pushPurchaseVoucherRejectedTitle', { type: isStockTransfer ? tFor('en', 'approvalCenter.pushStockTransferLabel') : tFor('en', 'approvalCenter.pushPurchaseVoucherLabel') }),
+							titleAr: tFor('ar', 'approvalCenter.pushPurchaseVoucherRejectedTitle', { type: isStockTransfer ? tFor('ar', 'approvalCenter.pushStockTransferLabel') : tFor('ar', 'approvalCenter.pushPurchaseVoucherLabel') }),
+							messageEn: tFor('en', 'approvalCenter.pushPurchaseVoucherRejectedMsg', { description: isStockTransfer ? tFor('en', 'approvalCenter.pushStockTransfer') : tFor('en', 'approvalCenter.pushYourPurchaseVoucher'), reason, book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, rejector: getCurrentUserNameFor('en') }),
+							messageAr: tFor('ar', 'approvalCenter.pushPurchaseVoucherRejectedMsg', { description: isStockTransfer ? tFor('ar', 'approvalCenter.pushStockTransfer') : tFor('ar', 'approvalCenter.pushYourPurchaseVoucher'), reason, book: selectedRequisition.purchase_voucher_id, serial: selectedRequisition.serial_number, value: selectedRequisition.value, rejector: getCurrentUserNameFor('ar') }),
 							type: 'assignment_rejected',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1263,9 +1319,19 @@ async function loadHistoricalData() {
 						const dateInfo = selectedRequisition._dayCount > 1
 							? t('approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
 							: t('approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
+						const dateInfoEnR = selectedRequisition._dayCount > 1
+							? tFor('en', 'approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
+							: tFor('en', 'approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
+						const dateInfoArR = selectedRequisition._dayCount > 1
+							? tFor('ar', 'approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: selectedRequisition._dayCount })
+							: tFor('ar', 'approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
 						await notificationService.createNotification({
 							title: t('approvalCenter.pushLeaveRejectedTitle'),
 							message: t('approvalCenter.pushLeaveRejectedMsg', { dateInfo, reason, rejector: getCurrentUserName() }),
+							titleEn: tFor('en', 'approvalCenter.pushLeaveRejectedTitle'),
+							titleAr: tFor('ar', 'approvalCenter.pushLeaveRejectedTitle'),
+							messageEn: tFor('en', 'approvalCenter.pushLeaveRejectedMsg', { dateInfo: dateInfoEnR, reason, rejector: getCurrentUserNameFor('en') }),
+							messageAr: tFor('ar', 'approvalCenter.pushLeaveRejectedMsg', { dateInfo: dateInfoArR, reason, rejector: getCurrentUserNameFor('ar') }),
 							type: 'assignment_rejected',
 							priority: 'high',
 							target_type: 'specific_users',
@@ -1304,6 +1370,7 @@ async function loadHistoricalData() {
 					await notificationService.createNotification({
 						title: t('approvalCenter.pushRequisitionRejectedTitle'),
 						message: t('approvalCenter.pushRequisitionRejectedMsg', { reason, reqNumber: reqData.requisition_number, requester: reqData.requester_name, branch: reqData.branch_name, category: getCategoryName(reqData.expense_category_name_en, reqData.expense_category_name_ar), amount: parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), rejector: getCurrentUserName() }),
+						...bilingualFields('approvalCenter.pushRequisitionRejectedTitle', () => ({}), 'approvalCenter.pushRequisitionRejectedMsg', (lang) => ({ reason, reqNumber: reqData.requisition_number, requester: reqData.requester_name, branch: reqData.branch_name, category: getCategoryNameFor(lang, reqData.expense_category_name_en, reqData.expense_category_name_ar), amount: parseFloat(reqData.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), rejector: getCurrentUserNameFor(lang) })),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -1458,9 +1525,19 @@ async function loadHistoricalData() {
 					const dateInfo = req._dayCount > 1
 						? t('approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
 						: t('approvalCenter.pushDateInfoFor', { date: req.day_off_date });
+					const dateInfoEnI = req._dayCount > 1
+						? tFor('en', 'approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
+						: tFor('en', 'approvalCenter.pushDateInfoFor', { date: req.day_off_date });
+					const dateInfoArI = req._dayCount > 1
+						? tFor('ar', 'approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
+						: tFor('ar', 'approvalCenter.pushDateInfoFor', { date: req.day_off_date });
 					await notificationService.createNotification({
 						title: t('approvalCenter.pushLeaveRejectedTitle'),
 						message: t('approvalCenter.pushLeaveRejectedMsg', { dateInfo, reason: '', rejector: getCurrentUserName() }),
+						titleEn: tFor('en', 'approvalCenter.pushLeaveRejectedTitle'),
+						titleAr: tFor('ar', 'approvalCenter.pushLeaveRejectedTitle'),
+						messageEn: tFor('en', 'approvalCenter.pushLeaveRejectedMsg', { dateInfo: dateInfoEnI, reason: '', rejector: getCurrentUserNameFor('en') }),
+						messageAr: tFor('ar', 'approvalCenter.pushLeaveRejectedMsg', { dateInfo: dateInfoArI, reason: '', rejector: getCurrentUserNameFor('ar') }),
 						type: 'assignment_rejected',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -1530,9 +1607,23 @@ async function loadHistoricalData() {
 					} else {
 						message = t('approvalCenter.pushLeavePartialMsg', { approved: approvedIds.length, rejected: rejectedIds.length, approver: getCurrentUserName() });
 					}
+					const buildMsgFor = (lang) => {
+						if (rejectedIds.length === 0) {
+							const dateInfoL = approvedIds.length > 1
+								? tFor(lang, 'approvalCenter.pushDateInfoFrom', { dateFrom: selectedRequisition._dateFrom, dateTo: selectedRequisition._dateTo, count: approvedIds.length })
+								: tFor(lang, 'approvalCenter.pushDateInfoFor', { date: selectedRequisition.day_off_date });
+							return tFor(lang, 'approvalCenter.pushLeaveApprovedMsg', { dateInfo: dateInfoL, approver: getCurrentUserNameFor(lang) });
+						}
+						return tFor(lang, 'approvalCenter.pushLeavePartialMsg', { approved: approvedIds.length, rejected: rejectedIds.length, approver: getCurrentUserNameFor(lang) });
+					};
+					const partialTitleKey = rejectedIds.length === 0 ? 'approvalCenter.pushLeaveApprovedTitle' : 'approvalCenter.pushLeavePartialTitle';
 					await notificationService.createNotification({
 						title: rejectedIds.length === 0 ? t('approvalCenter.pushLeaveApprovedTitle') : t('approvalCenter.pushLeavePartialTitle'),
 						message,
+						titleEn: tFor('en', partialTitleKey),
+						titleAr: tFor('ar', partialTitleKey),
+						messageEn: buildMsgFor('en'),
+						messageAr: buildMsgFor('ar'),
 						type: 'assignment_approved',
 						priority: 'high',
 						target_type: 'specific_users',
@@ -1678,6 +1769,10 @@ async function loadHistoricalData() {
 				await notificationService.createNotification({
 					title: 'Box Edit Approved / تمت الموافقة على تعديل الصندوق',
 					message: `Box ${req.box_number} has been approved for editing by ${getCurrentUserName()}. / تمت الموافقة على تعديل الصندوق ${req.box_number} من قبل ${getCurrentUserName()}`,
+					titleEn: 'Box Edit Approved',
+					titleAr: 'تمت الموافقة على تعديل الصندوق',
+					messageEn: `Box ${req.box_number} has been approved for editing by ${getCurrentUserNameFor('en')}.`,
+					messageAr: `تمت الموافقة على تعديل الصندوق ${req.box_number} من قبل ${getCurrentUserNameFor('ar')}`,
 					type: 'assignment_approved',
 					priority: 'high',
 					target_type: 'specific_users',
@@ -1713,6 +1808,10 @@ async function loadHistoricalData() {
 				await notificationService.createNotification({
 					title: 'Box Edit Rejected / تم رفض تعديل الصندوق',
 					message: `Box ${req.box_number} edit request was rejected by ${getCurrentUserName()}. / تم رفض طلب تعديل الصندوق ${req.box_number} من قبل ${getCurrentUserName()}`,
+					titleEn: 'Box Edit Rejected',
+					titleAr: 'تم رفض تعديل الصندوق',
+					messageEn: `Box ${req.box_number} edit request was rejected by ${getCurrentUserNameFor('en')}.`,
+					messageAr: `تم رفض طلب تعديل الصندوق ${req.box_number} من قبل ${getCurrentUserNameFor('ar')}`,
 					type: 'assignment_rejected',
 					priority: 'high',
 					target_type: 'specific_users',

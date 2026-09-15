@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import { initI18n, currentLocale, localeData } from '$lib/i18n';
+	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import { sidebar } from '$lib/stores/sidebar';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -13,6 +13,7 @@
 	import ToastNotifications from '$lib/components/common/ToastNotifications.svelte';
 	import UserSwitcher from '$lib/components/common/UserSwitcher.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
+	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
 	
 	// Enhanced imports for persistent auth
 	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
@@ -808,6 +809,12 @@
 				currentUserData = user;
 				console.log('Current user changed:', user);
 				
+				// Account-level language preference takes priority over the
+				// device's localStorage value once the user is known.
+				if (user?.defaultLanguage && user.defaultLanguage !== get(currentLocale)) {
+					switchLocale(user.defaultLanguage);
+				}
+
 				// Check if this is a new login (user was null/undefined and now has a value)
 				if (!previousUser && user && user.id) {
 					console.log('🔐 New user login detected, checking mobile push notification prompt...');
@@ -1189,6 +1196,11 @@
 			</main>
 		{/if}
 	</div>
+{/if}
+
+<!-- Language Picker - rendered OUTSIDE .app to guarantee it covers sidebar & taskbar -->
+{#if isAuthenticated && !isLoginPage}
+	<LanguagePickerOverlay mode="desktop" />
 {/if}
 
 <!-- Contact Info Overlay - rendered OUTSIDE .app to guarantee it covers sidebar & taskbar -->

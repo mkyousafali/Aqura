@@ -194,6 +194,10 @@
 					await supabase.from('notifications').insert({
 						title: `Customer Request ${statusLabel} | طلب عميل ${statusLabelAr}`,
 						message: `Your customer product request has been ${newStatus}.\n---\nطلب منتج العميل تم ${newStatus === 'resolved' ? 'حله' : newStatus === 'reviewed' ? 'مراجعته' : 'رفضه'}.`,
+						title_en: `Customer Request ${statusLabel}`,
+						title_ar: `طلب عميل ${statusLabelAr}`,
+						message_en: `Your customer product request has been ${newStatus}.`,
+						message_ar: `طلب منتج العميل تم ${newStatus === 'resolved' ? 'حله' : newStatus === 'reviewed' ? 'مراجعته' : 'رفضه'}.`,
 						type: newStatus === 'dismissed' ? 'error' : 'success',
 						priority: 'normal',
 						target_type: 'specific_users',
@@ -258,10 +262,16 @@
 
 		try {
 			const productName = item.product_name || ($locale === 'ar' ? 'منتج' : 'Product');
+			const productNameEn = item.product_name || 'Product';
+			const productNameAr = item.product_name || 'منتج';
 			const imageInfo = item.image_url ? `\n${item.image_url}` : '';
 			await supabase.from('notifications').insert({
 				title: `وصل المنتج المطلوب 📦 | Requested Product Arrived 📦`,
 				message: `المنتج الذي طلبته "${productName}" قد وصل. يرجى المراجعة.${imageInfo}\n---\nThe product you requested "${productName}" has arrived. Please check.${imageInfo}`,
+				title_en: 'Requested Product Arrived 📦',
+				title_ar: 'وصل المنتج المطلوب 📦',
+				message_en: `The product you requested "${productNameEn}" has arrived. Please check.${imageInfo}`,
+				message_ar: `المنتج الذي طلبته "${productNameAr}" قد وصل. يرجى المراجعة.${imageInfo}`,
 				type: 'success',
 				priority: 'normal',
 				target_type: 'specific_users',

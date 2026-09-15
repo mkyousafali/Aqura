@@ -132,6 +132,52 @@ export function t(keyPath: string, context: TranslationContext = {}): string {
   return interpolate(value, context);
 }
 
+// Get translation for a SPECIFIC locale, regardless of the viewer's current
+// locale — used to build both language variants of a notification (e.g. so
+// an English-speaking admin's action can still produce an Arabic copy for
+// an Arabic-preferring recipient). Same lookup/fallback/interpolation logic
+// as t(), just against `locales[locale]` instead of the reactive current one.
+export function tFor(
+  locale: string,
+  keyPath: string,
+  context: TranslationContext = {},
+): string {
+  const localeData = locales[locale] || locales[defaultConfig.fallbackLocale];
+  const keys = keyPath.split(".");
+
+  let value: any = localeData.translations;
+  for (const key of keys) {
+    if (value && typeof value === "object" && key in value) {
+      value = value[key];
+    } else {
+      console.warn(`Translation key not found: ${keyPath}`);
+      return keyPath;
+    }
+  }
+
+  if (typeof value !== "string") {
+    console.warn(`Translation key is not a string: ${keyPath}`);
+    return keyPath;
+  }
+
+  if (context.count !== undefined) {
+    const pluralRule = localeData.pluralRules.find((rule) => {
+      if (rule.count === "other") return true;
+      return rule.count === context.count;
+    });
+
+    if (pluralRule) {
+      const pluralKey = `${keyPath}.${pluralRule.form}`;
+      const pluralValue = getPluralTranslation(pluralKey, localeData);
+      if (pluralValue) {
+        value = pluralValue;
+      }
+    }
+  }
+
+  return interpolate(value, context);
+}
+
 // Helper function to get plural translation
 function getPluralTranslation(
   keyPath: string,

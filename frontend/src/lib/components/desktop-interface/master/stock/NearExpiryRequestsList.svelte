@@ -366,6 +366,10 @@
 					await supabase.from('notifications').insert({
 						title: `Near Expiry Report ${statusLabel} | تقرير قرب الانتهاء ${statusLabelAr}`,
 						message: `Your near expiry report "${req.title || ''}" has been ${newStatus}.\n---\nتقرير قرب الانتهاء "${req.title || ''}" تم ${newStatus === 'resolved' ? 'حله' : newStatus === 'reviewed' ? 'مراجعته' : 'رفضه'}.`,
+						title_en: `Near Expiry Report ${statusLabel}`,
+						title_ar: `تقرير قرب الانتهاء ${statusLabelAr}`,
+						message_en: `Your near expiry report "${req.title || ''}" has been ${newStatus}.`,
+						message_ar: `تقرير قرب الانتهاء "${req.title || ''}" تم ${newStatus === 'resolved' ? 'حله' : newStatus === 'reviewed' ? 'مراجعته' : 'رفضه'}.`,
 						type: newStatus === 'dismissed' ? 'error' : 'success',
 						priority: 'normal',
 						target_type: 'specific_users',

@@ -13,7 +13,16 @@
 	} from '$lib/stores/cashierAuth';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
+	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentLocale, switchLocale } from '$lib/i18n';
+	import { get } from 'svelte/store';
+
+	function syncAccountLanguage(user: any) {
+		if (user?.default_language && user.default_language !== get(currentLocale)) {
+			switchLocale(user.default_language);
+		}
+	}
 
 	let isLoggedIn = false;
 	let cashierUser: any = null;
@@ -32,6 +41,7 @@
 			cashierUser = session.user;
 			selectedBranch = session.branch;
 			isLoggedIn = true;
+			syncAccountLanguage(cashierUser);
 			// Restored a Windows session — re-arm the guard
 			startCashierSessionGuard(handleForcedLogout);
 		}
@@ -61,6 +71,7 @@
 
 		// Save to cashier auth stores and sessionStorage
 		setCashierAuth(cashierUser, selectedBranch, sessionToken);
+		syncAccountLanguage(cashierUser);
 
 		// Start single-device guard (no-op outside the Windows app)
 		startCashierSessionGuard(handleForcedLogout);
@@ -103,6 +114,8 @@
 			branch={selectedBranch}
 			on:logout={handleLogout}
 		/>
+		<!-- Language Picker - blocks once until a default language is chosen -->
+		<LanguagePickerOverlay mode="cashier" employeeId={cashierUser?.id} />
 		<!-- Contact Info Overlay - blocks until WhatsApp & email are provided -->
 		<ContactInfoOverlay mode="cashier" employeeId={cashierUser?.id} />
 	{/if}

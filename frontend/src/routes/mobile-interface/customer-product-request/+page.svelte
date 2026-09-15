@@ -340,6 +340,10 @@
 					await supabase.from('notifications').insert({
 						title: `New Customer Product Request | طلب منتج عميل جديد`,
 						message: `${requesterName} submitted a customer product request with ${itemsData.length} item(s).\n---\n${requesterName} أرسل طلب منتج عميل يحتوي على ${itemsData.length} منتج(ات).`,
+						title_en: 'New Customer Product Request',
+						title_ar: 'طلب منتج عميل جديد',
+						message_en: `${requesterName} submitted a customer product request with ${itemsData.length} item(s).`,
+						message_ar: `${requesterName} أرسل طلب منتج عميل يحتوي على ${itemsData.length} منتج(ات).`,
 						type: 'info',
 						priority: 'normal',
 						target_type: 'specific_users',

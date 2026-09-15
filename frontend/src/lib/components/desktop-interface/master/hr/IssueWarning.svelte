@@ -429,11 +429,14 @@
                 // Notification to employee
                 if (empUserData?.user_id) {
                     const employeeNotificationTitle = '⚠️ Official Warning Issued / تحذير رسمي صدر لك';
-                    
+
+                    const recourseTextEn = recourseLabel?.label;
+                    const violationNameEn = activeViolation.name_en || violationName;
+                    const fineTextEn = hasFine || hasFineThreat ? ` - Fine: ${fineAmount} SAR` : '';
                     const recourseTextAr = selectedRecourse === 'fine' ? 'غرامة مالية' : selectedRecourse === 'warning' ? 'تحذير' : 'إنهاء خدمة';
                     const violationNameAr = activeViolation.name_ar || violationName;
                     const fineTextAr = selectedRecourse === 'fine' && fineAmount ? ` - المبلغ: ${fineAmount} ريال` : '';
-                    
+
                     // Build comprehensive notification with all details
                     let incidentDescSection = incidentDescription ? `\n\n📝 INCIDENT DESCRIPTION:\n${incidentDescription}` : '';
                     let witnessSection = witnessDetails ? `\n\n👥 WITNESS DETAILS:\n${witnessDetails}` : '';
@@ -462,10 +465,30 @@ ${incidentDescSectionAr}${witnessSectionAr}${investigationSectionAr}${warningRep
 • يرجى استلام التحذير المطبوع من قسم الموارد البشرية.
 • هذا تحذير صادر إلكترونياً ولا يتطلب توقيعاً ورقياً.
 • هذا الإقرار يثبت أنه تم منحك فرصة لتوضيح موقفك، والقرار النهائي تم اتخاذه من قبل الإدارة.`;
-                    
+
+                    const employeeNotificationMessageEn = `A ${recourseTextEn} has been issued regarding: ${violationNameEn}${fineTextEn}
+${incidentDescSection}${witnessSection}${investigationSection}${warningReportSection}
+
+📋 IMPORTANT NOTICE:
+• Please collect the printed warning from HR Department.
+• This is an electronically issued warning and does not require a physical signature.
+• This acknowledgment confirms that you were given an opportunity to explain your side, and the final decision was made by management.`;
+
+                    const employeeNotificationMessageAr = `تم إصدار ${recourseTextAr} بشأن: ${violationNameAr}${fineTextAr}
+${incidentDescSectionAr}${witnessSectionAr}${investigationSectionAr}${warningReportSectionAr}
+
+📋 ملاحظة هامة:
+• يرجى استلام التحذير المطبوع من قسم الموارد البشرية.
+• هذا تحذير صادر إلكترونياً ولا يتطلب توقيعاً ورقياً.
+• هذا الإقرار يثبت أنه تم منحك فرصة لتوضيح موقفك، والقرار النهائي تم اتخاذه من قبل الإدارة.`;
+
                     await supabase.from('notifications').insert({
                         title: employeeNotificationTitle,
                         message: employeeNotificationMessage,
+                        title_en: '⚠️ Official Warning Issued',
+                        title_ar: 'تحذير رسمي صدر لك',
+                        message_en: employeeNotificationMessageEn,
+                        message_ar: employeeNotificationMessageAr,
                         type: 'warning',
                         priority: 'high',
                         target_type: 'specific_users',
@@ -478,16 +501,28 @@ ${incidentDescSectionAr}${witnessSectionAr}${investigationSectionAr}${warningRep
                 // Notification to all users in reports_to_user_ids
                 if (incident?.reports_to_user_ids && Array.isArray(incident.reports_to_user_ids) && incident.reports_to_user_ids.length > 0) {
                     const reportsToNotificationTitle = `✅ Action Taken - Incident #${incident.id} / تم اتخاذ إجراء - حادثة #${incident.id}`;
-                    
+
+                    const recourseTextEn = recourseLabel?.label;
+                    const violationNameEn = activeViolation.name_en || violationName;
+                    const fineTextEn = hasFine || hasFineThreat ? ` - Fine: ${fineAmount} SAR` : '';
+                    const employeeNameEn = selectedEmployeeDetails?.name_en || empUserData?.name_en || employeeName;
                     const recourseTextAr = selectedRecourse === 'fine' ? 'غرامة مالية' : selectedRecourse === 'warning' ? 'تحذير' : 'إنهاء خدمة';
                     const violationNameAr = activeViolation.name_ar || violationName;
                     const fineTextAr = selectedRecourse === 'fine' && fineAmount ? ` - المبلغ: ${fineAmount} ريال` : '';
-                    
+                    const employeeNameAr = selectedEmployeeDetails?.name_ar || empUserData?.name_ar || employeeNameEn;
+
                     const reportsToNotificationMessage = `A ${recourseText} has been issued to employee: ${employeeName}\n\nViolation: ${violationName}${fineText}\n\nIssued by: ${issuerName}\n\nReport Summary:\n${warningNotes.substring(0, 200)}${warningNotes.length > 200 ? '...' : ''}\n\n---\n\nتم إصدار ${recourseTextAr} للموظف: ${employeeName}\n\nالمخالفة: ${violationNameAr}${fineTextAr}\n\nصدر بواسطة: ${issuerName}\n\nملخص التقرير:\n${warningNotes.substring(0, 200)}${warningNotes.length > 200 ? '...' : ''}`;
-                    
+
+                    const reportsToNotificationMessageEn = `A ${recourseTextEn} has been issued to employee: ${employeeNameEn}\n\nViolation: ${violationNameEn}${fineTextEn}\n\nIssued by: ${issuerName}\n\nReport Summary:\n${warningNotes.substring(0, 200)}${warningNotes.length > 200 ? '...' : ''}`;
+                    const reportsToNotificationMessageAr = `تم إصدار ${recourseTextAr} للموظف: ${employeeNameAr}\n\nالمخالفة: ${violationNameAr}${fineTextAr}\n\nصدر بواسطة: ${issuerName}\n\nملخص التقرير:\n${warningNotes.substring(0, 200)}${warningNotes.length > 200 ? '...' : ''}`;
+
                     await supabase.from('notifications').insert({
                         title: reportsToNotificationTitle,
                         message: reportsToNotificationMessage,
+                        title_en: `✅ Action Taken - Incident #${incident.id}`,
+                        title_ar: `تم اتخاذ إجراء - حادثة #${incident.id}`,
+                        message_en: reportsToNotificationMessageEn,
+                        message_ar: reportsToNotificationMessageAr,
                         type: 'info',
                         priority: 'normal',
                         target_type: 'specific_users',

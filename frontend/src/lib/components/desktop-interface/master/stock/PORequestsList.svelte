@@ -269,6 +269,10 @@
 					const notifPayload = {
 						title: `PO Request ${statusLabel} | طلب PO ${statusLabelAr}`,
 						message: `Your Purchase Order request has been ${newStatus}.\n---\nطلب أمر الشراء الخاص بك تم ${newStatus === 'approved' ? 'قبوله' : 'رفضه'}.`,
+						title_en: `PO Request ${statusLabel}`,
+						title_ar: `طلب PO ${statusLabelAr}`,
+						message_en: `Your Purchase Order request has been ${newStatus}.`,
+						message_ar: `طلب أمر الشراء الخاص بك تم ${newStatus === 'approved' ? 'قبوله' : 'رفضه'}.`,
 						type: newStatus === 'approved' ? 'success' : 'error',
 						priority: 'normal',
 						target_type: 'specific_users',

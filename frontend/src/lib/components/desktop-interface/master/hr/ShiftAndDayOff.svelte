@@ -2847,6 +2847,10 @@
                                 .insert({
                                     title: 'طلب موافقة على إجازة | Leave Request Approval',
                                     message: `طلب إجازة للموظف ${allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_ar || allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_en || selectedEmployeeId} (${selectedEmployeeId}) من ${selectedDayOffStartDate} إلى ${selectedDayOffEndDate} (${dateArray.length} أيام) يتطلب موافقة\n\nLeave request for ${allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_en || allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_ar || selectedEmployeeId} (${selectedEmployeeId}) from ${selectedDayOffStartDate} to ${selectedDayOffEndDate} (${dateArray.length} days) requires approval`,
+                                    title_en: 'Leave Request Approval',
+                                    title_ar: 'طلب موافقة على إجازة',
+                                    message_en: `Leave request for ${allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_en || allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_ar || selectedEmployeeId} (${selectedEmployeeId}) from ${selectedDayOffStartDate} to ${selectedDayOffEndDate} (${dateArray.length} days) requires approval`,
+                                    message_ar: `طلب إجازة للموظف ${allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_ar || allEmployeesForDateWise.find(e => e.id === selectedEmployeeId)?.employee_name_en || selectedEmployeeId} (${selectedEmployeeId}) من ${selectedDayOffStartDate} إلى ${selectedDayOffEndDate} (${dateArray.length} أيام) يتطلب موافقة`,
                                     type: 'approval_request',
                                     priority: 'high',
                                     target_type: 'specific_users',

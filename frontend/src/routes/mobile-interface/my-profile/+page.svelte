@@ -2,17 +2,45 @@
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
-	import { currentLocale } from '$lib/i18n';
+	import { currentLocale, switchLocale } from '$lib/i18n';
 
 	let email = '';
 	let whatsappNumber = '';
 	let employeeId = '';
 	let isLoading = true;
 	let loadError = false;
+	let savingLanguage = false;
 
 	$: isArabic = $currentLocale === 'ar';
 
 	onMount(loadProfile);
+
+	async function chooseLanguage(locale: 'en' | 'ar') {
+		const userId = $currentUser?.id;
+		if (!userId || savingLanguage || locale === $currentLocale) return;
+
+		savingLanguage = true;
+		try {
+			const { error } = await supabase
+				.from('users')
+				.update({ default_language: locale })
+				.eq('id', userId);
+
+			if (error) {
+				console.error('Failed to save default language:', error);
+				return;
+			}
+
+			currentUser.update((u) => (u ? { ...u, defaultLanguage: locale } : u));
+			switchLocale(locale);
+
+			// Match the app-wide convention: switching language reloads the page.
+			setTimeout(() => window.location.reload(), 300);
+		} catch (err) {
+			console.error('Failed to save default language:', err);
+			savingLanguage = false;
+		}
+	}
 
 	async function loadProfile() {
 		const userId = $currentUser?.id;
@@ -100,6 +128,31 @@
 					<input id="profile-whatsapp" type="tel" value={whatsappNumber} placeholder={isArabic ? 'غير متوفر' : 'Not available'} readonly />
 				</div>
 			</div>
+
+			<div class="field-group">
+				<label id="profile-language-label">{isArabic ? 'اللغة الافتراضية' : 'Default Language'}</label>
+				<div class="lang-segmented" role="group" aria-labelledby="profile-language-label">
+					<button
+						type="button"
+						class="lang-option"
+						class:active={$currentLocale === 'ar'}
+						disabled={savingLanguage}
+						on:click={() => chooseLanguage('ar')}
+					>
+						🇸🇦 العربية
+					</button>
+					<button
+						type="button"
+						class="lang-option"
+						class:active={$currentLocale === 'en'}
+						disabled={savingLanguage}
+						on:click={() => chooseLanguage('en')}
+					>
+						🇬🇧 English
+					</button>
+				</div>
+				<p class="field-hint">{isArabic ? 'ستصلك الإشعارات وتُعرض القوائم بهذه اللغة.' : 'Notifications and menus will use this language.'}</p>
+			</div>
 		{/if}
 	</div>
 </section>
@@ -156,6 +209,24 @@
 	}
 	input:focus { border-color: var(--mobile-primary, #2563eb); box-shadow: 0 0 0 3px rgb(37 99 235 / 10%); }
 	input::placeholder { color: var(--mobile-text-secondary, #94a3b8); }
+
+	.lang-segmented { display: flex; gap: 8px; }
+	.lang-option {
+		flex: 1;
+		min-height: 48px;
+		padding: 10px 12px;
+		color: var(--mobile-text, #334155);
+		background: var(--mobile-input-bg, #f8fafc);
+		border: 1.5px solid var(--mobile-border, #dbe2ea);
+		border-radius: 12px;
+		font: inherit;
+		font-weight: 700;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+	.lang-option:disabled { cursor: not-allowed; opacity: 0.7; }
+	.lang-option.active { color: var(--mobile-primary, #2563eb); background: color-mix(in srgb, var(--mobile-primary, #2563eb) 10%, white); border-color: var(--mobile-primary, #2563eb); }
+	.field-hint { margin: 8px 2px 0; color: var(--mobile-text-secondary, #64748b); font-size: .8rem; }
 
 	.loading-row { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 124px; color: var(--mobile-text-secondary, #64748b); }
 	.spinner { width: 20px; height: 20px; border: 2px solid #dbeafe; border-top-color: var(--mobile-primary, #2563eb); border-radius: 50%; animation: spin .7s linear infinite; }

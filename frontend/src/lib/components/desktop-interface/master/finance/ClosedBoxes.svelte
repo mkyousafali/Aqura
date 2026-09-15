@@ -226,6 +226,10 @@
 				await notificationManagement.createNotification({
 					title: $currentLocale === 'ar' ? '📦 طلب تعديل صندوق مكتمل' : '📦 Closed Box Edit Request',
 					message: `${$currentLocale === 'ar' ? 'طلب تعديل الصندوق رقم' : 'Box edit request for Box'} ${pendingBoxForEdit.box_number} ${$currentLocale === 'ar' ? 'من' : 'from'} ${$currentUser?.username}`,
+					titleEn: '📦 Closed Box Edit Request',
+					titleAr: '📦 طلب تعديل صندوق مكتمل',
+					messageEn: `Box edit request for Box ${pendingBoxForEdit.box_number} from ${$currentUser?.username}`,
+					messageAr: `طلب تعديل الصندوق رقم ${pendingBoxForEdit.box_number} من ${$currentUser?.username}`,
 					type: 'approval_request',
 					priority: 'high',
 					target_type: 'specific_users',

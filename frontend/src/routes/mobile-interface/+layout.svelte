@@ -11,6 +11,7 @@
 	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
+	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
 
@@ -169,6 +170,12 @@
 			currentUserData = $currentUser;
 			clearTimeout(maxLoadingTimeout);
 			isLoading = false;
+
+			// Account-level language preference takes priority over the
+			// device's localStorage value once the user is known.
+			if ($currentUser.defaultLanguage && $currentUser.defaultLanguage !== $currentLocale) {
+				switchLocale($currentUser.defaultLanguage);
+			}
 
 			// Load badge counts
 			loadBadgeCounts();
@@ -1436,6 +1443,9 @@
 				</div>
 			</div>
 		{/if}
+
+		<!-- Language Picker - mask over content, below header & bottom-nav -->
+		<LanguagePickerOverlay mode="mobile" />
 
 		<!-- Contact Info Overlay - mask over content, below header & bottom-nav -->
 		<ContactInfoOverlay mode="mobile" />

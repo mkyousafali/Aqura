@@ -468,6 +468,10 @@
 					const notifPayload = {
 						title: `BT Request ${statusLabel} | طلب BT ${statusLabelAr}`,
 						message: `Your Branch Transfer request has been ${newStatus}.\n---\nطلب النقل الفرعي الخاص بك تم ${newStatus === 'approved' ? 'قبوله' : 'رفضه'}.`,
+						title_en: `BT Request ${statusLabel}`,
+						title_ar: `طلب BT ${statusLabelAr}`,
+						message_en: `Your Branch Transfer request has been ${newStatus}.`,
+						message_ar: `طلب النقل الفرعي الخاص بك تم ${newStatus === 'approved' ? 'قبوله' : 'رفضه'}.`,
 						type: newStatus === 'approved' ? 'success' : 'error',
 						priority: 'normal',
 						target_type: 'specific_users',

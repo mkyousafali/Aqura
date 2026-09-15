@@ -584,18 +584,28 @@
                 const notificationsList = recipientUserIds.map(userId => ({
                     title: '📋 New Incident Report | تقرير حادثة جديد',
                     message: `${notificationMsgEn}\n---\n${notificationMsgAr}`,
+                    title_en: '📋 New Incident Report',
+                    title_ar: 'تقرير حادثة جديد',
+                    message_en: notificationMsgEn,
+                    message_ar: notificationMsgAr,
                     type: 'info',
                     priority: 'normal',
                     target_type: 'specific_users',
                     target_users: [userId],
                     created_at: new Date().toISOString()
                 }));
-                
+
                 // Add notification for the employee (only for employee incidents)
                 if (isEmployeeIncident && employeeUserId) {
+                    const employeeNotifMsgEn = `Incident report (${incidentId}) submitted by ${createdByName} regarding you at ${branchNameEn} related to ${violationName}. Report ID: ${incidentId}`;
+                    const employeeNotifMsgAr = `تم إرسال تقرير حادثة (${incidentId}) من ${createdByNameAr} بخصوصك في ${branchNameAr} المتعلق بـ ${violationNameAr}. رقم التقرير: ${incidentId}`;
                     notificationsList.push({
                         title: '✅ Incident Report Submitted | تم إرسال تقرير الحادثة',
-                        message: `Incident report (${incidentId}) submitted by ${createdByName} regarding you at ${branchNameEn} related to ${violationName}. Report ID: ${incidentId}\n---\nتم إرسال تقرير حادثة (${incidentId}) من ${createdByNameAr} بخصوصك في ${branchNameAr} المتعلق بـ ${violationNameAr}. رقم التقرير: ${incidentId}`,
+                        message: `${employeeNotifMsgEn}\n---\n${employeeNotifMsgAr}`,
+                        title_en: '✅ Incident Report Submitted',
+                        title_ar: 'تم إرسال تقرير الحادثة',
+                        message_en: employeeNotifMsgEn,
+                        message_ar: employeeNotifMsgAr,
                         type: 'success',
                         priority: 'normal',
                         target_type: 'specific_users',

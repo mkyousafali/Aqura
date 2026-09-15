@@ -849,6 +849,10 @@
                 .insert({
                     title: $locale === 'ar' ? 'تعيين مهمة جديدة' : 'New Task Assignment',
                     message: notificationMessage,
+                    title_en: 'New Task Assignment',
+                    title_ar: 'تعيين مهمة جديدة',
+                    message_en: `You have been assigned to recover incident #${selectedIncident.id} by ${currentUserName}`,
+                    message_ar: `تم تعيينك لاسترجاع الحادثة #${selectedIncident.id} بواسطة ${currentUserName}`,
                     type: 'info',
                     priority: 'normal',
                     target_type: 'specific_users',

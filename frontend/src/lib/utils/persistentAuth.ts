@@ -81,6 +81,7 @@ export interface UserSession {
   employee_id?: string;
   branch_id?: string;
   customerId?: string; // For customer users
+  defaultLanguage?: string; // 'en' | 'ar' — per-account UI/notification language preference; undefined/null = not chosen yet
   loginTime: string;
   deviceId: string;
   loginMethod: "password" | "quickAccess" | "customerAccess";
@@ -344,6 +345,7 @@ export class PersistentAuthService {
         branchName: userDetails.branch_name,
         employee_id: userDetails.employee_id,
         branch_id: userDetails.branch_id?.toString(),
+        defaultLanguage: userDetails.default_language || undefined,
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "quickAccess",
@@ -631,6 +633,7 @@ export class PersistentAuthService {
 					is_master_admin,
 					is_admin,
 					user_type,
+					default_language,
 					hr_employees (
 						id,
 						employee_id,
@@ -690,6 +693,7 @@ export class PersistentAuthService {
         userType: userData.user_type,
         employee_id: userData.hr_employees?.[0]?.employee_id,
         branch_id: userData.hr_employees?.[0]?.branch_id,
+        defaultLanguage: userData.default_language || undefined,
         loginTime: new Date().toISOString(),
         deviceId: this.getDeviceId(),
         loginMethod: "password",

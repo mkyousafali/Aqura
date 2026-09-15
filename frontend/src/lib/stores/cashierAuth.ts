@@ -23,6 +23,7 @@ export interface CashierUser {
 	employeeName: string;
 	name: string;
 	role: string;
+	default_language?: string; // 'en' | 'ar' — per-account language preference; undefined/null = not chosen yet
 }
 
 export interface CashierBranch {
