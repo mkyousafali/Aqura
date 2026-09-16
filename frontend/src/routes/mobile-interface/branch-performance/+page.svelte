@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { locale } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	let loading = true;
 	let error = '';
@@ -105,12 +106,12 @@
 		loading = true;
 		error = '';
 		try {
-			const params: any = {};
+			const params: any = { p_requesting_user_id: $currentUser?.id };
 			if (filterMode === 'today') params.p_specific_date = getToday();
 			else if (filterMode === 'yesterday') params.p_specific_date = getYesterday();
 			else if (filterMode === 'specific' && specificDate) params.p_specific_date = specificDate;
 			else params.p_days_back = daysBack;
-			const { data: result, error: err } = await supabase.rpc('get_branch_performance_dashboard', params);
+			const { data: result, error: err } = await supabase.rpc('Autotask_get_branch_performance_dashboard', params);
 			if (err) throw err;
 			data = result;
 		} catch (e: any) {
@@ -166,7 +167,7 @@
 
 	function getPieSlices(typeStats: any) {
 		if (!typeStats) return [];
-		const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0) + (typeStats.checklist || 0);
+		const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0) + (typeStats.auto || 0) + (typeStats.checklist || 0);
 		if (total === 0) return [];
 		const slices: any[] = [];
 		let currentAngle = 0;
@@ -174,6 +175,7 @@
 			{ key: 'regular', color: '#3b82f6', label: isRTL ? 'عادية' : 'Regular', count: typeStats.regular || 0 },
 			{ key: 'quick', color: '#f59e0b', label: isRTL ? 'سريعة' : 'Quick', count: typeStats.quick || 0 },
 			{ key: 'receiving', color: '#8b5cf6', label: isRTL ? 'استلام' : 'Receiving', count: typeStats.receiving || 0 },
+			{ key: 'auto', color: '#06b6d4', label: isRTL ? 'تلقائية' : 'Auto', count: typeStats.auto || 0 },
 			{ key: 'checklist', color: '#10b981', label: isRTL ? 'قائمة فحص' : 'Checklist', count: typeStats.checklist || 0 }
 		];
 		for (const type of types) {

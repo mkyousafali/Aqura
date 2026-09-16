@@ -481,8 +481,6 @@ class WindowManager {
         componentName = "StartReceiving";
       } else if (windowConfig.title.includes("Receiving Records")) {
         componentName = "ReceivingRecords";
-      } else if (windowConfig.title.includes("Receiving Tasks")) {
-        componentName = "ReceivingTasksDashboard";
       } else if (windowConfig.title.includes("Receiving Data")) {
         componentName = "ReceivingDataWindow";
       } else if (windowConfig.title.match(/^Receiving #\d+$/)) {

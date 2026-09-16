@@ -547,19 +547,15 @@
 	}
 
 	async function loadTasksOptimized(supabase) {
-		// RPC functions already optimized, just remove limit to get all
-		const { data, error } = await supabase.rpc('get_all_receiving_tasks');
-		return { data: data || [], error };
+		return { data: [], error: null };
 	}
 
 	async function loadCompletedTasksOptimized(supabase) {
-		const { data, error } = await supabase.rpc('get_completed_receiving_tasks');
-		return { data: data || [], error };
+		return { data: [], error: null };
 	}
 
 	async function loadIncompleteTasksOptimized(supabase) {
-		const { data, error } = await supabase.rpc('get_incomplete_receiving_tasks');
-		return { data: data || [], error };
+		return { data: [], error: null };
 	}
 
 	// Helper to apply date filter

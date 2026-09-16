@@ -359,16 +359,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   //   loadVendors();
   // }
 
-  // Reactive statement to check if all required users are selected
-  // Now only shelf stocker is manual; 6 others come from defaults
-  $: allRequiredUsersSelected = selectedBranch && 
-    selectedBranchManager && 
-    selectedAccountant && 
-    selectedPurchasingManager && 
-    selectedInventoryManager && 
-    selectedShelfStockers.length > 0 && 
-    selectedWarehouseHandler &&
-    selectedNightSupervisors.length > 0;
+  // New Auto Task system: only Task 1 assignees are selected during receiving.
+  // Tasks 2-10 use branch defaults configured in Auto Task Manager.
+  $: allRequiredUsersSelected = Boolean(selectedBranch) && selectedShelfStockers.length > 0;
 
   onMount(async () => {
     if (finalReceivingPendingId) {
@@ -408,7 +401,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
   // Final Receiving mode: load a saved pending_receiving_records row and hydrate every
   // field so Step 3 (Bill Information) opens pre-filled, ready to review/edit and
-  // generate the final clearance. Does NOT touch receiving_tasks / task creation.
+  // generate the final clearance. Auto Task creation is handled separately.
   async function loadPendingRecordForFinalReceiving() {
     finalReceivingLoading = true;
     finalReceivingLoadError = '';
@@ -750,6 +743,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       defaultPositionsError = 'Failed to load default positions: ' + err.message;
       console.error('Error loading default positions:', err);
     } finally {
+      // Legacy position defaults must not block selection of the new Task 1 assignees.
+      if (!defaultPositionsLoaded) {
+        defaultPositionsError = '';
+        defaultPositionsLoaded = true;
+        await loadShelfStockersForSelection();
+      }
       defaultPositionsLoading = false;
     }
   }
@@ -1184,58 +1183,33 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         return;
       }
 
-      // Get all employees from the selected branch via hr_employee_master
-      const { data: employees, error: loadError } = await supabase
-        .from('hr_employee_master_with_status')
-        .select(`
-          user_id,
-          id,
-          name_en,
-          name_ar,
-          current_position_id,
-          users(
-            username
-          ),
-          hr_positions(
-            position_title_en,
-            position_title_ar
-          )
-        `)
-        .eq('current_branch_id', parseInt(selectedBranch))
-        .in('employment_status', ['Job (With Finger)', 'Remote Job'])
-        .order('name_en');
+      // Task 1 candidates: every active user in this branch, plus every
+      // active Admin and Master Admin regardless of branch.
+      const { data: candidateUsers, error: loadError } = await supabase
+        .from('users')
+        .select('id, username, branch_id, status, is_admin, is_master_admin')
+        .eq('status', 'active')
+        .order('username');
 
       if (loadError) throw loadError;
 
-      // Transform data into user objects
-      const isAr = $currentLocale === 'ar';
-      const allBranchUsers = (employees || []).map(emp => {
-        const position = isAr
-          ? (emp.hr_positions?.position_title_ar || emp.hr_positions?.position_title_en || 'No Position Assigned')
-          : (emp.hr_positions?.position_title_en || 'No Position Assigned');
-        return {
-          id: emp.user_id,
-          username: emp.users?.username || emp.id,
-          employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
-          employeeId: emp.id,
-          position: position
-        };
-      });
+      const allEligibleUsers = (candidateUsers || [])
+        .filter(user => String(user.branch_id) === String(selectedBranch) || user.is_admin || user.is_master_admin)
+        .map(user => ({
+          id: user.id,
+          username: user.username,
+          employeeName: user.username,
+          employeeId: user.username,
+          position: user.is_master_admin ? 'Master Admin' : user.is_admin ? 'Admin' : 'Branch User'
+        }));
 
-      // Filter for shelf stockers
-      const shelfStockersList = allBranchUsers.filter(u => 
-        u.position.toLowerCase().includes('shelf') && 
-        u.position.toLowerCase().includes('stocker')
-      );
-
-      // Apply filtered results
-      shelfStockers = allBranchUsers;
-      actualShelfStockers = shelfStockersList;
-      filteredShelfStockers = actualShelfStockers.length > 0 ? actualShelfStockers : allBranchUsers;
-      showAllUsersForShelfStockers = actualShelfStockers.length === 0;
+      shelfStockers = allEligibleUsers;
+      actualShelfStockers = allEligibleUsers;
+      filteredShelfStockers = allEligibleUsers;
+      showAllUsersForShelfStockers = false;
 
       console.log('✅ Loaded shelf stockers for selected branch:', {
-        total: allBranchUsers.length,
+        total: allEligibleUsers.length,
         shelfStockers: actualShelfStockers.length
       });
 
@@ -3008,7 +2982,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   }
 
   // Final Receiving completion: copy the pending record into receiving_records
-  // (same id preserved, so its already-created receiving_tasks stay correctly linked)
+  // (the same id is preserved so all receiving-record references stay linked)
   // and mark the pending_receiving_records row as Cleared. Does not touch task creation.
   async function finalizePendingReceiving() {
     try {
@@ -3104,6 +3078,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       </button>
     </div>
 
+    <!-- Legacy assigned-position data remains stored for compatibility, but
+         it no longer controls task assignment in the new Auto Task system. -->
+    {#if false}
     <!-- Compact Assigned Positions Strip -->
     <div class="positions-strip">
       {#if defaultPositionsLoading}
@@ -3144,15 +3121,21 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         </div>
       {/if}
     </div>
+    {/if}
 
-    <!-- Shelf Stocker Selection (Manual - standalone) -->
+    <div class="autotask-assignment-notice">
+      <strong>Auto Task 1 — Placing products on shelf</strong>
+      <span>Select one or more users below. A separate Task 1 will be created for every selected user when the clearance certificate is generated. Tasks 2–10 use the branch defaults from Auto Task Manager.</span>
+    </div>
+
+    <!-- Auto Task 1 assignee selection -->
     <div class="shelf-stocker-standalone-section">
       <div class="shelf-stocker-header-bar">
         <h4>
           {#if showAllUsersForShelfStockers}
-            {$t('receiving.selectUserAsShelfStocker')}
+            Select Auto Task 1 Assignee
           {:else}
-            {$t('receiving.selectShelfStocker')}
+            Select Auto Task 1 Assignee
           {/if}
         </h4>
         {#if selectedShelfStockers.length > 0}
@@ -3312,7 +3295,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         <span class="step-complete-text">{$t('receiving.step1Complete')}</span>
       {:else}
         <span class="step-incomplete-icon">⚠️</span>
-        <span class="step-incomplete-text">{$t('receiving.selectAllStaff')}</span>
+        <span class="step-incomplete-text">Select at least one user for Auto Task 1.</span>
       {/if}
     </div>
     <button 
@@ -3891,7 +3874,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {/if}
           </div>
           {#if paymentChanged}
-            <div class="pay-notice">ℹ️ {$t('receiving.paymentModifiedNotice')}</div>
+            <div class="pay-notice">
+              <span>ℹ️ {$t('receiving.paymentModifiedNotice')}</span>
+              <div class="payment-update-actions">
+                <button type="button" on:click={updateReceivingOnlyPaymentInfo}>Use for this receiving only</button>
+                <button type="button" on:click={updateVendorPaymentInfo}>Update vendor defaults</button>
+              </div>
+            </div>
           {/if}
         </div>
         {/if}
@@ -3976,7 +3965,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {/if}
 
 <!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 2 && selectedBranchManager && billDate && billAmount && (billNumberNotMandatory || (billNumber && billNumber.trim())) && (paymentNotApplicable || (paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady)) && (vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
+{#if currentStep === 2 && billDate && billAmount && (billNumberNotMandatory || (billNumber && billNumber.trim())) && (paymentNotApplicable || (paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady && (!paymentChanged || paymentUpdateChoice))) && (vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
@@ -3995,6 +3984,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           {$t('receiving.selectPaymentMethod')}
         {:else if !paymentNotApplicable && !dueDateReady}
           {$t('receiving.completeDueDate')}
+        {:else if !paymentNotApplicable && paymentChanged && !paymentUpdateChoice}
+          Choose whether the payment change applies only to this receiving or updates the vendor defaults.
         {:else if !billDate || !billAmount || (!billNumberNotMandatory && (!billNumber || !billNumber.trim()))}
           {$t('receiving.fillRequiredFields')}
         {:else if !vatCheckNotApplicable && selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && !billVatNumber}
@@ -4324,6 +4315,19 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	}
 
 	/* Shelf Stocker Standalone Section */
+	.autotask-assignment-notice {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		margin-top: 0.75rem;
+		padding: 0.8rem 1rem;
+		background: #eff6ff;
+		border: 1px solid #93c5fd;
+		border-radius: 8px;
+		color: #1e3a8a;
+		font-size: 0.85rem;
+	}
+
 	.shelf-stocker-standalone-section {
 		margin-top: 0.5rem;
 		padding: 0.5rem 0.75rem;
@@ -6936,6 +6940,24 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-radius: 4px;
 		padding: 0.2rem 0.4rem;
 		margin-top: 0.25rem;
+	}
+
+	.payment-update-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin-top: 0.35rem;
+	}
+
+	.payment-update-actions button {
+		border: 1px solid #d97706;
+		border-radius: 5px;
+		background: #fff;
+		color: #92400e;
+		padding: 0.3rem 0.5rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		cursor: pointer;
 	}
 
 	.due-content {

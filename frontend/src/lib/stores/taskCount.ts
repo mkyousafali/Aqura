@@ -13,6 +13,7 @@ export interface TaskCounts {
   quickTasks: number;
   regularTasks: number;
   receivingTasks: number;
+  autoTasks: number;
   loading: boolean;
   lastUpdated: Date;
 }
@@ -26,6 +27,7 @@ export const taskCounts = writable<TaskCounts>({
   quickTasks: 0,
   regularTasks: 0,
   receivingTasks: 0,
+  autoTasks: 0,
   loading: true,
   lastUpdated: new Date(),
 });
@@ -36,6 +38,21 @@ let isInitialLoad = true;
 
 // Task count management functions
 export const taskCountService = {
+  setAutoTaskCounts(count: number, overdue: number): void {
+    taskCounts.update((state) => {
+      const previousOverdue = (state as TaskCounts & { autoTasksOverdue?: number }).autoTasksOverdue || 0;
+      return {
+        ...state,
+        total: Math.max(0, state.total - state.autoTasks + count),
+        pending: Math.max(0, state.pending - state.autoTasks + count),
+        overdue: Math.max(0, state.overdue - previousOverdue + overdue),
+        autoTasks: count,
+        autoTasksOverdue: overdue,
+        lastUpdated: new Date(),
+      } as TaskCounts;
+    });
+  },
+
   // Fetch task counts for current user
   async fetchTaskCounts(silent = false): Promise<void> {
     const user = get(currentUser);
@@ -78,13 +95,12 @@ export const taskCountService = {
         .neq("status", "completed")
         .neq("status", "cancelled");
 
-      // Fetch receiving tasks
-      const { data: receivingTasks, error: receivingError } = await supabase
-        .from("receiving_tasks")
-        .select("id, task_status, due_date")
-        .eq("assigned_user_id", activeUser.id)
-        .neq("task_status", "completed")
-        .neq("task_status", "cancelled");
+      // Auto Tasks are the only receiving-work tasks in the centralized system.
+      const { data: autoTasks, error: autoTaskError } = await supabase.rpc("Autotask_list_my_tasks", {
+          p_user_id: activeUser.id,
+          p_include_completed: false,
+          p_limit: 500,
+        });
 
       if (regularError) {
         console.error("Error fetching regular task counts:", regularError);
@@ -94,16 +110,15 @@ export const taskCountService = {
         console.error("Error fetching quick task counts:", quickError);
       }
 
-      if (receivingError) {
-        console.error("Error fetching receiving task counts:", receivingError);
+      if (autoTaskError) {
+        console.error("Error fetching Auto Task counts:", autoTaskError);
       }
 
       // Process the data
       const regularTasksCount = regularTasks?.length || 0;
       const quickTasksCount = quickTasks?.length || 0;
-      const receivingTasksCount = receivingTasks?.length || 0;
-      const totalCount =
-        regularTasksCount + quickTasksCount + receivingTasksCount;
+      const autoTasksCount = autoTasks?.length || 0;
+      const totalCount = regularTasksCount + quickTasksCount + autoTasksCount;
 
       // Count pending and in-progress tasks
       const pendingRegular =
@@ -118,7 +133,7 @@ export const taskCountService = {
         ).length || 0;
       const inProgressQuick =
         quickTasks?.filter((t) => t.status === "in_progress").length || 0;
-      const pendingReceiving = receivingTasksCount; // All receiving tasks we fetch are pending
+      const pendingAutoTasks = autoTasksCount;
 
       // Count overdue tasks
       const overdueRegular =
@@ -145,20 +160,18 @@ export const taskCountService = {
           );
         }).length || 0;
 
-      const overdueReceiving =
-        receivingTasks?.filter((t) => {
-          if (!t.due_date) return false;
-          return new Date(t.due_date) < new Date(now);
-        }).length || 0;
+      const overdueAutoTasks =
+        autoTasks?.filter((task: any) => task.is_overdue).length || 0;
 
       const counts: TaskCounts = {
         total: totalCount,
-        pending: pendingRegular + pendingQuick + pendingReceiving,
+        pending: pendingRegular + pendingQuick + pendingAutoTasks,
         inProgress: inProgressRegular + inProgressQuick,
-        overdue: overdueRegular + overdueQuick + overdueReceiving,
+        overdue: overdueRegular + overdueQuick + overdueAutoTasks,
         quickTasks: quickTasksCount,
         regularTasks: regularTasksCount,
-        receivingTasks: receivingTasksCount,
+        receivingTasks: 0,
+        autoTasks: autoTasksCount,
         loading: false,
         lastUpdated: new Date(),
       };

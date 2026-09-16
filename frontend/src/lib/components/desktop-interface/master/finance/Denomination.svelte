@@ -7,7 +7,6 @@
 	import CompleteBox from './CompleteBox.svelte';
 	import ClosedBoxes from './ClosedBoxes.svelte';
 	import PendingToCloseBoxes from './PendingToCloseBoxes.svelte';
-	import DenominationPermissionManager from './DenominationPermissionManager.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -979,22 +978,6 @@
 	}
 
 	// ===== Daily Temp Schedules =====
-
-	function openPermissionManager() {
-		const windowId = `denom-perm-${Date.now()}`;
-		openWindow({
-			id: windowId,
-			title: 'Denomination Permission Manager',
-			component: DenominationPermissionManager,
-			icon: '🔐',
-			size: { width: 900, height: 620 },
-			position: { x: 180, y: 100 },
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-	}
 
 	async function openSchedulesPopup() {
 		showSchedulesPopup = true;
@@ -2778,20 +2761,10 @@
 						</div>
 					</div>
 
-					{#if $currentUser?.isMasterAdmin}
-					<!-- Permission Manager Card (Master Admin only) -->
-					<div class="balance-card perm-manager-card" on:click={openPermissionManager} style="cursor:pointer;">
-						<div class="balance-card-header">
-							<span class="balance-icon">🔐</span>
-							<span>Permission Manager</span>
-						</div>
-						<div class="balance-card-body">
-							<div class="closed-boxes-count-large">
-								<span class="count-label" style="font-size:0.78rem; color:#fff; font-weight:700; letter-spacing:0.05em;">Manage Access</span>
-							</div>
-						</div>
-					</div>
-					{/if}
+					<!-- Permission Manager card moved into the App Permissions window
+					     (Controls > Dashboard > Denomination / Complete Box Approvers /
+					     Complete Box Closure tabs) — see
+					     Do not delete/PERMISSION_SYSTEMS_AUDIT.md. -->
 				</div>
 			{/if}
 		</div>

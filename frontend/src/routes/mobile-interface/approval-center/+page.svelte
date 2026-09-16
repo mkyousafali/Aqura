@@ -5,6 +5,7 @@
 	import { getTranslation, locale } from '$lib/i18n';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
+	import AutoTaskApprovalList from '$lib/components/common/AutoTaskApprovalList.svelte';
 
 	let loading = true;
 	let requisitions = [];
@@ -23,6 +24,7 @@
 	let internalExpenseApprovals = []; // Internal consumption requests requiring approval
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
+	let autoApprovalCount = 0;
 	let selectedStatus = 'pending';
 	let selectedRequisition = null;
 	let showDetailModal = false;
@@ -1460,8 +1462,8 @@ async function rejectRequisition(reason) {
 				on:click={() => { activeSection = 'approvals'; filterRequisitions(); }}
 			>
 				📋 {t('Approvals for Me', 'الموافقات لي')}
-				{#if stats.pending > 0}
-					<span class="badge">{stats.pending}</span>
+				{#if stats.pending + autoApprovalCount > 0}
+					<span class="badge">{stats.pending + autoApprovalCount}</span>
 				{/if}
 			</button>
 			<button 
@@ -1479,7 +1481,7 @@ async function rejectRequisition(reason) {
 		<div class="stats-grid">
 			{#if activeSection === 'approvals'}
 				<div class="stat-card pending" on:click={() => filterByStatus('pending')}>
-					<div class="stat-value">{stats.pending}</div>
+					<div class="stat-value">{stats.pending + autoApprovalCount}</div>
 					<div class="stat-label">⏳ {getTranslation('approvals.pending')}</div>
 				</div>
 				<div class="stat-card approved" on:click={() => filterByStatus('approved')}>
@@ -1527,6 +1529,7 @@ async function rejectRequisition(reason) {
 					<p>{t("You haven't created any requests yet", 'لم تقم بإنشاء أي طلبات بعد')}</p>
 				</div>
 			{:else}
+				{#if activeSection === 'approvals'}<AutoTaskApprovalList displayMode="mobile_cards" bind:approvalCount={autoApprovalCount} />{/if}
 				{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
 					<div 
 						class="req-card"

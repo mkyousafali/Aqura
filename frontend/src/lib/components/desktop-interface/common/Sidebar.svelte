@@ -32,7 +32,7 @@
 	import LCPlanner from '$lib/components/desktop-interface/master/finance/LCPlanner.svelte';
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
-	import ApprovalPermissionsManager from '$lib/components/desktop-interface/settings/ApprovalPermissionsManager.svelte';
+	import AppPermissionsManager from '$lib/components/desktop-interface/settings/AppPermissionsManager.svelte';
 	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
 	import ApiKeysManager from '$lib/components/desktop-interface/settings/ApiKeysManager.svelte';
 	import SupportAppAccess from '$lib/components/desktop-interface/settings/SupportAppAccess.svelte';
@@ -55,7 +55,6 @@
 	import CustomerAppManager from '$lib/components/desktop-interface/admin-customer-app/CustomerAppManager.svelte';
 	import LoyaltyDashboard from '$lib/components/desktop-interface/master/loyalty/LoyaltyDashboard.svelte';
 	import ManageTiers from '$lib/components/desktop-interface/master/loyalty/ManageTiers.svelte';
-	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
 	import SocialLinkManager from '$lib/components/desktop-interface/admin-customer-app/SocialLinkManager.svelte';
 	import DeliverySettings from '$lib/components/desktop-interface/admin-customer-app/DeliverySettings.svelte';
@@ -94,7 +93,7 @@
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
 	import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
-	import ReceivingTasksManager from '$lib/components/desktop-interface/master/vendor/ReceivingTasksManager.svelte';
+	import AutoTaskManager from '$lib/components/desktop-interface/master/vendor/AutoTaskManager.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
 	import ViewOfferManager from '$lib/components/desktop-interface/marketing/coupon/ViewOfferManager.svelte';
@@ -106,7 +105,6 @@
 	import VipCampaignWindow from '$lib/components/desktop-interface/marketing/vip/VipCampaignWindow.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
-	import ButtonAccessControl from '$lib/components/desktop-interface/settings/ButtonAccessControl.svelte';
 	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
 	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
@@ -329,6 +327,7 @@
 		'APPROVAL_PERMISSIONS': 'nav.approvalPermissions', 'BRANCHES': 'admin.branchesMaster',
 		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
+		'APP_PERMISSIONS': 'nav.appPermissions',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide', 'SUPPORT_APP_ACCESS': 'nav.supportAppAccess',
 		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager', 'ERP_CREDENTIALS': 'nav.erpCredentials',
 		'DRAWER_ACTION_MONITOR': 'nav.drawerActionMonitor',
@@ -570,19 +569,19 @@
 		TasksOperations: ["ASSIGN_TASKS","MY_DAILY_CHECKLIST"],
 		TasksReports: ["VIEW_MY_TASKS","VIEW_MY_ASSIGNMENTS","TASK_STATUS","BRANCH_PERFORMANCE"],
 		UserDashboard: ["USER_MANAGEMENT"],
-		UserManage: ["CREATE_USER","MANAGE_ADMIN_USERS","MANAGE_MASTER_ADMIN","INTERFACE_ACCESS_MANAGER","APPROVAL_PERMISSIONS"],
+		UserManage: ["CREATE_USER","MANAGE_ADMIN_USERS","MANAGE_MASTER_ADMIN"],
 		UserOperations: [],
 		UserReports: [],
 		LoyaltyDashboard: ["LOYALTY_DASHBOARD","CUSTOMER_APP"],
 		LoyaltyManage: ["MANAGE_TIERS"],
 		LoyaltyOperations: [],
 		LoyaltyReports: [],
-		ControlsDashboard: [],
+		ControlsDashboard: ["APP_PERMISSIONS"],
 		ControlsManage: ["E_R_P_CONNECTIONS","CLEAR_TABLES","AI_CHAT_GUIDE","STORAGE_MANAGER","ICON_MANAGER","API_KEYS_MANAGER","SUPABASE_SECRETS","SUPPORT_APP_ACCESS"],
 		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE"],
 		ControlsReports: ["PC_LOCK_GUARD"],
 		SystemDashboard: [],
-		SystemManage: ["BUTTON_ACCESS_CONTROL","BRANCHES","THEME_MANAGER","ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
+		SystemManage: ["BRANCHES","THEME_MANAGER","ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
 		SystemOperations: ["HELPER_APPS","SIDEBAR_ANIMATION"],
 		SystemReports: ["CENTRAL_PERFORMANCE","DRAWER_ACTION_MONITOR"],
 		WhatsAppDashboard: ["WA_DASHBOARD"],
@@ -1750,29 +1749,6 @@ function openApprovalCenter() {
 		showSettingsSubmenu = false;
 	}
 
-	function openInterfaceAccessManager() {
-		const windowId = generateWindowId('interface-access');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Interface Access Manager #${instanceNumber}`,
-			component: InterfaceAccessManager,
-			componentName: "InterfaceAccessManager",
-			icon: '🔧',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 50 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showSettingsSubmenu = false;
-	}
-
 	function openSettings() {
 		const windowId = generateWindowId('settings');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -1797,27 +1773,28 @@ function openApprovalCenter() {
 		showSystemManageSubmenu = false;
 	}
 
-	function openApprovalPermissions() {
-		const windowId = generateWindowId('approval-permissions');
+
+	function openAppPermissions() {
+		const windowId = generateWindowId('app-permissions');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
+
 		openWindow({
 			id: windowId,
-			title: `Approval Permissions #${instanceNumber}`,
-			component: ApprovalPermissionsManager,
-			componentName: "ApprovalPermissionsManager",
-			icon: '🔐',
-			size: { width: 950, height: 750 },
-			position: { 
-				x: 100 + (Math.random() * 100), 
-				y: 50 + (Math.random() * 100) 
+			title: `${t('nav.appPermissions') || 'App Permissions'} #${instanceNumber}`,
+			component: AppPermissionsManager,
+			componentName: "AppPermissionsManager",
+			icon: '🛡️',
+			size: { width: 1000, height: 680 },
+			position: {
+				x: 100 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
 			closable: true
 		});
-		showSettingsSubmenu = false;
+		showControlsSubmenu = false;
 	}
 
 	function openStorageManager() {
@@ -2091,29 +2068,6 @@ function openApprovalCenter() {
 		collapseAllSubsections();
 	}
 
-	function openButtonAccessControl() {
-		const windowId = generateWindowId('button-access-control');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `Button Access Control #${instanceNumber}`,
-			component: ButtonAccessControl,
-			componentName: "ButtonAccessControl",
-			icon: '🎛️',
-			size: { width: 1400, height: 900 },
-			position: { 
-				x: 150 + (Math.random() * 100), 
-				y: 80 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showSystemSubmenu = false;
-		showSystemManageSubmenu = false;
-	}
 
 	function openErpCredentials() {
 		const windowId = generateWindowId('erp-credentials');
@@ -2264,13 +2218,35 @@ function openApprovalCenter() {
 		openWindow({
 			id: windowId,
 			title: `${title} #${instanceNumber}`,
-			component: ReceivingTasksManager,
-			componentName: "ReceivingTasksManager",
+			component: AutoTaskManager,
+			componentName: "AutoTaskManager",
 			icon: '📋',
 			size: { width: 950, height: 750 },
 			position: { 
 				x: 100 + (Math.random() * 100),
 				y: 100 + (Math.random() * 100) 
+			},
+			resizable: true,
+			minimizable: true,
+		});
+	}
+
+	function openAutoTaskManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('auto-task-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		const title = $currentLocale === 'ar' ? 'مدير المهام التلقائية' : 'Auto Task Manager';
+
+		openWindow({
+			id: windowId,
+			title: `${title} #${instanceNumber}`,
+			component: AutoTaskManager,
+			componentName: "AutoTaskManager",
+			icon: '⚙️',
+			size: { width: 950, height: 750 },
+			position: {
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -2289,7 +2265,7 @@ function openApprovalCenter() {
 			'UPLOAD_VENDOR': openUploadVendor,
 			'CREATE_VENDOR': openCreateVendor,
 			'MANAGE_VENDOR': openManageVendor,
-			'DEFAULT_POSITIONS': openDefaultPositions,
+			'DEFAULT_POSITIONS': openAutoTaskManager,
 			'RECEIVING': openReceiving,
 			'START_RECEIVING': openStartReceiving,
 			'RECEIVING_RECORDS': openReceivingRecords,
@@ -2369,13 +2345,11 @@ function openApprovalCenter() {
 			'CREATE_USER': openCreateUser,
 			'MANAGE_ADMIN_USERS': openManageAdminUsers,
 			'MANAGE_MASTER_ADMIN': openManageMasterAdmin,
-			'INTERFACE_ACCESS_MANAGER': openInterfaceAccessManager,
-			'APPROVAL_PERMISSIONS': openApprovalPermissions,
 			'BRANCHES': openBranches,
 			'SETTINGS': openSettings,
 			'E_R_P_CONNECTIONS': openERPConnections,
 			'CLEAR_TABLES': openClearTables,
-			'BUTTON_ACCESS_CONTROL': openButtonAccessControl,
+			'APP_PERMISSIONS': openAppPermissions,
 			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
@@ -4545,9 +4519,15 @@ function openApprovalCenter() {
 					{/if}
 					{#if isButtonAllowed('DEFAULT_POSITIONS')}
 						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openDefaultPositions}>
-								<span class="menu-icon">�</span>
+							<button class="submenu-item" on:click={openAutoTaskManager} style="display:none" aria-hidden="true" tabindex="-1">
+								<span class="menu-icon">📋</span>
 								<span class="menu-text">{$currentLocale === 'ar' ? 'مدير مهام الاستلام' : 'Receiving Tasks Manager'}</span>
+							</button>
+						</div>
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAutoTaskManager}>
+								<span class="menu-icon">⚙️</span>
+								<span class="menu-text">{$currentLocale === 'ar' ? 'مدير المهام التلقائية' : 'Auto Task Manager'}</span>
 							</button>
 						</div>
 					{/if}
@@ -6087,22 +6067,10 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('INTERFACE_ACCESS_MANAGER')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openInterfaceAccessManager}>
-								<span class="menu-icon">🔧</span>
-								<span class="menu-text">{t('nav.interfaceAccess')}</span>
-							</button>
-						</div>
-					{/if}
-					{#if isButtonAllowed('APPROVAL_PERMISSIONS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openApprovalPermissions}>
-								<span class="menu-icon">🔐</span>
-								<span class="menu-text">{t('nav.approvalPermissions')}</span>
-							</button>
-						</div>
-					{/if}
+					<!-- Interface Permissions and Approval Permissions moved into the
+					     App Permissions window (Controls > Dashboard) — see
+					     Do not delete/PERMISSION_SYSTEMS_AUDIT.md. Gating for both is
+					     now enforced inside AppPermissionsManager.svelte itself. -->
 				</div>
 			{/if}
 
@@ -6358,7 +6326,14 @@ function openApprovalCenter() {
 			<!-- Dashboard Subsection Items -->
 			{#if showControlsDashboardSubmenu}
 				<div class="submenu-subitem-container">
-					<!-- Dashboard items will be added here -->
+					{#if isButtonAllowed('APP_PERMISSIONS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openAppPermissions}>
+								<span class="menu-icon">🛡️</span>
+								<span class="menu-text">{t('nav.appPermissions') || 'App Permissions'}</span>
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
@@ -6600,14 +6575,10 @@ function openApprovalCenter() {
 			<!-- Manage Subsection Items -->
 			{#if showSystemManageSubmenu}
 				<div class="submenu-subitem-container">
-					{#if isButtonAllowed('BUTTON_ACCESS_CONTROL')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openButtonAccessControl}>
-								<span class="menu-icon">🎛️</span>
-								<span class="menu-text">{t('nav.buttonAccessControl')}</span>
-							</button>
-						</div>
-					{/if}
+					<!-- Button Access Control moved into the App Permissions window
+					     (Controls > Dashboard) — see
+					     Do not delete/PERMISSION_SYSTEMS_AUDIT.md. Gating is now
+					     enforced inside AppPermissionsManager.svelte itself. -->
 					{#if isButtonAllowed('BRANCHES')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openBranches}>

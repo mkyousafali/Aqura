@@ -158,12 +158,7 @@
 					.order('created_at', { ascending: false })
 					.range(quickTaskAssignmentsOffset, quickTaskAssignmentsOffset + pageSize - 1),
 				
-				// Load receiving_tasks
-				supabase
-					.from('receiving_tasks')
-					.select('*', { count: 'exact' })
-					.order('created_at', { ascending: false })
-					.range(receivingTasksOffset, receivingTasksOffset + pageSize - 1)
+				Promise.resolve({ data: [], count: 0, error: null })
 			]);
 
 			// Extract results

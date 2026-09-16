@@ -67,33 +67,27 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	async function loadTaskStatistics() {
 		try {
-			// Get total tasks count as sum of task_assignments, quick_task_assignments, and receiving_tasks
-			// This matches TaskMaster's counting approach
-			const [taskAssignRes, quickAssignRes, receivingTasksRes] = await Promise.all([
+			const [taskAssignRes, quickAssignRes] = await Promise.all([
 				supabase.from('task_assignments').select('*', { count: 'exact', head: true }),
-				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true }),
-				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true })
+				supabase.from('quick_task_assignments').select('*', { count: 'exact', head: true })
 			]);
 
 			if (taskAssignRes.error) throw taskAssignRes.error;
 			if (quickAssignRes.error) throw quickAssignRes.error;
-			if (receivingTasksRes.error) throw receivingTasksRes.error;
 
-			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0) + (receivingTasksRes.count || 0);
+			const totalTasksCount = (taskAssignRes.count || 0) + (quickAssignRes.count || 0);
 
 			// Get completed tasks count as sum of task_completions, quick_task_completions, and completed receiving_tasks
 			// This matches TaskMaster's completed counting approach
-			const [taskCompRes, quickCompRes, receivingCompRes] = await Promise.all([
+			const [taskCompRes, quickCompRes] = await Promise.all([
 				supabase.from('task_completions').select('*', { count: 'exact', head: true }),
-				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true }),
-				supabase.from('receiving_tasks').select('*', { count: 'exact', head: true }).eq('task_status', 'completed')
+				supabase.from('quick_task_completions').select('*', { count: 'exact', head: true })
 			]);
 
 			if (taskCompRes.error) throw taskCompRes.error;
 			if (quickCompRes.error) throw quickCompRes.error;
-			if (receivingCompRes.error) throw receivingCompRes.error;
 
-			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0) + (receivingCompRes.count || 0);
+			const completedTasksCount = (taskCompRes.count || 0) + (quickCompRes.count || 0);
 
 			// For overdue tasks, we need to fetch data to check deadlines
 			// Query to get overdue task statistics (regular tasks)
@@ -120,18 +114,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 			if (quickError) throw quickError;
 
-			// Query to get overdue receiving task statistics
-			const { data: receivingTasks, error: receivingError } = await supabase
-				.from('receiving_tasks')
-				.select(`
-					id,
-					task_status,
-					due_date
-				`)
-				.neq('task_status', 'completed');
-
-			if (receivingError) throw receivingError;
-
 			const now = new Date();
 			
 			// Process overdue regular tasks
@@ -146,14 +128,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 					   new Date(t.quick_tasks.deadline_datetime) < now;
 			}).length;
 
-			// Process overdue receiving tasks
-			const receivingOverdue = receivingTasks.filter(t => {
-				return t.due_date && 
-					   new Date(t.due_date) < now;
-			}).length;
-
-			// Combine overdue statistics from all three task types
-			const totalOverdue = regularOverdue + quickOverdue + receivingOverdue;
+			const totalOverdue = regularOverdue + quickOverdue;
 
 			taskStats = {
 				totalAssigned: totalTasksCount,
@@ -249,35 +224,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 			if (quickError) throw quickError;
 
-			// Load receiving task assignments (only overdue ones) with pagination
-			const { data: receivingAssignments, error: receivingError } = await supabase
-				.from('receiving_tasks')
-				.select(`
-					id,
-					assigned_user_id,
-					task_status,
-					due_date,
-					created_at,
-					completed_at,
-					completed_by_user_id,
-					title,
-					description,
-					priority,
-					receiving_record_id,
-					receiving_records(
-						id,
-						bill_number,
-						bill_amount,
-						vendor_id,
-						branch_id,
-						user_id,
-						branch:branch_id(id, name_en)
-					)
-				`)
-				.neq('task_status', 'completed') // Exclude completed tasks
-				.not('due_date', 'is', null); // Only tasks with deadlines
-
-			if (receivingError) throw receivingError;
+			const receivingAssignments = [];
 
 			// Get unique vendor IDs and branch IDs from receiving assignments to fetch vendor names
 			const vendorKeys = [...new Set(receivingAssignments

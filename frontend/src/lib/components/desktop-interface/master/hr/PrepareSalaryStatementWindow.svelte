@@ -8,7 +8,6 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
-	import SalaryStatementPermissionsModal from './SalaryStatementPermissionsModal.svelte';
 	import SalaryAndWage from './SalaryAndWage.svelte';
 
 	export let windowId: string;
@@ -184,7 +183,6 @@
 	// Master Admin always has both, regardless of what's in the table.
 	let canEditSalaryStatement = false;
 	let canViewSalaryStatementLogs = false;
-	let showPermissionsModal = false;
 
 	async function loadEditLogPermissions() {
 		const user = get(currentUser);
@@ -204,11 +202,6 @@
 			canEditSalaryStatement = false;
 			canViewSalaryStatementLogs = false;
 		}
-	}
-
-	function openPermissionsModal() {
-		showPermissionsModal = true;
-		recordLog({ action_type: LOG.PERMISSIONS_MODAL_OPEN, action_description: 'Opened Manage Edit and Log Permission popup', related_ui: 'SalaryStatementPermissionsModal' });
 	}
 
 	function openNotesPopup(row: any) {
@@ -3368,18 +3361,6 @@ title="Export salary data to Mudad Excel template"
 					Logs
 				</button>
 			{/if}
-			{#if $currentUser?.isMasterAdmin}
-				<button
-					on:click={openPermissionsModal}
-					class="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors h-[38px] flex items-center gap-2"
-					title="Manage Edit and Log Permission"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-					</svg>
-					Manage Edit and Log Permission
-				</button>
-			{/if}
 		</div>
 	</div>
 
@@ -4554,16 +4535,9 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	on:noteDeleteFailed={(e) => recordLog({ action_type: LOG.NOTES_DELETE, action_description: `Failed to delete salary note for employee ${notesEmployeeName}`, employee_id: notesEmployeeId, employee_name: notesEmployeeName, related_ui: 'EmployeeSalaryNotesPopup', status: 'failed', metadata: { error: e.detail.error?.message || String(e.detail.error) } })}
 />
 
-<!-- Manage Edit and Log Permission (Master Admin only) -->
-<SalaryStatementPermissionsModal
-	bind:show={showPermissionsModal}
-	currentUserId={$currentUser?.id || null}
-	on:close={() => { showPermissionsModal = false; }}
-	on:permissionSaved={(e) => recordLog({ action_type: LOG.PERMISSION_GRANT, action_description: `Set Edit=${e.detail.canEdit ? 'Yes' : 'No'}, Log=${e.detail.canViewLogs ? 'Yes' : 'No'} for user ${e.detail.userName}`, employee_id: e.detail.userId, employee_name: e.detail.userName, related_ui: 'SalaryStatementPermissionsModal', after_value: { canEdit: e.detail.canEdit, canViewLogs: e.detail.canViewLogs } })}
-	on:permissionSaveFailed={(e) => recordLog({ action_type: LOG.PERMISSION_GRANT, action_description: 'Failed to save Edit/Log permission', related_ui: 'SalaryStatementPermissionsModal', status: 'failed', metadata: { error: e.detail.error } })}
-	on:permissionRemoved={(e) => recordLog({ action_type: LOG.PERMISSION_REVOKE, action_description: `Removed Edit/Log permissions for user ${e.detail.userName}`, employee_id: e.detail.userId, employee_name: e.detail.userName, related_ui: 'SalaryStatementPermissionsModal', before_value: e.detail.before, after_value: null })}
-	on:permissionRemoveFailed={(e) => recordLog({ action_type: LOG.PERMISSION_REVOKE, action_description: 'Failed to remove Edit/Log permission', related_ui: 'SalaryStatementPermissionsModal', status: 'failed', metadata: { userId: e.detail.userId, error: e.detail.error } })}
-/>
+<!-- Manage Edit and Log Permission moved into the App Permissions window
+     (Controls > Dashboard > Salary Statement tab) — see
+     Do not delete/PERMISSION_SYSTEMS_AUDIT.md. -->
 
 {#if showEmpEditModal && empEditRow}
 	{@const _basicSal = Number(empEdit.basicSalary) || 0}

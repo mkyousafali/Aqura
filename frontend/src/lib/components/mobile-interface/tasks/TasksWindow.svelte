@@ -4,6 +4,8 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import { goto } from '$app/navigation';
+	import AutoTaskList from '$lib/components/common/AutoTaskList.svelte';
+	let autoTaskCount = 0;
 	
 	// Store subscriptions
 	$: counts = $taskCounts;
@@ -16,8 +18,10 @@
 	let isLoading = true;
 	let error = '';
 	
-	onMount(async () => {
-		await loadTasks();
+	onMount(() => {
+		loadTasks();
+		const timer = setInterval(loadTasks, 15000);
+		return () => clearInterval(timer);
 	});
 	
 	async function loadTasks() {
@@ -97,26 +101,7 @@
 				}
 			}
 
-			// Load receiving tasks assigned to the user
-			const { data: receivingData, error: receivingError } = await supabase
-				.from('receiving_tasks')
-				.select(`
-					id, title, description, priority, role_type, task_status,
-					task_completed, due_date, created_at, receiving_record_id,
-					clearance_certificate_url
-				`)
-				.eq('assigned_user_id', user.id)
-				.eq('task_completed', false)
-				.neq('task_status', 'completed')
-				.order('created_at', { ascending: false })
-				.limit(20);
-			
-			if (receivingError) {
-				console.error('Error loading receiving tasks:', receivingError);
-				error = error ? `${error}; Failed to load receiving tasks` : 'Failed to load receiving tasks';
-			} else {
-				receivingTasks = receivingData || [];
-			}
+			receivingTasks = [];
 			
 		} catch (err) {
 			console.error('Error loading tasks:', err);
@@ -186,7 +171,7 @@
 				{#if counts.loading}
 					<span class="loading">Loading...</span>
 				{:else}
-					<span class="total-count">Total: {regularTasks.length + quickTasks.length + receivingTasks.length}</span>
+					<span class="total-count">Total: {regularTasks.length + quickTasks.length + receivingTasks.length + autoTaskCount}</span>
 					{#if counts.overdue > 0}
 						<span class="overdue-count">Overdue: {counts.overdue}</span>
 					{/if}
@@ -200,8 +185,9 @@
 			🔄 Refresh
 		</button>
 	</div>
-	
+
 	<div class="tasks-content">
+		<AutoTaskList compact={true} embedded={true} bind:taskCount={autoTaskCount} />
 		{#if isLoading}
 			<div class="loading-state">
 				<div class="loading-spinner"></div>
@@ -212,7 +198,7 @@
 				<p>❌ {error}</p>
 				<button on:click={loadTasks}>Try Again</button>
 			</div>
-		{:else if regularTasks.length === 0 && quickTasks.length === 0 && receivingTasks.length === 0}
+		{:else if regularTasks.length === 0 && quickTasks.length === 0 && receivingTasks.length === 0 && autoTaskCount === 0}
 			<div class="empty-state">
 				<div class="empty-icon">📝</div>
 				<h3>No Active Tasks</h3>

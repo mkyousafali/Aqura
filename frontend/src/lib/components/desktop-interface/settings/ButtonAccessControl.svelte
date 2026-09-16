@@ -233,10 +233,11 @@
 		usersLoading = true;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			let countQuery = supabase.from('users').select('id', { count: 'exact' });
+			let countQuery = supabase.from('users').select('id', { count: 'exact' }).eq('status', 'active');
 			let dataQuery = supabase
 				.from('users')
 				.select('id, username, is_master_admin, is_admin, branch_id, position_id, employee_id, branches!users_branch_id_fkey (name_en)', { count: 'exact' })
+				.eq('status', 'active')
 				.order('username', { ascending: true })
 				.range(currentPage * pageSize, (currentPage + 1) * pageSize - 1);
 
@@ -452,7 +453,7 @@
 		addUserOptionsLoading = true;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase.from('users').select('id, username, employee_id').order('username').limit(2000);
+			const { data, error } = await supabase.from('users').select('id, username, employee_id').eq('status', 'active').order('username').limit(2000);
 			if (error) throw error;
 			const permittedIds = new Set(permittedUsers.map(user => user.id));
 			addUserOptions = (data || []).filter(user => !permittedIds.has(user.id));
@@ -521,7 +522,7 @@
 
 	async function searchCopyUsers(query: string): Promise<any[]> {
 		const { supabase } = await import('$lib/utils/supabase');
-		let q = supabase.from('users').select('id, username').order('username').limit(20);
+		let q = supabase.from('users').select('id, username').eq('status', 'active').order('username').limit(20);
 		if (query) q = q.ilike('username', `%${query}%`);
 		const { data } = await q;
 		return data || [];

@@ -40,7 +40,15 @@
 		name_ar: string;
 	}
 
-	let activeTab: 'permission' | 'approvers' | 'closures' = 'permission';
+	export let initialTab: 'permission' | 'approvers' | 'closures' = 'permission';
+	// When true, hides the internal Denomination Permission / Complete Box
+	// Approvers / Permitted Closures tab switcher below — used when this
+	// component is embedded as three SEPARATE outer tabs (e.g. in the App
+	// Permissions window), so there's no redundant nested tab bar
+	// duplicating the outer one.
+	export let hideTabSwitcher: boolean = false;
+
+	let activeTab: 'permission' | 'approvers' | 'closures' = initialTab;
 
 	let rows: PermRow[] = [];
 	let loading = true;
@@ -73,10 +81,23 @@
 	async function loadApprovers() {
 		approversLoading = true;
 		try {
+			// Only users who already hold the DENOMINATION button permission are
+			// eligible — no point making someone a Complete Box approver if they
+			// can't open the Denomination window at all.
+			const { data: access, error: accessErr } = await supabase
+				.from('button_permissions')
+				.select('user_id')
+				.eq('button_code', 'DENOMINATION')
+				.eq('is_enabled', true);
+			if (accessErr) throw accessErr;
+			const eligibleIds = [...new Set((access || []).map((a: any) => a.user_id))];
+			if (eligibleIds.length === 0) { approverRows = []; return; }
+
 			const { data: users, error: usersErr } = await supabase
 				.from('users')
 				.select('id, username, employee_id')
 				.eq('status', 'active')
+				.in('id', eligibleIds)
 				.order('username');
 			if (usersErr) throw usersErr;
 
@@ -167,10 +188,22 @@
 	async function loadClosureRows() {
 		closureLoading = true;
 		try {
+			// Only users who already hold the DENOMINATION button permission are
+			// eligible — same reasoning as Complete Box Approvers above.
+			const { data: access, error: accessErr } = await supabase
+				.from('button_permissions')
+				.select('user_id')
+				.eq('button_code', 'DENOMINATION')
+				.eq('is_enabled', true);
+			if (accessErr) throw accessErr;
+			const eligibleIds = [...new Set((access || []).map((a: any) => a.user_id))];
+			if (eligibleIds.length === 0) { closureRows = []; return; }
+
 			const { data: users, error: usersErr } = await supabase
 				.from('users')
 				.select('id, username, employee_id, branch_id')
 				.eq('status', 'active')
+				.in('id', eligibleIds)
 				.order('username');
 			if (usersErr) throw usersErr;
 
@@ -400,6 +433,7 @@
 
 <div class="h-full flex flex-col bg-white">
 	<!-- Tabs -->
+	{#if !hideTabSwitcher}
 	<div class="flex border-b border-slate-200 bg-slate-50 px-2 pt-2 gap-1">
 		<button
 			type="button"
@@ -423,6 +457,7 @@
 			Permitted Closures
 		</button>
 	</div>
+	{/if}
 
 {#if activeTab === 'permission'}
 	<!-- Header -->
@@ -588,7 +623,9 @@
 				</tbody>
 			</table>
 			{#if filteredApprovers.length === 0}
-				<div class="text-center py-12 text-slate-400">No users found</div>
+				<div class="text-center py-12 text-slate-400">
+					{approverRows.length === 0 ? 'No users have Denomination access yet — grant that in Button Access Control first.' : 'No users found'}
+				</div>
 			{/if}
 		{/if}
 	</div>
@@ -671,7 +708,9 @@
 				</tbody>
 			</table>
 			{#if filteredClosureRows.length === 0}
-				<div class="text-center py-12 text-slate-400">No users found</div>
+				<div class="text-center py-12 text-slate-400">
+					{closureRows.length === 0 ? 'No users have Denomination access yet — grant that in Button Access Control first.' : 'No users found'}
+				</div>
 			{/if}
 		{/if}
 	</div>

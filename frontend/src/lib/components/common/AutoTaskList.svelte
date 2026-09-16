@@ -1,0 +1,247 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { supabase } from '$lib/utils/supabase';
+  import { locale } from '$lib/i18n';
+  import { currentUser } from '$lib/utils/persistentAuth';
+  import { taskCountService } from '$lib/stores/taskCount';
+
+  export let compact = false;
+  export let embedded = false;
+  export let tableView = false;
+  export let taskCount = 0;
+
+  let tasks: any[] = [];
+  let loading = true;
+  let error = '';
+  let busyTaskId = '';
+  let filesByTask: Record<string, File[]> = {};
+  let balanceByTask: Record<string, string> = {};
+  let isRefreshing = false;
+
+  $: isArabic = $locale === 'ar';
+
+  onMount(() => {
+    loadTasks();
+    const timer = setInterval(() => loadTasks(true), 5000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadTasks(true);
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  });
+
+  export async function refresh() {
+    await loadTasks();
+  }
+
+  async function loadTasks(silent = false) {
+    if (isRefreshing) return;
+    isRefreshing = true;
+    if (!silent || tasks.length === 0) loading = true;
+    error = '';
+    if (!$currentUser?.id) {
+      tasks = [];
+      taskCount = 0;
+      error = 'Current Aqura user is unavailable.';
+      loading = false;
+      isRefreshing = false;
+      return;
+    }
+    const { data, error: rpcError } = await supabase.rpc('Autotask_list_my_tasks', {
+      p_user_id: $currentUser.id,
+      p_include_completed: false,
+      p_limit: 200
+    });
+    if (rpcError) error = rpcError.message || 'Failed to load Auto Tasks.';
+    tasks = data || [];
+    taskCount = tasks.length;
+    taskCountService.setAutoTaskCounts(taskCount, tasks.filter((task) => task.is_overdue).length);
+    loading = false;
+    isRefreshing = false;
+  }
+
+  function title(task: any) {
+    return isArabic ? task.title_ar : task.title_en;
+  }
+
+  function dueText(task: any) {
+    if (task.is_overdue) return isArabic ? 'متأخرة' : 'Overdue';
+    return new Date(task.due_at).toLocaleString(isArabic ? 'ar-SA' : 'en-GB', { hour12: true });
+  }
+
+  function receivingDateText(value: string) {
+    return new Date(value).toLocaleString(isArabic ? 'ar-SA' : 'en-GB', { hour12: true });
+  }
+
+  function chooseFiles(taskId: string, event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    filesByTask = { ...filesByTask, [taskId]: Array.from(input.files || []) };
+  }
+
+  async function uploadEvidence(task: any) {
+    const files = filesByTask[task.id] || [];
+    for (const file of files) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `${task.source_table}/${task.source_record_id}/${task.id}/${crypto.randomUUID()}-${safeName}`;
+      const { error: uploadError } = await supabase.storage.from('Autotask_evidence').upload(path, file, {
+        contentType: file.type || undefined,
+        upsert: false
+      });
+      if (uploadError) throw uploadError;
+      const { error: evidenceError } = await supabase.rpc('Autotask_register_evidence', {
+        p_actor_user_id: $currentUser.id,
+        p_task_id: task.id,
+        p_storage_path: path,
+        p_mime_type: file.type || null,
+        p_size_bytes: file.size
+      });
+      if (evidenceError) {
+        await supabase.storage.from('Autotask_evidence').remove([path]);
+        throw evidenceError;
+      }
+    }
+  }
+
+  async function complete(task: any) {
+    busyTaskId = task.id;
+    error = '';
+    try {
+      if (task.task_number === 1 && (filesByTask[task.id] || []).length < 1) {
+        throw new Error(isArabic ? 'يجب رفع صورة واحدة على الأقل.' : 'Upload at least one photo.');
+      }
+      if (task.task_number === 3 && !balanceByTask[task.id]) {
+        throw new Error(isArabic ? 'حدد حالة رصيد المستودع.' : 'Select the warehouse balance status.');
+      }
+      if (task.task_number === 3 && balanceByTask[task.id] === 'yes' && (filesByTask[task.id] || []).length < 1) {
+        throw new Error(isArabic ? 'الصورة مطلوبة عند وجود رصيد.' : 'A photo is required when balance remains.');
+      }
+      await uploadEvidence(task);
+      const completionData = task.task_number === 3
+        ? { has_warehouse_balance: balanceByTask[task.id] === 'yes' }
+        : {};
+      const { error: completionError } = await supabase.rpc('Autotask_complete_task', {
+        p_actor_user_id: $currentUser.id,
+        p_task_id: task.id,
+        p_completion_data: completionData
+      });
+      if (completionError) throw completionError;
+      filesByTask = { ...filesByTask, [task.id]: [] };
+      await loadTasks();
+    } catch (caught: any) {
+      error = caught?.message || 'Failed to complete Auto Task.';
+    } finally {
+      busyTaskId = '';
+    }
+  }
+</script>
+
+<section class:compact class:embedded class="autotask-panel" aria-label={isArabic ? 'مهامي' : 'My Tasks'}>
+  {#if !embedded}<div class="panel-heading">
+    <h2>{isArabic ? 'المهام التلقائية' : 'Auto Tasks'}</h2>
+    <button type="button" on:click={loadTasks} disabled={loading}>{isArabic ? 'تحديث' : 'Refresh'}</button>
+  </div>{/if}
+
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if loading}
+    <p class="empty">{isArabic ? 'جارٍ التحميل…' : 'Loading…'}</p>
+  {:else if tasks.length === 0 && !embedded}
+    <p class="empty">{isArabic ? 'لا توجد مهام تلقائية نشطة.' : 'No active Auto Tasks.'}</p>
+  {:else if tableView}
+    <div class="table-wrap">
+      <table class="task-table">
+        <thead>
+          <tr>
+            <th>#</th><th>{isArabic ? 'المهمة' : 'Task'}</th><th>{isArabic ? 'الحالة' : 'Status'}</th>
+            <th>{isArabic ? 'الموعد' : 'Due'}</th><th>{isArabic ? 'المورد' : 'Vendor'}</th>
+            <th>{isArabic ? 'رقم الفاتورة' : 'Bill number'}</th><th>{isArabic ? 'تاريخ الاستلام' : 'Receiving date'}</th>
+            <th>{isArabic ? 'تم الاستلام بواسطة' : 'Received by'}</th><th>{isArabic ? 'الإجراء' : 'Action'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each tasks as task}
+            <tr class:overdue-row={task.is_overdue} class:blocked-row={task.status === 'blocked'}>
+              <td class="task-number">#{task.task_number}</td>
+              <td class="task-name">{title(task)}</td>
+              <td><span class="status">{task.is_overdue ? (isArabic ? 'متأخرة' : 'Overdue') : task.status}</span></td>
+              <td>{dueText(task)}</td>
+              <td>{task.source_refs?.vendor_name || '—'}</td>
+              <td>{task.source_refs?.bill_number || '—'}</td>
+              <td>{task.source_refs?.receiving_date ? receivingDateText(task.source_refs.receiving_date) : '—'}</td>
+              <td>{task.source_refs?.received_by || '—'}</td>
+              <td class="table-action">
+                {#if task.status === 'blocked'}
+                  <span class="condition-text">{isArabic ? 'بانتظار اكتمال المهام السابقة' : 'Waiting for dependencies'}</span>
+                {:else if task.task_number === 1 || task.task_number === 2 || task.task_number === 3}
+                  {#if task.task_number === 3}
+                    <label><input type="radio" name={`table-balance-${task.id}`} value="no" bind:group={balanceByTask[task.id]} /> {isArabic ? 'لا يوجد رصيد' : 'No balance'}</label>
+                    <label><input type="radio" name={`table-balance-${task.id}`} value="yes" bind:group={balanceByTask[task.id]} /> {isArabic ? 'يوجد رصيد' : 'Balance remains'}</label>
+                  {/if}
+                  {#if task.task_number === 1 || (task.task_number === 3 && balanceByTask[task.id] === 'yes')}
+                    <input class="table-file" type="file" accept="image/*" multiple on:change={(event) => chooseFiles(task.id, event)} />
+                  {/if}
+                  <button class="complete table-complete" type="button" on:click={() => complete(task)} disabled={busyTaskId === task.id}>
+                    {busyTaskId === task.id ? (isArabic ? 'جارٍ الإكمال…' : 'Completing…') : (isArabic ? 'إكمال' : 'Complete')}
+                  </button>
+                {:else}
+                  <span class="condition-text">{isArabic ? 'تُغلق تلقائيًا عند تحقق الشرط' : 'Closes automatically'}</span>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {:else}
+    <div class="task-grid">
+      {#each tasks as task}
+        <article class:overdue={task.is_overdue} class:blocked={task.status === 'blocked'} class="task-card">
+          <div class="task-title-row">
+            <span class="number">#{task.task_number}</span>
+            <h3>{title(task)}</h3>
+            <span class="status">{task.is_overdue ? (isArabic ? 'متأخرة' : 'Overdue') : task.status}</span>
+          </div>
+          <div class="meta">
+            <span>{isArabic ? 'الموعد:' : 'Due:'} {dueText(task)}</span>
+            <span><strong>{isArabic ? 'المورد:' : 'Vendor:'}</strong> {task.source_refs?.vendor_name || '—'}</span>
+            <span><strong>{isArabic ? 'رقم الفاتورة:' : 'Bill number:'}</strong> {task.source_refs?.bill_number || '—'}</span>
+            <span><strong>{isArabic ? 'تاريخ الاستلام:' : 'Receiving date:'}</strong> {task.source_refs?.receiving_date ? receivingDateText(task.source_refs.receiving_date) : '—'}</span>
+            <span><strong>{isArabic ? 'تم الاستلام بواسطة:' : 'Received by:'}</strong> {task.source_refs?.received_by || '—'}</span>
+          </div>
+
+          {#if task.status === 'blocked'}
+            <p class="blocked-message">{isArabic ? 'مرئية الآن، لكن لا يمكن إغلاقها حتى تكتمل المهام السابقة.' : 'Visible now, but cannot be closed until its dependencies are complete.'}</p>
+          {:else if task.task_number === 1 || task.task_number === 2 || task.task_number === 3}
+            {#if task.task_number === 3}
+              <div class="choice-row">
+                <label><input type="radio" name={`balance-${task.id}`} value="no" bind:group={balanceByTask[task.id]} /> {isArabic ? 'لا يوجد رصيد في المستودع' : 'No warehouse balance remains'}</label>
+                <label><input type="radio" name={`balance-${task.id}`} value="yes" bind:group={balanceByTask[task.id]} /> {isArabic ? 'يوجد رصيد في المستودع' : 'Warehouse balance remains'}</label>
+              </div>
+            {/if}
+            {#if task.task_number === 1 || (task.task_number === 3 && balanceByTask[task.id] === 'yes')}
+              <label class="upload-label">
+                {isArabic ? 'صور الإثبات (صورة واحدة على الأقل)' : 'Evidence photos (minimum one)'}
+                <input type="file" accept="image/*" multiple on:change={(event) => chooseFiles(task.id, event)} />
+              </label>
+              {#if (filesByTask[task.id] || []).length > 0}<small>{(filesByTask[task.id] || []).length} {isArabic ? 'ملف' : 'file(s) selected'}</small>{/if}
+            {/if}
+            <button class="complete" type="button" on:click={() => complete(task)} disabled={busyTaskId === task.id}>
+              {busyTaskId === task.id ? (isArabic ? 'جارٍ الإكمال…' : 'Completing…') : (isArabic ? 'إكمال المهمة' : 'Complete Task')}
+            </button>
+          {:else}
+            <p class="automatic">{isArabic ? 'تُغلق هذه المهمة تلقائيًا عند تحقق شرطها.' : 'This task closes automatically when its operational condition is met.'}</p>
+          {/if}
+        </article>
+      {/each}
+    </div>
+  {/if}
+</section>
+
+<style>
+  .autotask-panel{margin:1rem 0;padding:1rem;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc}.autotask-panel.embedded{margin:0;padding:0;border:0;border-radius:0;background:transparent}.panel-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.panel-heading h2{margin:0;font-size:1.15rem}.panel-heading button,.complete{border:0;border-radius:8px;padding:.55rem .85rem;cursor:pointer}.panel-heading button{background:#e2e8f0}.task-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:.75rem;margin-top:.8rem}.embedded .task-grid{margin-top:0;margin-bottom:.75rem}.task-card{padding:.85rem;border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:10px;background:white}.task-card.overdue{border-left-color:#dc2626}.task-card.blocked{border-left-color:#64748b;background:#f1f5f9}.task-title-row{display:flex;align-items:center;gap:.45rem}.task-title-row h3{font-size:.95rem;margin:0;flex:1}.number{font-weight:800;color:#2563eb}.status{text-transform:capitalize;font-size:.72rem;padding:.2rem .4rem;border-radius:999px;background:#e2e8f0}.meta{display:flex;flex-direction:column;gap:.2rem;margin:.55rem 0;color:#475569;font-size:.78rem}.blocked-message,.automatic{font-size:.8rem;color:#475569}.choice-row{display:flex;flex-direction:column;gap:.35rem;font-size:.82rem;margin:.6rem 0}.upload-label{display:flex;flex-direction:column;gap:.35rem;font-size:.8rem;font-weight:600}.complete{margin-top:.65rem;background:#2563eb;color:white}.complete:disabled,.panel-heading button:disabled{opacity:.55;cursor:not-allowed}.error{color:#b91c1c;background:#fee2e2;padding:.6rem;border-radius:8px}.empty{color:#64748b}.compact{padding:.75rem}.compact.embedded{padding:0}.compact .task-grid{grid-template-columns:1fr}
+  .table-wrap{width:100%;overflow:auto;margin-bottom:1rem;border:1px solid #e2e8f0;border-radius:12px;background:white}.task-table{width:100%;min-width:1180px;border-collapse:collapse;font-size:.75rem;color:#475569}.task-table th{position:sticky;top:0;z-index:1;padding:.7rem .6rem;text-align:left;background:#f1f5f9;color:#334155;font-weight:800;border-bottom:1px solid #cbd5e1;white-space:nowrap}.task-table td{padding:.65rem .6rem;vertical-align:top;border-bottom:1px solid #e2e8f0}.task-table tbody tr:last-child td{border-bottom:0}.task-table tbody tr:hover{background:#f8fafc}.task-table .blocked-row{background:#f8fafc}.task-table .overdue-row{background:#fff7f7}.task-number{font-weight:900;color:#2563eb;white-space:nowrap}.task-name{min-width:165px;font-weight:700;color:#1e293b}.table-action{min-width:190px}.table-action label{display:block;margin-bottom:.25rem;white-space:nowrap}.condition-text{font-size:.7rem;color:#64748b}.table-file{display:block;width:180px;margin:.25rem 0;font-size:.68rem}.table-complete{margin-top:.3rem;padding:.4rem .65rem;font-size:.72rem}
+</style>

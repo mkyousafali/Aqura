@@ -81,9 +81,6 @@
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'quick_task_assignments' }, () => {
 				silentRefresh();
 			})
-			.on('postgres_changes', { event: '*', schema: 'public', table: 'receiving_tasks' }, () => {
-				silentRefresh();
-			})
 			.subscribe();
 	}
 
@@ -98,7 +95,7 @@
 	async function loadData(silent = false) {
 		if (!silent) loading = true;
 		try {
-			const [branchRes, empRes, attRes, breakSummaryRes, activeBreaksRes, taskRes, quickTaskRes, receivingTaskRes] = await Promise.all([
+			const [branchRes, empRes, attRes, breakSummaryRes, activeBreaksRes, taskRes, quickTaskRes] = await Promise.all([
 				supabase
 					.from('branches')
 					.select('id, name_en, name_ar, location_en, location_ar')
@@ -133,12 +130,7 @@
 				supabase
 					.from('quick_task_assignments')
 					.select('assigned_to_user_id')
-					.not('status', 'in', '(completed,cancelled)'),
-				supabase
-					.from('receiving_tasks')
-					.select('assigned_user_id')
-					.eq('task_completed', false)
-					.neq('task_status', 'completed')
+					.not('status', 'in', '(completed,cancelled)')
 			]);
 
 			branches = branchRes.data || [];
@@ -183,11 +175,6 @@
 			for (const row of quickTaskRes.data || []) {
 				if (!row.assigned_to_user_id) continue;
 				const uid = String(row.assigned_to_user_id);
-				taskCountMap[uid] = (taskCountMap[uid] || 0) + 1;
-			}
-			for (const row of receivingTaskRes.data || []) {
-				if (!row.assigned_user_id) continue;
-				const uid = String(row.assigned_user_id);
 				taskCountMap[uid] = (taskCountMap[uid] || 0) + 1;
 			}
 

@@ -14,7 +14,6 @@
   // every other caller of this component (e.g. ReceivingRecords.svelte) is unaffected.
   export let isPendingRecord = false;
   $: receivingTableName = isPendingRecord ? 'pending_receiving_records' : 'receiving_records';
-  $: receivingTasksApiPath = isPendingRecord ? '/api/pending-receiving-tasks' : '/api/receiving-tasks';
   
   let currencySymbolUrl = '/icons/saudi-currency.png';
   const dispatch = createEventDispatcher();
@@ -952,25 +951,64 @@
         return;
       }
       
-      // Call the API to generate tasks
-      const response = await fetch(receivingTasksApiPath, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          receiving_record_id: receivingRecord.id,
-          clearance_certificate_url: certificateImageUrl, // Use the saved image URL
-          generated_by_user_id: user.id,
-          generated_by_name: user.username || user.displayName,
-          generated_by_role: user.isMasterAdmin ? 'Master Admin' : user.isAdmin ? 'Admin' : 'User'
-        })
+      // Call the authenticated Auto Task RPC directly so auth.uid() and all
+      // database authorization checks are preserved.
+      const { data, error: taskError } = await supabase.rpc('Autotask_ingest_receiving_certificate', {
+        p_source_table: receivingTableName,
+        p_source_record_id: String(receivingRecord.id),
+        p_certificate_url: certificateImageUrl,
+        p_actor_user_id: user.id
       });
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error);
+
+      if (taskError) throw taskError;
+      const result = {
+        success: true,
+        data,
+        message: data?.duplicate
+          ? 'Auto Tasks already exist for this receiving record.'
+          : `Successfully generated ${data?.tasks_created || 0} Auto Tasks.`
+      };
+
+      // Auto Task notifications are created transactionally by the RPC. Use the
+      // application's existing Edge Function sender to deliver their pushes.
+      if (!data?.duplicate) {
+        const { sendPushForNotification } = await import('$lib/utils/pushNotificationSender');
+        let eventNotifications = Array.isArray(data?.push_notifications) ? data.push_notifications : [];
+        // Compatibility with a database that has the narrow publisher hotfix
+        // but not yet the extended ingest response.
+        if (eventNotifications.length === 0 && data?.event_id) {
+          const { data: fetchedNotifications, error: notificationFetchError } = await supabase
+            .from('notifications')
+            .select('id,title,message,title_en,title_ar,message_en,message_ar,type')
+            .contains('metadata', { autotask_event_id: data.event_id });
+          if (notificationFetchError) {
+            console.warn('Could not load Auto Task notifications for push delivery.', notificationFetchError);
+          } else {
+            eventNotifications = fetchedNotifications || [];
+          }
+        }
+        const pushResults = await Promise.allSettled(
+          eventNotifications.map((notification) =>
+            sendPushForNotification(
+              notification.id,
+              notification.title,
+              notification.message,
+              { url: '/mobile-interface/tasks', type: notification.type },
+              {
+                titleEn: notification.title_en,
+                bodyEn: notification.message_en,
+                titleAr: notification.title_ar,
+                bodyAr: notification.message_ar
+              }
+            )
+          )
+        );
+        const failedPushes = pushResults.filter(
+          (entry) => entry.status === 'rejected' || (entry.status === 'fulfilled' && !entry.value?.success)
+        ).length;
+        if (failedPushes > 0) {
+          console.warn(`Auto Task push delivery failed for ${failedPushes} notification(s).`);
+        }
       }
       
       // Store results
@@ -1098,12 +1136,12 @@
     if (!receivingRecord?.id) return;
     
     try {
-      const response = await fetch(`${receivingTasksApiPath}?receiving_record_id=${receivingRecord.id}`);
-      const result = await response.json();
-      
-      if (result.success) {
-        generatedTasks = result.tasks || [];
-      }
+      const { data, error } = await supabase.rpc('Autotask_get_source_tasks', {
+        p_source_table: receivingTableName,
+        p_source_record_id: String(receivingRecord.id)
+      });
+      if (error) throw error;
+      generatedTasks = data || [];
       
     } catch (error) {
       console.error('Error loading generated tasks:', error);
@@ -1154,13 +1192,13 @@
     if (!receivingRecord?.id) return;
     
     try {
-      const response = await fetch(`${receivingTasksApiPath}?receiving_record_id=${receivingRecord.id}`);
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.tasks && result.tasks.length > 0) {
-          generatedTasks = result.tasks;
-          tasksGenerated = true;
-        }
+      const { data } = await supabase.rpc('Autotask_get_source_tasks', {
+        p_source_table: receivingTableName,
+        p_source_record_id: String(receivingRecord.id)
+      });
+      if (data && data.length > 0) {
+        generatedTasks = data;
+        tasksGenerated = true;
       }
       // If no tasks exist or there's an error, just ignore it - tasks haven't been generated yet
     } catch (error) {
@@ -1417,28 +1455,24 @@
                   {#each generatedTasks as task}
                     <tr class="border-t border-gray-100 hover:bg-gray-50">
                       <td class="px-3 py-2 font-medium text-gray-900">
-                        {#if roleEmployeeNames[task.role_type]}
-                          {roleEmployeeNames[task.role_type].employeeId} - {roleEmployeeNames[task.role_type].name}
-                        {:else}
-                          —
-                        {/if}
+                        {task.assigned_user_name || '—'}
                       </td>
                       <td class="px-3 py-2">
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {getRoleDisplayName(task.role_type)}
+                          Task {task.task_number}: {task.title}
                         </span>
                       </td>
                       <td class="px-3 py-2">
-                        <span class="px-2 py-0.5 rounded-full text-xs font-medium {getTaskStatusColor(task.assignment_status)}">
-                          {task.assignment_status}
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium {getTaskStatusColor(task.task_status)}">
+                          {task.task_status}
                         </span>
                         {#if task.is_overdue}
                           <span class="ml-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Overdue</span>
                         {/if}
                       </td>
                       <td class="px-3 py-2 text-xs text-gray-500">
-                        {#if task.deadline_datetime}
-                          {new Date(task.deadline_datetime).toLocaleDateString()}
+                        {#if task.due_date}
+                          {new Date(task.due_date).toLocaleDateString()}
                         {:else}
                           —
                         {/if}

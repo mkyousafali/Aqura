@@ -72,14 +72,8 @@
 	let shelfStockerSearchQuery = '';
 	let showAllUsersForShelfStockers = false;
 
-	$: allRequiredUsersSelected = selectedBranch &&
-		selectedBranchManager &&
-		selectedAccountant &&
-		selectedPurchasingManager &&
-		selectedInventoryManager &&
-		selectedShelfStockers.length > 0 &&
-		selectedWarehouseHandler &&
-		selectedNightSupervisors.length > 0;
+	// New Auto Task system: Task 1 is selected here; Tasks 2-10 use branch defaults.
+	$: allRequiredUsersSelected = Boolean(selectedBranch) && selectedShelfStockers.length > 0;
 
 	// Filter shelf stockers
 	$: {
@@ -414,6 +408,12 @@
 		} catch (err: any) {
 			defaultPositionsError = 'Failed to load default positions: ' + err.message;
 		} finally {
+			// Legacy defaults must not block the new Auto Task 1 assignee selection.
+			if (!defaultPositionsLoaded) {
+				defaultPositionsError = '';
+				defaultPositionsLoaded = true;
+				await loadShelfStockersForSelection();
+			}
 			defaultPositionsLoading = false;
 		}
 	}
@@ -422,36 +422,27 @@
 		if (!selectedBranch) return;
 		try {
 			shelfStockersLoading = true;
-			const { data: employees, error } = await supabase
-				.from('hr_employee_master_with_status')
-				.select('user_id, id, name_en, name_ar, hr_positions(position_title_en, position_title_ar)')
-				.eq('current_branch_id', parseInt(selectedBranch))
-				.in('employment_status', ['Job (With Finger)', 'Remote Job'])
-				.order('name_en');
+			const { data: candidateUsers, error } = await supabase
+				.from('users')
+				.select('id, username, branch_id, status, is_admin, is_master_admin')
+				.eq('status', 'active')
+				.order('username');
 			if (error) throw error;
 
-			const isAr = $currentLocale === 'ar';
-			const all = (employees || []).map(emp => ({
-				id: emp.user_id,
-				employeeName: isAr ? (emp.name_ar || emp.name_en || emp.id) : (emp.name_en || emp.id),
-				employeeId: emp.id,
-				position: isAr
-					? (emp.hr_positions?.position_title_ar || emp.hr_positions?.position_title_en || '')
-					: (emp.hr_positions?.position_title_en || '')
-			}));
+			const allEligibleUsers = (candidateUsers || [])
+				.filter(user => String(user.branch_id) === String(selectedBranch) || user.is_admin || user.is_master_admin)
+				.map(user => ({
+					id: user.id,
+					username: user.username,
+					employeeName: user.username,
+					employeeId: user.username,
+					position: user.is_master_admin ? 'Master Admin' : user.is_admin ? 'Admin' : 'Branch User'
+				}));
 
-			const stockers = all.filter(u =>
-				(emp => emp.position_title_en || '')(u).toLowerCase().includes('shelf') ||
-				u.position.toLowerCase().includes('shelf')
-			);
-
-			shelfStockers = all;
-			actualShelfStockers = all.filter(u => {
-				const posEn = (employees || []).find(e => e.user_id === u.id)?.hr_positions?.position_title_en || '';
-				return posEn.toLowerCase().includes('shelf') && posEn.toLowerCase().includes('stocker');
-			});
-			filteredShelfStockers = actualShelfStockers.length > 0 ? actualShelfStockers : all;
-			showAllUsersForShelfStockers = actualShelfStockers.length === 0;
+			shelfStockers = allEligibleUsers;
+			actualShelfStockers = allEligibleUsers;
+			filteredShelfStockers = allEligibleUsers;
+			showAllUsersForShelfStockers = false;
 		} catch (err) {
 			console.error('Error loading shelf stockers:', err);
 		} finally {
@@ -1060,6 +1051,11 @@ ${fullText}` }] }],
 						<div class="error-msg">{defaultPositionsError}</div>
 					</div>
 				{:else if defaultPositionsLoaded}
+					<div class="card autotask-assignment-card">
+						<h3 class="card-title">Auto Task 1 — Placing products on shelf</h3>
+						<p>Select one or more users below. Each selected user receives a separate Task 1 when the clearance certificate is generated. Tasks 2–10 use Auto Task Manager branch defaults.</p>
+					</div>
+					{#if false}
 					<div class="card">
 						<h3 class="card-title">👥 {$currentLocale === 'ar' ? 'الطاقم المعين' : 'Assigned Staff'}</h3>
 						<div class="staff-grid">
@@ -1090,9 +1086,10 @@ ${fullText}` }] }],
 						</div>
 					</div>
 
-					<!-- Shelf Stocker Selection -->
+					{/if}
+					<!-- Auto Task 1 assignee selection -->
 					<div class="card">
-						<h3 class="card-title">🛒 {gt('receiving.selectShelfStocker')}</h3>
+						<h3 class="card-title">Auto Task 1 Assignees</h3>
 						{#if selectedShelfStockers.length > 0}
 							<div class="selected-chips">
 								{#each selectedShelfStockers as stocker}
@@ -1139,7 +1136,7 @@ ${fullText}` }] }],
 					</button>
 				{:else}
 					<div class="card info-card">
-						<span>⚠️ {gt('receiving.selectAllStaff')}</span>
+						<span>⚠️ Select at least one user for Auto Task 1.</span>
 					</div>
 				{/if}
 			{/if}

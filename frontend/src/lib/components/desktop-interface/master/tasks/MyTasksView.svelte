@@ -10,8 +10,13 @@
 	import TaskDetailsModal from './TaskDetailsModal.svelte';
 	import QuickTaskDetailsModal from './QuickTaskDetailsModal.svelte';
 	import QuickTaskCompletionDialog from './QuickTaskCompletionDialog.svelte';
-	import ReceivingTaskDetailsModal from './ReceivingTaskDetailsModal.svelte';
-	import ReceivingTaskCompletionDialog from '$lib/components/desktop-interface/master/operations/receiving/ReceivingTaskCompletionDialog.svelte';
+	import AutoTaskList from '$lib/components/common/AutoTaskList.svelte';
+	// Compatibility aliases for historical in-memory rows during local hot reload.
+	// The database RPC no longer returns legacy receiving tasks.
+	const ReceivingTaskDetailsModal = TaskDetailsModal;
+	const ReceivingTaskCompletionDialog = TaskCompletionModal;
+	let autoTaskCount = 0;
+	let legacyRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
 	let allTasks: any[] = [];
 	let filteredTasks: any[] = [];
@@ -46,13 +51,15 @@
 	$: authenticated = $isCashierAuthenticated || $isAuthenticated;
 	$: isMasterAdmin = $currentUser?.isMasterAdmin || false;
 
-	onMount(async () => {
-		await loadTasks();
+	onMount(() => {
+		loadTasks();
 		startCountdownTimer();
+		legacyRefreshTimer = setInterval(loadTasks, 15000);
 	});
 
 	onDestroy(() => {
 		stopCountdownTimer();
+		if (legacyRefreshTimer) clearInterval(legacyRefreshTimer);
 		if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
 	});
 
@@ -374,7 +381,6 @@
 			isDeleting = true;
 			let table = 'task_assignments';
 			if (deletingTaskType === 'quick_task') table = 'quick_task_assignments';
-			else if (deletingTaskType === 'receiving') table = 'receiving_tasks';
 
 			const { error } = await supabase.from(table).delete().eq('id', deletingTaskId);
 			if (error) throw error;
@@ -425,7 +431,7 @@
 			<div>
 				<h2 class="text-sm font-black text-slate-800 uppercase tracking-wide">{isRTL ? 'مهامي' : 'My Tasks'}</h2>
 				<p class="text-[10px] text-slate-400 font-semibold">
-					{isRTL ? `${allTasks.length} مهمة مسندة إليك` : `${allTasks.length} tasks assigned to you`}
+					{isRTL ? `${allTasks.length + autoTaskCount} مهمة مسندة إليك` : `${allTasks.length + autoTaskCount} tasks assigned to you`}
 				</p>
 			</div>
 		</div>
@@ -449,6 +455,7 @@
 
 	<!-- Content -->
 	<div class="flex-1 p-6 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
+		<AutoTaskList embedded={true} tableView={true} bind:taskCount={autoTaskCount} />
 		<div class="absolute top-0 right-0 w-[400px] h-[400px] bg-teal-100/20 rounded-full blur-[120px] -mr-48 -mt-48 animate-pulse pointer-events-none"></div>
 		<div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-cyan-100/15 rounded-full blur-[120px] -ml-48 -mb-48 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
 
@@ -462,12 +469,13 @@
 						<p class="mt-4 text-slate-600 font-semibold">{isRTL ? 'جاري تحميل المهام...' : 'Loading tasks...'}</p>
 					</div>
 				</div>
-			{:else if allTasks.length === 0}
+			{:else if allTasks.length === 0 && autoTaskCount === 0}
 				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
 					<div class="text-5xl mb-4">📭</div>
 					<p class="text-slate-600 font-semibold text-lg">{isRTL ? 'لا توجد مهام' : 'No tasks assigned to you'}</p>
 				</div>
 			{:else}
+				{#if allTasks.length > 0}
 				<!-- KPI Cards -->
 				<div class="grid grid-cols-5 gap-3 mb-4">
 					<div class="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/80 shadow-sm p-3 text-center">
@@ -677,6 +685,7 @@
 						{/if}
 					</div>
 				</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

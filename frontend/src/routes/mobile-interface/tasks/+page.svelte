@@ -5,6 +5,7 @@
 	import { supabase, db, resolveStorageUrl } from '$lib/utils/supabase';
 	import { locale, getTranslation } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
+	import AutoTaskList from '$lib/components/common/AutoTaskList.svelte';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -14,6 +15,7 @@
 	let filterStatus = 'active'; // Changed from 'all' to 'active' to hide completed by default
 	let filterPriority = 'all';
 	let showCompleted = false; // Toggle for showing/hiding completed tasks
+	let autoTaskCount = 0;
 
 	// User cache for displaying usernames and employee names
 	let userCache = {};
@@ -26,12 +28,14 @@
 	let previewImageSrc = '';
 	let previewImageAlt = '';
 
-	onMount(async () => {
+	onMount(() => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
-			await loadTasks();
+			loadTasks();
 		}
 		isLoading = false;
+		const timer = setInterval(() => currentUserData && loadTasks(), 15000);
+		return () => clearInterval(timer);
 	});
 
 	// Function to fetch and cache incident attachments
@@ -67,14 +71,6 @@
 		incidentAttachmentsCache[incidentId] = [];
 		return [];
 	}
-
-	onMount(async () => {
-		currentUserData = $currentUser;
-		if (currentUserData) {
-			await loadTasks();
-		}
-		isLoading = false;
-	});
 
 	// Function to load and cache user information
 	async function loadUserCache() {
@@ -237,7 +233,7 @@
 			
 			// Load only active tasks (not completed) - much faster due to RLS
 			// Parallel loading for better performance
-			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
+			const [taskAssignmentsResult, quickTaskAssignmentsResult] = await Promise.all([
 				// Load regular task assignments with separated queries (no nested joins)
 				supabase
 					.from('task_assignments')
@@ -256,25 +252,14 @@
 					.neq('status', 'completed')
 					.neq('status', 'cancelled')
 					.order('created_at', { ascending: false })
-					.limit(100),
-
-				// Load receiving tasks - filter for active only
-				supabase
-					.from('receiving_tasks')
-					.select('id, title, description, priority, role_type, task_status, due_date, created_at, assigned_user_id, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
-					.eq('assigned_user_id', currentUserData.id)
-					.neq('task_status', 'completed')
-					.order('created_at', { ascending: false })
 					.limit(100)
 			]);
 
 			if (taskAssignmentsResult.error) throw taskAssignmentsResult.error;
 			if (quickTaskAssignmentsResult.error) throw quickTaskAssignmentsResult.error;
-			if (receivingTasksResult.error) throw receivingTasksResult.error;
 
 			const taskAssignments = taskAssignmentsResult.data || [];
 			const quickTaskAssignments = quickTaskAssignmentsResult.data || [];
-			const receivingTasks = receivingTasksResult.data || [];
 
 			// Now fetch task details separately (avoids nested JOINs with RLS)
 			const regularTaskIds = taskAssignments.map(a => a.task_id);
@@ -392,35 +377,6 @@
 				};
 			});
 
-			// Process receiving tasks
-			const processedReceivingTasks = receivingTasks.map(task => {
-				return {
-					id: task.id,
-					title: task.title,
-					description: task.description,
-					priority: task.priority,
-					status: task.task_status,
-					assignment_id: task.id,
-					assignment_status: task.task_status,
-					assigned_at: task.created_at,
-					deadline_date: task.due_date ? task.due_date.split('T')[0] : null,
-					deadline_time: task.due_date ? task.due_date.split('T')[1]?.substring(0, 5) : null,
-					assigned_by: null,
-					assigned_by_name: 'System (Receiving)',
-					created_by: null,
-					created_by_name: 'System (Receiving)',
-					require_task_finished: true,
-					require_photo_upload: task.requires_original_bill_upload || false,
-					require_erp_reference: task.requires_erp_reference || false,
-					hasAttachments: false,
-					attachments: [],
-					task_type: 'receiving',
-					role_type: task.role_type,
-					receiving_record_id: task.receiving_record_id,
-					clearance_certificate_url: task.clearance_certificate_url
-				};
-			});
-
 			// Fetch parent task price info for shelf tag tasks (linked_parent_task:UUID in description)
 			const parentTaskIds = [];
 			const taskToParentMap = new Map();
@@ -504,7 +460,7 @@
 			}
 
 			// Combine and sort all tasks
-			tasks = [...processedTasks, ...processedQuickTasks, ...processedReceivingTasks]
+			tasks = [...processedTasks, ...processedQuickTasks]
 				.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
 			
 			// Load user cache after loading tasks
@@ -821,7 +777,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 			console.log('📋 Loading completed tasks on demand...');
 
 			// Load completed task assignments separately
-			const [taskAssignmentsResult, quickTaskAssignmentsResult, receivingTasksResult] = await Promise.all([
+			const [taskAssignmentsResult, quickTaskAssignmentsResult] = await Promise.all([
 				// Regular task assignments - completed status
 				supabase
 					.from('task_assignments')
@@ -838,25 +794,14 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 					.eq('assigned_to_user_id', currentUserData.id)
 					.eq('status', 'completed')
 					.order('created_at', { ascending: false })
-					.limit(100),
-
-				// Receiving tasks - completed status
-				supabase
-					.from('receiving_tasks')
-					.select('id, title, description, priority, role_type, task_status, due_date, created_at, assigned_user_id, receiving_record_id, clearance_certificate_url, requires_original_bill_upload, requires_erp_reference')
-					.eq('assigned_user_id', currentUserData.id)
-					.eq('task_status', 'completed')
-					.order('created_at', { ascending: false })
 					.limit(100)
 			]);
 
 			if (taskAssignmentsResult.error) console.error('Error loading completed regular tasks:', taskAssignmentsResult.error);
 			if (quickTaskAssignmentsResult.error) console.error('Error loading completed quick tasks:', quickTaskAssignmentsResult.error);
-			if (receivingTasksResult.error) console.error('Error loading completed receiving tasks:', receivingTasksResult.error);
 
 			const taskAssignments = taskAssignmentsResult.data || [];
 			const quickTaskAssignments = quickTaskAssignmentsResult.data || [];
-			const receivingTasksCompleted = receivingTasksResult.data || [];
 
 			// Fetch task details separately
 			const regularTaskIds = taskAssignments.map(a => a.task_id);
@@ -933,35 +878,6 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 					hasAttachments: false,
 					attachments: [],
 					task_type: 'quick'
-				};
-			});
-
-			// Process completed receiving tasks
-			const completedReceivingTasks = receivingTasksCompleted.map(task => {
-				return {
-					id: task.id,
-					title: task.title,
-					description: task.description,
-					priority: task.priority,
-					status: task.task_status,
-					assignment_id: task.id,
-					assignment_status: task.task_status,
-					assigned_at: task.created_at,
-					deadline_date: task.due_date ? task.due_date.split('T')[0] : null,
-					deadline_time: task.due_date ? task.due_date.split('T')[1]?.substring(0, 5) : null,
-					assigned_by: null,
-					assigned_by_name: 'System (Receiving)',
-					created_by: null,
-					created_by_name: 'System (Receiving)',
-					require_task_finished: true,
-					require_photo_upload: task.requires_original_bill_upload || false,
-					require_erp_reference: task.requires_erp_reference || false,
-					hasAttachments: false,
-					attachments: [],
-					task_type: 'receiving',
-					role_type: task.role_type,
-					receiving_record_id: task.receiving_record_id,
-					clearance_certificate_url: task.clearance_certificate_url
 				};
 			});
 
@@ -1044,7 +960,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 			}
 
 			// Add completed tasks to main tasks array
-			const completedTasks = [...completedRegularTasks, ...completedQuickTasks, ...completedReceivingTasks];
+			const completedTasks = [...completedRegularTasks, ...completedQuickTasks];
 			tasks = [...tasks, ...completedTasks]
 				.sort((a, b) => new Date(b.assigned_at).getTime() - new Date(a.assigned_at).getTime());
 
@@ -1071,22 +987,23 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 </svelte:head>
 
 <div class="mobile-tasks">
-	<!-- Assignment Action Button -->
-	<div class="action-buttons-section">
-		<a href="/mobile-interface/tasks/assign" class="assign-task-btn">
+	<div class="sticky-task-controls">
+		<!-- Assignment Action Button -->
+		<div class="action-buttons-section">
+			<a href="/mobile-interface/tasks/assign" class="assign-task-btn">
 			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
 				<circle cx="8.5" cy="7" r="4"/>
 				<line x1="20" y1="8" x2="20" y2="14"/>
 				<line x1="23" y1="11" x2="17" y2="11"/>
 			</svg>
-			<span>{getTranslation('mobile.bottomNav.create')}</span>
-		</a>
-	</div>
+				<span>{getTranslation('mobile.bottomNav.create')}</span>
+			</a>
+		</div>
 
-	<!-- Filters -->
-	<div class="filters-section">
-		<div class="search-box">
+		<!-- Filters -->
+		<div class="filters-section">
+			<div class="search-box">
 			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<circle cx="11" cy="11" r="8"/>
 				<path d="M21 21l-4.35-4.35"/>
@@ -1097,15 +1014,17 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 				bind:value={searchTerm}
 				class="search-input"
 			/>
-		</div>
+			</div>
 
-		<div class="results-count">
-			{filteredTasks.length} {filteredTasks.length !== 1 ? getTranslation('mobile.tasksContent.results.tasksFound') : getTranslation('mobile.tasksContent.results.taskFound')}
+			<div class="results-count">
+				{filteredTasks.length + autoTaskCount} {filteredTasks.length + autoTaskCount !== 1 ? getTranslation('mobile.tasksContent.results.tasksFound') : getTranslation('mobile.tasksContent.results.taskFound')}
+			</div>
 		</div>
 	</div>
 
 	<!-- Content -->
 	<div class="content-section">
+		<AutoTaskList compact={true} embedded={true} bind:taskCount={autoTaskCount} />
 		{#if isLoading}
 			<div class="loading-skeleton">
 				{#each Array(4) as _, i}
@@ -1130,7 +1049,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 					</div>
 				{/each}
 			</div>
-		{:else if filteredTasks.length === 0}
+		{:else if filteredTasks.length === 0 && autoTaskCount === 0}
 			<div class="empty-state">
 				<div class="empty-icon">
 					<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1426,12 +1345,37 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 <style>
 	.mobile-tasks {
-		min-height: 100vh;
-		min-height: 100dvh;
+		height: 100%;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
 		background: #F8FAFC;
 		overflow-x: hidden;
-		overflow-y: auto;
-		-webkit-overflow-scrolling: touch;
+		overflow-y: hidden;
+	}
+
+	.sticky-task-controls {
+		position: relative;
+		flex: 0 0 auto;
+		z-index: 40;
+		background: white;
+		box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+	}
+
+	.legacy-tasks-heading {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem 0.25rem;
+		color: #334155;
+		font-weight: 700;
+	}
+
+	.legacy-tasks-heading small {
+		color: #94a3b8;
+		font-size: 0.7rem;
+		font-weight: 500;
 	}
 
 	/* Action Buttons */
@@ -1576,8 +1520,17 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 	/* Content */
 	.content-section {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		-webkit-overflow-scrolling: touch;
 		padding: 0.5rem;
 		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+	}
+
+	:global(.mobile-content:has(.mobile-tasks)) {
+		overflow: hidden;
 	}
 
 	/* Loading State */

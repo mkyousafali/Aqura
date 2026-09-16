@@ -6,6 +6,7 @@
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { notifications } from '$lib/stores/notifications';
 	import { locale, t, tFor } from '$lib/i18n';
+	import AutoTaskApprovalList from '$lib/components/common/AutoTaskApprovalList.svelte';
 
 	// Builds title_en/title_ar/message_en/message_ar for a notification from the
 	// same i18n key already passed to t(), regardless of the acting admin's own
@@ -41,6 +42,7 @@
 	let myApprovedSchedules = []; // My approved schedules
 	let filteredRequisitions = [];
 	let filteredMyRequests = [];
+	let autoApprovalCount = 0;
 	let loading = true;
 	let realtimeChannel = null;
 	let selectedStatus = 'pending';
@@ -1841,8 +1843,8 @@ async function loadHistoricalData() {
 			on:click={() => { activeSection = 'approvals'; filterRequisitions(); }}
 		>
 			📋 {t('approvalCenter.tabAssigned')}
-			{#if stats.pending > 0}
-				<span class="badge">{stats.pending}</span>
+			{#if stats.pending + autoApprovalCount > 0}
+				<span class="badge">{stats.pending + autoApprovalCount}</span>
 			{/if}
 		</button>
 		<button 
@@ -1862,7 +1864,7 @@ async function loadHistoricalData() {
 			<div class="stat-card pending clickable" on:click={() => filterByStatus('pending')}>
 				<div class="stat-icon">⏳</div>
 				<div class="stat-content">
-					<div class="stat-value">{stats.pending}</div>
+					<div class="stat-value">{stats.pending + autoApprovalCount}</div>
 					<div class="stat-label">{t('approvalCenter.pending')}</div>
 				</div>
 			</div>
@@ -1981,6 +1983,7 @@ async function loadHistoricalData() {
 						</tr>
 					</thead>
 					<tbody>
+						{#if activeSection === 'approvals'}<AutoTaskApprovalList displayMode="desktop_rows" bind:approvalCount={autoApprovalCount} />{/if}
 						{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
 							<tr>
 								{#if req.item_type === 'requisition'}
@@ -3706,6 +3709,43 @@ async function loadHistoricalData() {
 	.btn-reject-inline:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* Auto Task rows are rendered by a child component. Apply the exact same
+	   action-button geometry across the Svelte style boundary. */
+	:global(.autotask-approval-row .btn-view),
+	:global(.autotask-approval-row .btn-approve-inline),
+	:global(.autotask-approval-row .btn-reject-inline) {
+		box-sizing: border-box !important;
+		width: auto !important;
+		height: auto !important;
+		padding: 0.5rem 0.75rem !important;
+		border-radius: 8px !important;
+		font-size: 1.2rem !important;
+		font-weight: 900 !important;
+		line-height: normal !important;
+		display: inline-flex !important;
+		align-items: center !important;
+		justify-content: center !important;
+	}
+
+	:global(.autotask-approval-row .btn-view) {
+		background: #3b82f6 !important;
+		color: white !important;
+		border: none !important;
+		font-weight: 700 !important;
+	}
+
+	:global(.autotask-approval-row .btn-approve-inline) {
+		background: #10b981 !important;
+		color: white !important;
+		border: none !important;
+	}
+
+	:global(.autotask-approval-row .btn-reject-inline) {
+		background: white !important;
+		color: #ef4444 !important;
+		border: 1.5px solid #ef4444 !important;
 	}
 
 	/* Modal */

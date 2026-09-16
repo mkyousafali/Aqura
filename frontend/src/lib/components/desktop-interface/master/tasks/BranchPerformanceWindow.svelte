@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
+    import { currentUser } from '$lib/utils/persistentAuth';
 
     let supabase: any;
     let loading = true;
@@ -103,7 +104,7 @@
         loading = true;
         error = '';
         try {
-            const params: any = {};
+            const params: any = { p_requesting_user_id: $currentUser?.id };
             if (filterMode === 'today') {
                 params.p_specific_date = getToday();
             } else if (filterMode === 'yesterday') {
@@ -113,7 +114,7 @@
             } else {
                 params.p_days_back = daysBack;
             }
-            const { data: result, error: err } = await supabase.rpc('get_branch_performance_dashboard', params);
+            const { data: result, error: err } = await supabase.rpc('Autotask_get_branch_performance_dashboard', params);
             if (err) throw err;
             data = result;
         } catch (e: any) {
@@ -176,7 +177,7 @@
     // Pie chart calculations
     function getPieSlices(typeStats: any) {
         if (!typeStats) return [];
-        const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0);
+        const total = (typeStats.regular || 0) + (typeStats.quick || 0) + (typeStats.receiving || 0) + (typeStats.auto || 0);
         if (total === 0) return [];
 
         const slices = [];
@@ -185,7 +186,8 @@
         const types = [
             { key: 'regular', color: '#3b82f6', label: isRTL ? 'مهام عادية' : 'Regular', count: typeStats.regular || 0 },
             { key: 'quick', color: '#f59e0b', label: isRTL ? 'مهام سريعة' : 'Quick', count: typeStats.quick || 0 },
-            { key: 'receiving', color: '#8b5cf6', label: isRTL ? 'مهام استلام' : 'Receiving', count: typeStats.receiving || 0 }
+            { key: 'receiving', color: '#8b5cf6', label: isRTL ? 'مهام استلام' : 'Receiving', count: typeStats.receiving || 0 },
+            { key: 'auto', color: '#06b6d4', label: isRTL ? 'مهام تلقائية' : 'Auto', count: typeStats.auto || 0 }
         ];
 
         for (const type of types) {

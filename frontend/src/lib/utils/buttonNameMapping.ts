@@ -12,6 +12,7 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Upload Vendor": "UPLOAD_VENDOR",
   "Create Vendor": "CREATE_VENDOR",
   "Manage Vendor": "MANAGE_VENDOR",
+  "Auto Task Manager": "DEFAULT_POSITIONS",
   "Start Receiving": "START_RECEIVING",
   "Receiving Records": "RECEIVING_RECORDS",
   "Pending Receiving Records": "PENDING_RECEIVING_RECORDS",

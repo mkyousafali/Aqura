@@ -1,6 +1,4 @@
-// Mirrors /api/receiving-tasks but targets records that live in pending_receiving_records
-// instead of receiving_records (Start Receiving bill types other than "Original Bill").
-// The original /api/receiving-tasks route is untouched.
+// Auto Task ingestion for records that live in pending_receiving_records.
 import { json } from "@sveltejs/kit";
 import { supabase } from "$lib/utils/supabase";
 
@@ -33,16 +31,15 @@ export async function POST({ request }) {
       return json({ error: "User ID is required" }, { status: 400 });
     }
 
-    // Call the database function to process clearance certificate generation
-    // for a PENDING receiving record
+    // Development cutover: use the isolated Auto Task system for pending
+    // receiving records. The legacy flow is intentionally not called.
     const { data, error } = await supabase.rpc(
-      "process_pending_clearance_certificate_generation",
+      "Autotask_ingest_receiving_certificate",
       {
-        receiving_record_id_param: receiving_record_id,
-        clearance_certificate_url_param: clearance_certificate_url,
-        generated_by_user_id: generated_by_user_id,
-        generated_by_name: generated_by_name || null,
-        generated_by_role: generated_by_role || null,
+        p_source_table: "pending_receiving_records",
+        p_source_record_id: String(receiving_record_id),
+        p_certificate_url: clearance_certificate_url,
+        p_actor_user_id: generated_by_user_id,
       },
     );
 
@@ -74,7 +71,9 @@ export async function POST({ request }) {
     return json({
       success: true,
       data: data,
-      message: `Successfully generated ${data.tasks_created} tasks and sent ${data.notifications_sent} notifications`,
+      message: data.duplicate
+        ? "Auto Tasks already exist for this pending receiving record"
+        : `Successfully generated ${data.tasks_created} Auto Tasks`,
     });
   } catch (error) {
     console.error("Error generating clearance certificate tasks (pending):", error);
@@ -102,12 +101,10 @@ export async function GET({ url }) {
       "Fetching tasks for pending receiving_record_id:",
       receiving_record_id,
     );
-    const { data, error } = await supabase.rpc(
-      "get_tasks_for_pending_receiving_record",
-      {
-        receiving_record_id_param: receiving_record_id,
-      },
-    );
+    const { data, error } = await supabase.rpc("Autotask_get_source_tasks", {
+      p_source_table: "pending_receiving_records",
+      p_source_record_id: receiving_record_id,
+    });
 
     if (error) {
       console.error("Database error fetching pending receiving record tasks:", error);

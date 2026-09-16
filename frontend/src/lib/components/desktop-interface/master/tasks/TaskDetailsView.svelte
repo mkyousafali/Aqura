@@ -321,12 +321,7 @@
 					.order('created_at', { ascending: false })
 					.range(quickTaskAssignmentsOffset, quickTaskAssignmentsOffset + pageSize - 1),
 				
-				// Load receiving_tasks with its own offset
-				supabase
-					.from('receiving_tasks')
-					.select('*', { count: 'exact' })
-					.order('created_at', { ascending: false })
-					.range(receivingTasksOffset, receivingTasksOffset + pageSize - 1)
+				Promise.resolve({ data: [], count: 0, error: null })
 			]);
 
 			// Extract results with proper error handling
@@ -724,11 +719,8 @@
 		}
 
 		// Load incomplete receiving tasks (not completed)
-		const { data: receivingTasks, error: rtError } = await supabase
-					.from('receiving_tasks')
-					.select(`*`)
-					.neq('task_status', 'completed')
-					.eq('task_completed', false);		if (rtError) {
+		const { data: receivingTasks, error: rtError } = { data: [], error: null };
+		if (rtError) {
 			console.error('Error loading incomplete receiving_tasks:', rtError);
 		} else {
 			if (receivingTasks && receivingTasks.length > 0) {

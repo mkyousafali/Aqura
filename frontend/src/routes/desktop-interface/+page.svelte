@@ -51,6 +51,7 @@
 		'INTERFACE_ACCESS_MANAGER': '🔧', 'APPROVAL_PERMISSIONS': '🔐',
 		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
 		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'THEME_MANAGER': '🎨',
+		'APP_PERMISSIONS': '🛡️',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
 		'ERP_PRODUCT_MANAGER': '🏭', 'ERP_CREDENTIALS': '🏭',
 		// Additional DB button codes
@@ -214,6 +215,7 @@
 		'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables',
 		'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
+		'APP_PERMISSIONS': 'nav.appPermissions',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
 		'THEME_MANAGER': 'nav.themeManager',
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
@@ -560,7 +562,7 @@
 								</span>
 							{/if}
 							{#if $currentUser?.isMasterAdmin}
-								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ7.6.6.6</button>
+								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ8.7.7.7</button>
 							{/if}
 
 							<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>

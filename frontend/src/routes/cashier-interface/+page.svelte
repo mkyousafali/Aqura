@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 	import CashierLogin from '$lib/components/cashier-interface/CashierLogin.svelte';
 	import CashierInterface from '$lib/components/cashier-interface/CashierInterface.svelte';
 	import { 
@@ -50,6 +51,23 @@
 
 	onDestroy(() => {
 		stopCashierSessionGuard();
+	});
+
+	// Leaving the cashier interface (back to interface selection, main login, etc.)
+	// must end the session — otherwise it silently restores from sessionStorage
+	// if the user returns to /cashier-interface without logging in again.
+	beforeNavigate(({ to }) => {
+		const stayingInCashier = to?.url?.pathname?.startsWith('/cashier-interface');
+		if (isLoggedIn && !stayingInCashier) {
+			releaseWindowsCashierSession();
+			stopCashierSessionGuard();
+			clearCashierSession();
+			isLoggedIn = false;
+			cashierUser = null;
+			selectedBranch = null;
+			currentUser.set(null);
+			isAuthenticated.set(false);
+		}
 	});
 
 	function handleForcedLogout() {

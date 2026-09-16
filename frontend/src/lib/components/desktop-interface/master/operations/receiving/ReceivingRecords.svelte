@@ -9,7 +9,6 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { realtimeService } from '$lib/utils/realtimeService';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
-	import ReceivingRecordsPermissionsModal from './ReceivingRecordsPermissionsModal.svelte';
 
 	// State for receiving records
 	let receivingRecords = []; // Current page records
@@ -123,7 +122,6 @@
 	// dedicated receiving_records_permissions table (managed via the "Edit
 	// Permission" popup, Master Admin only). Master Admin always bypasses this.
 	let receivingPermRow = null;
-	let showPermissionsModal = false;
 
 	async function loadReceivingRecordsPermission() {
 		if (!$currentUser?.id) {
@@ -1351,25 +1349,18 @@
 
 			// Update ALL payment schedules for this receiving record
 			// This is important for split payments where there might be multiple schedules
-			const { data: scheduleData, error: scheduleError } = await supabase
-				.from('vendor_payment_schedule')
-				.update(updateData)
-				.eq('receiving_record_id', recordId)
-				.select();
+			const { error: scheduleError } = await supabase.rpc('Autotask_set_pr_excel_verified', {
+				p_source_table: 'receiving_records',
+				p_source_record_id: String(recordId),
+				p_verified: isVerified
+			});
 
 			if (scheduleError) {
 				console.error('Supabase error updating payment schedules:', scheduleError);
 				throw scheduleError;
 			}
 
-			console.log('✅ Update successful for payment schedules:', scheduleData);
-
-			// Verify we have a payment schedule for this record
-			if (!scheduleData || scheduleData.length === 0) {
-				console.warn(`No payment schedules found for receiving record ${recordId}`);
-				alert(tFn('receiving.records.noPaymentSchedules'));
-				return;
-			}
+			console.log('PR Excel verification updated for receiving and legacy payment data');
 
 			// Update local state to reflect changes immediately
 			receivingRecords = receivingRecords.map(record => {
@@ -1822,6 +1813,8 @@
 			if (editScheduleCount === 1) {
 				scheduleUpdate.bill_amount = billAmount;
 				scheduleUpdate.final_bill_amount = finalAmount;
+				scheduleUpdate.original_bill_amount = billAmount;
+				scheduleUpdate.original_final_amount = finalAmount;
 			}
 
 			const { error: scheduleError } = await supabase
@@ -1900,19 +1893,6 @@
 
 <!-- Receiving Records Window Content -->
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans">
-
-	{#if isMasterAdmin}
-		<div class="px-8 pt-6 flex justify-end">
-			<button
-				type="button"
-				on:click={() => (showPermissionsModal = true)}
-				class="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors"
-				title="Manage which users can edit the ERP reference, edit records, or delete records"
-			>
-				🔐 {$t('receiving.records.editPermissionBtn')}
-			</button>
-		</div>
-	{/if}
 
 	<!-- Filter Controls -->
 	<div class="px-8 pt-6">
@@ -2498,8 +2478,6 @@
 {/if}
 
 <!-- Edit Permission Popup (Master Admin only) -->
-<ReceivingRecordsPermissionsModal bind:show={showPermissionsModal} on:close={() => (showPermissionsModal = false)} />
-
 <!-- Edit Record Popup (Master Admin only) -->
 {#if showEditPopup && editForm}
 	<div class="erp-popup-overlay" on:click={closeEditPopup}>

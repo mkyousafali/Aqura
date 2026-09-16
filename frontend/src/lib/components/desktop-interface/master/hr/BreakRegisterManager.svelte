@@ -3,7 +3,6 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import BreakPermissionManager from './BreakPermissionManager.svelte';
 
 	let breaks: any[] = [];
 	let loading = true;
@@ -21,8 +20,7 @@
 		{ id: 'Break Log', label: isRtl ? 'سجل الاستراحات' : 'Break Log', icon: '☕', color: 'green' },
 		{ id: 'Break Reasons', label: isRtl ? 'أسباب الاستراحة' : 'Break Reasons', icon: '📌', color: 'blue' },
 		{ id: 'Employee Summary', label: isRtl ? 'ملخص الموظف' : 'Employee Summary', icon: '📊', color: 'orange' },
-		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' },
-		...(isAdminOrMaster ? [{ id: 'Permission Manager', label: isRtl ? 'صلاحيات الوصول' : 'Permission Manager', icon: '🔐', color: 'indigo' }] : [])
+		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' }
 	];
 
 	// Filters
@@ -38,9 +36,6 @@
 	let editingReasonId: number | null = null;
 	let reasonFormData = { name_en: '', name_ar: '', sort_order: 0, is_active: true, requires_note: false, max_allowed_minutes: null as number | null };
 	let isSaving = false;
-
-	// Permission Manager
-	$: isAdminOrMaster = $currentUser?.isMasterAdmin || $currentUser?.isAdmin || false;
 
 	// Employee Summary
 	let summaryDateFrom = '';
@@ -1043,12 +1038,9 @@
 				{/if}
 			{/if}
 
-			<!-- TAB: Permission Manager -->
-			{#if activeTab === 'Permission Manager' && isAdminOrMaster}
-				<div class="-mx-6 -my-6 h-[calc(100%+3rem)] overflow-hidden">
-					<BreakPermissionManager />
-				</div>
-			{/if}
+			<!-- Permission Manager moved into the App Permissions window
+			     (Controls > Dashboard > Break Register tab) — see
+			     Do not delete/PERMISSION_SYSTEMS_AUDIT.md. -->
 
 		</div>
 	</div>

@@ -12,7 +12,14 @@
 	let permissionFilter = 'all';
 
 	// Tab state
-	let activeTab: 'permissions' | 'default-users' = 'permissions';
+	export let initialTab: 'permissions' | 'default-users' = 'permissions';
+	// When true, hides the internal Approval Permissions / Default Users
+	// Assignment tab switcher below — used when this component is embedded
+	// as two SEPARATE outer tabs (e.g. in the App Permissions window), so
+	// there's no redundant nested tab bar duplicating the outer one.
+	export let hideTabSwitcher: boolean = false;
+
+	let activeTab: 'permissions' | 'default-users' = initialTab;
 
 	// Default incident users tab
 	let defaultIncidentUsers: any[] = [];
@@ -706,6 +713,7 @@
 		</div>
 	{:else}
 		<!-- Tab Buttons (ShiftAndDayOff style) -->
+		{#if !hideTabSwitcher}
 		<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end shadow-sm rounded-2xl">
 			<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
 				<button
@@ -736,6 +744,7 @@
 				</button>
 			</div>
 		</div>
+		{/if}
 
 		{#if activeTab === 'permissions'}
 		<!-- ===== APPROVAL PERMISSIONS TAB ===== -->
