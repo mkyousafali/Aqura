@@ -174,7 +174,6 @@
 		const types = [
 			{ key: 'regular', color: '#3b82f6', label: isRTL ? 'عادية' : 'Regular', count: typeStats.regular || 0 },
 			{ key: 'quick', color: '#f59e0b', label: isRTL ? 'سريعة' : 'Quick', count: typeStats.quick || 0 },
-			{ key: 'receiving', color: '#8b5cf6', label: isRTL ? 'استلام' : 'Receiving', count: typeStats.receiving || 0 },
 			{ key: 'auto', color: '#06b6d4', label: isRTL ? 'تلقائية' : 'Auto', count: typeStats.auto || 0 },
 			{ key: 'checklist', color: '#10b981', label: isRTL ? 'قائمة فحص' : 'Checklist', count: typeStats.checklist || 0 }
 		];
@@ -442,7 +441,7 @@
 						<div class="branch-types">
 							<span class="type-badge blue">{isRTL ? 'عادي' : 'Reg'} {branch.regular_count}</span>
 							<span class="type-badge amber">{isRTL ? 'سريع' : 'Quick'} {branch.quick_count}</span>
-							<span class="type-badge violet">{isRTL ? 'استلام' : 'Recv'} {branch.receiving_count}</span>
+							<span class="type-badge cyan">{isRTL ? 'تلقائي' : 'Auto'} {branch.auto_count}</span>
 						</div>
 						{#if branch.checklist_count > 0}
 							<div class="branch-checklist-row">
@@ -1013,6 +1012,7 @@
 	.type-badge.blue   { background: #eff6ff; color: #3b82f6; }
 	.type-badge.amber  { background: #fffbeb; color: #d97706; }
 	.type-badge.violet { background: #f5f3ff; color: #7c3aed; }
+	.type-badge.cyan   { background: #ecfeff; color: #0891b2; }
 
 	/* Branch checklist row */
 	.branch-checklist-row {

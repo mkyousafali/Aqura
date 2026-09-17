@@ -39,7 +39,7 @@ tasks as (
  left join lateral(select count(*) cnt,round(avg(c.total_points::numeric/nullif(c.max_points,0)*100),1) score from hr_checklist_operations c,bounds x where c.user_id=t.uid and c.created_at>=x.f and c.created_at<x.t)cl on true
  where t.uid is not null group by t.uid,e.name_en,e.name_ar,b.name_en,b.name_ar,cl.cnt,cl.score
 ), daily_rows as (
- select d::date day,count(t.*) filter(where t.created_at::date=d::date) created,count(t.*) filter(where t.status='completed' and t.completed_at::date=d::date) completed
+ select d::date as day,count(t.*) filter(where t.created_at::date=d::date) as created,count(t.*) filter(where t.status='completed' and t.completed_at::date=d::date) as completed
  from bounds x,generate_series(x.f::date,least(x.t::date,current_date),'1 day')d left join tasks t on t.created_at::date=d::date or t.completed_at::date=d::date group by d::date
 ), assembled as (
  select (base.j||jsonb_build_object('totals',(totals.j||jsonb_build_object('total_checklists',base.j#>'{totals,total_checklists}','avg_checklist_score',base.j#>'{totals,avg_checklist_score}')),

@@ -50,6 +50,13 @@
 		isVoidedItem: boolean;
 	}
 
+	interface LedgerLine {
+		ledgerName: string;
+		debit: number;
+		credit: number;
+		narration: string;
+	}
+
 	interface SummaryRow {
 		Kind: string;
 		Cnt: number;
@@ -62,6 +69,79 @@
 		'Cheque Pri': 'Cheque Print',
 		'PDT Trans': 'Product Transaction'
 	};
+
+	// A PriceChang row's raw ActionPerformed text is "User Changed the price of <code> : SP 1:.. ,2:.. ,3:.."
+	// where <code> is whatever barcode was scanned/typed at the till (could be the ProductUnits.BarCode,
+	// ProductBatches.MannualBarcode/AutoBarcode, or a ProductBarcodes.Barcode row) — never a product name.
+	const PRICE_CHANGE_CODE_RE = /of\s+([^\s:]+)\s*:/i;
+	function extractPriceChangeCode(actionPerformed: string | null | undefined): string | null {
+		const match = PRICE_CHANGE_CODE_RE.exec(actionPerformed || '');
+		return match ? match[1] : null;
+	}
+
+	// Prefixes the raw "User Changed the price of <code> : ..." text with the resolved product name
+	// (already picked in the current UI locale) — falls back to the raw text alone if the code couldn't
+	// be matched to any product (e.g. it was later deleted from the ERP).
+	function buildPriceChangeDetail(actionPerformed: string | null | undefined, names: Map<string, string>): string {
+		const raw = actionPerformed || '-';
+		const code = extractPriceChangeCode(actionPerformed);
+		const name = code ? names.get(code) : null;
+		return name ? `${name} — ${raw}` : raw;
+	}
+
+	// Resolves PriceChang codes to product names by checking every barcode source this ERP uses for a
+	// product, in the same fallback order PriceVerifier.svelte already relies on for barcode lookups
+	// (ProductUnits.BarCode -> ProductBatches.MannualBarcode -> ProductBatches.AutoBarcode ->
+	// ProductBarcodes.Barcode) — a code can land in any one of them depending on how it was entered.
+	async function resolvePriceChangeProductNames(
+		codes: string[],
+		erpBranchId: number,
+		branchId: number,
+		isArabic: boolean
+	): Promise<Map<string, string>> {
+		const codeList = codes.map((code) => `'${code.replace(/'/g, "''")}'`).join(',');
+		const sql = `
+			SELECT SearchCode, ProductName, ItemNameinSecondLanguage
+			FROM (
+				SELECT SearchCode, ProductBatchID, ROW_NUMBER() OVER (PARTITION BY SearchCode ORDER BY ProductBatchID DESC) AS rn
+				FROM (
+					SELECT pu.BarCode AS SearchCode, pb.ProductBatchID
+					FROM ProductUnits pu
+					INNER JOIN ProductBatches pb ON pu.ProductBatchID = pb.ProductBatchID AND pu.BranchID = pb.BranchID
+					WHERE pu.BranchID = ${erpBranchId} AND pu.BarCode IN (${codeList})
+
+					UNION ALL
+
+					SELECT pb.MannualBarcode AS SearchCode, pb.ProductBatchID
+					FROM ProductBatches pb
+					WHERE pb.BranchID = ${erpBranchId} AND pb.MannualBarcode IN (${codeList})
+
+					UNION ALL
+
+					SELECT CAST(pb.AutoBarcode AS NVARCHAR(100)) AS SearchCode, pb.ProductBatchID
+					FROM ProductBatches pb
+					WHERE pb.BranchID = ${erpBranchId} AND CAST(pb.AutoBarcode AS NVARCHAR(100)) IN (${codeList})
+
+					UNION ALL
+
+					SELECT pbc.Barcode AS SearchCode, pbc.ProductBatchID
+					FROM ProductBarcodes pbc
+					INNER JOIN ProductBatches pb ON pbc.ProductBatchID = pb.ProductBatchID
+					WHERE pb.BranchID = ${erpBranchId} AND pbc.Barcode IN (${codeList})
+				) AS Combined
+			) AS Ranked
+			INNER JOIN ProductBatches pb2 ON pb2.ProductBatchID = Ranked.ProductBatchID AND pb2.BranchID = ${erpBranchId}
+			INNER JOIN Products p ON p.ProductID = pb2.ProductID AND p.BranchID = ${erpBranchId}
+			WHERE Ranked.rn = 1
+		`;
+		const rows = await runQuery(sql, branchId);
+		const names = new Map<string, string>();
+		for (const row of rows) {
+			const name = (isArabic && row.ItemNameinSecondLanguage) || row.ProductName || row.ItemNameinSecondLanguage;
+			if (row.SearchCode && name) names.set(String(row.SearchCode), name);
+		}
+		return names;
+	}
 
 	// ActionForm codes seen on 'Save' rows (checked live against UserActions across all three branch
 	// databases — SIVAT alone accounts for the vast majority, which is exactly why lumping every Save
@@ -237,6 +317,12 @@
 	let siBillItems: Record<string, SiBillItem[]> = {};
 	let siBillItemsLoading: Record<string, boolean> = {};
 	let siBillItemsError: Record<string, string> = {};
+	let invoiceBillItems: Record<string, SiBillItem[]> = {};
+	let invoiceBillItemsLoading: Record<string, boolean> = {};
+	let invoiceBillItemsError: Record<string, string> = {};
+	let ledgerLines: Record<string, LedgerLine[]> = {};
+	let ledgerLinesLoading: Record<string, boolean> = {};
+	let ledgerLinesError: Record<string, string> = {};
 
 	async function exportCanceledProducts() {
 		if (exporting || loading || !filteredEntries.length) return;
@@ -485,6 +571,145 @@
 		}
 	}
 
+	// Save rows never populate UserActions.VoucherNumber (see genericSql's comment on retAmt below) —
+	// the only place the SI voucher number survives is as trailing digits on the raw ActionPerformed
+	// text, e.g. "User Saved The Transaction SIVAT 968490".
+	function extractTrailingVoucherNumber(detail: string | null | undefined): string | null {
+		const match = /(\d+)\s*$/.exec((detail || '').trim());
+		return match ? match[1] : null;
+	}
+
+	// Kinds whose Save rows resolve to a real InvTransactionMaster voucher (see genericSql's retAmt) and
+	// so can offer a "Get Details" button that looks up that voucher's product line items directly --
+	// keyed by the VoucherType value stored on InvTransactionMaster, not the ActionForm code logged on
+	// the row (e.g. Sales Invoice logs ActionForm 'SIVAT' but its VoucherType is 'SI'). Cash Receipt/
+	// Payment are NOT here -- confirmed live they have no InvTransactionMaster row at all; they're
+	// accounting vouchers in AccTransactionMaster/AccTransactionDetails instead (see
+	// fetchAccountVoucherDetails / KIND_ACC_VOUCHER_TYPE below), whose "line items" are ledger
+	// debit/credit splits, not products.
+	const KIND_VOUCHER_TYPE: Record<string, string> = {
+		'Sales Invoice': 'SI',
+		'Sales Return': 'SR'
+	};
+
+	// Sales Invoice rows already carry their own GrandTotal (via genericSql's retAmt), unlike void/cancel
+	// rows -- so this looks up the bill's line items directly by voucher number instead of the two-step
+	// "find the SI bill saved after this event" heuristic fetchPostVoidSiDetails needs.
+	async function fetchVoucherBillDetails(group: any, voucherType: string) {
+		const key = group.key;
+		if (invoiceBillItems[key]) {
+			const next = { ...invoiceBillItems };
+			delete next[key];
+			invoiceBillItems = next;
+			return;
+		}
+
+		const source = group.items?.[0] as Entry | undefined;
+		const voucherNumber = extractTrailingVoucherNumber(source?.detail);
+		if (!source?.branchId || source.erpBranchId == null || !voucherNumber) {
+			invoiceBillItemsError = { ...invoiceBillItemsError, [key]: $t('userActionReports.billDetailsUnavailable') };
+			return;
+		}
+
+		invoiceBillItemsLoading = { ...invoiceBillItemsLoading, [key]: true };
+		invoiceBillItemsError = { ...invoiceBillItemsError, [key]: '' };
+		try {
+			const sql = `
+				SELECT d.ProductBatchID,
+				       ISNULL(NULLIF(pb.MannualBarcode, ''), CAST(pb.AutoBarcode AS varchar(50))) AS Barcode,
+				       p.ProductName, p.ItemNameinSecondLanguage, d.Quantity, d.UnitPrice, d.NetAmount
+				FROM InvTransactionMaster m
+				INNER JOIN InvTransactionDetails d ON d.InvTransactionMasterID = m.InvTransactionMasterID AND d.BranchID = m.BranchID
+				LEFT JOIN ProductBatches pb ON pb.ProductBatchID = d.ProductBatchID AND pb.BranchID = d.BranchID
+				LEFT JOIN Products p ON p.ProductID = pb.ProductID AND p.BranchID = pb.BranchID
+				WHERE m.BranchID = ${source.erpBranchId}
+				  AND m.VoucherType = '${voucherType}' AND m.VoucherNumber = ${voucherNumber}
+				ORDER BY d.InvTransactionDetailID ASC
+			`;
+			const rows = await runQuery(sql, source.branchId);
+			invoiceBillItems = {
+				...invoiceBillItems,
+				[key]: rows.map((row: any) => ({
+					productBatchId: row.ProductBatchID == null ? null : Number(row.ProductBatchID),
+					barcode: row.Barcode || '-',
+					productName: ($currentLocale === 'ar' && row.ItemNameinSecondLanguage) || row.ProductName || row.ItemNameinSecondLanguage || '-',
+					quantity: Number(row.Quantity) || 0,
+					rate: Number(row.UnitPrice) || 0,
+					amount: Number(row.NetAmount) || 0,
+					isVoidedItem: false
+				}))
+			};
+		} catch (err: any) {
+			invoiceBillItemsError = {
+				...invoiceBillItemsError,
+				[key]: $currentLocale === 'ar' ? $t('userActionReports.failedToFetchBillItems') : (err.message || $t('userActionReports.failedToFetchBillItems'))
+			};
+		} finally {
+			invoiceBillItemsLoading = { ...invoiceBillItemsLoading, [key]: false };
+		}
+	}
+
+	// Kinds backed by an AccTransactionMaster accounting voucher (see genericSql's accAmt) rather than an
+	// InvTransactionMaster product voucher -- keyed the same way as KIND_VOUCHER_TYPE, but resolved via
+	// fetchAccountVoucherDetails below instead of fetchVoucherBillDetails, since these have no products.
+	const KIND_ACC_VOUCHER_TYPE: Record<string, string> = {
+		'Cash Receipt': 'CR',
+		'Cash Payment': 'CP'
+	};
+
+	// Cash Receipt/Payment have no product line items at all -- each voucher is an accounting entry
+	// (double-entry debit/credit split across ledger accounts, e.g. Cash debited / POS-till credited, or
+	// a petty-cash ledger credited), confirmed live via AccTransactionMaster + AccTransactionDetails +
+	// AccLedgers. So this shows ledger/debit/credit/narration instead of the barcode/item/qty/rate table
+	// the product-based vouchers use.
+	async function fetchAccountVoucherDetails(group: any, voucherType: string) {
+		const key = group.key;
+		if (ledgerLines[key]) {
+			const next = { ...ledgerLines };
+			delete next[key];
+			ledgerLines = next;
+			return;
+		}
+
+		const source = group.items?.[0] as Entry | undefined;
+		const voucherNumber = extractTrailingVoucherNumber(source?.detail);
+		if (!source?.branchId || source.erpBranchId == null || !voucherNumber) {
+			ledgerLinesError = { ...ledgerLinesError, [key]: $t('userActionReports.billDetailsUnavailable') };
+			return;
+		}
+
+		ledgerLinesLoading = { ...ledgerLinesLoading, [key]: true };
+		ledgerLinesError = { ...ledgerLinesError, [key]: '' };
+		try {
+			const sql = `
+				SELECT l.LedgerName, ad.Debit, ad.Credit, ad.Narration
+				FROM AccTransactionMaster m
+				INNER JOIN AccTransactionDetails ad ON ad.AccTransactionMasterID = m.AccTransactionMasterID AND ad.BranchID = m.BranchID
+				LEFT JOIN AccLedgers l ON l.LedgerID = ad.LedgerID AND l.BranchID = m.BranchID
+				WHERE m.BranchID = ${source.erpBranchId}
+				  AND m.VoucherType = '${voucherType}' AND m.VoucherNumber = ${voucherNumber}
+				ORDER BY ad.AccTransactionDetailID ASC
+			`;
+			const rows = await runQuery(sql, source.branchId);
+			ledgerLines = {
+				...ledgerLines,
+				[key]: rows.map((row: any) => ({
+					ledgerName: row.LedgerName || '-',
+					debit: Number(row.Debit) || 0,
+					credit: Number(row.Credit) || 0,
+					narration: row.Narration || '-'
+				}))
+			};
+		} catch (err: any) {
+			ledgerLinesError = {
+				...ledgerLinesError,
+				[key]: $currentLocale === 'ar' ? $t('userActionReports.failedToFetchBillItems') : (err.message || $t('userActionReports.failedToFetchBillItems'))
+			};
+		} finally {
+			ledgerLinesLoading = { ...ledgerLinesLoading, [key]: false };
+		}
+	}
+
 	$: totalItems = filteredEntries.length;
 	$: totalAmount = filteredEntries.reduce((sum, r) => sum + (r.amount || 0), 0);
 	$: cancelAmount = filteredEntries.filter(r => r.kind === 'Cancel selected product list').reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -700,7 +925,8 @@
 			// of this (matching by CounterID + nearest CreatedDate) take 12s instead of the ~5s below.
 			const genericSql = `
 				SELECT TOP ${ROW_CAP} ua.DateTimeOfAction, ua.CounterID, c.CounterName, u.UserName, ua.ActionName, ua.ActionForm,
-					ua.ActionPerformed, ua.VoucherNumber, shift.ShiftUser AS RequestingUser, retAmt.GrandTotal AS ReturnAmount
+					ua.ActionPerformed, ua.VoucherNumber, shift.ShiftUser AS RequestingUser,
+					COALESCE(retAmt.GrandTotal, accAmt.Amount) AS ReturnAmount
 				FROM UserActions ua
 				LEFT JOIN Users u ON u.UserID = ua.UserID AND u.BranchID = ${erpBranchId}
 				LEFT JOIN Counter c ON c.CounterID = ua.CounterID AND c.BranchID = ${erpBranchId}
@@ -720,13 +946,32 @@
 					ORDER BY cs.OpenTime DESC
 				) shift
 				OUTER APPLY (
+					-- Also covers Sales Invoice saves (SIVAT) so the "Sales Invoice" rows carry their own bill
+					-- total, the same way Sales/Purchase Return rows already do -- not just returns.
+					-- The trailing-digit extraction below is delimiter-agnostic (space for "...SIVAT 968490")
+					-- -- it walks back from the end of the string until it hits any non-digit character,
+					-- instead of assuming a space always precedes it.
 					SELECT TOP 1 itm.GrandTotal
 					FROM InvTransactionMaster itm
-					WHERE ua.ActionName = 'Save' AND ua.ActionForm IN ('SRVAT', 'PRVAT')
+					WHERE ua.ActionName = 'Save' AND ua.ActionForm IN ('SRVAT', 'PRVAT', 'SIVAT')
 					  AND itm.BranchID = ${erpBranchId}
-					  AND itm.VoucherType = CASE ua.ActionForm WHEN 'SRVAT' THEN 'SR' WHEN 'PRVAT' THEN 'PR' END
-					  AND itm.VoucherNumber = TRY_CAST(RIGHT(RTRIM(ua.ActionPerformed), CHARINDEX(' ', REVERSE(RTRIM(ua.ActionPerformed)) + ' ') - 1) AS BIGINT)
+					  AND itm.VoucherType = CASE ua.ActionForm WHEN 'SRVAT' THEN 'SR' WHEN 'PRVAT' THEN 'PR' WHEN 'SIVAT' THEN 'SI' END
+					  AND itm.VoucherNumber = TRY_CAST(RIGHT(RTRIM(ua.ActionPerformed), PATINDEX('%[^0-9]%', REVERSE(RTRIM(ua.ActionPerformed)) + 'X') - 1) AS BIGINT)
 				) retAmt
+				-- Cash Receipt/Payment (and other accounting-voucher saves) live in AccTransactionMaster, a
+				-- completely different table from the inventory/sales InvTransactionMaster above --
+				-- confirmed live: InvTransactionMaster has no 'CR'/'CP' VoucherType at all, while
+				-- AccTransactionMaster's Vouchers-table LastVoucherNumber for those types matched the exact
+				-- number logged in "...CR::7641" / "...CP::14551" (no space before the number, unlike Save's
+				-- "SIVAT 123"). ActionForm and VoucherType are the same code for both (identity mapping), so
+				-- no CASE is needed the way retAmt above needs one for SIVAT/SRVAT/PRVAT.
+				OUTER APPLY (
+					SELECT TOP 1 ISNULL(NULLIF(am.TotalDebit, 0), am.TotalCredit) AS Amount
+					FROM AccTransactionMaster am
+					WHERE ua.ActionName = 'Save' AND ua.ActionForm IN ('CR', 'CP')
+					  AND am.BranchID = ${erpBranchId} AND am.VoucherType = ua.ActionForm
+					  AND am.VoucherNumber = TRY_CAST(RIGHT(RTRIM(ua.ActionPerformed), PATINDEX('%[^0-9]%', REVERSE(RTRIM(ua.ActionPerformed)) + 'X') - 1) AS BIGINT)
+				) accAmt
 				WHERE ua.BranchID = ${erpBranchId}
 				  AND CAST(ua.DateTimeOfAction AS DATE) BETWEEN '${dateFrom}' AND '${dateTo}'
 				ORDER BY ua.DateTimeOfAction DESC
@@ -751,6 +996,18 @@
 
 			cappedItemRows = items.length >= ROW_CAP;
 			cappedGenericRows = generic.length >= ROW_CAP;
+
+			// Price Change rows only log the scanned code in ActionPerformed ("...price of 251397 : SP ...") —
+			// resolve those codes to product names in one extra query instead of per-row lookups.
+			const priceChangeCodes = Array.from(new Set(
+				generic
+					.filter((r: any) => r.ActionName === 'PriceChang')
+					.map((r: any) => extractPriceChangeCode(r.ActionPerformed))
+					.filter((code): code is string => !!code)
+			));
+			const priceChangeProductNames = priceChangeCodes.length
+				? await resolvePriceChangeProductNames(priceChangeCodes, erpBranchId, branch.branch_id, isArabic)
+				: new Map<string, string>();
 
 			const itemEntries: Entry[] = items.map((r: any) => ({
 				time: r.CreatedDate,
@@ -808,12 +1065,16 @@
 					// GrandTotal from InvTransactionMaster for Sales/Purchase Return saves — null for
 					// every other kind (the SQL guard only populates it for SRVAT/PRVAT rows).
 					returnAmount: r.ReturnAmount,
-					detail: r.ActionPerformed || (r.VoucherNumber ? `Voucher: ${r.VoucherNumber}` : '-')
+					detail: r.ActionName === 'PriceChang'
+						? buildPriceChangeDetail(r.ActionPerformed, priceChangeProductNames)
+						: (r.ActionPerformed || (r.VoucherNumber ? `Voucher: ${r.VoucherNumber}` : '-'))
 				}))
 				.filter((r: any) => !ITEM_LEVEL_KINDS.has(r.kind))
 				.map((r: any) => ({
 					time: r.time,
 					counter: r.counter,
+					branchId: branch.branch_id,
+					erpBranchId,
 					actor: resolveUserName(r.isAuthorize ? (r.requestingUser || '-') : r.userName) || '-',
 					authorizedBy: resolveUserName(r.isAuthorize ? r.userName : (r.isSave ? findSaveAuthorizer(r.counterId, r.ms) : null)),
 					kind: r.kind,
@@ -1014,7 +1275,7 @@
 									<td>{g.authorizedBy || '-'}</td>
 									<td><span class="type-badge" class:cancel={g.kind === 'Cancel selected product list'} class:void={g.kind === 'Void selected item' || g.kind === 'Remove a row from list'} class:generic={g.isItemLevel === false}>{kindLabel(g.kind)}</span></td>
 									<td>{g.isItemLevel ? `${g.items.length} ${g.items.length === 1 ? $t('userActionReports.itemWord') : $t('userActionReports.itemsWord')}` : truncate(g.items[0].detail)}</td>
-									<td class="amount-cell">{g.isItemLevel ? formatAmount(g.total) : '-'}</td>
+									<td class="amount-cell">{g.isItemLevel ? formatAmount(g.total) : (g.items[0].amount !== null ? formatAmount(g.items[0].amount) : '-')}</td>
 								</tr>
 								{#if expandedGroups.has(g.key)}
 									{#if g.isItemLevel && isVoidItemKind(g.kind)}
@@ -1066,6 +1327,58 @@
 													{:else}
 														<div class="si-details-empty">{$t('userActionReports.noLaterSiBill')}</div>
 													{/if}
+												{/if}
+											</td>
+										</tr>
+									{/if}
+									{#if KIND_VOUCHER_TYPE[g.kind]}
+										<tr class="fetch-details-row">
+											<td></td>
+											<td colspan="7">
+												<button class="fetch-details-btn" type="button" on:click|stopPropagation={() => fetchVoucherBillDetails(g, KIND_VOUCHER_TYPE[g.kind])} disabled={invoiceBillItemsLoading[g.key]}>
+													{invoiceBillItemsLoading[g.key] ? $t('userActionReports.loadingDetails') : invoiceBillItems[g.key] ? $t('userActionReports.hideDetails') : $t('userActionReports.getDetails')}
+												</button>
+												{#if invoiceBillItemsError[g.key]}
+													<div class="si-details-error">{invoiceBillItemsError[g.key]}</div>
+												{:else if invoiceBillItems[g.key]}
+													<table class="bill-items-table">
+														<thead><tr><th>{$t('userActionReports.barcode')}</th><th>{$t('userActionReports.item')}</th><th>{$t('userActionReports.quantity')}</th><th>{$t('userActionReports.rate')}</th><th>{$t('userActionReports.amount')}</th></tr></thead>
+														<tbody>
+															{#each invoiceBillItems[g.key] as billItem}
+																<tr>
+																	<td>{billItem.barcode}</td><td>{billItem.productName}</td>
+																	<td>{billItem.quantity}</td><td>{formatAmount(billItem.rate)}</td><td>{formatAmount(billItem.amount)}</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+												{/if}
+											</td>
+										</tr>
+									{/if}
+									{#if KIND_ACC_VOUCHER_TYPE[g.kind]}
+										<tr class="fetch-details-row">
+											<td></td>
+											<td colspan="7">
+												<button class="fetch-details-btn" type="button" on:click|stopPropagation={() => fetchAccountVoucherDetails(g, KIND_ACC_VOUCHER_TYPE[g.kind])} disabled={ledgerLinesLoading[g.key]}>
+													{ledgerLinesLoading[g.key] ? $t('userActionReports.loadingDetails') : ledgerLines[g.key] ? $t('userActionReports.hideDetails') : $t('userActionReports.getDetails')}
+												</button>
+												{#if ledgerLinesError[g.key]}
+													<div class="si-details-error">{ledgerLinesError[g.key]}</div>
+												{:else if ledgerLines[g.key]}
+													<table class="bill-items-table">
+														<thead><tr><th>{$t('userActionReports.ledgerAccount')}</th><th>{$t('userActionReports.debit')}</th><th>{$t('userActionReports.credit')}</th><th>{$t('userActionReports.narration')}</th></tr></thead>
+														<tbody>
+															{#each ledgerLines[g.key] as line}
+																<tr>
+																	<td>{line.ledgerName}</td>
+																	<td>{line.debit ? formatAmount(line.debit) : '-'}</td>
+																	<td>{line.credit ? formatAmount(line.credit) : '-'}</td>
+																	<td>{line.narration}</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
 												{/if}
 											</td>
 										</tr>

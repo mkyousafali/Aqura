@@ -186,7 +186,6 @@
         const types = [
             { key: 'regular', color: '#3b82f6', label: isRTL ? 'مهام عادية' : 'Regular', count: typeStats.regular || 0 },
             { key: 'quick', color: '#f59e0b', label: isRTL ? 'مهام سريعة' : 'Quick', count: typeStats.quick || 0 },
-            { key: 'receiving', color: '#8b5cf6', label: isRTL ? 'مهام استلام' : 'Receiving', count: typeStats.receiving || 0 },
             { key: 'auto', color: '#06b6d4', label: isRTL ? 'مهام تلقائية' : 'Auto', count: typeStats.auto || 0 }
         ];
 
@@ -602,7 +601,7 @@
                                         <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'متأخر' : 'Overdue'}</th>
                                         <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'عادي' : 'Regular'}</th>
                                         <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'سريع' : 'Quick'}</th>
-                                        <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'استلام' : 'Recv'}</th>
+                                        <th class="px-3 py-2.5 text-center font-bold text-cyan-700 uppercase tracking-wide">{isRTL ? 'تلقائي' : 'Auto'}</th>
                                         <th class="px-3 py-2.5 text-center font-bold text-indigo-900 uppercase tracking-wide">{isRTL ? 'إنجاز %' : 'Rate'}</th>
                                     </tr>
                                 </thead>
@@ -616,7 +615,7 @@
                                             <td class="px-3 py-2.5 text-center font-bold {branch.overdue > 0 ? 'text-red-600' : 'text-slate-400'}">{branch.overdue}</td>
                                             <td class="px-3 py-2.5 text-center text-blue-600">{branch.regular_count}</td>
                                             <td class="px-3 py-2.5 text-center text-amber-600">{branch.quick_count}</td>
-                                            <td class="px-3 py-2.5 text-center text-violet-600">{branch.receiving_count}</td>
+                                            <td class="px-3 py-2.5 text-center font-semibold text-cyan-600">{branch.auto_count}</td>
                                             <td class="px-3 py-2.5 text-center">
                                                 <div class="flex items-center gap-1.5 justify-center">
                                                     <div class="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">

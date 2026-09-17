@@ -1251,14 +1251,21 @@
 		return { late: 0, early: 0 };
 	}
 
-	function calculateEarlyLateForCheckIn(punchTime: string, applicableShift: any): { late: number; early: number } {
+	function calculateEarlyLateForCheckIn(punchTime: string, applicableShift: any): {
+		late: number;
+		early: number;
+		actualLate: number;
+		allowedLate: number;
+	} {
 		// For check-in: early = minutes before shift start, late = minutes after shift start
-		// Based on actual shift start time, not the buffer
-		if (!applicableShift) return { late: 0, early: 0 };
+		// `late` remains the out-of-limit value used by the existing totals and deductions.
+		// The additional values expose the full delay and its allowed portion for display only.
+		if (!applicableShift) return { late: 0, early: 0, actualLate: 0, allowedLate: 0 };
 
 		const punchMinutes = timeToMinutes(punchTime);
 		const shiftStartMinutes = timeToMinutes(applicableShift.shift_start_time);
 		const shiftEndMinutes = timeToMinutes(applicableShift.shift_end_time);
+		const allowedLateMinutes = Number(applicableShift.allowed_late_start_minutes) || 0;
 		
 		// Check if this is an overnight shift (end time < start time)
 		const isOvernightShift = shiftEndMinutes < shiftStartMinutes;
@@ -1269,30 +1276,47 @@
 				// Evening check-in
 				if (punchMinutes < shiftStartMinutes) {
 					// Early - shouldn't happen since we're >= shiftStart
-					return { late: 0, early: shiftStartMinutes - punchMinutes };
+					return { late: 0, early: shiftStartMinutes - punchMinutes, actualLate: 0, allowedLate: 0 };
 				} else {
 					// Late - after shift start time
-					return { late: punchMinutes - shiftStartMinutes, early: 0 };
+					const actualLate = punchMinutes - shiftStartMinutes;
+					return {
+						late: Math.max(0, actualLate - allowedLateMinutes),
+						early: 0,
+						actualLate,
+						allowedLate: Math.min(actualLate, allowedLateMinutes)
+					};
 				}
 			} else if (punchMinutes < shiftStartMinutes && punchMinutes < shiftEndMinutes) {
 				// This is a morning punch (shouldn't be check-in)
 				// Could be previous day's checkout or very early morning check-in
 				// Treat as very early (add 24 hours for comparison)
 				const adjustedShiftStart = shiftStartMinutes - (24 * 60);
-				return { late: 0, early: adjustedShiftStart - punchMinutes };
+				return { late: 0, early: adjustedShiftStart - punchMinutes, actualLate: 0, allowedLate: 0 };
 			}
 		}
 		
 		// Normal shift (doesn't cross midnight)
 		if (punchMinutes < shiftStartMinutes) {
 			// Check-in is early (before shift start)
-			return { late: 0, early: shiftStartMinutes - punchMinutes };
+			return { late: 0, early: shiftStartMinutes - punchMinutes, actualLate: 0, allowedLate: 0 };
 		} else if (punchMinutes > shiftStartMinutes) {
 			// Check-in is late (after shift start)
-			return { late: punchMinutes - shiftStartMinutes, early: 0 };
+			const actualLate = punchMinutes - shiftStartMinutes;
+			return {
+				late: Math.max(0, actualLate - allowedLateMinutes),
+				early: 0,
+				actualLate,
+				allowedLate: Math.min(actualLate, allowedLateMinutes)
+			};
 		}
 		
-		return { late: 0, early: 0 };
+		return { late: 0, early: 0, actualLate: 0, allowedLate: 0 };
+	}
+
+	function formatLateMinutes(minutes: number): string {
+		const safeMinutes = Math.max(0, Math.round(Number(minutes) || 0));
+		return `${Math.floor(safeMinutes / 60)}${$t('common.h')} ${safeMinutes % 60}${$t('common.m')}`;
 	}
 
 	function calculateWorkedTime(checkInTime: string, checkOutTime: string): string {
@@ -2879,11 +2903,16 @@
 													<span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
 														{$t('hr.checkIn')}
 													</span>
-													{#if pair.checkInEarlyLateTime?.late > 0}
-														<span class="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-															{$t('hr.processFingerprint.late')} {Math.floor(pair.checkInEarlyLateTime.late / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.late % 60}{$t('common.m')}
-														</span>
+											{#if pair.checkInEarlyLateTime?.actualLate > 0}
+												<span class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold whitespace-nowrap">
+													<span class="text-slate-700">{$t('hr.processFingerprint.late')}</span>
+													<span class="text-green-700">{formatLateMinutes(pair.checkInEarlyLateTime.allowedLate)}</span>
+													{#if pair.checkInEarlyLateTime.late > 0}
+														<span class="text-slate-400">+</span>
+														<span class="text-red-700">{formatLateMinutes(pair.checkInEarlyLateTime.late)}</span>
 													{/if}
+												</span>
+											{/if}
 													{#if pair.checkInEarlyLateTime?.early > 0}
 														<span class="px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
 															{$t('hr.processFingerprint.early')} {Math.floor(pair.checkInEarlyLateTime.early / 60)}{$t('common.h')} {pair.checkInEarlyLateTime.early % 60}{$t('common.m')}

@@ -6145,6 +6145,10 @@ export const arabicLocale: LocaleData = {
       billDetailsUnavailable: "تفاصيل الفاتورة غير متاحة.",
       failedToFetchBillItems: "فشل جلب أصناف الفاتورة.",
       noLaterSiBill: "لم يتم العثور على فاتورة مبيعات لاحقة في نقطة البيع هذه.",
+      ledgerAccount: "الحساب",
+      debit: "مدين",
+      credit: "دائن",
+      narration: "البيان",
       kinds: {
         salesInvoice: "فاتورة مبيعات",
         salesReturn: "مرتجع مبيعات",

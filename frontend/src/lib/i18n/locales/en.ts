@@ -6108,6 +6108,10 @@ export const englishLocale: LocaleData = {
       billDetailsUnavailable: "Bill details are unavailable.",
       failedToFetchBillItems: "Failed to fetch bill items.",
       noLaterSiBill: "No later SI bill was found on this POS counter.",
+      ledgerAccount: "Ledger Account",
+      debit: "Debit",
+      credit: "Credit",
+      narration: "Narration",
       kinds: {
         salesInvoice: "Sales Invoice",
         salesReturn: "Sales Return",

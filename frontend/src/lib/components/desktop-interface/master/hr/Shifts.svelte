@@ -624,7 +624,7 @@
 
     function addSlot() {
         if (modalSlots.length < 4) {
-            modalSlots = [...modalSlots, { slot_order: modalSlots.length + 1, shift_start_time: '09:00', shift_start_buffer: 0, shift_end_time: '17:00', shift_end_buffer: 0, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
+            modalSlots = [...modalSlots, { slot_order: modalSlots.length + 1, shift_start_time: '09:00', shift_start_buffer: 0, shift_end_time: '17:00', shift_end_buffer: 0, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 5, allowed_early_end_minutes: 0 }];
             syncSlotTimeTo12h();
         }
     }
@@ -645,7 +645,7 @@
         modalDateFrom = new Date().toISOString().split('T')[0];
         modalDateTo = '';
         // Pre-fill with current shift times as a starting point
-        modalSlots = row.slots.length > 0 ? row.slots.map(s => ({ ...s })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
+        modalSlots = row.slots.length > 0 ? row.slots.map(s => ({ ...s })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 5, allowed_early_end_minutes: 0 }];
         syncSlotTimeTo12h(); showModal = true;
     }
 
@@ -658,14 +658,14 @@
         modalDateTo = '';
         // Pre-fill with current shift times if exists
         const entry = row.weekdaySlots[modalWeekday];
-        modalSlots = entry && entry.slots.length > 0 ? entry.slots.map(s => ({ ...s })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
+        modalSlots = entry && entry.slots.length > 0 ? entry.slots.map(s => ({ ...s })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 5, allowed_early_end_minutes: 0 }];
         syncSlotTimeTo12h(); showModal = true;
     }
 
     function openDateWiseAddModal(emp: EmployeeForSelection) {
         selectedEmployeeId = emp.id; editingVersionId = null; editingDateVersionIds = [];
         const today = new Date().toISOString().split('T')[0]; modalDateFrom = today; modalDateTo = today;
-        modalSlots = [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
+        modalSlots = [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 5, allowed_early_end_minutes: 0 }];
         syncSlotTimeTo12h(); showEmployeeSelectModal = false; showModal = true;
     }
 
@@ -676,7 +676,7 @@
         isRangeMode = Boolean(row._grouped);
         modalDateFrom = row._grouped ? (row._dateFrom || row.date_from) : row.date_from;
         modalDateTo = row._grouped ? (row._dateTo || row.date_to) : (row.date_to || row.date_from);
-        modalSlots = row.slots.length > 0 ? row.slots.map(slot => ({ ...slot })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 0, allowed_early_end_minutes: 0 }];
+        modalSlots = row.slots.length > 0 ? row.slots.map(slot => ({ ...slot })) : [{ slot_order: 1, shift_start_time: '09:00', shift_start_buffer: 3, shift_end_time: '17:00', shift_end_buffer: 3, is_shift_overlapping_next_day: false, working_hours: 8, allowed_late_start_minutes: 5, allowed_early_end_minutes: 0 }];
         syncSlotTimeTo12h();
         showModal = true;
     }
