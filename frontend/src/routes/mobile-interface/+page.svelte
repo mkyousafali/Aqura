@@ -12,6 +12,7 @@
 	import { localeData } from '$lib/i18n';
 
 	let currentUserData = null;
+	let hasFollowUpsPermission = false;
 
 	let stats = {
 		pendingTasks: 0,
@@ -184,6 +185,7 @@
 	onMount(async () => {
 		currentUserData = $currentUser;
 		if (currentUserData) {
+			await loadFollowUpsPermission();
 			// Load dashboard data from Go backend (combines tasks + punches)
 			await loadDashboardData();
 			await loadScanRequestCount();
@@ -207,6 +209,34 @@
 			if (scanRequestCountChannel) supabase.removeChannel(scanRequestCountChannel);
 		};
 	});
+
+	async function loadFollowUpsPermission() {
+		if (!currentUserData?.id) {
+			hasFollowUpsPermission = false;
+			return;
+		}
+
+		if (currentUserData.isMasterAdmin) {
+			hasFollowUpsPermission = true;
+			return;
+		}
+
+		const { data, error } = await supabase
+			.from('button_permissions')
+			.select('button_code')
+			.eq('user_id', currentUserData.id)
+			.eq('button_code', 'ACTION_FOLLOW_UPS')
+			.eq('is_enabled', true)
+			.maybeSingle();
+
+		if (error) {
+			console.error('Error loading Action Follow-Ups permission:', error);
+			hasFollowUpsPermission = false;
+			return;
+		}
+
+		hasFollowUpsPermission = data?.button_code === 'ACTION_FOLLOW_UPS';
+	}
 	
 	onDestroy(() => {
 		if (unsubscribeFingerprint) {
@@ -974,8 +1004,8 @@
 				</div>
 			</div>
 
-			<!-- Follow-Ups (permission checked via master admin) -->
-			{#if currentUserData?.isMasterAdmin}
+			<!-- Follow-Ups -->
+			{#if hasFollowUpsPermission}
 			<div class="stat-card blank clickable followups-card" on:click={() => goto('/mobile-interface/follow-ups')}>
 				<div class="stat-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

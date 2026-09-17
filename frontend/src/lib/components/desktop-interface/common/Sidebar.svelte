@@ -30,6 +30,7 @@
 	import InternalExpenses from '$lib/components/desktop-interface/master/vendor/InternalExpenses.svelte';
 	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
 	import LCPlanner from '$lib/components/desktop-interface/master/finance/LCPlanner.svelte';
+	import ErpLedgers from '$lib/components/desktop-interface/master/finance/ErpLedgers.svelte';
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
 	import AppPermissionsManager from '$lib/components/desktop-interface/settings/AppPermissionsManager.svelte';
@@ -556,7 +557,7 @@
 		PromoManage: ["CAMPAIGN_MANAGER","GIFT_WHEEL_MANAGER","SURPRISE_BOX_MANAGER","VIP_CAMPAIGN"],
 		PromoOperations: ["VIEW_OFFER_MANAGER","CUSTOMER_IMPORTER","PRODUCT_MANAGER_PROMO","CREATE_NOTIFICATION","PUSH_NOTIFICATION_SETTINGS"],
 		PromoReports: ["COUPON_REPORTS"],
-		FinanceDashboard: ["APPROVAL_CENTER","LC_PLANNER"],
+		FinanceDashboard: ["APPROVAL_CENTER","LC_PLANNER","ERP_LEDGERS"],
 		FinanceManage: ["CATEGORY_MANAGER","PURCHASE_VOUCHER_MANAGER","MANAGE_RECONCILIATIONS","ASSET_MANAGER","LEASE_AND_RENT"],
 		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH"],
 		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","SALES_ANALYSIS","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
@@ -1710,6 +1711,27 @@ function openApprovalCenter() {
 			componentName: 'LCPlanner',
 			icon: '📑',
 			size: { width: 1200, height: 700 },
+			position: {
+				x: 50 + (Math.random() * 100),
+				y: 50 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openErpLedgers() {
+		const windowId = generateWindowId('erp-ledgers');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId,
+			title: `${t('nav.erpLedgers') || 'ERP Ledgers'} #${instanceNumber}`,
+			component: ErpLedgers,
+			componentName: 'ErpLedgers',
+			icon: '📒',
+			size: { width: 1300, height: 800 },
 			position: {
 				x: 50 + (Math.random() * 100),
 				y: 50 + (Math.random() * 100)
@@ -5258,6 +5280,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openLCPlanner}>
 								<span class="menu-icon">📑</span>
 								<span class="menu-text">{t('nav.lcPlanner')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ERP_LEDGERS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openErpLedgers}>
+								<span class="menu-icon">📒</span>
+								<span class="menu-text">{t('nav.erpLedgers')}</span>
 							</button>
 						</div>
 					{/if}
