@@ -3,6 +3,7 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import YmdDatePicker from './YmdDatePicker.svelte';
 
 	let breaks: any[] = [];
 	let loading = true;
@@ -44,6 +45,9 @@
 	let summarySearchQuery = '';
 	let employeeSummaries: any[] = [];
 	let loadingSummary = false;
+	let summaryScheduledSet = new Set<string>();
+	let summaryEmployeesById = new Map<string, any>();
+	let summaryActiveEmployeeIds = new Set<string>();
 
 	// Total Summary (flat rows for all employees)
 	let totalSummaryDateFrom = '';
@@ -53,6 +57,7 @@
 	let totalSummarySearch = '';
 	let totalSummaryData: any[] = [];
 	let loadingTotalSummary = false;
+	let totalSummaryScheduledSet = new Set<string>();
 
 	function onSpecificDateChange() {
 		if (totalSummarySpecificDate) {
@@ -63,32 +68,22 @@
 		}
 	}
 
-	function onRangeDateChange() {
-		totalSummarySpecificDate = '';
-		totalSummaryQuickFilter = '';
-		loadTotalSummary();
-	}
-
 	let totalSummaryQuickFilter = '';
 
-	function setTotalSummaryQuickFilter(filter: 'today' | 'yesterday') {
+	// Riyadh-local date string, `daysAgo` days before today (0 = today, 1 = yesterday)
+	function riyadhDateStr(daysAgo = 0): string {
 		const now = new Date();
 		const riyadhOffset = 3 * 60; // UTC+3
 		const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-		const riyadhNow = new Date(utcMs + riyadhOffset * 60000);
-		const todayStr = riyadhNow.toISOString().split('T')[0];
+		const riyadhNow = new Date(utcMs + riyadhOffset * 60000 - daysAgo * 24 * 60 * 60 * 1000);
+		return riyadhNow.toISOString().split('T')[0];
+	}
 
-		if (filter === 'today') {
-			totalSummaryDateFrom = todayStr;
-			totalSummaryDateTo = todayStr;
-			totalSummarySpecificDate = todayStr;
-		} else {
-			const yesterday = new Date(riyadhNow.getTime() - 24 * 60 * 60 * 1000);
-			const yesterdayStr = yesterday.toISOString().split('T')[0];
-			totalSummaryDateFrom = yesterdayStr;
-			totalSummaryDateTo = yesterdayStr;
-			totalSummarySpecificDate = yesterdayStr;
-		}
+	function setTotalSummaryQuickFilter(filter: 'today' | 'yesterday') {
+		const dateStr = riyadhDateStr(filter === 'today' ? 0 : 1);
+		totalSummaryDateFrom = dateStr;
+		totalSummaryDateTo = dateStr;
+		totalSummarySpecificDate = dateStr;
 		totalSummaryQuickFilter = filter;
 		loadTotalSummary();
 	}
@@ -105,6 +100,7 @@
 		const rows: any[] = [];
 		for (const emp of totalSummaryData) {
 			for (const day of (emp.days || [])) {
+				if (!totalSummaryScheduledSet.has(`${emp.employee_id}__${day.date}`)) continue;
 				rows.push({
 					date: day.date,
 					employee_name_en: emp.employee_name_en,
@@ -160,16 +156,19 @@
 	}
 
 	onMount(async () => {
+		// Default every tab to yesterday only — the user can pick any custom
+		// year/month/day range via the date filters once loaded.
+		const yesterdayStr = riyadhDateStr(1);
+		filterDateFrom = yesterdayStr;
+		filterDateTo = yesterdayStr;
+		summaryDateFrom = yesterdayStr;
+		summaryDateTo = yesterdayStr;
+		totalSummaryDateFrom = yesterdayStr;
+		totalSummaryDateTo = yesterdayStr;
+		totalSummarySpecificDate = yesterdayStr;
+		totalSummaryQuickFilter = 'yesterday';
+
 		await Promise.all([loadBreaks(), loadBranches(), loadBreakReasons()]);
-		// Set default date range for summary (last 30 days)
-		const today = new Date();
-		summaryDateTo = today.toISOString().split('T')[0];
-		const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-		summaryDateFrom = thirtyDaysAgo.toISOString().split('T')[0];
-		// Default date range for total summary (last 7 days)
-		totalSummaryDateTo = today.toISOString().split('T')[0];
-		const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-		totalSummaryDateFrom = sevenDaysAgo.toISOString().split('T')[0];
 
 		// Subscribe to realtime changes
 		setupRealtimeChannel();
@@ -366,28 +365,44 @@
 	// ═══════════════════════════════════════
 	async function loadSummaryData() {
 		loadingSummary = true;
-		const params: any = {};
-		if (summaryDateFrom) params.p_date_from = summaryDateFrom;
-		if (summaryDateTo) params.p_date_to = summaryDateTo;
-		if (summaryBranch) params.p_branch_id = parseInt(summaryBranch);
+		try {
+			const params: any = {};
+			if (summaryDateFrom) params.p_date_from = summaryDateFrom;
+			if (summaryDateTo) params.p_date_to = summaryDateTo;
+			if (summaryBranch) params.p_branch_id = parseInt(summaryBranch);
 
-		const { data, error } = await supabase.rpc('get_all_breaks', params);
-		if (!error && data?.breaks) {
-			breaks = data.breaks;
+			const [breaksRes, scheduled] = await Promise.all([
+				supabase.rpc('get_all_breaks', params),
+				computeScheduledSet(summaryDateFrom, summaryDateTo, summaryBranch)
+			]);
+			summaryScheduledSet = scheduled.scheduled;
+			summaryEmployeesById = scheduled.employees;
+			summaryActiveEmployeeIds = scheduled.activeEmployeeIds;
+			breaks = breaksRes.error ? [] : (breaksRes.data?.breaks || []);
 			computeEmployeeSummaries();
+		} catch (err) {
+			console.error('Error loading employee summary:', err);
+		} finally {
+			loadingSummary = false;
 		}
-		loadingSummary = false;
 	}
 
 	function computeEmployeeSummaries() {
 		const map = new Map<string, any>();
-		const filtered = summaryBranch
+		let filtered = summaryBranch
 			? breaks.filter(b => String(b.branch_id) === summaryBranch)
 			: breaks;
+		// Drop breaks logged by employees who are now on Vacation / Remote Job / Resigned —
+		// only skip this when the active-employee lookup itself failed to load.
+		if (summaryActiveEmployeeIds.size > 0) {
+			filtered = filtered.filter(b => summaryActiveEmployeeIds.has(b.employee_id));
+		}
 
+		const presentDays = new Set<string>();
 		for (const b of filtered) {
 			// Group by employee + date + reason
 			const breakDate = b.start_time ? new Date(b.start_time).toISOString().split('T')[0] : 'unknown';
+			presentDays.add(`${b.employee_id}__${breakDate}`);
 			const reasonKey = isRtl ? (b.reason_ar || b.reason_en || '—') : (b.reason_en || b.reason_ar || '—');
 			const key = `${b.employee_id}__${breakDate}__${reasonKey}`;
 			if (!map.has(key)) {
@@ -410,6 +425,29 @@
 			if (b.status === 'open') entry.open_breaks++;
 			if (b.duration_seconds) entry.total_duration += b.duration_seconds;
 		}
+
+		// Add placeholder rows for employees who were scheduled that day but logged zero breaks
+		for (const key of summaryScheduledSet) {
+			if (presentDays.has(key)) continue;
+			const [employeeId, date] = key.split('__');
+			const emp = summaryEmployeesById.get(employeeId);
+			if (!emp) continue;
+			map.set(`${key}__none`, {
+				employee_id: employeeId,
+				employee_name_en: emp.name_en,
+				employee_name_ar: emp.name_ar,
+				branch_name_en: emp.branch_name_en,
+				branch_name_ar: emp.branch_name_ar,
+				branch_id: emp.branch_id,
+				date,
+				reason: '—',
+				total_breaks: 0,
+				open_breaks: 0,
+				total_duration: 0,
+				is_placeholder: true
+			});
+		}
+
 		employeeSummaries = Array.from(map.values()).sort((a: any, b: any) => {
 			// Sort by date descending, then employee name
 			if (a.date !== b.date) return b.date.localeCompare(a.date);
@@ -417,6 +455,47 @@
 			const nameB = b.employee_name_en || b.employee_name_ar || '';
 			return nameA.localeCompare(nameB);
 		});
+	}
+
+	// ═══════════════════════════════════════
+	// Shift-schedule resolution (shared by Employee Summary + Total Summary)
+	// Backed by the get_break_schedule_status RPC, which mirrors the date-wise >
+	// weekday > regular precedence used in Shifts.svelte's loadCurrentShifts(),
+	// server-side, across a date range for many employees at once.
+	// ═══════════════════════════════════════
+	async function computeScheduledSet(dateFrom: string, dateTo: string, branchId: string): Promise<{ scheduled: Set<string>; employees: Map<string, any>; activeEmployeeIds: Set<string> }> {
+		const scheduled = new Set<string>();
+		const employees = new Map<string, any>();
+		const activeEmployeeIds = new Set<string>();
+		if (!dateFrom || !dateTo) return { scheduled, employees, activeEmployeeIds };
+
+		const params: any = { p_date_from: dateFrom, p_date_to: dateTo };
+		if (branchId) params.p_branch_id = parseInt(branchId);
+
+		const { data, error } = await supabase.rpc('get_break_schedule_status', params);
+		if (error || !data?.rows) {
+			console.error('Error loading break schedule status:', error);
+			return { scheduled, employees, activeEmployeeIds };
+		}
+
+		// The RPC only ever returns currently-active employees (Remote Job / Vacation /
+		// Resigned are excluded server-side), so every row here doubles as the
+		// active-employee whitelist, regardless of whether that particular day is scheduled.
+		for (const r of data.rows) {
+			activeEmployeeIds.add(r.employee_id);
+			if (r.scheduled) scheduled.add(`${r.employee_id}__${r.shift_date}`);
+			if (!employees.has(r.employee_id)) {
+				employees.set(r.employee_id, {
+					name_en: r.name_en,
+					name_ar: r.name_ar,
+					branch_id: r.branch_id,
+					branch_name_en: r.branch_name_en || 'N/A',
+					branch_name_ar: r.branch_name_ar || 'N/A'
+				});
+			}
+		}
+
+		return { scheduled, employees, activeEmployeeIds };
 	}
 
 	function formatSummaryDate(dateStr: string): string {
@@ -480,7 +559,11 @@
 			};
 			if (totalSummaryBranch) params.p_branch_id = parseInt(totalSummaryBranch);
 
-			const { data, error } = await supabase.rpc('get_break_summary_all_employees', params);
+			const [{ data, error }, scheduled] = await Promise.all([
+				supabase.rpc('get_break_summary_all_employees', params),
+				computeScheduledSet(totalSummaryDateFrom, totalSummaryDateTo, totalSummaryBranch)
+			]);
+			totalSummaryScheduledSet = scheduled.scheduled;
 			if (error) {
 				console.error('Error loading total summary:', error);
 				totalSummaryData = [];
@@ -591,15 +674,9 @@
 							{/each}
 						</select>
 					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'من' : 'From'}</label>
-						<input type="date" bind:value={filterDateFrom} on:change={() => loadBreaks()}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
-					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'إلى' : 'To'}</label>
-						<input type="date" bind:value={filterDateTo} on:change={() => loadBreaks()}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
+					<div class="flex-1 min-w-[220px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'التاريخ' : 'Date'}</label>
+						<YmdDatePicker bind:value={filterDateFrom} {isRtl} on:change={() => { filterDateTo = filterDateFrom; loadBreaks(); }} />
 					</div>
 					<div class="flex-[2] min-w-[200px]">
 						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
@@ -841,15 +918,9 @@
 							{/each}
 						</select>
 					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'من' : 'From'}</label>
-						<input type="date" bind:value={summaryDateFrom} on:change={loadSummaryData}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
-					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'إلى' : 'To'}</label>
-						<input type="date" bind:value={summaryDateTo} on:change={loadSummaryData}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all" />
+					<div class="flex-1 min-w-[220px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'التاريخ' : 'Date'}</label>
+						<YmdDatePicker bind:value={summaryDateFrom} {isRtl} accentClass="focus:ring-orange-500" on:change={() => { summaryDateTo = summaryDateFrom; loadSummaryData(); }} />
 					</div>
 					<div class="flex-[2] min-w-[200px]">
 						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
@@ -891,7 +962,7 @@
 								</thead>
 								<tbody class="divide-y divide-slate-200">
 									{#each filteredSummaries as emp, index}
-										<tr class="hover:bg-orange-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
+										<tr class="hover:bg-orange-50/30 transition-colors duration-200 {emp.is_placeholder ? 'opacity-60' : ''} {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 											<td class="px-4 py-3 text-sm text-slate-800 font-semibold">{formatSummaryDate(emp.date)}</td>
 											<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (emp.employee_name_ar || emp.employee_name_en) : (emp.employee_name_en || emp.employee_name_ar)}</td>
 											<td class="px-4 py-3 text-sm text-slate-400 font-mono">{emp.employee_id}</td>
@@ -899,7 +970,7 @@
 										<div class="font-semibold">{isRtl ? (emp.branch_name_ar || emp.branch_name_en) : (emp.branch_name_en || emp.branch_name_ar)}</div>
 										{#if getBranchLocation(emp.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(emp.branch_id)}</div>{/if}
 									</td>
-											<td class="px-4 py-3 text-sm text-slate-700">{emp.reason}</td>
+											<td class="px-4 py-3 text-sm {emp.is_placeholder ? 'italic text-slate-400' : 'text-slate-700'}">{emp.is_placeholder ? (isRtl ? 'لم تُسجَّل استراحة' : 'No break logged') : emp.reason}</td>
 											<td class="px-4 py-3 text-sm text-center font-bold text-slate-800">{emp.total_breaks}</td>
 											<td class="px-4 py-3 text-sm text-center">
 												{#if emp.open_breaks > 0}
@@ -957,20 +1028,9 @@
 							{/each}
 						</select>
 					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'تاريخ محدد' : 'Specific Date'}</label>
-						<input type="date" bind:value={totalSummarySpecificDate} on:change={onSpecificDateChange}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
-					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'من' : 'From'}</label>
-						<input type="date" bind:value={totalSummaryDateFrom} on:change={onRangeDateChange}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
-					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'إلى' : 'To'}</label>
-						<input type="date" bind:value={totalSummaryDateTo} on:change={onRangeDateChange}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
+					<div class="flex-1 min-w-[220px]">
+						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'التاريخ' : 'Date'}</label>
+						<YmdDatePicker bind:value={totalSummarySpecificDate} {isRtl} accentClass="focus:ring-purple-500" on:change={onSpecificDateChange} />
 					</div>
 					<div class="flex-[2] min-w-[200px]">
 						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
