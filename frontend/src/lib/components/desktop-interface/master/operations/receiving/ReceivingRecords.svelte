@@ -41,9 +41,8 @@
 	let vendorSearchTerm = ''; // Search by vendor name
 	let selectedErpRefFilter = ''; // Filter by ERP invoice reference ('' = all, 'entered', 'not_entered')
 	let erpReferenceSearchTerm = ''; // Search by ERP invoice reference number
-	let erpCheckStatusFilter = ''; // '' | 'mismatch' | 'not_found' — filters rows by their persisted erp_check_result.status
-	let erpMismatchCount = 0;
-	let erpNotFoundCount = 0;
+	let erpCheckStatusFilter = ''; // '' | 'issues' — filters rows failing either persisted bill check or ERP check
+	let checkIssueCount = 0;
 	let billDateFilterMode = ''; // '' = any date, 'specific' = one date, 'period' = date range
 	let billDateFrom = '';
 	let billDateTo = '';
@@ -210,19 +209,20 @@
 		};
 	});
 
-	// Badge counts for the Mismatch/Not Found filter buttons — independent of the currently applied
-	// filters/pagination, so the counts stay meaningful even while one of them is active.
+	// Combined issue count, independent of the currently applied filters/pagination. The RPC counts
+	// each receiving record once when either the Original Bill check is a mismatch or the ERP check
+	// is a mismatch/not-found.
 	async function loadErpCheckCounts() {
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const [mismatchResult, notFoundResult] = await Promise.all([
-				supabase.rpc('get_receiving_records_with_details', { p_limit: 1, p_erp_check_status_filter: 'mismatch' }),
-				supabase.rpc('get_receiving_records_with_details', { p_limit: 1, p_erp_check_status_filter: 'not_found' })
-			]);
-			erpMismatchCount = mismatchResult.data?.[0]?.total_count || 0;
-			erpNotFoundCount = notFoundResult.data?.[0]?.total_count || 0;
+			const { data, error } = await supabase.rpc('get_receiving_records_with_details', {
+				p_limit: 1,
+				p_erp_check_status_filter: 'issues'
+			});
+			if (error) throw error;
+			checkIssueCount = data?.[0]?.total_count || 0;
 		} catch (err) {
-			console.error('Error loading ERP check counts:', err);
+			console.error('Error loading combined check issue count:', err);
 		}
 	}
 
@@ -326,6 +326,7 @@
 								updatePaginatedRecords();
 								seedErpCheckState([newRecord]);
 								seedOriginalBillCheckState([newRecord]);
+								await loadErpCheckCounts();
 								console.log('✅ New record added to table without full reload');
 							}
 						} catch (err) {
@@ -345,12 +346,14 @@
 							allLoadedRecords[allIndex] = { ...allLoadedRecords[allIndex], ...updatedRecord };
 						}
 						updatePaginatedRecords();
+						await loadErpCheckCounts();
 					} else if (payload.eventType === 'DELETE') {
 						console.log('🗑️ Record deleted, updating list...');
 						// Remove the deleted record from local arrays
 						receivingRecords = receivingRecords.filter(r => r.id !== payload.old?.id);
 						allLoadedRecords = allLoadedRecords.filter(r => r.id !== payload.old?.id);
 						updatePaginatedRecords();
+						await loadErpCheckCounts();
 					}
 				}
 			);
@@ -571,6 +574,7 @@
 			allLoadedRecords = patch(allLoadedRecords);
 			paginatedRecords = patch(paginatedRecords);
 			archivedRecords = patch(archivedRecords);
+			await loadErpCheckCounts();
 		} catch (err) {
 			console.error('Failed to persist ERP check result:', err);
 		}
@@ -683,7 +687,9 @@
 						.toLowerCase().includes(erpReferenceSearch.toLowerCase())) &&
 					(!rpcParams.p_bill_date_from || record.bill_date >= rpcParams.p_bill_date_from) &&
 					(!rpcParams.p_bill_date_to || record.bill_date <= rpcParams.p_bill_date_to) &&
-					(!erpCheckStatusFilter || record.erp_check_result?.status === erpCheckStatusFilter)
+					(!erpCheckStatusFilter || erpCheckStatusFilter !== 'issues' ||
+						record.original_bill_check_result?.status === 'mismatch' ||
+						['mismatch', 'not_found'].includes(record.erp_check_result?.status))
 				) || [];
 				records = fallbackMatches.map((record) => ({
 					...record,
@@ -1164,6 +1170,7 @@
 		allLoadedRecords = patch(allLoadedRecords);
 		paginatedRecords = patch(paginatedRecords);
 		archivedRecords = patch(archivedRecords);
+		await loadErpCheckCounts();
 
 		return payload;
 	}
@@ -1184,7 +1191,9 @@
 					url: record.original_bill_url,
 					localVendorName: record.vendors?.vendor_name || null,
 					localVendorVat: record.vendors?.vat_number || null,
-					localBillAmount: parseFloat(record.final_bill_amount ?? record.bill_amount ?? 0) || 0,
+					// The uploaded document is the original bill, so compare it with the original
+					// receiving-record amount—not the later discounted/adjusted final amount.
+					localBillAmount: parseFloat(record.bill_amount ?? 0) || 0,
 					// Raw ISO (YYYY-MM-DD, as stored) — the server compares this against the AI's
 					// own ISO-normalized read of the document with a plain string equality, not an
 					// AI judgment call, so it needs to be in the same unambiguous format.
@@ -1960,24 +1969,15 @@
 			</div>
 			<div class="min-w-0">
 				<label class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.erpCheckIssuesLabel')}</label>
-				<div class="flex gap-2">
+				<div>
 					<button
 						type="button"
-						on:click={() => toggleErpCheckStatusFilter('mismatch')}
+						on:click={() => toggleErpCheckStatusFilter('issues')}
 						disabled={loading}
-						title="Show only rows whose persisted ERP Check is Mismatch"
-						class="flex-1 px-3 py-2.5 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed {erpCheckStatusFilter === 'mismatch' ? 'text-white bg-amber-500 hover:bg-amber-600' : 'text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100'}"
+						title="Show records with an Original Bill mismatch or an ERP mismatch/not-found result"
+						class="w-full px-3 py-2.5 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed {erpCheckStatusFilter === 'issues' ? 'text-white bg-red-600 hover:bg-red-700' : 'text-red-700 bg-red-50 border border-red-200 hover:bg-red-100'}"
 					>
-						⚠️ {erpMismatchCount}
-					</button>
-					<button
-						type="button"
-						on:click={() => toggleErpCheckStatusFilter('not_found')}
-						disabled={loading}
-						title="Show only rows whose persisted ERP Check is Not Found"
-						class="flex-1 px-3 py-2.5 text-sm font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed {erpCheckStatusFilter === 'not_found' ? 'text-white bg-red-600 hover:bg-red-700' : 'text-red-700 bg-red-50 border border-red-200 hover:bg-red-100'}"
-					>
-						⚠️ {erpNotFoundCount}
+						⚠️ {checkIssueCount}
 					</button>
 				</div>
 			</div>
@@ -2686,7 +2686,7 @@
 					<p style="font-weight: 700; font-size: 15px; margin: 4px 0 0;">{billCheckResult.billAmountIncludingVat || '—'}</p>
 					<p style="font-size: 12px; color: #9ca3af; margin: 2px 0 0;">
 						{#if billCheckResult.billAmountMatches === true}✅{:else if billCheckResult.billAmountMatches === false}❌{/if}
-						Receiving Record: {parseFloat(billCheckRecord?.final_bill_amount ?? billCheckRecord?.bill_amount ?? 0).toFixed(2)}
+						Receiving Record: {parseFloat(billCheckRecord?.bill_amount ?? 0).toFixed(2)}
 					</p>
 				</div>
 				<div class="erp-input-group">

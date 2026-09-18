@@ -481,8 +481,11 @@
     
     try {
       const session = JSON.parse(sessionData);
-      if (session.currentUserId && session.users) {
-        const currentUser = session.users.find(u => u.id === session.currentUserId);
+      // Desktop quick-access sessions are tracked per-interface now, so
+      // fall back to that slot when the legacy single currentUserId is empty.
+      const activeUserId = session.currentUserId || session.currentUserIdByInterface?.desktop;
+      if (activeUserId && session.users) {
+        const currentUser = session.users.find(u => u.id === activeUserId);
         if (currentUser && currentUser.isActive) {
           return { id: currentUser.id };
         }

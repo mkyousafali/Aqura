@@ -561,7 +561,7 @@
 			
 			// Initialize persistent authentication first
 			try {
-				await persistentAuthService.initializeAuth();
+				await persistentAuthService.initializeAuth('desktop');
 				console.log('✅ Persistent auth initialization completed');
 			} catch (authError) {
 				console.error('❌ Persistent auth initialization failed:', authError);

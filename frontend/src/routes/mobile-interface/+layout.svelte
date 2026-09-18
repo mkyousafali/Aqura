@@ -133,7 +133,7 @@
 		const checkAuth = async () => {
 			try {
 				// Wait for auth to initialize with 2 second timeout
-				const authPromise = persistentAuthService.initializeAuth();
+				const authPromise = persistentAuthService.initializeAuth('mobile');
 				const timeoutPromise = new Promise((_, reject) => 
 					setTimeout(() => reject(new Error('Auth timeout')), 2000)
 				);

@@ -1470,9 +1470,16 @@ export const storage = {
 
     try {
       const session = JSON.parse(sessionData);
-      if (session.currentUserId && session.users) {
+      // Desktop/mobile sessions are tracked per-interface now; fall back to
+      // those slots when the legacy single currentUserId is empty. Callers
+      // of this generic helper are desktop-only today.
+      const activeUserId =
+        session.currentUserId ||
+        session.currentUserIdByInterface?.desktop ||
+        session.currentUserIdByInterface?.mobile;
+      if (activeUserId && session.users) {
         const currentUser = session.users.find(
-          (u) => u.id === session.currentUserId,
+          (u) => u.id === activeUserId,
         );
         if (currentUser && currentUser.isActive) {
           return {
@@ -1506,10 +1513,16 @@ export const storage = {
       if (sessionData) {
         try {
           const session = JSON.parse(sessionData);
-          // Check if there's a current user in the session
-          if (session.currentUserId && session.users) {
+          // Check if there's a current user in the session. Desktop/mobile
+          // sessions are tracked per-interface now; fall back to those
+          // slots when the legacy single currentUserId is empty.
+          const activeUserId =
+            session.currentUserId ||
+            session.currentUserIdByInterface?.desktop ||
+            session.currentUserIdByInterface?.mobile;
+          if (activeUserId && session.users) {
             const currentUser = session.users.find(
-              (u) => u.id === session.currentUserId,
+              (u) => u.id === activeUserId,
             );
             if (currentUser && currentUser.isActive) {
               isAuthenticated = true;

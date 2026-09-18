@@ -5252,7 +5252,7 @@ export const arabicLocale: LocaleData = {
         erpCheckMismatch: "غير مطابق",
         erpCheckNotFound: "غير موجود في ERP",
         erpCheckError: "فشل الفحص",
-        erpCheckIssuesLabel: "مشاكل فحص ERP",
+        erpCheckIssuesLabel: "مشاكل الفحص",
         erpCheckIssuesButton: "عرض غير المطابق/غير الموجود",
         colActions: "الإجراءات",
         generating: "جاري الإنشاء...",

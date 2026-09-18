@@ -184,8 +184,11 @@
 				clearCashierSession();
 			}
 			// Sign out from Supabase FIRST (before touching stores)
-			// so the session is actually invalidated before any navigation
-			await supabase.auth.signOut();
+			// so the session is actually invalidated before any navigation.
+			// 'local' scope: don't revoke this account's refresh token
+			// server-side, which would also sign out other interfaces/devices
+			// legitimately using the same account.
+			await supabase.auth.signOut({ scope: 'local' });
 			// Also do persistent auth service logout
 			await persistentAuthService.logout();
 		} catch (err) {

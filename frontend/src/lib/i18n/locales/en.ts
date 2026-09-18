@@ -5215,7 +5215,7 @@ export const englishLocale: LocaleData = {
         erpCheckMismatch: "Not Matched",
         erpCheckNotFound: "Not Found in ERP",
         erpCheckError: "Check Failed",
-        erpCheckIssuesLabel: "ERP Check Issues",
+        erpCheckIssuesLabel: "Check Issues",
         erpCheckIssuesButton: "Show Mismatch/Not Found",
         colActions: "Actions",
         generating: "Generating...",

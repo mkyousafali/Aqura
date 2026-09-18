@@ -30,6 +30,12 @@
     let showReportsToModal = false;
     let selectedReportsToIncident: any = null;
     let showWhatHappenedModal = false;
+    let showReopenModal = false;
+    let reopenIncident: any = null;
+    let reopenTaskCount = 0;
+    let reopenAssignmentCount = 0;
+    let isLoadingReopenPreview = false;
+    let isReopening = false;
     
     // Manage Claimed By modal state
     let showManageClaimedModal = false;
@@ -590,6 +596,90 @@
         } catch (err: any) {
             console.error('Error deleting incident:', err);
             alert($locale === 'ar' ? 'خطأ في حذف الحادثة' : 'Error deleting incident');
+        }
+    }
+
+    async function openReopenModal(incident: any) {
+        if (!$currentUser?.isMasterAdmin || !['claimed', 'resolved'].includes(incident.resolution_status)) return;
+
+        reopenIncident = incident;
+        reopenTaskCount = 0;
+        reopenAssignmentCount = 0;
+        showReopenModal = true;
+        isLoadingReopenPreview = true;
+
+        try {
+            const { data: tasks, error: taskError } = await supabase
+                .from('quick_tasks')
+                .select('id')
+                .eq('incident_id', incident.id);
+            if (taskError) throw taskError;
+
+            const taskIds = (tasks || []).map((task: any) => task.id);
+            reopenTaskCount = taskIds.length;
+            if (taskIds.length > 0) {
+                const { count, error: assignmentError } = await supabase
+                    .from('quick_task_assignments')
+                    .select('id', { count: 'exact', head: true })
+                    .in('quick_task_id', taskIds);
+                if (assignmentError) throw assignmentError;
+                reopenAssignmentCount = count || 0;
+            }
+        } catch (err) {
+            console.error('Error loading reopen preview:', err);
+        } finally {
+            isLoadingReopenPreview = false;
+        }
+    }
+
+    function closeReopenModal() {
+        if (isReopening) return;
+        showReopenModal = false;
+        reopenIncident = null;
+        reopenTaskCount = 0;
+        reopenAssignmentCount = 0;
+    }
+
+    async function handleReopenIncident() {
+        if (!reopenIncident || !$currentUser?.isMasterAdmin) return;
+
+        try {
+            isReopening = true;
+            const incidentId = reopenIncident.id;
+            if ($currentUser.token) {
+                const response = await fetch('/api/incidents/reopen', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        incidentId: String(incidentId),
+                        actorUserId: $currentUser.id,
+                        sessionToken: $currentUser.token
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.error || 'Reopen failed');
+            } else {
+                const { error: reopenError } = await supabase.rpc('reopen_incident_cascade', {
+                    p_incident_id: String(incidentId),
+                    p_actor_user_id: $currentUser.id,
+                    p_session_token: null
+                });
+                if (reopenError) throw reopenError;
+            }
+
+            showReopenModal = false;
+            reopenIncident = null;
+            await loadIncidents();
+            alert($locale === 'ar'
+                ? `✅ تمت إعادة فتح الحادثة #${incidentId} كبلاغ جديد`
+                : `✅ Incident #${incidentId} reopened as Reported`);
+        } catch (err: any) {
+            console.error('Error reopening incident:', err);
+            alert($locale === 'ar'
+                ? `خطأ في إعادة فتح الحادثة: ${err?.message || ''}`
+                : `Error reopening incident: ${err?.message || ''}`);
+        } finally {
+            isReopening = false;
         }
     }
 
@@ -1315,7 +1405,7 @@
                         </th>
                         {#if $currentUser?.isMasterAdmin}
                             <th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">
-                                {$locale === 'ar' ? 'حذف' : 'Delete'}
+                                {$locale === 'ar' ? 'الإجراءات' : 'Actions'}
                             </th>
                         {/if}
                     </tr>
@@ -1544,6 +1634,16 @@
                             {#if $currentUser?.isMasterAdmin}
                                 <!-- Delete -->
                                 <td class="px-3 py-3 text-center">
+                                    <div class="flex flex-col items-center gap-1.5">
+                                    {#if incident.resolution_status === 'claimed' || incident.resolution_status === 'resolved'}
+                                        <button
+                                            on:click={() => openReopenModal(incident)}
+                                            class="px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-sm hover:shadow font-medium"
+                                            title={$locale === 'ar' ? 'إعادة فتح الحادثة كبلاغ جديد' : 'Reopen incident as Reported'}
+                                        >
+                                            {$locale === 'ar' ? '↺ إعادة فتح' : '↺ Reopen'}
+                                        </button>
+                                    {/if}
                                     <button
                                         on:click={() => handleDeleteIncident(incident)}
                                         class="px-2.5 py-1.5 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs rounded-lg hover:from-red-600 hover:to-red-700 transition-all shadow-sm hover:shadow font-medium"
@@ -1551,6 +1651,7 @@
                                     >
                                         {$locale === 'ar' ? '🗑️ حذف' : '🗑️ Delete'}
                                     </button>
+                                    </div>
                                 </td>
                             {/if}
                         </tr>
@@ -1946,6 +2047,64 @@
                     </div>
                 </div>
             {/if}
+        </div>
+    </div>
+{/if}
+
+{#if showReopenModal && reopenIncident}
+    <div class="modal-overlay" on:click={closeReopenModal}>
+        <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4" on:click|stopPropagation role="dialog" aria-modal="true" aria-labelledby="reopen-title">
+            <div class="flex items-start gap-3 mb-4">
+                <span class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-amber-100 text-amber-700 text-xl">↺</span>
+                <div>
+                    <h3 id="reopen-title" class="text-lg font-bold text-slate-800">
+                        {$locale === 'ar' ? `إعادة فتح الحادثة #${reopenIncident.id}` : `Reopen Incident #${reopenIncident.id}`}
+                    </h3>
+                    <p class="text-sm text-slate-500 mt-1">
+                        {$locale === 'ar' ? 'ستعود الحادثة إلى حالة «مبلغ عنها» وتبدو كبلاغ جديد.' : 'The incident will return to Reported and look like a fresh report.'}
+                    </p>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4">
+                <p class="text-sm font-bold text-amber-900 mb-2">
+                    {$locale === 'ar' ? 'سيتم مسح بيانات سير العمل التالية:' : 'The following workflow data will be cleared:'}
+                </p>
+                <ul class="space-y-1.5 text-sm text-amber-900">
+                    <li>• {$locale === 'ar' ? 'تقرير التحقيق' : 'Investigation report'}: <strong>{reopenIncident.investigation_report ? ($locale === 'ar' ? 'موجود' : 'Present') : ($locale === 'ar' ? 'لا يوجد' : 'None')}</strong></li>
+                    <li>• {$locale === 'ar' ? 'تقرير الحل' : 'Resolution report'}: <strong>{reopenIncident.resolution_report ? ($locale === 'ar' ? 'موجود' : 'Present') : ($locale === 'ar' ? 'لا يوجد' : 'None')}</strong></li>
+                    <li>• {$locale === 'ar' ? 'التحذيرات والإجراءات والغرامات' : 'Warnings, actions and fines'}: <strong>{reopenIncident.incidentActions?.length || 0}</strong></li>
+                    <li>• {$locale === 'ar' ? 'مهام المتابعة' : 'Recovery tasks'}: <strong>{isLoadingReopenPreview ? '…' : reopenTaskCount}</strong></li>
+                    <li>• {$locale === 'ar' ? 'تعيينات المهام' : 'Task assignments'}: <strong>{isLoadingReopenPreview ? '…' : reopenAssignmentCount}</strong></li>
+                    <li>• {$locale === 'ar' ? 'حالات المطالبة والتعيين لكل مستخدم' : 'Per-user claim and assignment statuses'}</li>
+                </ul>
+            </div>
+
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 mb-5 text-sm text-emerald-800">
+                <strong>{$locale === 'ar' ? 'سيبقى محفوظاً:' : 'Preserved:'}</strong>
+                {$locale === 'ar'
+                    ? ' البلاغ الأصلي، رقمه، المبلّغ، التفاصيل، المرفقات، المستلمون، وتاريخ ووقت الإبلاغ الأصلي.'
+                    : ' original report, ID, reporter, details, attachments, recipients, and original reported date and time.'}
+            </div>
+
+            <div class="flex gap-3 {$locale === 'ar' ? 'flex-row-reverse' : ''}">
+                <button
+                    on:click={handleReopenIncident}
+                    disabled={isReopening || isLoadingReopenPreview}
+                    class="flex-1 px-4 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-bold"
+                >
+                    {isReopening
+                        ? ($locale === 'ar' ? 'جاري إعادة الفتح...' : 'Reopening...')
+                        : ($locale === 'ar' ? 'تأكيد إعادة الفتح' : 'Confirm Reopen')}
+                </button>
+                <button
+                    on:click={closeReopenModal}
+                    disabled={isReopening}
+                    class="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50 transition font-semibold"
+                >
+                    {$locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+            </div>
         </div>
     </div>
 {/if}

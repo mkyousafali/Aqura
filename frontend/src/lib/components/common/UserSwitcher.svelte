@@ -28,7 +28,7 @@
 	async function loadDeviceUsers() {
 		try {
 			isLoading = true;
-			deviceUsers = await persistentAuthService.getDeviceUsers();
+			deviceUsers = await persistentAuthService.getDeviceUsers('desktop');
 		} catch (err) {
 			console.error('Error loading device users:', err);
 			error = 'Failed to load users';
@@ -72,8 +72,9 @@
 				return;
 			}
 			
-			// Remove user session from device
-			await persistentAuthService['removeUserSession'](userId);
+			// Remove user session from device (desktop entry only — this
+			// switcher only ever lists desktop sessions)
+			await persistentAuthService['removeUserSession'](userId, 'desktop');
 			await loadDeviceUsers();
 		} catch (err) {
 			console.error('Error removing user:', err);

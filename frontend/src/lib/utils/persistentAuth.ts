@@ -98,7 +98,13 @@ export interface UserSession {
 export interface DeviceSession {
   deviceId: string;
   users: UserSession[];
+  // Legacy/base "current user" slot — still used for sessions with no
+  // interfaceType (customer) and as the fallback for generic (non-interface)
+  // callers. Kept separate from currentUserIdByInterface so Mobile and
+  // Desktop can each track their own current user without clobbering one
+  // another on the same device.
   currentUserId?: string;
+  currentUserIdByInterface?: Partial<Record<InterfaceType, string>>;
   lastActivity: string;
 }
 
@@ -124,15 +130,18 @@ export class PersistentAuthService {
   /**
    * Initialize authentication system
    */
-  async initializeAuth(): Promise<void> {
+  async initializeAuth(interfaceType?: InterfaceType): Promise<void> {
     try {
       console.log("🔐 Starting persistent auth initialization...");
 
       // Load device sessions from localStorage
       await this.loadDeviceSessions();
 
-      // Check if there's an active session
-      const activeUser = await this.getActiveUser();
+      // Check if there's an active session. Passing interfaceType scopes
+      // this to that interface's own current user, so Mobile and Desktop
+      // sessions on the same device resolve independently instead of
+      // fighting over one shared "current user" slot.
+      const activeUser = await this.getActiveUser(interfaceType);
       if (activeUser) {
         console.log("🔐 Found active user session:", activeUser.username);
         await this.setCurrentUser(activeUser);
@@ -739,11 +748,17 @@ export class PersistentAuthService {
         }
         stopInterfaceSessionGuard();
 
-        // Remove user from device sessions
-        await this.removeUserSession(current.id);
+        // Remove only THIS interface's session entry — a sibling interface
+        // (e.g. Mobile) logged in as the same account on this device must
+        // stay logged in.
+        await this.removeUserSession(current.id, current.interfaceType);
 
-        // Clear Supabase session
-        await supabase.auth.signOut();
+        // Clear Supabase session for this browser only ('local' scope).
+        // The default 'global' scope revokes the refresh token server-side
+        // for the account everywhere — which would also sign out a second
+        // device that just legitimately claimed this interface's slot via
+        // the single-session guard (its logout() call races this one).
+        await supabase.auth.signOut({ scope: "local" });
       }
 
       // Clear current user
@@ -769,7 +784,12 @@ export class PersistentAuthService {
         return { success: false, error: "No device session found" };
       }
 
-      const targetUser = deviceSession.users.find((u) => u.id === userId);
+      // User switching is a Desktop-only kiosk feature (UserSwitcher is
+      // only mounted in desktop-interface), so resolve strictly within
+      // that interface's sessions.
+      const targetUser = deviceSession.users.find(
+        (u) => u.id === userId && u.interfaceType === "desktop",
+      );
       if (!targetUser) {
         return { success: false, error: "User not found on this device" };
       }
@@ -789,7 +809,10 @@ export class PersistentAuthService {
       await this.setCurrentUser(targetUser);
 
       // Update device session
-      deviceSession.currentUserId = userId;
+      deviceSession.currentUserIdByInterface = {
+        ...deviceSession.currentUserIdByInterface,
+        desktop: userId,
+      };
       deviceSession.lastActivity = new Date().toISOString();
       await this.saveDeviceSession(deviceSession);
 
@@ -806,9 +829,13 @@ export class PersistentAuthService {
   /**
    * Get all users logged in on this device
    */
-  async getDeviceUsers(): Promise<UserSession[]> {
+  async getDeviceUsers(interfaceType?: InterfaceType): Promise<UserSession[]> {
     const deviceSession = await this.getDeviceSession();
-    return deviceSession?.users.filter((u) => u.isActive) || [];
+    return (
+      deviceSession?.users.filter(
+        (u) => u.isActive && (!interfaceType || u.interfaceType === interfaceType),
+      ) || []
+    );
   }
 
   /**
@@ -902,24 +929,47 @@ export class PersistentAuthService {
       };
     }
 
-    // Remove existing session for this user
-    deviceSession.users = deviceSession.users.filter((u) => u.id !== user.id);
+    // Remove any existing session for this user ON THE SAME INTERFACE only —
+    // a sibling interface's session for this same account (e.g. Mobile while
+    // this is a Desktop login) must survive untouched.
+    deviceSession.users = deviceSession.users.filter(
+      (u) => !(u.id === user.id && u.interfaceType === user.interfaceType),
+    );
 
     // Add new session
     deviceSession.users.push(user);
-    deviceSession.currentUserId = user.id;
+    if (user.interfaceType) {
+      deviceSession.currentUserIdByInterface = {
+        ...deviceSession.currentUserIdByInterface,
+        [user.interfaceType]: user.id,
+      };
+    } else {
+      deviceSession.currentUserId = user.id;
+    }
     deviceSession.lastActivity = new Date().toISOString();
 
     await this.saveDeviceSession(deviceSession);
   }
 
-  private async removeUserSession(userId: string): Promise<void> {
+  private async removeUserSession(
+    userId: string,
+    interfaceType?: InterfaceType,
+  ): Promise<void> {
     const deviceSession = await this.getDeviceSession();
     if (!deviceSession) return;
 
-    deviceSession.users = deviceSession.users.filter((u) => u.id !== userId);
+    deviceSession.users = deviceSession.users.filter(
+      (u) => !(u.id === userId && u.interfaceType === interfaceType),
+    );
 
-    if (deviceSession.currentUserId === userId) {
+    if (interfaceType) {
+      if (deviceSession.currentUserIdByInterface?.[interfaceType] === userId) {
+        deviceSession.currentUserIdByInterface = {
+          ...deviceSession.currentUserIdByInterface,
+          [interfaceType]: undefined,
+        };
+      }
+    } else if (deviceSession.currentUserId === userId) {
       deviceSession.currentUserId = undefined;
     }
 
@@ -927,19 +977,26 @@ export class PersistentAuthService {
     await this.saveDeviceSession(deviceSession);
   }
 
-  private async getActiveUser(): Promise<UserSession | null> {
+  private async getActiveUser(interfaceType?: InterfaceType): Promise<UserSession | null> {
     const deviceSession = await this.getDeviceSession();
-    if (!deviceSession || !deviceSession.currentUserId) return null;
+    if (!deviceSession) return null;
 
-    const user = deviceSession.users.find(
-      (u) => u.id === deviceSession.currentUserId,
+    const targetId = interfaceType
+      ? deviceSession.currentUserIdByInterface?.[interfaceType]
+      : deviceSession.currentUserId;
+    if (!targetId) return null;
+
+    const user = deviceSession.users.find((u) =>
+      interfaceType
+        ? u.id === targetId && u.interfaceType === interfaceType
+        : u.id === targetId,
     );
     if (!user) return null;
 
     // Check if session is valid
     const isValid = await this.isSessionValid(user.id);
     if (!isValid) {
-      await this.removeUserSession(user.id);
+      await this.removeUserSession(user.id, user.interfaceType);
       return null;
     }
 
