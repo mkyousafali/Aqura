@@ -3,7 +3,7 @@
 // IMPORTANT: Authentication data is preserved during cache clearing to keep users logged in
 
 // SERVICE WORKER VERSION - Increment to force updates
-const SW_VERSION = '2.5.0'; // Updated: Network-first for HTML navigation so users always get latest version
+const SW_VERSION = '2.5.1'; // Updated: removed file-picker fallback, direct in-app camera capture for Auto Tasks
 console.log(`[ServiceWorker] Version ${SW_VERSION} initializing`);
 
 // Import workbox from CDN for service worker
