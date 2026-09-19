@@ -39,6 +39,7 @@ function prettyButtonName(code: string): string {
 		WA_DASHBOARD: 'WhatsApp Dashboard',
 		LC_PLANNER: 'LC Planner',
 		ERP_LEDGERS: 'ERP Ledgers',
+		ERP_ENTRIES: 'ERP Entries',
 		ACTION_FOLLOW_UPS: 'Action Follow-Ups',
 		INTERNAL_EXPENSES: 'Internal Expenses',
 		PC_LOCK_GUARD: 'PC Lock Guard'
@@ -172,7 +173,7 @@ const structure: Record<string, Record<string, string[]>> = {
 	TASKS: {
 		DASHBOARD: ['TASK_MASTER'],
 		MANAGE: ['CREATE_TASK', 'VIEW_TASKS'],
-		OPERATIONS: ['ASSIGN_TASKS', 'MY_DAILY_CHECKLIST'],
+		OPERATIONS: ['ASSIGN_TASKS', 'MY_DAILY_CHECKLIST', 'ERP_ENTRIES'],
 		REPORTS: ['VIEW_MY_TASKS', 'VIEW_MY_ASSIGNMENTS', 'TASK_STATUS', 'BRANCH_PERFORMANCE']
 	},
 	USER: {

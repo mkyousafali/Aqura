@@ -82,7 +82,7 @@
 	let newOrdersCount = 0;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ7';
+	let mobileVersion = 'AQ8';
 
 	// FAB QR Scanner State
 	let fabScanning = false;

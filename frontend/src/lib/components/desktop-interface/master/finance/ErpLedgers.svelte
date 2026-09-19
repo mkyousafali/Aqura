@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t, currentLocale } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	interface BranchOption {
 		branch_id: number;
@@ -57,6 +58,30 @@
 	let hasRun = false;
 	let errorMessage = '';
 	let exporting = false;
+
+	// Send popup (PI rows only) -- creates an ERP Entry Task via create_erp_entry_task().
+	let showSendModal = false;
+	let sendModalRow: LedgerTxn | null = null;
+	let sendBillAmount = '';
+	let sendPaymentType: 'cash' | 'bank' | 'jv' = 'bank';
+	let sendBankLedgerId: number | null = null;
+	// JV: the credit account can be any ledger of the branch, chosen with search (not just bank ledgers).
+	let sendJvLedgerId: number | null = null;
+	let sendJvSearch = '';
+	let showJvDropdown = false;
+	let sendSubmitting = false;
+	let sendError = '';
+
+	// Ledgers whose ERP group indicates a bank account (e.g. "Bank Accounts", "Bank OD A/c"),
+	// drawn from the same branch-wide ledger list already loaded for the ledger-search field above.
+	$: bankLedgers = ledgers.filter((l) => l.groupName.toLowerCase().includes('bank'));
+
+	// Credit-account candidates for a JV: every branch ledger except the supplier being paid.
+	$: jvCandidates = ledgers.filter(
+		(l) =>
+			l.ledgerId !== selectedLedgerId &&
+			(!sendJvSearch.trim() || l.ledgerName.toLowerCase().includes(sendJvSearch.trim().toLowerCase()))
+	);
 
 	// Table-only filters -- applied client-side on the already-fetched `transactions` for the current
 	// branch/ledger/date period. They never trigger a re-fetch and never touch the opening/closing
@@ -305,6 +330,133 @@
 		return (n || 0).toFixed(2);
 	}
 
+	// Opens the Send popup for a PI row, prefilled from that transaction.
+	function openSendModal(row: LedgerTxn) {
+		sendModalRow = row;
+		sendBillAmount = formatAmount(row.debit || row.credit);
+		sendPaymentType = 'bank';
+		sendBankLedgerId = null;
+		sendJvLedgerId = null;
+		sendJvSearch = '';
+		showJvDropdown = false;
+		showSendModal = true;
+	}
+
+	function closeSendModal() {
+		showSendModal = false;
+		sendModalRow = null;
+		sendBillAmount = '';
+		sendPaymentType = 'bank';
+		sendBankLedgerId = null;
+		sendJvLedgerId = null;
+		sendJvSearch = '';
+		showJvDropdown = false;
+		sendSubmitting = false;
+		sendError = '';
+	}
+
+	function selectJvLedger(ledger: LedgerOption) {
+		sendJvLedgerId = ledger.ledgerId;
+		sendJvSearch = ledger.ledgerName;
+		showJvDropdown = false;
+	}
+
+	function onJvSearchInput() {
+		showJvDropdown = true;
+		if (sendJvLedgerId != null) sendJvLedgerId = null;
+	}
+
+	// Delayed so a click on an option (which also blurs the input) still registers first.
+	function onJvSearchBlur() {
+		setTimeout(() => (showJvDropdown = false), 150);
+	}
+
+	// Creates an ERP Entry Task via create_erp_entry_task(): plugs into the same generic
+	// tasks/task_assignments engine the rest of the app's Tasks system uses, so this shows up
+	// in My Tasks / mobile Tasks / Branch Performance like any other task. Completion (entering
+	// the payment voucher number) happens later from there, via the shared TaskCompletionModal.
+	async function submitSend() {
+		if (!sendModalRow || sendSubmitting) return;
+		sendError = '';
+
+		const amount = Number(sendBillAmount);
+		if (!amount || amount <= 0) {
+			sendError = 'Enter a valid bill amount';
+			return;
+		}
+		if (sendPaymentType === 'bank' && sendBankLedgerId == null) {
+			sendError = 'Select a bank account';
+			return;
+		}
+		if (sendPaymentType === 'jv' && sendJvLedgerId == null) {
+			sendError = 'Select a credit account';
+			return;
+		}
+		const user = $currentUser;
+		if (!user) {
+			sendError = 'Not logged in';
+			return;
+		}
+
+		sendSubmitting = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			// Credit side: the bank ledger for bank, the searched-and-picked ledger for JV, none for cash.
+			const creditLedger =
+				sendPaymentType === 'bank'
+					? bankLedgers.find((b) => b.ledgerId === sendBankLedgerId)
+					: sendPaymentType === 'jv'
+						? ledgers.find((l) => l.ledgerId === sendJvLedgerId)
+						: null;
+
+			const { data, error } = await supabase.rpc('create_erp_entry_task', {
+				p_branch_id: selectedBranchId,
+				p_ledger_name: selectedLedger?.ledgerName || '-',
+				p_bill_number: sendModalRow.billNumber,
+				p_voucher_number: sendModalRow.voucherNumber,
+				p_bill_amount: amount,
+				p_payment_type: sendPaymentType,
+				p_bank_ledger_id: creditLedger?.ledgerId ?? null,
+				p_bank_ledger_name: creditLedger?.ledgerName ?? null,
+				p_created_by: user.id,
+				p_created_by_name: user.employeeName || user.username,
+				p_original_bill_amount: sendModalRow.debit || sendModalRow.credit
+			});
+
+			if (error) throw error;
+			if (data?.success === false) throw new Error(data?.error || 'Failed to create ERP entry task');
+
+			// The RPC only creates the in-app notification row; actual push delivery is client-driven
+			// (same as every other notification in the app), via the send-push-notification edge function.
+			if (data?.notification_id) {
+				try {
+					const { sendPushForNotification } = await import('$lib/utils/pushNotificationSender');
+					await sendPushForNotification(
+						data.notification_id,
+						'ERP Entry Task | مهمة إدخال ERP',
+						'You have an ERP Entry task. --- لديك مهمة إدخال ERP.',
+						{ url: `/notifications?id=${data.notification_id}`, type: 'task_assigned' },
+						{
+							titleEn: 'ERP Entry Task',
+							bodyEn: 'You have an ERP Entry task.',
+							titleAr: 'مهمة إدخال ERP',
+							bodyAr: 'لديك مهمة إدخال ERP.'
+						}
+					);
+				} catch (pushErr) {
+					console.error('Failed to send ERP entry push notification:', pushErr);
+				}
+			}
+
+			closeSendModal();
+		} catch (err: any) {
+			console.error('Error creating ERP entry task:', err);
+			sendError = err.message || 'Failed to send';
+		} finally {
+			sendSubmitting = false;
+		}
+	}
+
 	// Signed running balance shown with the accounting Dr/Cr suffix instead of a +/- sign.
 	function formatBalance(n: number): string {
 		const abs = Math.abs(n || 0).toFixed(2);
@@ -490,6 +642,7 @@
 								<th>{$t('erpLedgers.colDebit')}</th>
 								<th>{$t('erpLedgers.colCredit')}</th>
 								<th>{$t('erpLedgers.colBalance')}</th>
+								<th>{$currentLocale === 'ar' ? 'المهمة' : 'Task'}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -510,6 +663,11 @@
 									<td class="amount-cell">{row.debit ? formatAmount(row.debit) : '-'}</td>
 									<td class="amount-cell">{row.credit ? formatAmount(row.credit) : '-'}</td>
 									<td class="amount-cell">{formatBalance(row.balance)}</td>
+									<td>
+										{#if row.voucherType === 'PI'}
+											<button class="send-btn" type="button" on:click={() => openSendModal(row)}>Send</button>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -525,6 +683,119 @@
 		</div>
 	{/if}
 </div>
+
+{#if showSendModal && sendModalRow}
+	<div class="modal-overlay" on:click={closeSendModal}>
+		<div class="modal-content send-modal" on:click={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h3>Send</h3>
+				<button class="modal-close-btn" type="button" on:click={closeSendModal}>✕</button>
+			</div>
+
+			<div class="modal-body">
+				<div class="form-group">
+					<label for="send-ledger-name">Ledger Name</label>
+					<input id="send-ledger-name" type="text" value={selectedLedger?.ledgerName || '-'} readonly />
+				</div>
+				<div class="form-group">
+					<label for="send-bill-number">Bill Number</label>
+					<input id="send-bill-number" type="text" value={sendModalRow.billNumber || '-'} readonly />
+				</div>
+				<div class="form-group">
+					<label for="send-voucher-number">Voucher Number</label>
+					<input id="send-voucher-number" type="text" value={sendModalRow.voucherNumber} readonly />
+				</div>
+				<div class="form-group">
+					<label for="send-bill-amount">Bill Amount</label>
+					<input id="send-bill-amount" type="number" step="0.01" bind:value={sendBillAmount} />
+				</div>
+				<div class="form-group">
+					<label>Payment Type</label>
+					<div class="payment-type-toggle">
+						<button
+							type="button"
+							class="payment-type-btn"
+							class:active={sendPaymentType === 'cash'}
+							on:click={() => (sendPaymentType = 'cash')}
+						>
+							Cash
+						</button>
+						<button
+							type="button"
+							class="payment-type-btn"
+							class:active={sendPaymentType === 'bank'}
+							on:click={() => (sendPaymentType = 'bank')}
+						>
+							Bank
+						</button>
+						<button
+							type="button"
+							class="payment-type-btn"
+							class:active={sendPaymentType === 'jv'}
+							on:click={() => (sendPaymentType = 'jv')}
+						>
+							JV
+						</button>
+					</div>
+				</div>
+				{#if sendPaymentType === 'jv'}
+					<div class="form-group">
+						<label for="send-jv-ledger">Credit Account</label>
+						<div class="jv-search-wrap">
+							<input
+								id="send-jv-ledger"
+								type="text"
+								autocomplete="off"
+								placeholder={loadingLedgers ? 'Loading ledgers...' : 'Search and select a ledger'}
+								bind:value={sendJvSearch}
+								on:focus={() => (showJvDropdown = true)}
+								on:input={onJvSearchInput}
+								on:blur={onJvSearchBlur}
+								disabled={loadingLedgers || ledgers.length === 0}
+							/>
+							{#if showJvDropdown && jvCandidates.length > 0}
+								<div class="ledger-dropdown jv-dropdown">
+									{#each jvCandidates.slice(0, 50) as ledger (ledger.ledgerId)}
+										<button type="button" class="ledger-option" on:click={() => selectJvLedger(ledger)}>
+											<span class="ledger-option-name">{ledger.ledgerName}</span>
+											<span class="ledger-option-type">{ledger.groupName}</span>
+										</button>
+									{/each}
+									{#if jvCandidates.length > 50}
+										<div class="ledger-option-more">{$t('erpLedgers.moreResults')}</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+				{#if sendPaymentType === 'bank'}
+					<div class="form-group">
+						<label for="send-bank-ledger">Bank Account</label>
+						<select id="send-bank-ledger" bind:value={sendBankLedgerId}>
+							<option value={null} disabled selected>Select bank account</option>
+							{#each bankLedgers as bank (bank.ledgerId)}
+								<option value={bank.ledgerId}>{bank.ledgerName}</option>
+							{/each}
+						</select>
+						{#if bankLedgers.length === 0}
+							<div class="no-bank-ledgers">No bank account ledgers found for this branch</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<div class="modal-footer">
+				{#if sendError}
+					<div class="send-error">{sendError}</div>
+				{/if}
+				<button class="send-modal-btn" type="button" on:click={submitSend} disabled={sendSubmitting}>
+					{sendSubmitting ? 'Sending...' : 'Send'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.erp-ledgers {
@@ -744,6 +1015,16 @@
 	.export-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 	.voucher-code { font-size: 0.72rem; color: #b91c1c; opacity: 0.75; }
 	.bill-number { font-size: 0.72rem; color: #7c2d12; font-weight: 600; }
+	.send-btn {
+		padding: 0.32rem 0.75rem;
+		border: none;
+		border-radius: 8px;
+		background: linear-gradient(135deg, #2563eb, #1d4ed8);
+		color: #fff;
+		font-weight: 700;
+		font-size: 0.74rem;
+		cursor: pointer;
+	}
 
 	.table-wrapper { flex: 1; min-height: 0; overflow: auto; border-radius: 12px; border: 1px solid rgba(254, 202, 202, 0.6); }
 	table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.82rem; }
@@ -752,10 +1033,11 @@
 	th:nth-child(1), td:nth-child(1) { width: 9%; }
 	th:nth-child(2), td:nth-child(2) { width: 15%; }
 	th:nth-child(3), td:nth-child(3) { width: 8%; }
-	th:nth-child(4), td:nth-child(4) { width: 28%; }
-	th:nth-child(5), td:nth-child(5) { width: 12%; }
-	th:nth-child(6), td:nth-child(6) { width: 12%; }
-	th:nth-child(7), td:nth-child(7) { width: 16%; }
+	th:nth-child(4), td:nth-child(4) { width: 21%; }
+	th:nth-child(5), td:nth-child(5) { width: 11%; }
+	th:nth-child(6), td:nth-child(6) { width: 11%; }
+	th:nth-child(7), td:nth-child(7) { width: 15%; }
+	th:nth-child(8), td:nth-child(8) { width: 10%; }
 	thead th {
 		position: sticky;
 		top: 0;
@@ -796,4 +1078,116 @@
 		font-size: 0.9rem;
 		opacity: 0.85;
 	}
+
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+	.modal-content.send-modal {
+		background: #fff;
+		border-radius: 12px;
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+		display: flex;
+		flex-direction: column;
+		width: 520px;
+		max-width: 92vw;
+	}
+	.jv-search-wrap { position: relative; }
+	.jv-dropdown { max-height: 220px; }
+	.modal-header {
+		padding: 16px 20px;
+		background: linear-gradient(135deg, #ef4444, #b91c1c);
+		color: #fff;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		border-radius: 12px 12px 0 0;
+	}
+	.modal-header h3 { margin: 0; font-size: 16px; font-weight: 700; }
+	.modal-close-btn {
+		background: rgba(255, 255, 255, 0.2);
+		border: none;
+		color: #fff;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		font-size: 15px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.modal-close-btn:hover { background: rgba(255, 255, 255, 0.3); }
+	.modal-body {
+		padding: 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+	}
+	.form-group { display: flex; flex-direction: column; gap: 6px; }
+	.form-group label { font-size: 0.78rem; font-weight: 700; color: #7f1d1d; }
+	.form-group input {
+		padding: 0.5rem 0.7rem;
+		border-radius: 8px;
+		border: 1px solid rgba(252, 165, 165, 0.7);
+		font-size: 0.85rem;
+		color: #7f1d1d;
+	}
+	.form-group input:focus { outline: none; border-color: #ef4444; }
+	.form-group input[readonly] { background: #fef2f2; color: #991b1b; cursor: not-allowed; }
+	.form-group select {
+		padding: 0.5rem 0.7rem;
+		border-radius: 8px;
+		border: 1px solid rgba(252, 165, 165, 0.7);
+		font-size: 0.85rem;
+		color: #7f1d1d;
+		background: #fff;
+	}
+	.form-group select:focus { outline: none; border-color: #ef4444; }
+	.no-bank-ledgers { font-size: 0.74rem; color: #b91c1c; opacity: 0.8; }
+	.payment-type-toggle { display: flex; gap: 8px; }
+	.payment-type-btn {
+		flex: 1;
+		padding: 0.5rem 0.7rem;
+		border-radius: 8px;
+		border: 1px solid rgba(252, 165, 165, 0.7);
+		background: #fff;
+		color: #7f1d1d;
+		font-weight: 700;
+		font-size: 0.82rem;
+		cursor: pointer;
+	}
+	.payment-type-btn.active {
+		background: linear-gradient(135deg, #ef4444, #b91c1c);
+		border-color: #b91c1c;
+		color: #fff;
+	}
+	.modal-footer {
+		padding: 16px 20px;
+		border-top: 1px solid rgba(254, 202, 202, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 12px;
+	}
+	.send-error { font-size: 0.78rem; color: #dc2626; font-weight: 600; flex: 1; }
+	.send-modal-btn {
+		padding: 0.5rem 1.2rem;
+		border: none;
+		border-radius: 8px;
+		background: linear-gradient(135deg, #2563eb, #1d4ed8);
+		color: #fff;
+		font-weight: 700;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+	.send-modal-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

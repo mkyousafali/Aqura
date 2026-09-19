@@ -25,7 +25,7 @@
 	let currentTime = '';
 
 	// Cashier interface version
-	let cashierVersion = 'AQ7';
+	let cashierVersion = 'AQ8';
 
 	// name_en/name_ar are the raw hr_employee_master values (locale-independent) — pick between
 	// them reactively so the name follows language switches, rather than trusting user.full_name/

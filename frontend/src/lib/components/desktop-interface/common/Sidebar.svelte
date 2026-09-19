@@ -149,6 +149,7 @@
 	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
 	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
 	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
+	import ErpEntries from '$lib/components/desktop-interface/master/tasks/ErpEntries.svelte';
 	import PushNotificationSettings from '$lib/components/common/PushNotificationSettings.svelte';
 	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
 	import ProductRequestDesktop from '$lib/components/desktop-interface/master/stock/ProductRequestDesktop.svelte';
@@ -567,7 +568,7 @@
 		HRReports: ["FINGERPRINT_TRANSACTIONS","EXPORT_BIOMETRIC_DATA"],
 		TasksDashboard: ["TASK_MASTER"],
 		TasksManage: ["CREATE_TASK","VIEW_TASKS"],
-		TasksOperations: ["ASSIGN_TASKS","MY_DAILY_CHECKLIST"],
+		TasksOperations: ["ASSIGN_TASKS","MY_DAILY_CHECKLIST","ERP_ENTRIES"],
 		TasksReports: ["VIEW_MY_TASKS","VIEW_MY_ASSIGNMENTS","TASK_STATUS","BRANCH_PERFORMANCE"],
 		UserDashboard: ["USER_MANAGEMENT"],
 		UserManage: ["CREATE_USER","MANAGE_ADMIN_USERS","MANAGE_MASTER_ADMIN"],
@@ -956,6 +957,28 @@
 			component: DailyChecklistWindow,
 			componentName: "DailyChecklistWindow",
 			icon: '✅',
+			size: { width: 800, height: 600 },
+			position: {
+				x: 100 + (Math.random() * 100),
+				y: 100 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showTasksSubmenu = false;
+		showTasksOperationsSubmenu = false;
+	}
+
+	function openErpEntries() {
+		const windowId = generateWindowId('erp-entries');
+		openWindow({
+			id: windowId,
+			title: 'ERP Entries',
+			component: ErpEntries,
+			componentName: "ErpEntries",
+			icon: '📋',
 			size: { width: 800, height: 600 },
 			position: {
 				x: 100 + (Math.random() * 100),
@@ -5934,6 +5957,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openDailyChecklist}>
 								<span class="menu-icon">✅</span>
 								<span class="menu-text">My Daily Checklist</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('ERP_ENTRIES')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openErpEntries}>
+								<span class="menu-icon">📋</span>
+								<span class="menu-text">ERP Entries</span>
 							</button>
 						</div>
 					{/if}
