@@ -2745,14 +2745,8 @@
 							 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-50' :
 							 (isPending ? 'bg-amber-50' :
 							 (isRejected ? 'bg-rose-50' : 'bg-slate-50'))}}">
-							<div class="px-4 py-2 font-bold flex items-center justify-between
-								{isVacation ? 'bg-blue-500' :
-								 isHoliday ? 'bg-indigo-600' :
-								 isOfficial ? 'bg-red-600' :
-								 (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' :
-								 isPending ? 'bg-amber-500' :
-								 isRejected ? 'bg-rose-600' :
-								 isUnapprovedLeave ? 'bg-red-500' : 'bg-slate-400'} text-white">
+							<div class="daily-card-header px-4 py-2 font-bold flex items-center justify-between text-white"
+								style:background-color={isVacation ? '#3b82f6' : isHoliday ? '#4f46e5' : isOfficial ? '#dc2626' : (isSpecific && dayOff?.approval_status === 'approved') ? '#22c55e' : isPending ? '#f59e0b' : isRejected ? '#e11d48' : isUnapprovedLeave ? '#ef4444' : '#94a3b8'}>
 							<div class="daily-card-heading">
 									<span class="daily-date-with-emoji">{#if mobileMode}<span aria-hidden="true">{dailyStatusEmoji}</span>{/if}<span>{groupDate}</span></span>
 									{#if mobileMode}<span class="daily-schedule-badge">{dailyScheduleLabel}</span>{/if}
@@ -2823,7 +2817,8 @@
 						{@const hasMultiShiftWithMissing = group.pairs.length > 1 && !allPairsComplete}
 						<div id={getDateCardId(groupDate)} class="border rounded-lg overflow-hidden {isDayUnderworked && hasDayLate ? 'day-card-mixed-border' : isDayUnderworked ? 'border-red-500' : hasDayLate ? 'border-orange-400' : 'border-green-500'}">
 							<!-- Shared date header (once per date) -->
-							<div class="{isHoliday ? 'bg-indigo-600' : isOfficial ? 'bg-red-600' : (isSpecific && dayOff?.approval_status === 'approved') ? 'bg-green-500' : isSpecific ? 'bg-orange-400' : isDayUnderworked && hasDayLate ? 'day-card-mixed-header' : isDayUnderworked ? 'bg-red-600' : hasDayLate ? 'bg-orange-500' : 'bg-green-600'} text-white px-4 py-2 font-bold flex items-center justify-between">
+							<div class="daily-card-header text-white px-4 py-2 font-bold flex items-center justify-between"
+								style:background-color={isHoliday ? '#4f46e5' : isOfficial ? '#dc2626' : (isSpecific && dayOff?.approval_status === 'approved') ? '#22c55e' : isSpecific ? '#fb923c' : isDayUnderworked && hasDayLate ? '#c2410c' : isDayUnderworked ? '#dc2626' : hasDayLate ? '#f97316' : '#16a34a'}>
 								<div class="daily-card-heading">
 									<span class="daily-date-with-emoji">{#if mobileMode}<span aria-hidden="true">{dailyStatusEmoji}</span>{/if}<span>{groupDate}</span></span>
 									{#if mobileMode}<span class="daily-schedule-badge">{dailyScheduleLabel}</span>{/if}
