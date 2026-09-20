@@ -548,9 +548,6 @@
 
         realtimeChannel = supabase.channel('shift-and-day-off-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'hr_employee_master' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'regular_shift' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_weekday' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'special_shift_date_wise' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, async (payload: any) => {
                 console.log('🔄 Real-time day_off change detected:', payload);
                 // Only reload if we're on the Leave tab to ensure immediate updates
@@ -569,9 +566,6 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'nationalities' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'official_holidays' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_official_holidays' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'multi_shift_regular' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'multi_shift_date_wise' }, () => refreshCurrentTabData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'multi_shift_weekday' }, () => refreshCurrentTabData())
             .subscribe();
     }
 

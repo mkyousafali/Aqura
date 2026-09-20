@@ -4,6 +4,7 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import YmdDatePicker from './YmdDatePicker.svelte';
+	import { addDays, breakShiftDate, shiftTimeLabel, type ShiftSchedules, type ShiftSlot } from '$lib/utils/breakShiftDate';
 
 	let breaks: any[] = [];
 	let loading = true;
@@ -38,6 +39,61 @@
 	let reasonFormData = { name_en: '', name_ar: '', sort_order: 0, is_active: true, requires_note: false, max_allowed_minutes: null as number | null };
 	let isSaving = false;
 
+	async function loadShiftDatedBreaks(dateFrom: string, dateTo: string, branchId: string, scheduledEmployeeIds: string[]): Promise<{ records: any[]; schedules: ShiftSchedules }> {
+		const emptySchedules: ShiftSchedules = { regular: [], weekday: [], dateWise: [] };
+		if (!dateFrom || !dateTo) return { records: [], schedules: emptySchedules };
+		const params: any = { p_date_from: addDays(dateFrom, -1), p_date_to: addDays(dateTo, 1) };
+		if (branchId) params.p_branch_id = parseInt(branchId);
+		const { data, error } = await supabase.rpc('get_all_breaks', params);
+		if (error) throw error;
+		const records: any[] = data?.breaks || [];
+		const ids = [...new Set([...records.map(b => String(b.employee_id)), ...scheduledEmployeeIds])];
+		const sources = [
+			['hr_regular_shift_versions', 'hr_regular_shift_slots'],
+			['hr_special_shift_weekday_versions', 'hr_special_shift_weekday_slots'],
+			['hr_special_shift_date_wise_versions', 'hr_special_shift_date_wise_slots']
+		] as const;
+		const loadSource = async (versionTable: string, slotTable: string): Promise<ShiftSlot[]> => {
+			const versions: any[] = [];
+			for (let i = 0; i < ids.length; i += 100) {
+				let offset = 0;
+				while (true) {
+					const { data: page, error: versionError } = await supabase.from(versionTable)
+						.select('*')
+						.in('employee_id', ids.slice(i, i + 100))
+						.lte('date_from', dateTo)
+						.or(`date_to.is.null,date_to.gte.${addDays(dateFrom, -1)}`)
+						.order('id').range(offset, offset + 999);
+					if (versionError) throw versionError;
+					versions.push(...(page || []));
+					if (!page || page.length < 1000) break;
+					offset += 1000;
+				}
+			}
+			const slots: ShiftSlot[] = [];
+			for (let i = 0; i < versions.length; i += 100) {
+				const batch = versions.slice(i, i + 100);
+				const { data: rows, error: slotError } = await supabase.from(slotTable)
+					.select('version_id, shift_start_time, shift_end_time, shift_end_buffer, is_shift_overlapping_next_day')
+					.in('version_id', batch.map(v => v.id));
+				if (slotError) throw slotError;
+				const versionsById = new Map(batch.map(v => [v.id, v]));
+				for (const row of rows || []) {
+					const version = versionsById.get(row.version_id);
+					if (version) slots.push({ ...version, ...row });
+				}
+			}
+			return slots;
+		};
+		const [regular, weekday, dateWise] = await Promise.all(sources.map(([v, s]) => loadSource(v, s)));
+		const schedules: ShiftSchedules = { regular, weekday, dateWise };
+		return {
+			schedules,
+			records: records.map(b => ({ ...b, shift_date: breakShiftDate(String(b.employee_id), b.start_time, schedules) }))
+				.filter(b => b.shift_date >= dateFrom && b.shift_date <= dateTo)
+		};
+	}
+
 	// Employee Summary
 	let summaryDateFrom = '';
 	let summaryDateTo = '';
@@ -48,6 +104,7 @@
 	let summaryScheduledSet = new Set<string>();
 	let summaryEmployeesById = new Map<string, any>();
 	let summaryActiveEmployeeIds = new Set<string>();
+	let summarySchedules: ShiftSchedules = { regular: [], weekday: [], dateWise: [] };
 
 	// Total Summary (flat rows for all employees)
 	let totalSummaryDateFrom = '';
@@ -58,6 +115,7 @@
 	let totalSummaryData: any[] = [];
 	let loadingTotalSummary = false;
 	let totalSummaryScheduledSet = new Set<string>();
+	let totalSummarySchedules: ShiftSchedules = { regular: [], weekday: [], dateWise: [] };
 
 	function onSpecificDateChange() {
 		if (totalSummarySpecificDate) {
@@ -366,19 +424,13 @@
 	async function loadSummaryData() {
 		loadingSummary = true;
 		try {
-			const params: any = {};
-			if (summaryDateFrom) params.p_date_from = summaryDateFrom;
-			if (summaryDateTo) params.p_date_to = summaryDateTo;
-			if (summaryBranch) params.p_branch_id = parseInt(summaryBranch);
-
-			const [breaksRes, scheduled] = await Promise.all([
-				supabase.rpc('get_all_breaks', params),
-				computeScheduledSet(summaryDateFrom, summaryDateTo, summaryBranch)
-			]);
+			const scheduled = await computeScheduledSet(summaryDateFrom, summaryDateTo, summaryBranch);
+			const shiftDated = await loadShiftDatedBreaks(summaryDateFrom, summaryDateTo, summaryBranch, [...scheduled.employees.keys()]);
 			summaryScheduledSet = scheduled.scheduled;
 			summaryEmployeesById = scheduled.employees;
 			summaryActiveEmployeeIds = scheduled.activeEmployeeIds;
-			breaks = breaksRes.error ? [] : (breaksRes.data?.breaks || []);
+			summarySchedules = shiftDated.schedules;
+			breaks = shiftDated.records;
 			computeEmployeeSummaries();
 		} catch (err) {
 			console.error('Error loading employee summary:', err);
@@ -401,7 +453,7 @@
 		const presentDays = new Set<string>();
 		for (const b of filtered) {
 			// Group by employee + date + reason
-			const breakDate = b.start_time ? new Date(b.start_time).toISOString().split('T')[0] : 'unknown';
+			const breakDate = b.shift_date || 'unknown';
 			presentDays.add(`${b.employee_id}__${breakDate}`);
 			const reasonKey = isRtl ? (b.reason_ar || b.reason_en || '—') : (b.reason_en || b.reason_ar || '—');
 			const key = `${b.employee_id}__${breakDate}__${reasonKey}`;
@@ -553,28 +605,31 @@
 	async function loadTotalSummary() {
 		loadingTotalSummary = true;
 		try {
-			const params: any = {
-				p_date_from: totalSummaryDateFrom,
-				p_date_to: totalSummaryDateTo
-			};
-			if (totalSummaryBranch) params.p_branch_id = parseInt(totalSummaryBranch);
-
-			const [{ data, error }, scheduled] = await Promise.all([
-				supabase.rpc('get_break_summary_all_employees', params),
-				computeScheduledSet(totalSummaryDateFrom, totalSummaryDateTo, totalSummaryBranch)
-			]);
+			const scheduled = await computeScheduledSet(totalSummaryDateFrom, totalSummaryDateTo, totalSummaryBranch);
+			const shiftDated = await loadShiftDatedBreaks(totalSummaryDateFrom, totalSummaryDateTo, totalSummaryBranch, [...scheduled.employees.keys()]);
 			totalSummaryScheduledSet = scheduled.scheduled;
-			if (error) {
-				console.error('Error loading total summary:', error);
-				totalSummaryData = [];
-				return;
+			totalSummarySchedules = shiftDated.schedules;
+			const employees = new Map<string, any>();
+			const days = new Map<string, any>();
+			for (const key of scheduled.scheduled) {
+				const [employeeId, date] = key.split('__');
+				const emp = scheduled.employees.get(employeeId);
+				if (!emp) continue;
+				if (!employees.has(employeeId)) employees.set(employeeId, {
+					employee_id: employeeId, employee_name_en: emp.name_en,
+					employee_name_ar: emp.name_ar, branch_id: emp.branch_id, days: []
+				});
+				const day = { date, total_seconds: 0, break_count: 0 };
+				employees.get(employeeId).days.push(day);
+				days.set(key, day);
 			}
-
-			if (data?.employees) {
-				totalSummaryData = data.employees;
-			} else {
-				totalSummaryData = [];
+			for (const b of shiftDated.records) {
+				const day = days.get(`${b.employee_id}__${b.shift_date}`);
+				if (!day) continue;
+				day.break_count++;
+				day.total_seconds += Number(b.duration_seconds) || 0;
 			}
+			totalSummaryData = [...employees.values()];
 		} catch (err) {
 			console.error('Error loading total summary:', err);
 			totalSummaryData = [];
@@ -953,6 +1008,7 @@
 										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'الموظف' : 'Employee'}</th>
 										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'المعرف' : 'ID'}</th>
 										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'الفرع' : 'Branch'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'وقت الوردية' : 'Shift Time'}</th>
 										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'السبب' : 'Reason'}</th>
 										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'عدد الاستراحات' : 'Break Count'}</th>
 										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">{isRtl ? 'مفتوحة' : 'Open'}</th>
@@ -970,6 +1026,7 @@
 										<div class="font-semibold">{isRtl ? (emp.branch_name_ar || emp.branch_name_en) : (emp.branch_name_en || emp.branch_name_ar)}</div>
 										{#if getBranchLocation(emp.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(emp.branch_id)}</div>{/if}
 									</td>
+										<td class="px-4 py-3 text-sm text-center font-mono text-slate-700 whitespace-nowrap">{shiftTimeLabel(emp.employee_id, emp.date, summarySchedules)}</td>
 											<td class="px-4 py-3 text-sm {emp.is_placeholder ? 'italic text-slate-400' : 'text-slate-700'}">{emp.is_placeholder ? (isRtl ? 'لم تُسجَّل استراحة' : 'No break logged') : emp.reason}</td>
 											<td class="px-4 py-3 text-sm text-center font-bold text-slate-800">{emp.total_breaks}</td>
 											<td class="px-4 py-3 text-sm text-center">
@@ -1064,6 +1121,7 @@
 										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'الموظف' : 'Employee'}</th>
 										<th class="px-3 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'المعرف' : 'Employee ID'}</th>
 										<th class="px-3 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'الفرع' : 'Branch'}</th>
+										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'وقت الوردية' : 'Shift Time'}</th>
 										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'إجمالي الاستراحة' : 'Total Break'}</th>
 										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'عدد المرات' : 'Breaks'}</th>
 									</tr>
@@ -1081,6 +1139,7 @@
 												<div class="font-semibold">{getBranchName(row.branch_id)}</div>
 												{#if getBranchLocation(row.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(row.branch_id)}</div>{/if}
 											</td>
+										<td class="px-4 py-3 text-sm text-center font-mono text-slate-700 whitespace-nowrap">{shiftTimeLabel(row.employee_id, row.date, totalSummarySchedules)}</td>
 											<td class="px-4 py-3 text-sm text-center font-mono font-black text-purple-700">{formatTotalSummaryDuration(row.total_seconds)}</td>
 											<td class="px-3 py-3 text-sm text-center text-slate-500">{row.break_count} {isRtl ? 'مرة' : row.break_count === 1 ? 'break' : 'breaks'}</td>
 										</tr>

@@ -506,21 +506,31 @@
         try {
             await initSupabase();
             const { employees, branchMap, natMap } = await loadEmployeeBase();
-            const { data: versions } = await supabase.from('hr_special_shift_weekday_versions').select('id, employee_id, weekday, date_from, date_to');
+            const today = formatLocalDate(new Date());
+            const { data: versions, error: versionsError } = await supabase.from('hr_special_shift_weekday_versions')
+                .select('id, employee_id, weekday, date_from, date_to')
+                .lte('date_from', today)
+                .or(`date_to.is.null,date_to.gte.${today}`);
+            if (versionsError) throw versionsError;
             const versionIds = (versions || []).map((v: any) => v.id);
             let slots: any[] = [];
             if (versionIds.length > 0) {
-                const { data } = await supabase.from('hr_special_shift_weekday_slots').select('*').in('version_id', versionIds).order('slot_order');
+                const { data, error: slotsError } = await supabase.from('hr_special_shift_weekday_slots').select('*').in('version_id', versionIds).order('slot_order');
+                if (slotsError) throw slotsError;
                 slots = data || [];
             }
             const empWeekdayMap = new Map<string, { [weekday: number]: { version_id: number; date_from?: string; date_to?: string | null; slots: ShiftSlot[] } }>();
             for (const v of (versions || [])) {
                 if (!empWeekdayMap.has(v.employee_id)) empWeekdayMap.set(v.employee_id, {});
-                empWeekdayMap.get(v.employee_id)![v.weekday] = { version_id: v.id, date_from: v.date_from, date_to: v.date_to, slots: [] };
+                const current = empWeekdayMap.get(v.employee_id)![v.weekday];
+                if (!current || (v.date_from || '') > (current.date_from || '')) {
+                    empWeekdayMap.get(v.employee_id)![v.weekday] = { version_id: v.id, date_from: v.date_from, date_to: v.date_to, slots: [] };
+                }
             }
             for (const s of slots) {
                 const v = (versions || []).find((vv: any) => vv.id === s.version_id);
-                if (v && empWeekdayMap.has(v.employee_id)) empWeekdayMap.get(v.employee_id)![v.weekday]?.slots.push(s);
+                const selected = v && empWeekdayMap.get(v.employee_id)?.[v.weekday];
+                if (selected?.version_id === s.version_id) selected.slots.push(s);
             }
             weekdayRows = employees.map(emp => {
                 const base = buildRow(emp, branchMap, natMap);

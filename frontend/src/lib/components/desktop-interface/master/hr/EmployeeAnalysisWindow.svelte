@@ -125,12 +125,25 @@
 		try {
 			const empIds = [employee.id];
 
-			// Load all shift data via RPCs (server-side join)
-			const [{ data: regRows }, { data: wdRows }, { data: dwRows }] = await Promise.all([
-				supabase.rpc('get_hr_regular_shifts', { p_employee_ids: empIds }),
-				supabase.rpc('get_hr_weekday_shifts', { p_employee_ids: empIds }),
-				supabase.rpc('get_hr_date_wise_shifts', { p_employee_ids: empIds })
-			]);
+			// Read the same versioned tables as the shift editor. Failed RPCs previously
+			// looked like missing special shifts and silently selected the regular shift.
+			const sources = [
+				['hr_regular_shift_versions', 'hr_regular_shift_slots'],
+				['hr_special_shift_weekday_versions', 'hr_special_shift_weekday_slots'],
+				['hr_special_shift_date_wise_versions', 'hr_special_shift_date_wise_slots']
+			] as const;
+			const shiftRows = await Promise.all(sources.map(async ([versionTable, slotTable]) => {
+				const { data: versions, error: versionError } = await supabase
+					.from(versionTable).select('*').in('employee_id', empIds);
+				if (versionError) throw versionError;
+				if (!versions?.length) return [];
+				const { data: slots, error: slotError } = await supabase
+					.from(slotTable).select('*').in('version_id', versions.map(v => v.id)).order('slot_order');
+				if (slotError) throw slotError;
+				const versionsById = new Map(versions.map(v => [v.id, v]));
+				return (slots || []).map(slot => ({ ...slot, ...versionsById.get(slot.version_id) }));
+			}));
+			const [regRows, wdRows, dwRows] = shiftRows;
 
 			// Regular shifts: group by version_id to detect single vs multi-slot.
 			// An employee can have MULTIPLE versions (their standing shift changed over time),
@@ -223,10 +236,10 @@
 				{
 					event: '*',
 					schema: 'public',
-					table: 'regular_shift',
-					filter: `id=eq.${employee.id}`
+					table: 'hr_regular_shift_versions',
+					filter: `employee_id=eq.${employee.id}`
 				},
-				() => loadEmployeeData()
+				async () => { await loadEmployeeData(); await loadTransactions(); }
 			)
 			.on(
 				'postgres_changes',
@@ -236,7 +249,7 @@
 					table: 'day_off_weekday',
 					filter: `employee_id=eq.${employee.id}`
 				},
-				() => loadEmployeeData()
+				async () => { await loadEmployeeData(); await loadTransactions(); }
 			)
 			.on(
 				'postgres_changes',
@@ -246,27 +259,27 @@
 					table: 'day_off',
 					filter: `employee_id=eq.${employee.id}`
 				},
-				() => loadEmployeeData()
+				async () => { await loadEmployeeData(); await loadTransactions(); }
 			)
 			.on(
 				'postgres_changes',
 				{
 					event: '*',
 					schema: 'public',
-					table: 'special_shift_date_wise',
+					table: 'hr_special_shift_date_wise_versions',
 					filter: `employee_id=eq.${employee.id}`
 				},
-				() => loadEmployeeData()
+				async () => { await loadEmployeeData(); await loadTransactions(); }
 			)
 			.on(
 				'postgres_changes',
 				{
 					event: '*',
 					schema: 'public',
-					table: 'special_shift_weekday',
+					table: 'hr_special_shift_weekday_versions',
 					filter: `employee_id=eq.${employee.id}`
 				},
-				() => loadEmployeeData()
+				async () => { await loadEmployeeData(); await loadTransactions(); }
 			)
 			.on(
 				'postgres_changes',
@@ -975,75 +988,28 @@
 	}
 
 	function getApplicableShift(dateStr: string) {
-		// dateStr is in DD-MM-YYYY format
-		if (!dateStr) return null;
-		// Extract the weekday
-		const dayNum = getDayNameFromDate(dateStr);
-		// Convert dateStr from DD-MM-YYYY to YYYY-MM-DD for comparison
-		const [day, month, year] = dateStr.split('-');
-		const formattedDate = `${year}-${month}-${day}`;
+		return getScheduledShiftsForDate(dateStr)[0] || null;
+	}
 
-		// First priority: Check special_shift_date_wise (overwrites for specific date)
-		const dateWiseShift = specialShiftDateWise.find((shift) => shift.shift_date === formattedDate);
-		if (dateWiseShift) {
-			return dateWiseShift;
-		}
-
-		// Second priority: Check special_shift_weekday, honoring the version's effective date range
-		const weekdayShift = specialShiftWeekday.find((shift) =>
-			shift.weekday === dayNum &&
-			(!shift.date_from || formattedDate >= shift.date_from) &&
-			(!shift.date_to || formattedDate <= shift.date_to)
+	function latestShiftVersion(shifts: any[]): any[] {
+		if (!shifts.length) return [];
+		const latest = shifts.reduce((current, shift) =>
+			(shift.date_from || '') > (current.date_from || '') ||
+			((shift.date_from || '') === (current.date_from || '') && Number(shift.version_id) > Number(current.version_id))
+				? shift : current
 		);
-		if (weekdayShift) {
-			return weekdayShift;
-		}
-
-		// Third priority: regular shift — pick the version whose date range covers this date
-		const regMatch = regularShiftVersions.find((v) =>
-			(!v.date_from || formattedDate >= v.date_from) &&
-			(!v.date_to || formattedDate <= v.date_to)
-		);
-		return regMatch || regularShift;
+		return shifts.filter(shift => shift.version_id === latest.version_id);
 	}
 
 	/**
 	 * Get all multi-shift records applicable for a given date.
 	 * Returns an array of multi-shift objects with working_hours.
-	 * Priority: date-wise (if date falls in range) → weekday-wise → regular (always applies).
-	 * All matching are returned (they stack).
+	 * Priority: date-wise → weekday-wise → regular. A special schedule
+	 * replaces lower-priority schedules for that date.
 	 */
 	function getMultiShiftsForDate(dateStr: string): any[] {
-		if (!dateStr) return [];
-		const results: any[] = [];
-
-		// Convert DD-MM-YYYY to YYYY-MM-DD
-		const [day, month, year] = dateStr.split('-');
-		const formattedDate = `${year}-${month}-${day}`;
-		const dayNum = getDayNameFromDate(dateStr);
-
-		// 1) Date-wise multi-shifts (date falls within range)
-		for (const ms of multiShiftDateWise) {
-			if (formattedDate >= ms.date_from && formattedDate <= ms.date_to) {
-				results.push(ms);
-			}
-		}
-
-		// 2) Weekday-wise multi-shifts, honoring the version's effective date range
-		for (const ms of multiShiftWeekday) {
-			if (ms.weekday === dayNum && (!ms.date_from || formattedDate >= ms.date_from) && (!ms.date_to || formattedDate <= ms.date_to)) {
-				results.push(ms);
-			}
-		}
-
-		// 3) Regular multi-shifts — honor each version's effective date range
-		for (const ms of multiShiftRegular) {
-			if ((!ms.date_from || formattedDate >= ms.date_from) && (!ms.date_to || formattedDate <= ms.date_to)) {
-				results.push(ms);
-			}
-		}
-
-		return results;
+		const shifts = getScheduledShiftsForDate(dateStr);
+		return shifts.length > 1 ? shifts : [];
 	}
 
 	/**
@@ -1077,20 +1043,14 @@
 			(!shift.date_from || formattedDate >= shift.date_from) &&
 			(!shift.date_to || formattedDate <= shift.date_to);
 
-		const dateMulti = multiShiftDateWise.filter(inEffectiveRange);
-		if (dateMulti.length > 0) return dateMulti;
-		const dateSingle = specialShiftDateWise.find((shift) => shift.shift_date === formattedDate);
-		if (dateSingle) return [dateSingle];
-
-		const weekdayMulti = multiShiftWeekday.filter((shift) => shift.weekday === dayNum && inEffectiveRange(shift));
-		if (weekdayMulti.length > 0) return weekdayMulti;
-		const weekdaySingle = specialShiftWeekday.find((shift) => shift.weekday === dayNum && inEffectiveRange(shift));
-		if (weekdaySingle) return [weekdaySingle];
-
-		const regularMultiForDate = multiShiftRegular.filter(inEffectiveRange);
-		if (regularMultiForDate.length > 0) return regularMultiForDate;
-		const regularForDate = regularShiftVersions.find(inEffectiveRange) || regularShift;
-		return regularForDate ? [regularForDate] : [];
+		const dateShifts = latestShiftVersion([...specialShiftDateWise, ...multiShiftDateWise].filter(inEffectiveRange));
+		if (dateShifts.length) return dateShifts;
+		const weekdayShifts = latestShiftVersion([...specialShiftWeekday, ...multiShiftWeekday]
+			.filter(shift => shift.weekday === dayNum && inEffectiveRange(shift)));
+		if (weekdayShifts.length) return weekdayShifts;
+		const regularShifts = latestShiftVersion([...regularShiftVersions, ...multiShiftRegular].filter(inEffectiveRange));
+		const multiSlots = regularShifts.filter(shift => multiShiftRegular.includes(shift));
+		return multiSlots.length ? multiSlots : regularShifts;
 	}
 
 	function getDailyScheduleLabel(dateStr: string, pairs: any[]): string {
@@ -2248,19 +2208,40 @@
 			};
 		});
 		
-		// Filter to only include shift dates within the user's date range
+		// Keep the day after the selected range during pairing: its early punch
+		// can be the check-out for the final selected shift. The display range is
+		// applied later by fillMissingDatesInRange().
 		const startDateObj = new Date(startDate);
 		const endDateObj = new Date(endDate);
+		endDateObj.setDate(endDateObj.getDate() + 1);
 		
 		const filteredTransactions = assignedTransactions.filter(txn => {
 			const shiftDateParts = txn.shiftDate.split('-');
 			const txnDate = new Date(`${shiftDateParts[2]}-${shiftDateParts[1]}-${shiftDateParts[0]}`);
 			const isInRange = txnDate >= startDateObj && txnDate <= endDateObj;
 			if (!isInRange) {
-				console.log(`Filtering out ${txn.shiftDate} (outside range ${startDate} to ${endDate})`);
+				console.log(`Filtering out ${txn.shiftDate} (outside pairing range ${startDate} to the day after ${endDate})`);
 			}
 			return isInRange;
 		});
+
+		// A first punch just beyond the check-in buffer is still an arrival.
+		// Without this, an "In Progress" punch becomes a missing-check-in
+		// check-out, even when the next punch completes the shift after midnight.
+		const transactionsByShift = new Map<string, any[]>();
+		for (const txn of filteredTransactions) {
+			const key = `${txn.shiftDate}||${txn.multiShiftKey || ''}`;
+			const dayTransactions = transactionsByShift.get(key) || [];
+			dayTransactions.push(txn);
+			transactionsByShift.set(key, dayTransactions);
+		}
+		for (const dayTransactions of transactionsByShift.values()) {
+			if (dayTransactions.some(txn => txn.status === 'Check In')) continue;
+			const first = dayTransactions.reduce((a, b) =>
+				`${a.calendarDate} ${a.punch_time}` <= `${b.calendarDate} ${b.punch_time}` ? a : b
+			);
+			if (first.status === 'In Progress') first.status = 'Check In';
+		}
 		
 		// Deduplicate: Keep only the last punch of each status type on same shift date AND calendar date
 		// BUT: If there are multiple punches of the same status and NO complementary punch exists,
