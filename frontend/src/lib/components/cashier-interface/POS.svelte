@@ -14,6 +14,21 @@
 
 	export let branch: any;
 	export let user: any;
+
+	// Inline en/ar picker; reassigned when the locale changes so template uses stay reactive.
+	let L: (en: string, ar: string) => string;
+	$: L = (en, ar) => ($currentLocale === 'ar' ? ar : en);
+
+	// Change-request statuses are stored in English; only the displayed label is translated.
+	const changeStatusArabic: Record<string, string> = {
+		'Pending': 'قيد الانتظار',
+		'Ready for Cashier Confirmation': 'جاهز لتأكيد الكاشير',
+		'Cashier Confirmed': 'تم تأكيد الكاشير',
+		'Completed': 'مكتمل'
+	};
+	let changeStatusLabel: (status: string) => string;
+	$: changeStatusLabel = (status) => ($currentLocale === 'ar' ? (changeStatusArabic[status] || status) : status);
+
 	let activePosTab: 'available' | 'operation' | 'manager' | 'change' = 'available';
 
 	const changeDenomKeys = ['d500', 'd200', 'd100', 'd50', 'd20', 'd10', 'd5', 'd2', 'd1', 'd05', 'd025'];
@@ -114,7 +129,7 @@
 	async function printChangeRequest(item: any) {
 		changeFlowBusy = item.id; changeFlowMessage = '';
 		try {
-			if (!selectedCounterPrinter || !counterPrinterBridge()) throw new Error('Select a POS printer in Manager Cashier Counter first.');
+			if (!selectedCounterPrinter || !counterPrinterBridge()) throw new Error(L('Select a POS printer in Manager Cashier Counter first.', 'اختر طابعة نقطة البيع في إعداد جهاز الكاشير أولاً.'));
 			await changeRequestAction(item.id, 'print_event', { printStatus: 'attempted', printerName: selectedCounterPrinter });
 			let printed = false;
 			try {
@@ -189,7 +204,7 @@
 		const userId = user?.id || user?.user_id;
 		if (!sessionToken || !userId || !branch?.id) {
 			changeAvailabilityReady = false;
-			changeMessage = 'Cashier session is unavailable.';
+			changeMessage = L('Cashier session is unavailable.', 'جلسة الكاشير غير متاحة.');
 			return false;
 		}
 		try {
@@ -202,7 +217,7 @@
 			return true;
 		} catch (error) {
 			changeAvailabilityReady = false;
-			changeMessage = error instanceof Error ? error.message : 'Could not load Safe Box availability.';
+			changeMessage = error instanceof Error ? error.message : L('Could not load Safe Box availability.', 'تعذر تحميل المتوفر في الصندوق الآمن.');
 			return false;
 		}
 	}
@@ -227,7 +242,7 @@
 			if (!response.ok) throw new Error(result.error || 'Could not load users.');
 			if (sequence === changeSearchSequence) changeUsers = result.users || [];
 		} catch {
-			changeMessage = 'Could not load users.';
+			changeMessage = L('Could not load users.', 'تعذر تحميل المستخدمين.');
 		}
 	}
 
@@ -256,20 +271,20 @@
 	async function sendChangeRequest() {
 		const amountCents = changeAmountCents;
 		if (!selectedChangeUser || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
-			changeMessage = 'Select a receiving user and enter a valid amount greater than zero.';
+			changeMessage = L('Select a receiving user and enter a valid amount greater than zero.', 'اختر المستخدم المستلم وأدخل مبلغاً صحيحاً أكبر من صفر.');
 			return;
 		}
 		if (changeAmountExceedsBalance) {
-			changeMessage = `Requested amount exceeds the available Safe Box balance (${(changeAvailableCents / 100).toFixed(2)} SAR).`;
+			changeMessage = L(`Requested amount exceeds the available Safe Box balance (${(changeAvailableCents / 100).toFixed(2)} SAR).`, `المبلغ المطلوب يتجاوز رصيد الصندوق الآمن المتاح (${(changeAvailableCents / 100).toFixed(2)} ريال).`);
 			return;
 		}
 		if (showChangeDenominations && changeTotalCents > amountCents) {
-			changeMessage = 'Selected denominations exceed the requested amount.';
+			changeMessage = L('Selected denominations exceed the requested amount.', 'الفئات المختارة تتجاوز المبلغ المطلوب.');
 			return;
 		}
 		const sessionToken = get(cashierSessionToken);
 		if (!sessionToken || !(user?.id || user?.user_id) || !branch?.id) {
-			changeMessage = 'Cashier session is unavailable.';
+			changeMessage = L('Cashier session is unavailable.', 'جلسة الكاشير غير متاحة.');
 			return;
 		}
 		changeBusy = true;
@@ -278,12 +293,12 @@
 			if (!await refreshChangeAvailability()) return;
 			const latestAvailableCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeAvailable[key] || 0), 0);
 			if (amountCents > latestAvailableCents) {
-				changeMessage = `Requested amount exceeds the latest Safe Box balance (${(latestAvailableCents / 100).toFixed(2)} SAR).`;
+				changeMessage = L(`Requested amount exceeds the latest Safe Box balance (${(latestAvailableCents / 100).toFixed(2)} SAR).`, `المبلغ المطلوب يتجاوز آخر رصيد للصندوق الآمن (${(latestAvailableCents / 100).toFixed(2)} ريال).`);
 				return;
 			}
 			const insufficient = showChangeDenominations ? changeDenomKeys.find(key => (changeCounts[key] || 0) > (changeAvailable[key] || 0)) : undefined;
 			if (insufficient) {
-				changeMessage = `${denomLabels[insufficient]} SAR is insufficient in Safe Box. Available: ${changeAvailable[insufficient] || 0}.`;
+				changeMessage = L(`${denomLabels[insufficient]} SAR is insufficient in Safe Box. Available: ${changeAvailable[insufficient] || 0}.`, `فئة ${denomLabels[insufficient]} ريال غير كافية في الصندوق الآمن. المتوفر: ${changeAvailable[insufficient] || 0}.`);
 				return;
 			}
 			const response = await fetch('/api/change-requests', {
@@ -300,9 +315,9 @@
 				throw new Error(result.error || 'Could not send request');
 			}
 			resetChangeForm();
-			changeMessage = `Change request ${result.requestNumber} sent. Status: Pending.`;
+			changeMessage = L(`Change request ${result.requestNumber} sent. Status: Pending.`, `تم إرسال طلب الفكة ${result.requestNumber}. الحالة: قيد الانتظار.`);
 		} catch (error) {
-			changeMessage = error instanceof Error ? error.message : 'Could not send request.';
+			changeMessage = error instanceof Error ? error.message : L('Could not send request.', 'تعذر إرسال الطلب.');
 		} finally {
 			changeBusy = false;
 		}
@@ -355,8 +370,8 @@
 			if (!response.ok) throw new Error(result.error || 'Could not load POS counters.');
 			posCounterOptions = result.counters;
 			selectedPosCounterId = posCounterAssignment?.counterId || 0;
-			if (!posCounterOptions.length) posCounterMessage = 'No POS counters found for this branch.';
-		} catch (error) { posCounterMessage = error instanceof Error ? error.message : 'Could not load POS counters.'; }
+			if (!posCounterOptions.length) posCounterMessage = L('No POS counters found for this branch.', 'لا توجد عدادات نقطة بيع لهذا الفرع.');
+		} catch (error) { posCounterMessage = error instanceof Error ? error.message : L('Could not load POS counters.', 'تعذر تحميل عدادات نقطة البيع.'); }
 		finally { posCounterBusy = false; }
 	}
 	async function savePosCounterAssignment() {
@@ -364,10 +379,10 @@
 		posCounterBusy = true; posCounterMessage = '';
 		try {
 			const bridge = posCounterBridge();
-			if (!bridge) throw new Error('POS counter setup requires the Windows Cashier app.');
+			if (!bridge) throw new Error(L('POS counter setup requires the Windows Cashier app.', 'إعداد عداد نقطة البيع يتطلب تطبيق الكاشير لويندوز.'));
 			posCounterAssignment = await bridge.save(counterPrinterAuth(), selectedPosCounterId);
 			showPosCounterSetup = false;
-		} catch (error) { posCounterMessage = error instanceof Error ? error.message : 'Could not save POS counter.'; }
+		} catch (error) { posCounterMessage = error instanceof Error ? error.message : L('Could not save POS counter.', 'تعذر حفظ عداد نقطة البيع.'); }
 		finally { posCounterBusy = false; }
 	}
 
@@ -415,10 +430,10 @@
 			counterPrinterReady = config?.tested === true && !!selectedCounterPrinter;
 			counterPrinterSelectionLogged = !!selectedCounterPrinter;
 			counterFlowId = selectedCounterPrinter ? crypto.randomUUID() : '';
-			if (!selectedCounterPrinter && !canManageCounterPrinter) counterPrinterMessage = 'Ask a printer-authorized user to configure the POS printer.';
+			if (!selectedCounterPrinter && !canManageCounterPrinter) counterPrinterMessage = L('Ask a printer-authorized user to configure the POS printer.', 'اطلب من مستخدم مخوّل بالطابعات إعداد طابعة نقطة البيع.');
 		} catch (error) {
 			canManageCounterPrinter = false;
-			counterPrinterMessage = error instanceof Error ? error.message : 'Could not load printer settings.';
+			counterPrinterMessage = error instanceof Error ? error.message : L('Could not load printer settings.', 'تعذر تحميل إعدادات الطابعة.');
 		} finally {
 			counterPrinterAccessReady = true;
 		}
@@ -430,16 +445,16 @@
 		counterPrinterMessage = '';
 		const bridge = counterPrinterBridge();
 		if (!bridge) {
-			counterPrinterMessage = 'Printer selection is available in the Aqura Cashier Windows app.';
+			counterPrinterMessage = L('Printer selection is available in the Aqura Cashier Windows app.', 'اختيار الطابعة متاح في تطبيق أقورا كاشير لويندوز.');
 			return;
 		}
 		counterPrinterBusy = true;
 		try {
 			counterPrinters = await bridge.list(counterPrinterAuth());
 			if (!counterPrinters.some((printer) => printer.name === selectedCounterPrinter)) selectedCounterPrinter = '';
-			if (counterPrinters.length === 0) counterPrinterMessage = 'No Windows printers found.';
+			if (counterPrinters.length === 0) counterPrinterMessage = L('No Windows printers found.', 'لم يتم العثور على طابعات ويندوز.');
 		} catch (error) {
-			counterPrinterMessage = error instanceof Error ? error.message : 'Could not load printers.';
+			counterPrinterMessage = error instanceof Error ? error.message : L('Could not load printers.', 'تعذر تحميل الطابعات.');
 		} finally {
 			counterPrinterBusy = false;
 		}
@@ -458,7 +473,7 @@
 			counterFlowId = crypto.randomUUID();
 			await saveCounterPrinterSelection();
 		} catch (error) {
-			counterPrinterMessage = error instanceof Error ? error.message : 'Could not save printer locally.';
+			counterPrinterMessage = error instanceof Error ? error.message : L('Could not save printer locally.', 'تعذر حفظ الطابعة محلياً.');
 		}
 	}
 
@@ -469,7 +484,7 @@
 			counterPrinterSelectionLogged = true;
 			counterPrinterMessage = '';
 		} catch (error) {
-			counterPrinterMessage = error instanceof Error ? error.message : 'Could not save printer selection.';
+			counterPrinterMessage = error instanceof Error ? error.message : L('Could not save printer selection.', 'تعذر حفظ اختيار الطابعة.');
 		} finally {
 			counterPrinterBusy = false;
 		}
@@ -500,7 +515,7 @@
 			if (!result.success) throw new Error(result.error || 'Print failed');
 			printSubmitted = true;
 			await recordCounterAction(isTest ? 'test_print_success' : 'final_print_success', reason, customReason);
-			counterPrinterMessage = reason === 'Opening Test' ? 'Test print sent to printer.' : 'Counter receipt sent to printer.';
+			counterPrinterMessage = reason === 'Opening Test' ? L('Test print sent to printer.', 'تم إرسال الطباعة التجريبية إلى الطابعة.') : L('Counter receipt sent to printer.', 'تم إرسال إيصال العداد إلى الطابعة.');
 			return true;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
@@ -508,7 +523,7 @@
 				try { await recordCounterAction(isTest ? 'test_print_failure' : 'final_print_failure', reason, customReason, message); }
 				catch (auditError) { console.error('POS print audit failure:', auditError); }
 			}
-			counterPrinterMessage = printSubmitted ? `Print sent, but audit failed: ${message}` : `Print failed or could not be audited: ${message}`;
+			counterPrinterMessage = printSubmitted ? L(`Print sent, but audit failed: ${message}`, `تم إرسال الطباعة لكن فشل التدقيق: ${message}`) : L(`Print failed or could not be audited: ${message}`, `فشلت الطباعة أو تعذر تدقيقها: ${message}`);
 			return false;
 		} finally {
 			counterPrinterBusy = false;
@@ -525,7 +540,7 @@
 	async function confirmCounterReason() {
 		const reason = counterReason === 'Other (Specify)' ? counterOtherReason.trim() : counterReason;
 		if (!reason) {
-			counterPrinterMessage = 'Please enter a reason.';
+			counterPrinterMessage = L('Please enter a reason.', 'يرجى إدخال السبب.');
 			return;
 		}
 		try {
@@ -535,7 +550,7 @@
 				: counterReason === 'Recharge Card Operation' ? 'recharge_card_operation' : 'other_reason';
 			await recordCounterAction(action, reason, counterReason === 'Other (Specify)' ? reason : null);
 		} catch (error) {
-			counterPrinterMessage = error instanceof Error ? error.message : 'Could not save counter reason.';
+			counterPrinterMessage = error instanceof Error ? error.message : L('Could not save counter reason.', 'تعذر حفظ سبب العداد.');
 			return;
 		}
 		if (await printCounterReceipt(reason, false, counterReason === 'Other (Specify)' ? reason : null)) showCounterReason = false;
@@ -1465,10 +1480,10 @@
 </script>
 
 <div class="pos-container">
-	<div class="pos-tabs" role="tablist" aria-label="POS sections">
+	<div class="pos-tabs" role="tablist" aria-label={L('POS sections', 'أقسام نقطة البيع')}>
 		<button id="pos-tab-available" type="button" role="tab" class:active={activePosTab === 'available'} aria-selected={activePosTab === 'available'} aria-controls="pos-panel-available" on:click={() => activePosTab = 'available'}>{$currentLocale === 'ar' ? 'الصناديق المتاحة' : 'Available Boxes'}</button>
 		<button id="pos-tab-operation" type="button" role="tab" class:active={activePosTab === 'operation'} aria-selected={activePosTab === 'operation'} aria-controls="pos-panel-operation" on:click={() => activePosTab = 'operation'}>{$currentLocale === 'ar' ? 'صندوق العملية' : 'Operation Box'}</button>
-		<button id="pos-tab-manager" type="button" role="tab" class:active={activePosTab === 'manager'} aria-selected={activePosTab === 'manager'} aria-controls="pos-panel-manager" on:click={() => activePosTab = 'manager'}>{$currentLocale === 'ar' ? 'عداد كاشير المدير' : 'Manager Cashier Counter'}</button>
+		<button id="pos-tab-manager" type="button" role="tab" class:active={activePosTab === 'manager'} aria-selected={activePosTab === 'manager'} aria-controls="pos-panel-manager" on:click={() => activePosTab = 'manager'}>{$currentLocale === 'ar' ? 'إعداد جهاز الكاشير' : 'Manager Cashier Counter'}</button>
 		<button id="pos-tab-change" type="button" role="tab" class:active={activePosTab === 'change'} aria-selected={activePosTab === 'change'} aria-controls="pos-panel-change" on:click={() => activePosTab = 'change'}>{$currentLocale === 'ar' ? 'طلب فكة' : 'Request for Change'}</button>
 	</div>
 	<div class="cards-grid">
@@ -1674,51 +1689,51 @@
 		</div>
 		<div id="pos-panel-manager" class="blank-card" class:inactive-panel={activePosTab !== 'manager'} role="tabpanel" aria-labelledby="pos-tab-manager">
 			<div class="card-header">
-				<h3>{$currentLocale === 'ar' ? 'عداد كاشير المدير' : 'Manager Cashier Counter'}</h3>
+				<h3>{$currentLocale === 'ar' ? 'إعداد جهاز الكاشير' : 'Manager Cashier Counter'}</h3>
 			</div>
 			<div class="card-content counter-printer-content">
 				{#if counterPrinterAccessReady && canManageCounterPrinter}
-					<button type="button" on:click={() => { showPosCounterSetup = !showPosCounterSetup; posCounterMessage = ''; }}>Setup POS Counter</button>
+					<button type="button" on:click={() => { showPosCounterSetup = !showPosCounterSetup; posCounterMessage = ''; }}>{L('Setup POS Counter', 'إعداد عداد نقطة البيع')}</button>
 					{#if showPosCounterSetup}
 						<div class="pos-counter-setup">
-							<button type="button" on:click={getPosCounterDetails} disabled={posCounterBusy}>Get Counter Details</button>
+							<button type="button" on:click={getPosCounterDetails} disabled={posCounterBusy}>{L('Get Counter Details', 'جلب بيانات العدادات')}</button>
 							{#if posCounterOptions.length}
-								<label for="pos-counter-device">POS counter for this device</label>
+								<label for="pos-counter-device">{L('POS counter for this device', 'عداد نقطة البيع لهذا الجهاز')}</label>
 								<select id="pos-counter-device" bind:value={selectedPosCounterId}>
-									<option value={0}>Select POS counter</option>
-									{#each posCounterOptions as counter}<option value={counter.id}>{counter.name} (POS {counter.number})</option>{/each}
+									<option value={0}>{L('Select POS counter', 'اختر عداد نقطة البيع')}</option>
+									{#each posCounterOptions as counter}<option value={counter.id}>{counter.name} ({L('POS', 'نقطة بيع')} {counter.number})</option>{/each}
 								</select>
-								<button type="button" on:click={savePosCounterAssignment} disabled={posCounterBusy || !selectedPosCounterId}>Save</button>
+								<button type="button" on:click={savePosCounterAssignment} disabled={posCounterBusy || !selectedPosCounterId}>{L('Save', 'حفظ')}</button>
 							{/if}
 							{#if posCounterMessage}<p role="status">{posCounterMessage}</p>{/if}
 						</div>
 					{/if}
 				{/if}
-				{#if posCounterAssignment}<p class="counter-selected-printer">This device: <strong>{posCounterAssignment.counterName}</strong> · POS {posCounterAssignment.counterNumber}</p>{/if}
+				{#if posCounterAssignment}<p class="counter-selected-printer">{L('This device', 'هذا الجهاز')}: <strong>{posCounterAssignment.counterName}</strong> · {L('POS', 'نقطة بيع')} {posCounterAssignment.counterNumber}</p>{/if}
 				{#if counterPrinterAccessReady && canManageCounterPrinter}
-				<button type="button" on:click={selectCounterPrinter} disabled={counterPrinterBusy}>Select Printer</button>
+				<button type="button" on:click={selectCounterPrinter} disabled={counterPrinterBusy}>{L('Select Printer', 'اختيار الطابعة')}</button>
 				{#if counterPrinters.length > 0}
-					<label for="counter-printer">Windows printer</label>
+					<label for="counter-printer">{L('Windows printer', 'طابعة ويندوز')}</label>
 					<select id="counter-printer" value={selectedCounterPrinter} on:change={changeCounterPrinter} disabled={counterPrinterBusy}>
-						<option value="">Choose a printer</option>
+						<option value="">{L('Choose a printer', 'اختر طابعة')}</option>
 						{#each counterPrinters as printer}
-							<option value={printer.name}>{printer.name}{printer.isDefault ? ' (Default)' : ''}</option>
+							<option value={printer.name}>{printer.name}{printer.isDefault ? ` (${L('Default', 'افتراضية')})` : ''}</option>
 						{/each}
 					</select>
 				{/if}
 				{/if}
 				{#if selectedCounterPrinter}
-					<p class="counter-selected-printer">Selected printer: <strong>{selectedCounterPrinter}</strong></p>
+					<p class="counter-selected-printer">{L('Selected printer', 'الطابعة المختارة')}: <strong>{selectedCounterPrinter}</strong></p>
 					{#if canManageCounterPrinter}
 					{#if counterPrinterSelectionLogged}
-						<button type="button" on:click={testCounterPrinter} disabled={counterPrinterBusy}>Test Print</button>
+						<button type="button" on:click={testCounterPrinter} disabled={counterPrinterBusy}>{L('Test Print', 'طباعة تجريبية')}</button>
 					{:else}
-						<button type="button" on:click={saveCounterPrinterSelection} disabled={counterPrinterBusy}>Retry Printer Selection</button>
+						<button type="button" on:click={saveCounterPrinterSelection} disabled={counterPrinterBusy}>{L('Retry Printer Selection', 'إعادة حفظ اختيار الطابعة')}</button>
 					{/if}
 					{/if}
 				{/if}
 				{#if counterPrinterReady}
-					<button type="button" on:click={() => { counterReason = ''; counterOtherReason = ''; counterPrinterMessage = ''; showCounterReason = true; }} disabled={counterPrinterBusy}>Open Counter</button>
+					<button type="button" on:click={() => { counterReason = ''; counterOtherReason = ''; counterPrinterMessage = ''; showCounterReason = true; }} disabled={counterPrinterBusy}>{L('Open Counter', 'فتح العداد')}</button>
 				{/if}
 				{#if counterPrinterMessage}<p role="status" class="counter-printer-message">{counterPrinterMessage}</p>{/if}
 			</div>
@@ -1729,59 +1744,59 @@
 			</div>
 			<div class="card-content change-request-content">
 				{#if !showChangeForm}
-					<button type="button" class="change-primary" on:click={openChangeForm}>Send Request</button>
+					<button type="button" class="change-primary" on:click={openChangeForm}>{L('Send Request', 'إرسال الطلب')}</button>
 				{:else}
 					<div class="change-inline">
-						<label for="change-user-search">Select User</label>
+						<label for="change-user-search">{L('Select User', 'اختر المستخدم')}</label>
 						<div class="change-user-picker">
-							<input id="change-user-search" type="search" role="combobox" aria-autocomplete="list" aria-controls="change-user-options" aria-expanded={changeOptionsOpen} placeholder="Search and select a user" bind:value={changeSearch} on:input={queueChangeSearch} on:keydown={(event) => { if (event.key === 'Escape') changeOptionsOpen = false; if (event.key === 'Enter' && changeOptionsOpen && changeUsers.length) { event.preventDefault(); selectChangeUser(changeUsers[0]); } }} on:blur={() => setTimeout(() => changeOptionsOpen = false, 150)} />
+							<input id="change-user-search" type="search" role="combobox" aria-autocomplete="list" aria-controls="change-user-options" aria-expanded={changeOptionsOpen} placeholder={L('Search and select a user', 'ابحث واختر مستخدماً')} bind:value={changeSearch} on:input={queueChangeSearch} on:keydown={(event) => { if (event.key === 'Escape') changeOptionsOpen = false; if (event.key === 'Enter' && changeOptionsOpen && changeUsers.length) { event.preventDefault(); selectChangeUser(changeUsers[0]); } }} on:blur={() => setTimeout(() => changeOptionsOpen = false, 150)} />
 							{#if changeOptionsOpen}
 								<div id="change-user-options" class="change-user-options" role="listbox">
 									{#each changeUsers as candidate (candidate.id)}
 										<button type="button" role="option" aria-selected={false} on:mousedown|preventDefault={() => selectChangeUser(candidate)}>{changeUserName(candidate)}</button>
 									{/each}
-									{#if !changeUsers.length}<p>Type to find a user</p>{/if}
+									{#if !changeUsers.length}<p>{L('Type to find a user', 'اكتب للبحث عن مستخدم')}</p>{/if}
 								</div>
 							{/if}
 						</div>
-						{#if selectedChangeUser}<p class="change-selected">Selected: <strong>{changeUserName(selectedChangeUser)}</strong></p>{/if}
-						<label for="change-amount">Amount needed (SAR)</label>
-						<input id="change-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="Enter amount" aria-invalid={changeAmountExceedsBalance} aria-describedby="change-balance-limit" bind:value={changeAmount} />
-						<p id="change-balance-limit" class:change-limit-error={changeAmountExceedsBalance} role="status">Available in Safe Box: {changeAvailabilityReady ? (changeAvailableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Loading…'} SAR{changeAmountExceedsBalance ? ' — reduce the requested amount.' : ''}</p>
-						<label class="change-optional-toggle"><input type="checkbox" bind:checked={showChangeDenominations} /> Specify preferred denominations (optional)</label>
+						{#if selectedChangeUser}<p class="change-selected">{L('Selected', 'المختار')}: <strong>{changeUserName(selectedChangeUser)}</strong></p>{/if}
+						<label for="change-amount">{L('Amount needed (SAR)', 'المبلغ المطلوب (ريال)')}</label>
+						<input id="change-amount" type="text" inputmode="decimal" autocomplete="off" placeholder={L('Enter amount', 'أدخل المبلغ')} aria-invalid={changeAmountExceedsBalance} aria-describedby="change-balance-limit" bind:value={changeAmount} />
+						<p id="change-balance-limit" class:change-limit-error={changeAmountExceedsBalance} role="status">{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : L('Loading…', 'جارٍ التحميل…')} {L('SAR', 'ريال')}{changeAmountExceedsBalance ? ` — ${L('reduce the requested amount.', 'قلّل المبلغ المطلوب.')}` : ''}</p>
+						<label class="change-optional-toggle"><input type="checkbox" bind:checked={showChangeDenominations} /> {L('Specify preferred denominations (optional)', 'حدد الفئات المفضلة (اختياري)')}</label>
 						{#if showChangeDenominations}
-						<h4>Preferred denominations</h4>
-						{#if !changeAvailabilityReady}<p role="status">Loading Safe Box availability…</p>{/if}
+						<h4>{L('Preferred denominations', 'الفئات المفضلة')}</h4>
+						{#if !changeAvailabilityReady}<p role="status">{L('Loading Safe Box availability…', 'جارٍ تحميل المتوفر في الصندوق الآمن…')}</p>{/if}
 						<div class="change-denominations">
 							{#each changeDenomKeys as key}
 								<div class="change-denomination-row">
-									<div class="change-denomination-info"><strong>{denomLabels[key]} SAR</strong><span>Available in Safe Box: {changeAvailabilityReady ? (changeAvailable[key] || 0) : '…'}</span></div>
+									<div class="change-denomination-info"><strong>{denomLabels[key]} {L('SAR', 'ريال')}</strong><span>{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailable[key] || 0) : '…'}</span></div>
 									<div class="change-quantity">
-										<button type="button" aria-label={`Remove one ${denomLabels[key]} SAR`} disabled={changeBusy || !changeCounts[key]} on:click={() => adjustChangeCount(key, -1)}>−</button>
+										<button type="button" aria-label={L(`Remove one ${denomLabels[key]} SAR`, `إزالة واحدة من فئة ${denomLabels[key]} ريال`)} disabled={changeBusy || !changeCounts[key]} on:click={() => adjustChangeCount(key, -1)}>−</button>
 										<span>{changeCounts[key] || 0}</span>
-										<button type="button" aria-label={`Add one ${denomLabels[key]} SAR`} disabled={changeBusy || !changeAvailabilityReady || (changeCounts[key] || 0) >= (changeAvailable[key] || 0)} on:click={() => adjustChangeCount(key, 1)}>+</button>
+										<button type="button" aria-label={L(`Add one ${denomLabels[key]} SAR`, `إضافة واحدة من فئة ${denomLabels[key]} ريال`)} disabled={changeBusy || !changeAvailabilityReady || (changeCounts[key] || 0) >= (changeAvailable[key] || 0)} on:click={() => adjustChangeCount(key, 1)}>+</button>
 									</div>
 								</div>
 							{/each}
 						</div>
-						<p class="change-total">Preferred denomination amount: {(changeTotalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</p>
+						<p class="change-total">{L('Preferred denomination amount', 'مبلغ الفئات المفضلة')}: {(changeTotalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 						{/if}
-						<p class="change-total">Total Requested Amount: {(Number(changeAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</p>
+						<p class="change-total">{L('Total Requested Amount', 'إجمالي المبلغ المطلوب')}: {(Number(changeAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 						<div class="change-actions">
-							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance} on:click={sendChangeRequest}>Send Request</button>
-							<button type="button" disabled={changeBusy} on:click={resetChangeForm}>Cancel</button>
+							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance} on:click={sendChangeRequest}>{L('Send Request', 'إرسال الطلب')}</button>
+							<button type="button" disabled={changeBusy} on:click={resetChangeForm}>{L('Cancel', 'إلغاء')}</button>
 						</div>
 					</div>
 				{/if}
 				{#if changeMessage}<p role="status" class="change-message">{changeMessage}</p>{/if}
 				{#if changeInbox.length}
 					<div class="change-inbox">
-						<h4>Safe Box Updates</h4>
+						<h4>{L('Safe Box Updates', 'تحديثات الصندوق الآمن')}</h4>
 						{#each changeInbox as item (item.id)}
 							<div class="change-inbox-item">
-								<p><strong>Request {item.request_number || item.id.slice(0, 8)}</strong> · {item.status}</p>
-								<p>Safe Box user: {$currentLocale === 'ar' ? (item.safeBoxUser?.name_ar || item.safeBoxUser?.name_en || '—') : (item.safeBoxUser?.name_en || item.safeBoxUser?.name_ar || '—')}</p>
-								<p>Branch: {fullBranch?.name_en || branch?.name_en || branch?.id}</p>
+								<p><strong>{L('Request', 'الطلب')} {item.request_number || item.id.slice(0, 8)}</strong> · {changeStatusLabel(item.status)}</p>
+								<p>{L('Safe Box user', 'مستخدم الصندوق الآمن')}: {$currentLocale === 'ar' ? (item.safeBoxUser?.name_ar || item.safeBoxUser?.name_en || '—') : (item.safeBoxUser?.name_en || item.safeBoxUser?.name_ar || '—')}</p>
+								<p>{L('Branch', 'الفرع')}: {$currentLocale === 'ar' ? (fullBranch?.name_ar || branch?.name_ar || fullBranch?.name_en || branch?.name_en || branch?.id) : (fullBranch?.name_en || branch?.name_en || branch?.id)}</p>
 								{#if item.withdrawal_counts}
 									<div class="change-inbox-denoms">
 										{#each changeDenomKeys.filter(key => (item.withdrawal_counts?.[key] || 0) > 0) as key}
@@ -1790,17 +1805,17 @@
 													<input type="checkbox" checked={changeChecks[item.id]?.[key] || false} disabled={changeFlowBusy === item.id}
 														on:change={(event) => changeChecks = { ...changeChecks, [item.id]: { ...changeChecks[item.id], [key]: (event.currentTarget as HTMLInputElement).checked } }} />
 												{/if}
-												{denomLabels[key]} SAR × {item.withdrawal_counts[key]}
+												{denomLabels[key]} {L('SAR', 'ريال')} × {item.withdrawal_counts[key]}
 											</label>
 										{/each}
 									</div>
-									<p class="change-total">Total received from Safe Box: {Number(item.withdrawal_total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</p>
+									<p class="change-total">{L('Total received from Safe Box', 'إجمالي المستلم من الصندوق الآمن')}: {Number(item.withdrawal_total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 								{/if}
 								{#if item.status === 'Ready for Cashier Confirmation'}
 									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id || !changeDenomKeys.filter(key => (item.withdrawal_counts?.[key] || 0) > 0).every(key => changeChecks[item.id]?.[key])}
-										on:click={() => confirmChangeRequest(item)}>Done</button>
+										on:click={() => confirmChangeRequest(item)}>{L('Done', 'تم')}</button>
 								{:else if item.status === 'Cashier Confirmed'}
-									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id} on:click={() => printChangeRequest(item)}>Print / Retry POS Opening</button>
+									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id} on:click={() => printChangeRequest(item)}>{L('Print / Retry POS Opening', 'طباعة / إعادة محاولة فتح نقطة البيع')}</button>
 								{/if}
 							</div>
 						{/each}
@@ -1815,27 +1830,27 @@
 {#if showCounterReason}
 	<div class="counter-reason-backdrop">
 		<div class="counter-reason-dialog" role="dialog" aria-modal="true" aria-labelledby="counter-reason-title">
-			<h3 id="counter-reason-title">Manager Cashier Counter</h3>
-			<p>Printer: {selectedCounterPrinter}</p>
-			<label for="counter-reason">Reason</label>
+			<h3 id="counter-reason-title">{L('Manager Cashier Counter', 'إعداد جهاز الكاشير')}</h3>
+			<p>{L('Printer', 'الطابعة')}: {selectedCounterPrinter}</p>
+			<label for="counter-reason">{L('Reason', 'السبب')}</label>
 			<select id="counter-reason" bind:value={counterReason} disabled={counterPrinterBusy}>
-				<option value="">Select a reason</option>
-				<option>Opening a POS Counter</option>
-				<option>Closing a POS Counter</option>
-				<option>Recharge Card Operation</option>
-				<option>Other (Specify)</option>
+				<option value="">{L('Select a reason', 'اختر السبب')}</option>
+				<option value="Opening a POS Counter">{L('Opening a POS Counter', 'فتح عداد نقطة بيع')}</option>
+				<option value="Closing a POS Counter">{L('Closing a POS Counter', 'إغلاق عداد نقطة بيع')}</option>
+				<option value="Recharge Card Operation">{L('Recharge Card Operation', 'عملية بطاقة شحن')}</option>
+				<option value="Other (Specify)">{L('Other (Specify)', 'أخرى (حدد)')}</option>
 			</select>
 			{#if counterReason === 'Other (Specify)'}
-				<label for="counter-other-reason">Specify reason</label>
+				<label for="counter-other-reason">{L('Specify reason', 'حدد السبب')}</label>
 				<input id="counter-other-reason" type="text" maxlength="200" bind:value={counterOtherReason} disabled={counterPrinterBusy} />
 			{/if}
 			{#if counterReason}
-				<p class="counter-reason-preview"><strong>Reason to print:</strong> {counterReason === 'Other (Specify)' ? counterOtherReason.trim() || 'Enter a reason above' : counterReason}</p>
+				<p class="counter-reason-preview"><strong>{L('Reason to print', 'السبب المطبوع')}:</strong> {counterReason === 'Other (Specify)' ? counterOtherReason.trim() || L('Enter a reason above', 'أدخل السبب أعلاه') : counterReason}</p>
 			{/if}
 			{#if counterPrinterMessage}<p role="alert" class="counter-printer-message">{counterPrinterMessage}</p>{/if}
 			<div class="counter-reason-actions">
-				<button type="button" on:click={() => showCounterReason = false} disabled={counterPrinterBusy}>Cancel</button>
-				<button type="button" on:click={confirmCounterReason} disabled={counterPrinterBusy || !counterReason || (counterReason === 'Other (Specify)' && !counterOtherReason.trim())}>Confirm and Print</button>
+				<button type="button" on:click={() => showCounterReason = false} disabled={counterPrinterBusy}>{L('Cancel', 'إلغاء')}</button>
+				<button type="button" on:click={confirmCounterReason} disabled={counterPrinterBusy || !counterReason || (counterReason === 'Other (Specify)' && !counterOtherReason.trim())}>{L('Confirm and Print', 'تأكيد وطباعة')}</button>
 			</div>
 		</div>
 	</div>
@@ -1995,10 +2010,10 @@
 		<div class="error-popup">
 			<div class="error-header">
 				<span class="error-icon">⚠️</span>
-				<h3>Error</h3>
+				<h3>{L('Error', 'خطأ')}</h3>
 			</div>
 			<p class="error-text">{errorMessage}</p>
-			<button class="btn-close-error" on:click={() => errorMessage = ''}>Close</button>
+			<button class="btn-close-error" on:click={() => errorMessage = ''}>{L('Close', 'إغلاق')}</button>
 		</div>
 	</div>
 {/if}
