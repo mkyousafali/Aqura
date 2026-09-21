@@ -5,7 +5,7 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { setCashierAuth, claimWindowsCashierSession } from '$lib/stores/cashierAuth';
 	import { isWindowsApp } from '$lib/utils/cashierDevice';
-	import { t, currentLocale, switchLocale } from '$lib/i18n';
+	import { t, currentLocale, switchLocaleManually } from '$lib/i18n';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 
 	const dispatch = createEventDispatcher();
@@ -324,7 +324,7 @@
 					<button 
 						class="language-toggle-main" 
 						on:click={() => {
-							switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+							switchLocaleManually($currentLocale === 'ar' ? 'en' : 'ar');
 							setTimeout(() => {
 								window.location.reload();
 							}, 100);

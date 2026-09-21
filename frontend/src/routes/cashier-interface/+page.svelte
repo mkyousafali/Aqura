@@ -64,8 +64,14 @@
 	// Leaving the cashier interface (back to interface selection, main login, etc.)
 	// must end the session — otherwise it silently restores from sessionStorage
 	// if the user returns to /cashier-interface without logging in again.
-	beforeNavigate(({ to }) => {
-		const stayingInCashier = to?.url?.pathname?.startsWith('/cashier-interface');
+	//
+	// beforeNavigate also fires for a plain page reload / tab close (type 'leave', since the
+	// browser is about to unload the document) — that is NOT the user leaving the cashier
+	// interface, it's how the language toggle applies its change, so `to` won't resolve to an
+	// in-app route and must not be treated as "navigating away".
+	beforeNavigate(({ to, type }) => {
+		if (type === 'leave' || !to) return;
+		const stayingInCashier = to.url.pathname.startsWith('/cashier-interface');
 		if (isLoggedIn && !stayingInCashier) {
 			releaseWindowsCashierSession();
 			stopCashierSessionGuard();

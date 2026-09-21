@@ -2,7 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
+	import { localeData, _, switchLocaleManually, currentLocale } from '$lib/i18n';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
@@ -376,7 +376,7 @@
 						<button 
 							class="language-toggle-main" 
 							on:click={() => {
-								switchLocale($currentLocale === 'ar' ? 'en' : 'ar');
+								switchLocaleManually($currentLocale === 'ar' ? 'en' : 'ar');
 								setTimeout(() => {
 									window.location.reload();
 								}, 100);

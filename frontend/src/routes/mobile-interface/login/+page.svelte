@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
-	import { localeData, currentLocale, switchLocale } from '$lib/i18n';
+	import { localeData, currentLocale, switchLocaleManually } from '$lib/i18n';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { supabase } from '$lib/utils/supabase';
@@ -11,7 +11,7 @@
 	let showChangeAccessCode = false;
 	$: isAr = $currentLocale === 'ar';
 	function toggleSiteLanguage() {
-		switchLocale(isAr ? 'en' : 'ar');
+		switchLocaleManually(isAr ? 'en' : 'ar');
 	}
 
 	// Branding - pulled from the same login_layout data BrandingManager edits, so the mobile
