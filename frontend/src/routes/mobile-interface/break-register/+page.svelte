@@ -62,7 +62,7 @@
 		// Load reasons + check active break in parallel
 		const [reasonsRes, activeRes] = await Promise.all([
 			supabase.from('break_reasons').select('*').eq('is_active', true).eq('deleted', false).order('sort_order'),
-			supabase.rpc('get_active_break', { p_user_id: $currentUser.id })
+			fetch('/api/break-register/action').then(async r => ({ data: await r.json(), error: r.ok ? null : new Error('Could not load active break') }))
 		]);
 
 		if (!reasonsRes.error && reasonsRes.data) {
@@ -96,12 +96,7 @@
 		isSubmitting = true;
 		scanError = '';
 
-		const { data, error } = await supabase.rpc('start_break', {
-			p_user_id: $currentUser.id,
-			p_reason_id: selectedReason.id,
-			p_reason_note: selectedReason.requires_note ? reasonNote.trim() : null,
-			p_security_code: code
-		});
+		const { data, error } = await fetch('/api/break-register/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start', reasonId: selectedReason.id, reasonNote: selectedReason.requires_note ? reasonNote.trim() : null, securityCode: code }) }).then(async r => ({ data: await r.json(), error: r.ok ? null : new Error('Could not start break') }));
 
 		if (error || !data?.success) {
 			const msg = data?.error || error?.message || 'Failed to start break';
@@ -113,13 +108,20 @@
 		}
 
 		// Refresh active break
-		const { data: active } = await supabase.rpc('get_active_break', { p_user_id: $currentUser.id });
+		const { data: active } = await fetch('/api/break-register/action')
+			.then(async r => ({ data: r.ok ? await r.json() : null }))
+			.catch(() => ({ data: null }));
 		if (active?.active) {
 			activeBreak = active;
 			startTimer(activeBreak.start_time);
+			stopScanner();
+			selectedReason = null;
+			reasonNote = '';
+			isSubmitting = false;
+			await goto('/mobile-interface');
+			return;
 		}
-		selectedReason = null;
-		reasonNote = '';
+		scanError = 'Break was saved, but the active timer could not be confirmed. Please refresh.';
 		isSubmitting = false;
 	}
 
@@ -208,10 +210,7 @@
 		isSubmitting = true;
 		scanError = '';
 
-		const { data, error } = await supabase.rpc('end_break', {
-			p_user_id: $currentUser.id,
-			p_security_code: code
-		});
+		const { data, error } = await fetch('/api/break-register/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'end', securityCode: code }) }).then(async r => ({ data: await r.json(), error: r.ok ? null : new Error('Could not end break') }));
 
 		if (error || !data?.success) {
 			const msg = data?.error || error?.message || 'Failed to end break';
@@ -234,6 +233,7 @@
 </svelte:head>
 
 <div class="break-page" dir={isRtl ? 'rtl' : 'ltr'}>
+	{#if scanError && !showScanner}<div class="scanner-error" role="alert"><span>⚠️</span><span>{scanError}</span></div>{/if}
 	{#if loading}
 		<div class="loading">
 			<div class="spinner"></div>

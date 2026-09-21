@@ -8,7 +8,7 @@
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { sidebar } from '$lib/stores/sidebar';
-	import { currentLocale, t, switchLocale } from '$lib/i18n';
+	import { currentLocale, t, switchLocaleManually } from '$lib/i18n';
 	import { favoritesStore, favoritesPanelOpen } from '$lib/stores/favorites';
 	import {
 		showInstallPrompt,
@@ -4261,7 +4261,7 @@ function openApprovalCenter() {
 		<div 
 			class="electric-switch lang-electric-switch" 
 			class:on={$currentLocale === 'ar'}
-			on:click={() => { switchLocale($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
+			on:click={() => { switchLocaleManually($currentLocale === 'en' ? 'ar' : 'en'); setTimeout(() => window.location.reload(), 100); }}
 			title="{$currentLocale === 'en' ? 'Switch to Arabic' : 'Switch to English'}"
 		>
 			<div class="switch-track">

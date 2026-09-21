@@ -16,10 +16,12 @@
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
 	import { supabase } from '$lib/utils/supabase';
-	import { currentLocale, switchLocale } from '$lib/i18n';
+	import { currentLocale, switchLocale, hasManualLocaleOverride } from '$lib/i18n';
+	import { onNativeLogout } from '$lib/utils/nativeShell';
 	import { get } from 'svelte/store';
 
 	function syncAccountLanguage(user: any) {
+		if (hasManualLocaleOverride()) return;
 		if (user?.default_language && user.default_language !== get(currentLocale)) {
 			switchLocale(user.default_language);
 		}
@@ -29,8 +31,13 @@
 	let cashierUser: any = null;
 	let selectedBranch: any = null;
 	let kickedNotice = '';
+	let removeNativeLogout: (() => void) | null = null;
 
 	onMount(() => {
+		// The Windows Cashier app asks for a logout when its window is closed: reuse the normal
+		// handleLogout() so the device binding is released and the session is cleared.
+		removeNativeLogout = onNativeLogout(handleLogout);
+
 		// Clear any desktop authentication when entering cashier interface
 		currentUser.set(null);
 		isAuthenticated.set(false);
@@ -50,6 +57,7 @@
 	});
 
 	onDestroy(() => {
+		if (removeNativeLogout) removeNativeLogout();
 		stopCashierSessionGuard();
 	});
 

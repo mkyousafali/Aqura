@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -167,6 +167,7 @@
 
 	async function handleBranchChange() {
 		// Reset all data first
+		closeSafeBoxTransfer();
 		resetCounts();
 		cashBoxData = Array.from({ length: 12 }, () => ({
 			'd500': 0, 'd200': 0, 'd100': 0, 'd50': 0, 'd20': 0,
@@ -313,7 +314,9 @@
 
 			if (!mainError && mainData) {
 				mainRecordId = mainData.id;
-				counts = mainData.counts || counts;
+				const savedCounts = typeof mainData.counts === 'string' ? JSON.parse(mainData.counts) : mainData.counts;
+				counts = readMainCounts(savedCounts);
+				safeBoxCounts = readSafeBoxCounts(savedCounts);
 				erpBalance = mainData.erp_balance || '';
 				counts = { ...counts }; // Trigger reactivity
 			} else {
@@ -360,6 +363,7 @@
 			'd10': 0, 'd5': 0, 'd2': 0, 'd1': 0, 'd05': 0,
 			'd025': 0, 'coins': 0, 'damage': 0
 		};
+		safeBoxCounts = emptySafeBoxCounts();
 		erpBalance = '';
 	}
 
@@ -452,8 +456,15 @@
 		if (eventType === 'INSERT' || eventType === 'UPDATE') {
 			if (newRecord.record_type === 'main') {
 				console.log('🔄 Updating main denomination record');
+				// A newer saved transfer supersedes a pending save built from old local counts.
+				if (autoSaveTimeout) {
+					clearTimeout(autoSaveTimeout);
+					autoSaveTimeout = null;
+				}
 				mainRecordId = newRecord.id;
-				counts = newRecord.counts || counts;
+				const savedCounts = typeof newRecord.counts === 'string' ? JSON.parse(newRecord.counts) : newRecord.counts;
+				counts = readMainCounts(savedCounts);
+				safeBoxCounts = readSafeBoxCounts(savedCounts);
 				erpBalance = newRecord.erp_balance || '';
 				counts = { ...counts };
 			} else if (newRecord.record_type === 'advance_box') {
@@ -471,6 +482,7 @@
 				if (pettyCashBoxId === newRecord.id) {
 					// Update balance display always
 					pettyCashBalance = newRecord.grand_total || 0;
+					triggerAutoSave(); // Keep the saved difference aligned with physical cash.
 					
 					// Update petty cash form if it's open
 					if (showPettyCashForm) {
@@ -513,7 +525,7 @@
 				user_id: $currentUser.id,
 				record_type: 'main',
 				box_number: null,
-				counts: counts,
+				counts: { ...counts, safe_box: { ...safeBoxCounts }, safe_box_balance: safeBoxBalance },
 				erp_balance: erpBalanceNumber || null,
 				grand_total: grandTotal,
 				difference: difference
@@ -768,6 +780,74 @@
 		'coins': 1,
 		'damage': 1
 	};
+
+	// Keep the existing flat denomination keys and store Safe Box data beside them in counts JSONB.
+	function emptySafeBoxCounts(): Record<string, number> {
+		return Object.fromEntries(Object.keys(denomValues).map((key) => [key, 0]));
+	}
+
+	function readMainCounts(savedCounts: Record<string, any> | null): Record<string, number> {
+		const mainCounts = { ...(savedCounts || {}) };
+		delete mainCounts.safe_box;
+		delete mainCounts.safe_box_balance;
+		return { ...emptySafeBoxCounts(), ...mainCounts };
+	}
+
+	function readSafeBoxCounts(savedCounts: Record<string, any> | null): Record<string, number> {
+		const savedSafeBox = savedCounts?.safe_box;
+		return Object.fromEntries(Object.keys(denomValues).map((key) => [key,
+			Math.max(0, Number(savedSafeBox?.[key]) || 0)
+		]));
+	}
+
+	let safeBoxCounts: Record<string, number> = emptySafeBoxCounts();
+	let transferKey = '';
+	let transferDirection: 'toSafeBox' | 'toCount' = 'toSafeBox';
+	let transferQuantity = '';
+	let transferError = '';
+	let transferQuantityInput: HTMLInputElement;
+
+	async function openSafeBoxTransfer(key: string, direction: 'toSafeBox' | 'toCount') {
+		const available = direction === 'toSafeBox' ? counts[key] : safeBoxCounts[key];
+		if (denomReadOnly || (available || 0) <= 0) return;
+		transferKey = key;
+		transferDirection = direction;
+		transferQuantity = '';
+		transferError = '';
+		await tick();
+		if (transferKey === key) transferQuantityInput?.focus();
+	}
+
+	function closeSafeBoxTransfer() {
+		transferKey = '';
+		transferQuantity = '';
+		transferError = '';
+	}
+
+	function confirmSafeBoxTransfer() {
+		if (!transferKey || denomReadOnly) return;
+		const quantity = Number(transferQuantity);
+		const sourceName = transferDirection === 'toSafeBox' ? 'Count' : 'Safe Box';
+		const available = transferDirection === 'toSafeBox' ? counts[transferKey] : safeBoxCounts[transferKey];
+		if (!/^\d+$/.test(transferQuantity.trim()) || !Number.isSafeInteger(quantity) || quantity <= 0) {
+			transferError = 'Enter a whole quantity greater than zero.';
+			return;
+		}
+		if (quantity > (available || 0)) {
+			transferError = `Only ${available || 0} available in ${sourceName}.`;
+			return;
+		}
+		const countChange = transferDirection === 'toSafeBox' ? -quantity : quantity;
+		counts = { ...counts, [transferKey]: counts[transferKey] + countChange };
+		safeBoxCounts = { ...safeBoxCounts, [transferKey]: safeBoxCounts[transferKey] - countChange };
+		triggerAutoSave();
+		closeSafeBoxTransfer();
+	}
+
+	$: safeBoxBalance = Object.entries(safeBoxCounts).reduce(
+		(sum, [key, quantity]) => sum + quantity * denomValues[key],
+		0
+	);
 
 	// ERP Balance for comparison
 	let erpBalance: number | string = '';
@@ -1322,14 +1402,15 @@
 	};
 
 	$: grandTotal = Object.values(totals).reduce((sum, val) => sum + val, 0);
+	$: physicalCashTotal = grandTotal + pettyCashBalance + safeBoxBalance;
 
 	// Calculate totals for paid and received sections (not applied)
 	$: paidNotAppliedTotal = savedTransactions.filter(t => t.section === 'paid' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
 	$: receivedNotAppliedTotal = savedTransactions.filter(t => t.section === 'received' && !t.apply_denomination).reduce((sum, t) => sum + t.amount, 0);
 
-	// Calculate difference: grand total - (ERP balance - advance cash issued - (paid total - received total))
+	// Compare all physical cash (main, petty cash, Safe Box) with the existing ERP adjustment.
 	$: erpBalanceNumber = typeof erpBalance === 'string' ? (parseFloat(erpBalance) || 0) : erpBalance;
-	$: differenceRaw = grandTotal - (erpBalanceNumber - totalAdvanceBoxIssued - (paidNotAppliedTotal - receivedNotAppliedTotal));
+	$: differenceRaw = physicalCashTotal - (erpBalanceNumber - totalAdvanceBoxIssued - (paidNotAppliedTotal - receivedNotAppliedTotal));
 	$: difference = Math.round(differenceRaw);
 
 	// Auto-save when ERP balance changes
@@ -1980,6 +2061,28 @@
 </div>
 {/if}
 
+<!-- Safe Box Transfer Modal -->
+{#if transferKey}
+<div class="popup-overlay" role="presentation" on:click={closeSafeBoxTransfer} on:keydown={(event) => event.key === 'Escape' && closeSafeBoxTransfer()}>
+	<div class="popup-modal" role="dialog" aria-modal="true" aria-label="Transfer cash" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation={(event) => event.key === 'Escape' && closeSafeBoxTransfer()}>
+		<div class="popup-header">
+			<span>{denomLabels[transferKey]}: {transferDirection === 'toSafeBox' ? 'Count → Safe Box' : 'Safe Box → Count'}</span>
+			<button class="popup-close" on:click={closeSafeBoxTransfer} aria-label="Close transfer">✕</button>
+		</div>
+		<div class="popup-body">
+			<div class="current-count-label">Available in {transferDirection === 'toSafeBox' ? 'Count' : 'Safe Box'}: <strong>{transferDirection === 'toSafeBox' ? counts[transferKey] || 0 : safeBoxCounts[transferKey] || 0}</strong></div>
+			<label class="transfer-label" for="safe-box-transfer-quantity">Quantity to {transferDirection === 'toSafeBox' ? 'transfer' : 'return'}</label>
+			<input id="safe-box-transfer-quantity" class="popup-input" type="text" inputmode="numeric" pattern="[0-9]*" bind:this={transferQuantityInput} bind:value={transferQuantity} on:input={() => transferError = ''} on:keydown={(event) => event.key === 'Enter' && confirmSafeBoxTransfer()} autocomplete="off" />
+			{#if transferError}<div class="transfer-error" role="alert">{transferError}</div>{/if}
+		</div>
+		<div class="popup-footer">
+			<button class="popup-btn cancel" on:click={closeSafeBoxTransfer}>Cancel</button>
+			<button class="popup-btn save" on:click={confirmSafeBoxTransfer}>Confirm Transfer</button>
+		</div>
+	</div>
+</div>
+{/if}
+
 <!-- Popup Modal -->
 {#if showPopup}
 <div class="popup-overlay" on:click={closePopup}>
@@ -2563,26 +2666,29 @@
 							<tr>
 								<th>Denomination</th>
 								<th>Count</th>
+								<th title="Transfer between Count and Safe Box">← / →</th>
+								<th>Safe Box</th>
+								<th>Safe Box Total</th>
 								<th>Total</th>
 							</tr>
 						</thead>
 						<tbody>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />500</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d500')}>−</button><span class="count-value">{counts['d500']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d500')}>+</button></td><td class="total-cell">{totals['d500'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />200</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d200')}>−</button><span class="count-value">{counts['d200']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d200')}>+</button></td><td class="total-cell">{totals['d200'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />100</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d100')}>−</button><span class="count-value">{counts['d100']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d100')}>+</button></td><td class="total-cell">{totals['d100'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />50</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d50')}>−</button><span class="count-value">{counts['d50']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d50')}>+</button></td><td class="total-cell">{totals['d50'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />20</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d20')}>−</button><span class="count-value">{counts['d20']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d20')}>+</button></td><td class="total-cell">{totals['d20'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />10</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d10')}>−</button><span class="count-value">{counts['d10']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d10')}>+</button></td><td class="total-cell">{totals['d10'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />5</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d5')}>−</button><span class="count-value">{counts['d5']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d5')}>+</button></td><td class="total-cell">{totals['d5'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />2</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d2')}>−</button><span class="count-value">{counts['d2']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d2')}>+</button></td><td class="total-cell">{totals['d2'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />1</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d1')}>−</button><span class="count-value">{counts['d1']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d1')}>+</button></td><td class="total-cell">{totals['d1'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.5</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d05')}>−</button><span class="count-value">{counts['d05']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d05')}>+</button></td><td class="total-cell">{totals['d05'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.25</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d025')}>−</button><span class="count-value">{counts['d025']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d025')}>+</button></td><td class="total-cell">{totals['d025'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">🪙 Coins</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('coins')}>−</button><span class="count-value">{counts['coins']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('coins')}>+</button></td><td class="total-cell">{totals['coins'].toLocaleString()}</td></tr>
-							<tr><td><span class="nowrap">⚠️ Damage</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('damage')}>−</button><span class="count-value">{counts['damage']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('damage')}>+</button></td><td class="total-cell">{totals['damage'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />500</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d500')}>−</button><span class="count-value">{counts['d500']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d500')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d500'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d500']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d500', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d500'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d500']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d500', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d500']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d500'] * denomValues['d500']).toLocaleString()}</td><td class="total-cell">{totals['d500'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />200</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d200')}>−</button><span class="count-value">{counts['d200']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d200')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d200'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d200']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d200', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d200'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d200']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d200', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d200']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d200'] * denomValues['d200']).toLocaleString()}</td><td class="total-cell">{totals['d200'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />100</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d100')}>−</button><span class="count-value">{counts['d100']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d100')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d100'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d100']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d100', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d100'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d100']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d100', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d100']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d100'] * denomValues['d100']).toLocaleString()}</td><td class="total-cell">{totals['d100'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />50</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d50')}>−</button><span class="count-value">{counts['d50']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d50')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d50'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d50']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d50', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d50'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d50']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d50', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d50']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d50'] * denomValues['d50']).toLocaleString()}</td><td class="total-cell">{totals['d50'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />20</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d20')}>−</button><span class="count-value">{counts['d20']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d20')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d20'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d20']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d20', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d20'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d20']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d20', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d20']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d20'] * denomValues['d20']).toLocaleString()}</td><td class="total-cell">{totals['d20'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />10</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d10')}>−</button><span class="count-value">{counts['d10']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d10')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d10'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d10']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d10', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d10'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d10']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d10', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d10']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d10'] * denomValues['d10']).toLocaleString()}</td><td class="total-cell">{totals['d10'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />5</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d5')}>−</button><span class="count-value">{counts['d5']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d5')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d5'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d5']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d5', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d5'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d5']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d5', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d5']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d5'] * denomValues['d5']).toLocaleString()}</td><td class="total-cell">{totals['d5'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />2</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d2')}>−</button><span class="count-value">{counts['d2']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d2')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d2'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d2']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d2', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d2'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d2']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d2', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d2']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d2'] * denomValues['d2']).toLocaleString()}</td><td class="total-cell">{totals['d2'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />1</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d1')}>−</button><span class="count-value">{counts['d1']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d1')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d1'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d1']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d1', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d1'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d1']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d1', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d1']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d1'] * denomValues['d1']).toLocaleString()}</td><td class="total-cell">{totals['d1'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.5</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d05')}>−</button><span class="count-value">{counts['d05']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d05')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d05'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d05']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d05', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d05'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d05']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d05', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d05']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d05'] * denomValues['d05']).toLocaleString()}</td><td class="total-cell">{totals['d05'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap"><img src={$iconUrlMap['saudi-currency'] || '/icons/saudi-currency.png'} alt="SAR" class="denomination-icon" />0.25</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('d025')}>−</button><span class="count-value">{counts['d025']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('d025')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['d025'] <= 0} title="Return to Count" aria-label="Return {denomLabels['d025']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('d025', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['d025'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['d025']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('d025', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['d025']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['d025'] * denomValues['d025']).toLocaleString()}</td><td class="total-cell">{totals['d025'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap">🪙 Coins</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('coins')}>−</button><span class="count-value">{counts['coins']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('coins')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['coins'] <= 0} title="Return to Count" aria-label="Return {denomLabels['coins']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('coins', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['coins'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['coins']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('coins', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['coins']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['coins'] * denomValues['coins']).toLocaleString()}</td><td class="total-cell">{totals['coins'].toLocaleString()}</td></tr>
+							<tr><td><span class="nowrap">⚠️ Damage</span></td><td class="count-cell"><button class="count-btn minus" disabled={denomReadOnly} on:click={() => openPopupSubtract('damage')}>−</button><span class="count-value">{counts['damage']}</span><button class="count-btn plus" disabled={denomReadOnly} on:click={() => openPopupAdd('damage')}>+</button></td><td class="transfer-cell"><button class="transfer-btn return" disabled={denomReadOnly || safeBoxCounts['damage'] <= 0} title="Return to Count" aria-label="Return {denomLabels['damage']} from Safe Box to Count" on:click={() => openSafeBoxTransfer('damage', 'toCount')}>←</button><button class="transfer-btn" disabled={denomReadOnly || counts['damage'] <= 0} title="Transfer to Safe Box" aria-label="Transfer {denomLabels['damage']} from Count to Safe Box" on:click={() => openSafeBoxTransfer('damage', 'toSafeBox')}>→</button></td><td class="safe-box-cell"><span class="count-value">{safeBoxCounts['damage']}</span></td><td class="safe-box-total-cell">{(safeBoxCounts['damage'] * denomValues['damage']).toLocaleString()}</td><td class="total-cell">{totals['damage'].toLocaleString()}</td></tr>
 						</tbody>
 						<tfoot>
-							<tr class="grand-total-row"><td colspan="2"><strong>Grand Total</strong></td><td class="total-cell"><strong>{grandTotal.toLocaleString()}</strong></td></tr>
+							<tr class="grand-total-row"><td colspan="4"><strong>Grand Total</strong></td><td class="safe-box-total-cell"><strong>{safeBoxBalance.toLocaleString()}</strong></td><td class="total-cell"><strong>{grandTotal.toLocaleString()}</strong></td></tr>
 						</tfoot>
 					</table>
 					
@@ -2635,7 +2741,8 @@
 						</div>
 					</div>
 					
-					<!-- Petty Cash Box Card (Below ERP Balance) -->
+					<div class="cash-balance-cards">
+					<!-- Petty Cash Box Card -->
 					<div class="balance-card petty-cash-card">
 						<div class="balance-card-header">
 							<span class="balance-icon">💵</span>
@@ -2647,6 +2754,16 @@
 								<span class="balance-amount">💰 {pettyCashBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR</span>
 							</button>
 						</div>
+					</div>
+					<div class="balance-card safe-box-balance-card">
+						<div class="balance-card-header">
+							<span>Safe Box Balance</span>
+						</div>
+						<div class="balance-card-body">
+							<div class="petty-cash-label">Safe Box Balance</div>
+							<div class="safe-box-placeholder">{safeBoxBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR</div>
+						</div>
+					</div>
 					</div>
 				</div>
 			</div>
@@ -3367,6 +3484,7 @@
 	/* Denomination Table */
 	.denomination-table {
 		width: 100%;
+		table-layout: fixed;
 		border-collapse: separate;
 		border-spacing: 0;
 		font-size: 1rem;
@@ -3377,7 +3495,7 @@
 
 	.denomination-table th,
 	.denomination-table td {
-		padding: 0.5rem 0.65rem;
+		padding: 0.5rem 0.35rem;
 		text-align: left;
 		vertical-align: middle;
 	}
@@ -3392,6 +3510,16 @@
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 		border-bottom: 2px solid #15803d;
 	}
+
+	.denomination-table th:first-child { width: 19%; }
+	.denomination-table th:nth-child(2) { width: 28%; }
+	.denomination-table th:nth-child(3) { width: 12%; }
+	.denomination-table th:nth-child(4) { width: 9%; }
+	.denomination-table th:nth-child(5),
+	.denomination-table th:last-child { width: 16%; }
+	.denomination-table th:nth-child(3) { font-size: 0.7rem; padding-inline: 0.2rem; }
+	.denomination-table th:nth-child(4),
+	.denomination-table th:nth-child(5) { font-size: 0.7rem; letter-spacing: 0; }
 
 	.denomination-table td {
 		background: linear-gradient(145deg, #ffffff 0%, #fefefe 100%);
@@ -3429,7 +3557,64 @@
 		white-space: nowrap;
 		text-align: center;
 		vertical-align: middle;
-		padding: 0.5rem 0.65rem !important;
+		padding: 0.5rem 0.35rem !important;
+	}
+
+	.safe-box-cell {
+		white-space: nowrap;
+		text-align: center !important;
+	}
+
+	.safe-box-cell .count-value {
+		min-width: 0;
+	}
+
+	.safe-box-total-cell {
+		font-weight: 600;
+		color: #6d28d9;
+		text-align: right !important;
+		font-size: 0.8rem;
+	}
+
+	.transfer-cell {
+		text-align: center !important;
+		padding-inline: 0.2rem !important;
+	}
+
+	.transfer-btn {
+		border: 0;
+		border-radius: 5px;
+		background: #7c3aed;
+		color: white;
+		width: 22px;
+		height: 22px;
+		margin: 0 2px;
+		font-size: 1rem;
+		font-weight: 700;
+		padding: 0;
+		cursor: pointer;
+	}
+
+	.transfer-btn.return {
+		background: #2563eb;
+	}
+
+	.transfer-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.transfer-label {
+		display: block;
+		margin-bottom: 0.5rem;
+		color: #334155;
+		font-size: 0.85rem;
+	}
+
+	.transfer-error {
+		margin-top: 0.5rem;
+		color: #dc2626;
+		font-size: 0.8rem;
 	}
 
 	.count-btn {
@@ -3445,7 +3630,7 @@
 		align-items: center;
 		justify-content: center;
 		vertical-align: middle;
-		margin: 0 8px;
+		margin: 0 6px;
 	}
 
 	.count-btn.minus {
@@ -3477,6 +3662,14 @@
 		font-weight: 600;
 		font-size: 0.75rem;
 		color: #1e293b;
+	}
+
+	.denomination-table .count-value {
+		min-width: 42px;
+	}
+
+	.denomination-table .count-btn {
+		margin: 0 5px;
 	}
 
 	button.count-value {
@@ -5862,19 +6055,31 @@
 		color: #dc2626;
 	}
 
-	.petty-cash-card {
+	.cash-balance-cards {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.75rem;
 		margin-top: 0.75rem;
-		grid-column: 1 / -1;
 	}
 
-	.petty-cash-card .balance-card-body {
+	.cash-balance-cards .balance-card-body {
 		min-height: 80px;
 		justify-content: center;
 		padding: 0.75rem 0.4rem;
 	}
 
-	.petty-cash-card .balance-card-header {
+	.cash-balance-cards .balance-card-header {
 		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+	}
+
+	.safe-box-placeholder {
+		padding: 0.75rem;
+		border-radius: 8px;
+		background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+		color: white;
+		font-size: 1rem;
+		font-weight: 700;
+		text-align: center;
 	}
 
 	.petty-cash-label {

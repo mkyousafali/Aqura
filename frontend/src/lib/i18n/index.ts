@@ -213,6 +213,49 @@ export function switchLocale(locale: string) {
   }
 }
 
+// sessionStorage key marking that the user deliberately picked a language
+// for THIS login session (via a toggle button), as opposed to the locale
+// just being whatever was last persisted in localStorage. Session-scoped
+// (cleared on logout, not on page reload) so the choice survives reloads
+// triggered by the toggle itself, but a fresh login always re-derives the
+// locale from the account's saved default_language instead of inheriting it.
+const MANUAL_LOCALE_KEY = "aqura-locale-manual";
+
+// Use this (instead of switchLocale) from user-facing language toggle
+// controls, so the choice is remembered for the rest of this login session.
+export function switchLocaleManually(locale: string) {
+  switchLocale(locale);
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.setItem(MANUAL_LOCALE_KEY, "1");
+    } catch {
+      // ignore (e.g. storage disabled)
+    }
+  }
+}
+
+// Whether the user already made a deliberate language choice this session —
+// callers that auto-sync locale to the account's default_language should
+// skip doing so while this is set, so they don't stomp on the choice.
+export function hasManualLocaleOverride(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(MANUAL_LOCALE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Call this on logout so the next login starts fresh from default_language.
+export function clearManualLocaleOverride() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(MANUAL_LOCALE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 // Get available locales
 export function getAvailableLocales(): LocaleData[] {
   return Object.values(locales);

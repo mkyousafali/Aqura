@@ -26,7 +26,8 @@
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { loadIcons } from '$lib/stores/iconStore';
-	
+	import { onNativeLogout } from '$lib/utils/nativeShell';
+
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
 		import('$lib/utils/taskBadgeDebug');
@@ -275,10 +276,19 @@
 		}
 	}
 
+	// Windows wrapper apps ask the web app to log out when the app window is closed.
+	// The cashier page runs its own logout (see cashier-interface/+page.svelte); everything
+	// else uses the normal persistent-auth logout.
+	let removeNativeLogout: (() => void) | null = null;
+
 	// Initialize cross-window message handling
 	onMount(() => {
+		removeNativeLogout = onNativeLogout(async () => {
+			if (get(page).url.pathname.startsWith('/cashier-interface')) return;
+			await persistentAuthService.logout();
+		});
 		handleCrossWindowMessages();
-		
+
 		// Handle popout window setup
 		if (isPopoutMode) {
 			console.log('🪟 Setting up popout for window:', popoutWindowId);
@@ -878,6 +888,7 @@
 	});
 	
 	onDestroy(() => {
+		if (removeNativeLogout) removeNativeLogout();
 		// Cleanup loading message interval
 		if (msgInterval) clearInterval(msgInterval);
 		// Cleanup subscriptions on component destroy

@@ -2,6 +2,7 @@ import { writable } from "svelte/store";
 import { browser } from "$app/environment";
 import { supabase } from "./supabase";
 import { autoSubscribePush, autoUnsubscribePush } from "./pushNotifications";
+import { clearManualLocaleOverride } from "$lib/i18n";
 import {
   claimInterfaceSession,
   startInterfaceSessionGuard,
@@ -315,6 +316,15 @@ export class PersistentAuthService {
       }
 
       console.log(`✅ [PersistentAuth] ${interfaceType} interface access confirmed`);
+
+      if (interfaceType !== 'customer') {
+        const breakSessionResponse = await fetch('/api/break-register/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quickAccessCode, interfaceType })
+        });
+        if (!breakSessionResponse.ok) throw new Error('Could not establish a secure data session');
+      }
 
       // Step 5: Update last login
       console.log("🔍 [PersistentAuth] Updating last login timestamp");
@@ -632,6 +642,13 @@ export class PersistentAuthService {
         };
       }
 
+      const breakSessionResponse = await fetch('/api/break-register/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: authData.session?.access_token, interfaceType: 'desktop' })
+      });
+      if (!breakSessionResponse.ok) return { success: false, error: 'Could not establish a secure data session' };
+
       // Get user details from users table
       const { data: userData, error: userError } = await supabase
         .from("users")
@@ -734,6 +751,7 @@ export class PersistentAuthService {
     try {
       const current = await this.getCurrentUser();
       if (current) {
+        await fetch('/api/break-register/session', { method: 'DELETE', headers: { 'x-aqura-interface': current.interfaceType === 'mobile' ? 'mobile' : 'desktop' } }).catch(() => {});
         // Log logout activity (but don't let it block logout)
         this.logUserActivity("logout", current.id).catch((err) =>
           console.warn("Failed to log logout activity:", err),
@@ -764,6 +782,10 @@ export class PersistentAuthService {
       // Clear current user
       currentUser.set(null);
       isAuthenticated.set(false);
+
+      // Next login must re-derive locale purely from the account's
+      // default_language, not any in-session language toggle from before.
+      clearManualLocaleOverride();
 
       // Stop session monitoring
       this.stopSessionMonitoring();
@@ -804,6 +826,12 @@ export class PersistentAuthService {
           error: "Your account has been locked or deactivated. Please contact your administrator.",
         };
       }
+
+      const breakSessionResponse = await fetch('/api/break-register/session', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      if (!breakSessionResponse.ok) return { success: false, error: 'A fresh login is required for this user' };
 
       // Switch to target user
       await this.setCurrentUser(targetUser);

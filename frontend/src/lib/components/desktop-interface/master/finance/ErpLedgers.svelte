@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { _ as t, currentLocale } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import EntryTaskUserPicker from '$lib/components/desktop-interface/common/EntryTaskUserPicker.svelte';
+	import type { SelectableUser } from '$lib/utils/entryTaskUsers';
 
 	interface BranchOption {
 		branch_id: number;
@@ -71,6 +73,13 @@
 	let showJvDropdown = false;
 	let sendSubmitting = false;
 	let sendError = '';
+	// Assignee for this one task. Pre-selected from the branch's default Entry Task user (set in
+	// App Permissions > Default Entry Task Users), but only ever a local choice: changing it here
+	// never writes back to that saved default. No default => left empty, sender must pick.
+	let sendUsers: SelectableUser[] = [];
+	let sendUsersLoading = false;
+	let sendAssigneeId: string | null = null;
+	let sendDefaultAssigneeId: string | null = null;
 
 	// Ledgers whose ERP group indicates a bank account (e.g. "Bank Accounts", "Bank OD A/c"),
 	// drawn from the same branch-wide ledger list already loaded for the ledger-search field above.
@@ -339,7 +348,43 @@
 		sendJvLedgerId = null;
 		sendJvSearch = '';
 		showJvDropdown = false;
+		sendAssigneeId = null;
+		sendDefaultAssigneeId = null;
 		showSendModal = true;
+		loadSendAssignee(row);
+	}
+
+	// Loads the selectable users and the branch's default Entry Task user, and pre-selects that
+	// default unless the sender already picked someone while this was loading. A default that is
+	// no longer an active user is ignored (field stays empty) rather than assigned to a dead account.
+	async function loadSendAssignee(row: LedgerTxn) {
+		if (selectedBranchId == null) return;
+		const branchId = selectedBranchId;
+		sendUsersLoading = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { loadSelectableUsers } = await import('$lib/utils/entryTaskUsers');
+			const [users, defaultRes] = await Promise.all([
+				sendUsers.length ? Promise.resolve(sendUsers) : loadSelectableUsers(),
+				supabase
+					.from('branch_default_positions')
+					.select('entry_task_user_id')
+					.eq('branch_id', branchId)
+					.maybeSingle()
+			]);
+			sendUsers = users;
+			if (sendModalRow !== row) return;
+			if (defaultRes.error) throw defaultRes.error;
+			const defaultId: string | null = defaultRes.data?.entry_task_user_id ?? null;
+			if (defaultId && users.some((u) => u.id === defaultId)) {
+				sendDefaultAssigneeId = defaultId;
+				if (sendAssigneeId == null) sendAssigneeId = defaultId;
+			}
+		} catch (err) {
+			console.error('Error loading ERP entry task assignee:', err);
+		} finally {
+			sendUsersLoading = false;
+		}
 	}
 
 	function closeSendModal() {
@@ -353,6 +398,8 @@
 		showJvDropdown = false;
 		sendSubmitting = false;
 		sendError = '';
+		sendAssigneeId = null;
+		sendDefaultAssigneeId = null;
 	}
 
 	function selectJvLedger(ledger: LedgerOption) {
@@ -392,6 +439,10 @@
 			sendError = 'Select a credit account';
 			return;
 		}
+		if (!sendAssigneeId) {
+			sendError = 'Select a user to assign the task to';
+			return;
+		}
 		const user = $currentUser;
 		if (!user) {
 			sendError = 'Not logged in';
@@ -420,7 +471,8 @@
 				p_bank_ledger_name: creditLedger?.ledgerName ?? null,
 				p_created_by: user.id,
 				p_created_by_name: user.employeeName || user.username,
-				p_original_bill_amount: sendModalRow.debit || sendModalRow.credit
+				p_original_bill_amount: sendModalRow.debit || sendModalRow.credit,
+				p_assigned_to: sendAssigneeId
 			});
 
 			if (error) throw error;
@@ -783,6 +835,25 @@
 						{/if}
 					</div>
 				{/if}
+				<div class="form-group">
+					<label for="send-assignee">Assign To</label>
+					<EntryTaskUserPicker
+						inputId="send-assignee"
+						users={sendUsers}
+						loading={sendUsersLoading}
+						bind:value={sendAssigneeId}
+						placeholder="Search and select a user"
+					/>
+					{#if sendAssigneeId && sendAssigneeId === sendDefaultAssigneeId}
+						<div class="assignee-hint">Default Entry Task user for this branch</div>
+					{:else if sendAssigneeId}
+						<div class="assignee-hint">Selected for this task only (branch default unchanged)</div>
+					{:else if !sendUsersLoading}
+						<div class="assignee-hint warn">
+							{sendDefaultAssigneeId === null ? 'No default Entry Task user is set for this branch. ' : ''}Select who this task is assigned to.
+						</div>
+					{/if}
+				</div>
 			</div>
 
 			<div class="modal-footer">
@@ -1153,6 +1224,8 @@
 	}
 	.form-group select:focus { outline: none; border-color: #ef4444; }
 	.no-bank-ledgers { font-size: 0.74rem; color: #b91c1c; opacity: 0.8; }
+	.assignee-hint { font-size: 0.72rem; color: #15803d; }
+	.assignee-hint.warn { color: #b45309; }
 	.payment-type-toggle { display: flex; gap: 8px; }
 	.payment-type-btn {
 		flex: 1;

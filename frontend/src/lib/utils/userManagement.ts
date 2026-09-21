@@ -1,5 +1,13 @@
 import { supabase } from "./supabase";
 
+async function secureManagement(action: string, fields: Record<string, unknown> = {}) {
+  const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...fields }) });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || 'Management update failed');
+  return payload;
+}
+
 // Types for user management
 interface CreateUserRequest {
   username: string;
@@ -107,23 +115,7 @@ export class UserManagementService {
   ): Promise<{ success: boolean; user?: any; quickAccessCode?: string }> {
     try {
       // Call the database function to create user
-      const { data, error } = await supabase.rpc("create_user", {
-        p_username: userData.username,
-        p_password: userData.password,
-        p_is_master_admin: userData.isMasterAdmin || false,
-        p_is_admin: userData.isAdmin || false,
-        p_user_type: userData.userType,
-        p_branch_id: userData.branchId || null,
-        p_employee_id: userData.employeeId || null,
-        p_position_id: userData.positionId || null,
-        p_quick_access_code: userData.quickAccessCode || null,
-        p_requesting_user_id: userData.requestingUserId || null,
-      });
-
-      if (error) {
-        console.error("Error creating user:", error);
-        throw new Error(error.message || "Failed to create user");
-      }
+      const { data } = await secureManagement('createUser', { user: userData });
 
       console.log("Create user response:", data);
       
@@ -152,24 +144,7 @@ export class UserManagementService {
   ): Promise<boolean> {
     try {
       // Use RPC function with SECURITY DEFINER that bypasses RLS
-      const { data, error } = await supabase.rpc('update_user', {
-        p_user_id: userId,
-        p_username: updates.username ?? null,
-        p_is_master_admin: updates.p_is_master_admin ?? null,
-        p_is_admin: updates.p_is_admin ?? null,
-        p_user_type: updates.user_type ?? null,
-        p_branch_id: updates.branch_id ?? null,
-        p_employee_id: updates.employee_id && updates.employee_id.trim() !== '' ? updates.employee_id : null,
-        p_position_id: updates.position_id && updates.position_id.trim() !== '' ? updates.position_id : null,
-        p_status: updates.status ?? null,
-        p_avatar: updates.avatar ?? null,
-        p_requesting_user_id: updates.requesting_user_id ?? null
-      });
-
-      if (error) {
-        console.error("Error updating user via RPC:", error);
-        throw new Error("Failed to update user: " + error.message);
-      }
+      const { data } = await secureManagement('updateUser', { userId, updates });
 
       // Check response from function
       if (data && !data.success) {
@@ -191,15 +166,7 @@ export class UserManagementService {
   async deleteUser(userId: string): Promise<boolean> {
     try {
       // Instead of deleting, we'll deactivate the user
-      const { error } = await supabase
-        .from("users")
-        .update({ status: "inactive" })
-        .eq("id", userId);
-
-      if (error) {
-        console.error("Error deactivating user:", error);
-        throw new Error("Failed to deactivate user");
-      }
+      await secureManagement('deactivateUser', { userId });
 
       return true;
     } catch (error) {
@@ -216,42 +183,7 @@ export class UserManagementService {
     newPassword: string,
   ): Promise<boolean> {
     try {
-      // Generate salt and hash password
-      const { data: saltData, error: saltError } =
-        await supabase.rpc("generate_salt");
-
-      if (saltError) {
-        throw new Error("Failed to generate password salt");
-      }
-
-      const { data: hashedPassword, error: hashError } = await supabase.rpc(
-        "hash_password",
-        {
-          password: newPassword,
-          salt: saltData,
-        },
-      );
-
-      if (hashError) {
-        throw new Error("Failed to hash password");
-      }
-
-      // Update user password
-      const { error } = await supabase
-        .from("users")
-        .update({
-          password_hash: hashedPassword,
-          salt: saltData,
-          is_first_login: true,
-          failed_login_attempts: 0,
-          last_password_change: new Date().toISOString(),
-        })
-        .eq("id", userId);
-
-      if (error) {
-        console.error("Error resetting password:", error);
-        throw new Error("Failed to reset password");
-      }
+      await secureManagement('resetPassword', { userId, password: newPassword });
 
       return true;
     } catch (error) {
@@ -265,52 +197,8 @@ export class UserManagementService {
    */
   async generateQuickAccessCode(userId: string): Promise<string> {
     try {
-      // Generate new unique quick access code
-      const { data: newCode, error: codeError } = await supabase.rpc(
-        "generate_unique_quick_access_code",
-      );
-
-      if (codeError) {
-        throw new Error("Failed to generate quick access code");
-      }
-
-      // Generate salt for bcrypt hashing
-      const { data: saltData, error: saltError } =
-        await supabase.rpc("generate_salt");
-
-      if (saltError) {
-        throw new Error("Failed to generate code salt");
-      }
-
-      // Hash the quick access code with bcrypt
-      const { data: hashedCode, error: hashError } = await supabase.rpc(
-        "hash_password",
-        {
-          password: newCode,
-          salt: saltData,
-        },
-      );
-
-      if (hashError) {
-        throw new Error("Failed to hash quick access code");
-      }
-
-      // Update user with HASHED quick access code (not plain text)
-      const { error } = await supabase
-        .from("users")
-        .update({
-          quick_access_code: hashedCode,    // Store the bcrypt hash
-          quick_access_salt: saltData,       // Store the salt
-        })
-        .eq("id", userId);
-
-      if (error) {
-        console.error("Error updating quick access code:", error);
-        throw new Error("Failed to update quick access code");
-      }
-
-      // Return plain text code to show to the user
-      return newCode;
+      const result = await secureManagement('generateCode', { userId });
+      return result.code;
     } catch (error) {
       console.error("Generate quick access code error:", error);
       throw error;

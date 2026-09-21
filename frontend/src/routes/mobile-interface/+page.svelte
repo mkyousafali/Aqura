@@ -10,6 +10,7 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 	import { localeData } from '$lib/i18n';
+	import { loadBreakRegisterData } from '$lib/utils/breakRegisterApi';
 
 	let currentUserData = null;
 	let hasFollowUpsPermission = false;
@@ -351,9 +352,8 @@
 			
 			// Step 2: Call single RPC for all dashboard data
 			attendanceLoading = true;
-			const { data: result, error: rpcError } = await supabase.rpc('get_mobile_dashboard_data', {
-				p_user_id: userUuid
-			});
+			const { data: result, error: rpcError } = await loadBreakRegisterData('dashboard', {}, 'mobile')
+				.then(data => ({ data, error: null }), error => ({ data: null, error }));
 
 			if (rpcError || !result) {
 				console.error('❌ RPC error:', rpcError);
@@ -508,7 +508,7 @@
 				});
 
 			// Step 12: Check active break (fire-and-forget)
-			supabase.rpc('get_active_break', { p_user_id: userUuid })
+			fetch('/api/break-register/action').then(async r => ({ data: await r.json(), error: r.ok ? null : new Error('Active break unavailable') }))
 				.then(({ data: breakData, error: breakErr }) => {
 					if (!breakErr && breakData?.active) {
 						activeBreak = breakData;

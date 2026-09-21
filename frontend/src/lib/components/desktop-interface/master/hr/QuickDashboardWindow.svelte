@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
+	import { loadBreakRegisterData } from '$lib/utils/breakRegisterApi';
 
 	export let windowId: string;
 
@@ -115,14 +116,8 @@
 						'employee_id, shift_date, status, check_in_time, check_out_time, late_minutes, shift_end_time, shift_start_time'
 					)
 					.in('shift_date', [todayStr, yesterdayStr]),
-				supabase.rpc('get_break_summary_all_employees', {
-					p_date_from: yesterdayStr,
-					p_date_to: todayStr
-				}),
-				supabase.rpc('get_all_breaks', {
-					p_date_from: todayStr,
-					p_date_to: todayStr
-				}),
+				loadBreakRegisterData('summary', { from: yesterdayStr, to: todayStr }).then(data => ({ data, error: null })),
+				loadBreakRegisterData('logs', { from: todayStr, to: todayStr }).then(data => ({ data, error: null })),
 				supabase
 					.from('task_assignments')
 					.select('assigned_to_user_id')

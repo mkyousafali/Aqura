@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { supabase } from '$lib/utils/supabase';
 	import { locale } from '$lib/i18n';
 
 	$: isRtl = $locale === 'ar';
@@ -36,74 +35,28 @@
 	async function loadPermissions() {
 		loading = true;
 		try {
-			// Load active users
-			const { data: users, error: usersErr } = await supabase
-				.from('users')
-				.select('id, username, employee_id')
-				.eq('status', 'active')
-				.order('username');
-
-			if (usersErr) throw usersErr;
-
-			// Load existing permissions
-			const { data: perms } = await supabase
-				.from('break_register_permissions')
-				.select('*');
-
-			const permMap = new Map((perms || []).map((p: any) => [p.user_id, p]));
-
-			// Load employee names
-			const empIds = (users || []).map((u: any) => u.employee_id).filter(Boolean);
-			let empMap = new Map<string, any>();
-			if (empIds.length > 0) {
-				const { data: emps } = await supabase
-					.from('hr_employee_master')
-					.select('id, name_en, name_ar')
-					.in('id', empIds);
-				empMap = new Map((emps || []).map((e: any) => [String(e.id), e]));
-			}
-
-			rows = (users || []).map((u: any) => {
-				const perm = permMap.get(u.id);
-				const emp = u.employee_id ? empMap.get(String(u.employee_id)) : null;
-				return {
-					user_id: u.id,
-					username: u.username,
-					employee_name_en: emp?.name_en || null,
-					employee_name_ar: emp?.name_ar || null,
-					can_see_own_breaks: perm?.can_see_own_breaks ?? true,
-					can_see_branch_breaks: perm?.can_see_branch_breaks ?? false,
-					can_see_all_breaks: perm?.can_see_all_breaks ?? false,
-					saving: false
-				};
-			});
+			const response = await fetch('/api/break-register/permissions');
+			const payload = await response.json();
+			if (!response.ok) throw new Error(payload.error || 'Could not load permissions');
+			rows = payload.rows || [];
 		} catch (err) {
 			console.error('Error loading permissions:', err);
-		} finally {
-			loading = false;
-		}
+		} finally { loading = false; }
 	}
 
 	async function saveRow(row: PermRow) {
 		row.saving = true;
-		rows = rows; // trigger reactivity
+		rows = rows;
 		try {
-			const { error } = await supabase
-				.from('break_register_permissions')
-				.upsert({
-					user_id: row.user_id,
-					can_see_own_breaks: row.can_see_own_breaks,
-					can_see_branch_breaks: row.can_see_branch_breaks,
-					can_see_all_breaks: row.can_see_all_breaks,
-					updated_at: new Date().toISOString()
-				}, { onConflict: 'user_id' });
-			if (error) throw error;
+			const response = await fetch('/api/break-register/permissions', {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(row)
+			});
+			if (!response.ok) throw new Error('Permission update failed');
 		} catch (err) {
 			console.error('Error saving permission:', err);
-		} finally {
-			row.saving = false;
-			rows = rows;
-		}
+			await loadPermissions();
+		} finally { row.saving = false; rows = rows; }
 	}
 
 	function toggle(row: PermRow, field: 'can_see_own_breaks' | 'can_see_branch_breaks' | 'can_see_all_breaks') {

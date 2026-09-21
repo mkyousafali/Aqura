@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { currentLocale, switchLocale, localeData } from '$lib/i18n';
+	import { currentLocale, switchLocaleManually, localeData } from '$lib/i18n';
 	import { createEventDispatcher } from 'svelte';
 
 	const dispatch = createEventDispatcher();
 
 	function toggleLanguage() {
 		const newLocale = $currentLocale === 'en' ? 'ar' : 'en';
-		switchLocale(newLocale);
+		switchLocaleManually(newLocale);
 		dispatch('languageChanged', { locale: newLocale });
 		
 		// Trigger hard refresh after a short delay to allow locale switch to complete

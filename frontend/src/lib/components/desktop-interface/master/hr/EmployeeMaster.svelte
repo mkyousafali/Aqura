@@ -390,8 +390,10 @@
 				p_whatsapp_number: modal.data.whatsapp_number || null,
 				p_email: modal.data.email || null
 			};
-			const { error } = await supabase.rpc('update_employee_master_basic', args);
-			if (error) throw error;
+			const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'updateEmployee', employee: args }) });
+			if (!response.ok) throw new Error((await response.json()).error || 'Failed to update employee');
 			closeModal();
 			await loadEmployees();
 		} catch (e: any) {

@@ -650,11 +650,10 @@
 	async function assignUserToBranch(userId: string, branchId: string) {
 		try {
 			savingBranch = true;
-			const { error } = await supabase
-				.from('users')
-				.update({ branch_id: branchId })
-				.eq('id', userId);
-			if (error) throw error;
+			const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'changeBranch', userId, branchId: Number(branchId) }) });
+			if (!response.ok) throw new Error((await response.json()).error || 'Failed to assign branch');
 
 			// Update local state
 			const idx = users.findIndex(u => u.id === userId);
@@ -673,11 +672,10 @@
 	async function removeUserFromBranch(userId: string) {
 		try {
 			savingBranch = true;
-			const { error } = await supabase
-				.from('users')
-				.update({ branch_id: null })
-				.eq('id', userId);
-			if (error) throw error;
+			const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'changeBranch', userId, branchId: null }) });
+			if (!response.ok) throw new Error((await response.json()).error || 'Failed to remove branch');
 
 			const idx = users.findIndex(u => u.id === userId);
 			if (idx !== -1) {

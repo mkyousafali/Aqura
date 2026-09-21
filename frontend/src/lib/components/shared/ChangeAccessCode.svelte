@@ -275,12 +275,12 @@
 
 		loading = true;
 		try {
-			const { data, error: rpcError } = await supabase.rpc('verify_otp_and_change_access_code', {
-				p_email: savedEmail,
-				p_whatsapp: savedWhatsapp,
-				p_otp: getOtpCode(),
-				p_new_code: newCode
-			});
+			const response = await fetch('/api/access-code-recovery', { method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: savedEmail, whatsapp: savedWhatsapp,
+					otp: getOtpCode(), newCode }) });
+			const data = await response.json();
+			const rpcError = response.ok ? null : data;
 
 			if (rpcError) {
 				error = t('Server error. Please try again.', 'خطأ في الخادم. يرجى المحاولة مرة أخرى.');

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
-	import { _, t, switchLocale, currentLocale } from '$lib/i18n';
+	import { _, t, switchLocaleManually, currentLocale } from '$lib/i18n';
 	import { notificationCounts, fetchNotificationCounts } from '$lib/stores/notifications';
 	import { taskCounts, taskCountService } from '$lib/stores/taskCount';
 	import { cashierUser } from '$lib/stores/cashierAuth';
@@ -244,7 +244,7 @@
 	function toggleLanguage() {
 		closeMenu();
 		const newLocale = $currentLocale === 'en' ? 'ar' : 'en';
-		switchLocale(newLocale);
+		switchLocaleManually(newLocale);
 		// Reload the page to apply language changes throughout the app
 		window.location.reload();
 	}

@@ -13,6 +13,7 @@
 
 import { writable, get } from 'svelte/store';
 import { isWindowsApp, getDeviceId, getDeviceName } from '$lib/utils/cashierDevice';
+import { clearManualLocaleOverride } from '$lib/i18n';
 
 export interface CashierUser {
 	id: string;
@@ -131,6 +132,10 @@ export function clearCashierSession() {
 	} catch (error) {
 		console.error('Failed to clear cashier session:', error);
 	}
+
+	// Next login must re-derive locale purely from the account's
+	// default_language, not any in-session language toggle from before.
+	clearManualLocaleOverride();
 }
 
 // =====================================================================

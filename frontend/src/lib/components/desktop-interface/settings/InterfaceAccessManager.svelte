@@ -234,12 +234,10 @@
 
 			console.log('📝 Updating permissions with data:', updateData);
 
-			const { data, error } = await supabase
-				.from('interface_permissions')
-				.upsert(updateData, { 
-					onConflict: 'user_id',
-					ignoreDuplicates: false 
-				});
+			const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'interfacePermission', permission: updateData }) });
+			const { data, error } = response.ok ? await response.json() : { error: new Error((await response.json()).error) };
 
 			if (error) {
 				console.error('Permission update error:', error);
@@ -288,12 +286,10 @@
 				updateData.updated_by = updatedById;
 			}
 
-			const { data, error } = await supabase
-				.from('interface_permissions')
-				.upsert(updateData, { 
-					onConflict: 'user_id',
-					ignoreDuplicates: false 
-				});
+			const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'interfacePermission', permission: updateData }) });
+			const { data, error } = response.ok ? await response.json() : { error: new Error((await response.json()).error) };
 
 			if (error) throw error;
 
@@ -336,12 +332,10 @@
 					updateData.updated_by = updatedById;
 				}
 
-				await supabase
-					.from('interface_permissions')
-					.upsert(updateData, { 
-						onConflict: 'user_id',
-						ignoreDuplicates: false 
-					});
+				const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ action: 'interfacePermission', permission: updateData }) });
+				if (!response.ok) throw new Error((await response.json()).error || 'Permission update failed');
 			}
 
 			successMessage = `Customer access ${customerMasterAccess ? 'enabled' : 'disabled'} for all customers`;

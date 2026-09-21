@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
-	import { currentLocale, switchLocale, getAvailableLocales } from '$lib/i18n';
+	import { currentLocale, switchLocaleManually, getAvailableLocales } from '$lib/i18n';
 	import { t } from '$lib/i18n';
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { get } from 'svelte/store';
@@ -177,7 +177,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	function toggleLanguage() {
 		// Switch between English and Arabic
 		const nextLocale = currentLang === 'en' ? 'ar' : 'en';
-		switchLocale(nextLocale);
+		switchLocaleManually(nextLocale);
 		
 		// Trigger hard refresh after a short delay to allow locale switch to complete
 		setTimeout(() => {

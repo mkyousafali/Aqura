@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { cashierSessionToken } from '$lib/stores/cashierAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import { t, currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -12,6 +14,532 @@
 
 	export let branch: any;
 	export let user: any;
+	let activePosTab: 'available' | 'operation' | 'manager' | 'change' = 'available';
+
+	const changeDenomKeys = ['d500', 'd200', 'd100', 'd50', 'd20', 'd10', 'd5', 'd2', 'd1', 'd05', 'd025'];
+	let showChangeForm = false;
+	let changeSearch = '';
+	type ChangeUser = { id: string; name_en: string | null; name_ar: string | null };
+	let changeUsers: ChangeUser[] = [];
+	let changeOptionsOpen = false;
+	let changeSearchSequence = 0;
+	let selectedChangeUser: ChangeUser | null = null;
+	let changeCounts: Record<string, number> = {};
+	let changeAvailable: Record<string, number> = {};
+	let changeAvailabilityReady = false;
+	let changeTotalCents = 0;
+	let changeAvailableCents = 0;
+	let changeAmount = '';
+	let changeAmountCents = 0;
+	let changeAmountExceedsBalance = false;
+	let showChangeDenominations = false;
+	let changeBusy = false;
+	let changeMessage = '';
+	let changeSearchTimer: ReturnType<typeof setTimeout>;
+	let changeInbox: any[] = [];
+	let changeChecks: Record<string, Record<string, boolean>> = {};
+	let changeFlowBusy = '';
+	let changeFlowMessage = '';
+	let changeStreamController: AbortController | null = null;
+
+	async function loadChangeInbox() {
+		const userId = user?.id || user?.user_id;
+		const sessionToken = get(cashierSessionToken);
+		if (!userId || !sessionToken || !branch?.id) return;
+		try {
+			const params = new URLSearchParams({ branchId: String(branch.id) });
+			const response = await fetch(`/api/change-requests/inbox?${params}`, {
+				cache: 'no-store', headers: { 'x-cashier-user-id': userId, 'x-cashier-session-token': sessionToken }
+			});
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Could not load change requests.');
+			changeInbox = result.filter((item: any) => item.status !== 'Completed');
+		} catch (error) {
+			changeFlowMessage = error instanceof Error ? error.message : 'Could not load change requests.';
+		}
+	}
+
+	function watchCashierChangeRequests() {
+		changeStreamController?.abort();
+		const userId = user?.id || user?.user_id;
+		const sessionToken = get(cashierSessionToken);
+		if (!userId || !sessionToken) return;
+		const controller = new AbortController();
+		changeStreamController = controller;
+		void (async () => {
+			while (!controller.signal.aborted) {
+				try {
+					const response = await fetch('/api/change-requests/inbox/events', {
+						headers: { 'x-cashier-user-id': userId, 'x-cashier-session-token': sessionToken }, signal: controller.signal
+					});
+					if (!response.ok || !response.body) throw new Error('Realtime connection unavailable.');
+					const reader = response.body.getReader();
+					const decoder = new TextDecoder();
+					let buffer = '';
+					while (!controller.signal.aborted) {
+						const { value, done } = await reader.read();
+						if (done) break;
+						buffer += decoder.decode(value, { stream: true });
+						let boundary;
+						while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+							const event = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+							if (event.startsWith('event: change') || event.startsWith('event: ready')) void loadChangeInbox();
+							if (event.startsWith('event: receivers')) {
+								void loadCounterPrinterConfig();
+								if (showChangeForm && changeOptionsOpen && changeSearch.trim()) void searchChangeUsers();
+							}
+						}
+					}
+				} catch { /* reconnect after a short delay */ }
+				if (!controller.signal.aborted) await new Promise(resolve => setTimeout(resolve, 2000));
+			}
+		})();
+	}
+
+	async function changeRequestAction(id: string, action: string, extras: Record<string, unknown> = {}) {
+		if (action === 'print_event') {
+			await loadPosCounterAssignment();
+			extras = { ...extras, posCounterId: posCounterAssignment?.counterId || null };
+		}
+		const response = await fetch(`/api/change-requests/${encodeURIComponent(id)}`, {
+			method: 'POST', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ userId: user?.id || user?.user_id, sessionToken: get(cashierSessionToken),
+				branchId: branch?.id, action, ...extras })
+		});
+		const result = await response.json();
+		if (!response.ok) throw new Error(result.error || 'Could not update request.');
+		return result;
+	}
+
+	async function printChangeRequest(item: any) {
+		changeFlowBusy = item.id; changeFlowMessage = '';
+		try {
+			if (!selectedCounterPrinter || !counterPrinterBridge()) throw new Error('Select a POS printer in Manager Cashier Counter first.');
+			await changeRequestAction(item.id, 'print_event', { printStatus: 'attempted', printerName: selectedCounterPrinter });
+			let printed = false;
+			try {
+				const now = new Date();
+				const userId = user?.id || user?.user_id;
+				const userName = await getEmployeeDisplayName(userId, $currentLocale, user?.username || user?.name || '');
+				const result = await counterPrinterBridge()!.print({ printerName: selectedCounterPrinter,
+					userName: userName || 'Cashier', date: now.toLocaleDateString('en-GB'),
+					time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+					reason: 'Opening a POS Counter', receiptType: 'change_request', requestId: item.id,
+					requestNumber: item.request_number || undefined,
+					branch: fullBranch?.name_en || branch?.name_en || String(branch?.id),
+					denominations: changeDenomKeys.map(key => ({ label: denomLabels[key], count: item.withdrawal_counts?.[key] || 0 })),
+					totalAmount: item.withdrawal_total });
+				if (!result.success) throw new Error(result.error || 'POS print failed.');
+				printed = true;
+				await changeRequestAction(item.id, 'print_event', { printStatus: 'success', printerName: selectedCounterPrinter });
+				changeInbox = changeInbox.filter(request => request.id !== item.id);
+				changeFlowMessage = 'POS opening print sent. Request completed.';
+			} catch (error) {
+				if (!printed) await changeRequestAction(item.id, 'print_event', { printStatus: 'failure',
+					printerName: selectedCounterPrinter, errorMessage: error instanceof Error ? error.message : 'Print failed.' });
+				throw error;
+			}
+			await loadChangeInbox();
+		} catch (error) { changeFlowMessage = error instanceof Error ? error.message : 'POS print failed.'; }
+		finally { changeFlowBusy = ''; }
+	}
+
+	async function confirmChangeRequest(item: any) {
+		const keys = changeDenomKeys.filter(key => (item.withdrawal_counts?.[key] || 0) > 0);
+		if (!keys.every(key => changeChecks[item.id]?.[key])) return;
+		changeFlowBusy = item.id; changeFlowMessage = '';
+		try {
+			await changeRequestAction(item.id, 'confirm', { counts: item.withdrawal_counts });
+			await loadChangeInbox();
+			await printChangeRequest(item);
+		} catch (error) { changeFlowMessage = error instanceof Error ? error.message : 'Could not confirm request.'; }
+		finally { changeFlowBusy = ''; }
+	}
+	$: changeTotalCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeCounts[key] || 0), 0);
+	$: changeAvailableCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeAvailable[key] || 0), 0);
+	$: changeAmountCents = /^\d+(?:\.\d{1,2})?$/.test(changeAmount.trim()) ? Math.round(Number(changeAmount) * 100) : 0;
+	$: changeAmountExceedsBalance = changeAvailabilityReady && changeAmountCents > changeAvailableCents;
+	function changeUserName(candidate: ChangeUser): string {
+		return ($currentLocale === 'ar' ? candidate.name_ar || candidate.name_en : candidate.name_en || candidate.name_ar) || '';
+	}
+	$: if (selectedChangeUser && !changeOptionsOpen && $currentLocale) changeSearch = changeUserName(selectedChangeUser);
+
+	function resetChangeForm() {
+		showChangeForm = false;
+		changeSearch = '';
+		changeUsers = [];
+		changeOptionsOpen = false;
+		changeSearchSequence++;
+		selectedChangeUser = null;
+		changeCounts = Object.fromEntries(changeDenomKeys.map(key => [key, 0]));
+		changeAmount = '';
+		showChangeDenominations = false;
+		changeMessage = '';
+		clearTimeout(changeSearchTimer);
+	}
+
+	function openChangeForm() {
+		resetChangeForm();
+		showChangeForm = true;
+		void refreshChangeAvailability();
+	}
+
+	async function refreshChangeAvailability() {
+		const sessionToken = get(cashierSessionToken);
+		const userId = user?.id || user?.user_id;
+		if (!sessionToken || !userId || !branch?.id) {
+			changeAvailabilityReady = false;
+			changeMessage = 'Cashier session is unavailable.';
+			return false;
+		}
+		try {
+			const params = new URLSearchParams({ branchId: String(branch.id) });
+			const response = await fetch(`/api/change-requests?${params}`, { cache: 'no-store', headers: { 'x-cashier-user-id': userId, 'x-cashier-session-token': sessionToken } });
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Could not load Safe Box availability.');
+			changeAvailable = result.available;
+			changeAvailabilityReady = true;
+			return true;
+		} catch (error) {
+			changeAvailabilityReady = false;
+			changeMessage = error instanceof Error ? error.message : 'Could not load Safe Box availability.';
+			return false;
+		}
+	}
+
+	async function searchChangeUsers() {
+		const term = changeSearch.trim();
+		const sequence = ++changeSearchSequence;
+		if (!term) {
+			changeUsers = [];
+			changeOptionsOpen = false;
+			return;
+		}
+		try {
+			const sessionToken = get(cashierSessionToken);
+			const userId = user?.id || user?.user_id;
+			if (!sessionToken || !userId || !branch?.id) throw new Error('Cashier session or branch is unavailable.');
+			const params = new URLSearchParams({ search: term, branchId: String(branch.id) });
+			const response = await fetch(`/api/change-request-users?${params}`, {
+				cache: 'no-store', headers: { 'x-cashier-user-id': userId, 'x-cashier-session-token': sessionToken }
+			});
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Could not load users.');
+			if (sequence === changeSearchSequence) changeUsers = result.users || [];
+		} catch {
+			changeMessage = 'Could not load users.';
+		}
+	}
+
+	function queueChangeSearch() {
+		clearTimeout(changeSearchTimer);
+		selectedChangeUser = null;
+		changeOptionsOpen = !!changeSearch.trim();
+		changeUsers = [];
+		changeSearchTimer = setTimeout(() => void searchChangeUsers(), 250);
+	}
+
+	function selectChangeUser(candidate: ChangeUser) {
+		selectedChangeUser = candidate;
+		changeSearch = changeUserName(candidate);
+		changeOptionsOpen = false;
+		changeUsers = [];
+		clearTimeout(changeSearchTimer);
+		changeSearchSequence++;
+	}
+
+	function adjustChangeCount(key: string, delta: number) {
+		if (!changeAvailabilityReady) return;
+		changeCounts = { ...changeCounts, [key]: Math.min(changeAvailable[key] || 0, Math.max(0, (changeCounts[key] || 0) + delta)) };
+	}
+
+	async function sendChangeRequest() {
+		const amountCents = changeAmountCents;
+		if (!selectedChangeUser || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+			changeMessage = 'Select a receiving user and enter a valid amount greater than zero.';
+			return;
+		}
+		if (changeAmountExceedsBalance) {
+			changeMessage = `Requested amount exceeds the available Safe Box balance (${(changeAvailableCents / 100).toFixed(2)} SAR).`;
+			return;
+		}
+		if (showChangeDenominations && changeTotalCents > amountCents) {
+			changeMessage = 'Selected denominations exceed the requested amount.';
+			return;
+		}
+		const sessionToken = get(cashierSessionToken);
+		if (!sessionToken || !(user?.id || user?.user_id) || !branch?.id) {
+			changeMessage = 'Cashier session is unavailable.';
+			return;
+		}
+		changeBusy = true;
+		changeMessage = '';
+		try {
+			if (!await refreshChangeAvailability()) return;
+			const latestAvailableCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeAvailable[key] || 0), 0);
+			if (amountCents > latestAvailableCents) {
+				changeMessage = `Requested amount exceeds the latest Safe Box balance (${(latestAvailableCents / 100).toFixed(2)} SAR).`;
+				return;
+			}
+			const insufficient = showChangeDenominations ? changeDenomKeys.find(key => (changeCounts[key] || 0) > (changeAvailable[key] || 0)) : undefined;
+			if (insufficient) {
+				changeMessage = `${denomLabels[insufficient]} SAR is insufficient in Safe Box. Available: ${changeAvailable[insufficient] || 0}.`;
+				return;
+			}
+			const response = await fetch('/api/change-requests', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: user.id || user.user_id, sessionToken, branchId: branch.id,
+					requestedToUserId: selectedChangeUser.id, amount: amountCents / 100,
+					denominationCounts: showChangeDenominations ? changeCounts : {}
+				})
+			});
+			const result = await response.json();
+			if (!response.ok) {
+				if (result.available) { changeAvailable = result.available; changeAvailabilityReady = true; }
+				throw new Error(result.error || 'Could not send request');
+			}
+			resetChangeForm();
+			changeMessage = `Change request ${result.requestNumber} sent. Status: Pending.`;
+		} catch (error) {
+			changeMessage = error instanceof Error ? error.message : 'Could not send request.';
+		} finally {
+			changeBusy = false;
+		}
+	}
+
+	type CounterPrinter = { name: string; isDefault: boolean };
+	type CounterPrinterBridge = {
+		getConfig: () => Promise<{ name: string; tested: boolean }>;
+		list: (auth: { userId: string; sessionToken: string }) => Promise<CounterPrinter[]>;
+		select: (auth: { userId: string; sessionToken: string }, printerName: string) => Promise<{ name: string; tested: boolean }>;
+		print: (details: { printerName: string; userName: string; date: string; time: string; reason: string; receiptType: 'test' | 'counter' | 'change_request'; userId?: string; sessionToken?: string; branchId?: number; requestId?: string; requestNumber?: string; branch?: string; denominations?: { label: string; count: number }[]; totalAmount?: number }) => Promise<{ success: boolean; error?: string }>;
+	};
+	let counterPrinters: CounterPrinter[] = [];
+	let canManageCounterPrinter = false;
+	let counterPrinterAccessReady = false;
+	let selectedCounterPrinter = '';
+	let counterPrinterReady = false;
+	let counterPrinterSelectionLogged = false;
+	let counterPrinterBusy = false;
+	let counterPrinterMessage = '';
+	let showCounterReason = false;
+	let counterReason = '';
+	let counterOtherReason = '';
+	let counterFlowId = '';
+	type PosCounterAssignment = { branchId: number; counterId: number; counterName: string; counterNumber: string };
+	type PosCounterBridge = { getConfig: () => Promise<PosCounterAssignment | null>;
+		save: (auth: { userId: string; sessionToken: string; branchId: number }, counterId: number) => Promise<PosCounterAssignment> };
+	let posCounterAssignment: PosCounterAssignment | null = null;
+	let showPosCounterSetup = false;
+	let posCounterOptions: { id: number; name: string; number: string }[] = [];
+	let selectedPosCounterId = 0;
+	let posCounterBusy = false;
+	let posCounterMessage = '';
+	function posCounterBridge(): PosCounterBridge | undefined {
+		return (window as Window & { aquraPosCounter?: PosCounterBridge }).aquraPosCounter;
+	}
+	async function loadPosCounterAssignment() {
+		const saved = await posCounterBridge()?.getConfig();
+		posCounterAssignment = saved?.branchId === Number(branch?.id) ? saved : null;
+	}
+	async function getPosCounterDetails() {
+		if (!canManageCounterPrinter) return;
+		posCounterBusy = true; posCounterMessage = '';
+		try {
+			const auth = counterPrinterAuth();
+			const response = await fetch('/api/pos-counter-setup', { cache: 'no-store', headers: {
+				'x-cashier-user-id': auth.userId, 'x-cashier-session-token': auth.sessionToken,
+				'x-cashier-branch-id': String(auth.branchId) } });
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || 'Could not load POS counters.');
+			posCounterOptions = result.counters;
+			selectedPosCounterId = posCounterAssignment?.counterId || 0;
+			if (!posCounterOptions.length) posCounterMessage = 'No POS counters found for this branch.';
+		} catch (error) { posCounterMessage = error instanceof Error ? error.message : 'Could not load POS counters.'; }
+		finally { posCounterBusy = false; }
+	}
+	async function savePosCounterAssignment() {
+		if (!canManageCounterPrinter || !selectedPosCounterId) return;
+		posCounterBusy = true; posCounterMessage = '';
+		try {
+			const bridge = posCounterBridge();
+			if (!bridge) throw new Error('POS counter setup requires the Windows Cashier app.');
+			posCounterAssignment = await bridge.save(counterPrinterAuth(), selectedPosCounterId);
+			showPosCounterSetup = false;
+		} catch (error) { posCounterMessage = error instanceof Error ? error.message : 'Could not save POS counter.'; }
+		finally { posCounterBusy = false; }
+	}
+
+	async function recordCounterAction(actionType: string, reason: string | null = null, customReason: string | null = null, errorMessage: string | null = null) {
+		await loadPosCounterAssignment();
+		const sessionToken = get(cashierSessionToken);
+		const userId = user?.id || user?.user_id;
+		if (!sessionToken || !userId || !branch?.id || !counterFlowId) throw new Error('Cashier session is unavailable for print audit.');
+		const response = await fetch('/api/pos-print-actions', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				userId, sessionToken, branchId: branch.id, flowId: counterFlowId,
+				actionType, printerName: selectedCounterPrinter, reason, customReason, errorMessage,
+				posCounterId: posCounterAssignment?.counterId || null
+			})
+		});
+		if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'Could not save print audit.');
+	}
+
+	function counterPrinterBridge(): CounterPrinterBridge | undefined {
+		return (window as Window & { aquraCounterPrinter?: CounterPrinterBridge }).aquraCounterPrinter;
+	}
+
+	function counterPrinterAuth() {
+		const userId = user?.id || user?.user_id;
+		const sessionToken = get(cashierSessionToken);
+		if (!userId || !sessionToken) throw new Error('Cashier session is unavailable.');
+		return { userId, sessionToken, branchId: Number(branch?.id) };
+	}
+
+	async function loadCounterPrinterConfig() {
+		counterPrinterAccessReady = false;
+		try {
+			const auth = counterPrinterAuth();
+			const response = await fetch('/api/pos-printer-access', {
+				cache: 'no-store', headers: { 'x-cashier-user-id': auth.userId, 'x-cashier-session-token': auth.sessionToken,
+					'x-cashier-branch-id': String(auth.branchId) }
+			});
+			if (!response.ok) throw new Error('Could not verify printer access.');
+			canManageCounterPrinter = (await response.json()).canManagePrinter === true;
+			const config = await counterPrinterBridge()?.getConfig();
+			await loadPosCounterAssignment();
+			selectedCounterPrinter = config?.name || '';
+			counterPrinterReady = config?.tested === true && !!selectedCounterPrinter;
+			counterPrinterSelectionLogged = !!selectedCounterPrinter;
+			counterFlowId = selectedCounterPrinter ? crypto.randomUUID() : '';
+			if (!selectedCounterPrinter && !canManageCounterPrinter) counterPrinterMessage = 'Ask a printer-authorized user to configure the POS printer.';
+		} catch (error) {
+			canManageCounterPrinter = false;
+			counterPrinterMessage = error instanceof Error ? error.message : 'Could not load printer settings.';
+		} finally {
+			counterPrinterAccessReady = true;
+		}
+	}
+
+	async function selectCounterPrinter() {
+		if (!canManageCounterPrinter) return;
+		counterPrinterReady = false;
+		counterPrinterMessage = '';
+		const bridge = counterPrinterBridge();
+		if (!bridge) {
+			counterPrinterMessage = 'Printer selection is available in the Aqura Cashier Windows app.';
+			return;
+		}
+		counterPrinterBusy = true;
+		try {
+			counterPrinters = await bridge.list(counterPrinterAuth());
+			if (!counterPrinters.some((printer) => printer.name === selectedCounterPrinter)) selectedCounterPrinter = '';
+			if (counterPrinters.length === 0) counterPrinterMessage = 'No Windows printers found.';
+		} catch (error) {
+			counterPrinterMessage = error instanceof Error ? error.message : 'Could not load printers.';
+		} finally {
+			counterPrinterBusy = false;
+		}
+	}
+
+	async function changeCounterPrinter(event: Event) {
+		if (!canManageCounterPrinter) return;
+		const printerName = (event.currentTarget as HTMLSelectElement).value;
+		if (!printerName) return;
+		counterPrinterReady = false;
+		counterPrinterSelectionLogged = false;
+		counterPrinterMessage = '';
+		try {
+			await counterPrinterBridge()?.select(counterPrinterAuth(), printerName);
+			selectedCounterPrinter = printerName;
+			counterFlowId = crypto.randomUUID();
+			await saveCounterPrinterSelection();
+		} catch (error) {
+			counterPrinterMessage = error instanceof Error ? error.message : 'Could not save printer locally.';
+		}
+	}
+
+	async function saveCounterPrinterSelection() {
+		counterPrinterBusy = true;
+		try {
+			await recordCounterAction('printer_selection');
+			counterPrinterSelectionLogged = true;
+			counterPrinterMessage = '';
+		} catch (error) {
+			counterPrinterMessage = error instanceof Error ? error.message : 'Could not save printer selection.';
+		} finally {
+			counterPrinterBusy = false;
+		}
+	}
+
+	async function printCounterReceipt(reason: string, isTest: boolean, customReason: string | null = null): Promise<boolean> {
+		const bridge = counterPrinterBridge();
+		if (!bridge || !selectedCounterPrinter) return false;
+		counterPrinterBusy = true;
+		counterPrinterMessage = '';
+		let printSubmitted = false;
+		try {
+			await recordCounterAction(isTest ? 'test_print_attempt' : 'final_print_attempt', reason, customReason);
+			const now = new Date();
+			const userId = user?.id || user?.user_id;
+			const userName = userId
+				? await getEmployeeDisplayName(userId, $currentLocale, user?.username || user?.name || '')
+				: (user?.username || user?.name || '');
+			const result = await bridge.print({
+				printerName: selectedCounterPrinter,
+				...(isTest ? counterPrinterAuth() : {}),
+				userName: userName || 'Unknown user',
+				date: now.toLocaleDateString('en-GB'),
+				time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+				reason,
+				receiptType: isTest ? 'test' : 'counter'
+			});
+			if (!result.success) throw new Error(result.error || 'Print failed');
+			printSubmitted = true;
+			await recordCounterAction(isTest ? 'test_print_success' : 'final_print_success', reason, customReason);
+			counterPrinterMessage = reason === 'Opening Test' ? 'Test print sent to printer.' : 'Counter receipt sent to printer.';
+			return true;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			if (!printSubmitted) {
+				try { await recordCounterAction(isTest ? 'test_print_failure' : 'final_print_failure', reason, customReason, message); }
+				catch (auditError) { console.error('POS print audit failure:', auditError); }
+			}
+			counterPrinterMessage = printSubmitted ? `Print sent, but audit failed: ${message}` : `Print failed or could not be audited: ${message}`;
+			return false;
+		} finally {
+			counterPrinterBusy = false;
+		}
+	}
+
+	async function testCounterPrinter() {
+		if (!canManageCounterPrinter) return;
+		counterFlowId = crypto.randomUUID();
+		counterPrinterReady = false;
+		counterPrinterReady = await printCounterReceipt('Opening Test', true);
+	}
+
+	async function confirmCounterReason() {
+		const reason = counterReason === 'Other (Specify)' ? counterOtherReason.trim() : counterReason;
+		if (!reason) {
+			counterPrinterMessage = 'Please enter a reason.';
+			return;
+		}
+		try {
+			counterFlowId = crypto.randomUUID();
+			const action = counterReason === 'Opening a POS Counter' ? 'opening_pos_counter'
+				: counterReason === 'Closing a POS Counter' ? 'closing_pos_counter'
+				: counterReason === 'Recharge Card Operation' ? 'recharge_card_operation' : 'other_reason';
+			await recordCounterAction(action, reason, counterReason === 'Other (Specify)' ? reason : null);
+		} catch (error) {
+			counterPrinterMessage = error instanceof Error ? error.message : 'Could not save counter reason.';
+			return;
+		}
+		if (await printCounterReceipt(reason, false, counterReason === 'Other (Specify)' ? reason : null)) showCounterReason = false;
+	}
 
 	let availableBoxes: any[] = [];
 	let operationBoxes: any[] = [];
@@ -173,6 +701,9 @@
 	let isRefreshing = false;
 
 	onMount(async () => {
+		void loadChangeInbox();
+		void loadCounterPrinterConfig();
+		watchCashierChangeRequests();
 		console.log('POS Component mounted with branch:', branch);
 		console.log('Branch ID:', branch?.id);
 		console.log('User ID:', user?.id || user?.user_id);
@@ -193,6 +724,7 @@
 		
 		// Cleanup subscriptions on unmount
 		return () => {
+			changeStreamController?.abort();
 			console.log('Cleaning up POS subscriptions on unmount');
 			if (unsubscribeBoxOps) unsubscribeBoxOps();
 			if (unsubscribeDenomRecords) unsubscribeDenomRecords();
@@ -206,6 +738,18 @@
 		
 		// Only trigger if branch or user actually changed
 		if (previousBranchId !== currentBranchId || previousUserId !== currentUserId) {
+			changeInbox = [];
+			void loadCounterPrinterConfig();
+			changeChecks = {};
+			void loadChangeInbox();
+			watchCashierChangeRequests();
+			if (previousBranchId !== currentBranchId && showChangeForm) {
+				selectedChangeUser = null;
+				changeSearch = '';
+				changeUsers = [];
+				changeOptionsOpen = false;
+				changeSearchSequence++;
+			}
 			console.log('⚠️ BRANCH OR USER CHANGED - CLEARING ALL CACHED DATA AND FETCHING FRESH');
 			console.log('Old Branch:', previousBranchId, 'New Branch:', currentBranchId);
 			console.log('Old User:', previousUserId, 'New User:', currentUserId);
@@ -232,6 +776,7 @@
 					await fetchFullBranch(currentBranchId);
 					await fetchAvailableBoxes(currentBranchId);
 					await fetchOperationBoxes(currentBranchId);
+					if (showChangeForm) { changeAvailabilityReady = false; void refreshChangeAvailability(); }
 					setupRealtimeSubscriptions();
 				} finally {
 					loading = false;
@@ -260,6 +805,7 @@
 					// Always fetch fresh from database
 					await fetchOperationBoxes(branch.id);
 					await fetchAvailableBoxes(branch.id);
+					if (showChangeForm) void refreshChangeAvailability();
 				}
 			)
 			.subscribe((status) => {
@@ -919,8 +1465,14 @@
 </script>
 
 <div class="pos-container">
+	<div class="pos-tabs" role="tablist" aria-label="POS sections">
+		<button id="pos-tab-available" type="button" role="tab" class:active={activePosTab === 'available'} aria-selected={activePosTab === 'available'} aria-controls="pos-panel-available" on:click={() => activePosTab = 'available'}>{$currentLocale === 'ar' ? 'الصناديق المتاحة' : 'Available Boxes'}</button>
+		<button id="pos-tab-operation" type="button" role="tab" class:active={activePosTab === 'operation'} aria-selected={activePosTab === 'operation'} aria-controls="pos-panel-operation" on:click={() => activePosTab = 'operation'}>{$currentLocale === 'ar' ? 'صندوق العملية' : 'Operation Box'}</button>
+		<button id="pos-tab-manager" type="button" role="tab" class:active={activePosTab === 'manager'} aria-selected={activePosTab === 'manager'} aria-controls="pos-panel-manager" on:click={() => activePosTab = 'manager'}>{$currentLocale === 'ar' ? 'عداد كاشير المدير' : 'Manager Cashier Counter'}</button>
+		<button id="pos-tab-change" type="button" role="tab" class:active={activePosTab === 'change'} aria-selected={activePosTab === 'change'} aria-controls="pos-panel-change" on:click={() => activePosTab = 'change'}>{$currentLocale === 'ar' ? 'طلب فكة' : 'Request for Change'}</button>
+	</div>
 	<div class="cards-grid">
-		<div class="blank-card">
+		<div id="pos-panel-available" class="blank-card" class:inactive-panel={activePosTab !== 'available'} role="tabpanel" aria-labelledby="pos-tab-available">
 			<div class="card-header">
 				<h3>{t('pos.availableBoxes') || 'Available Boxes'}</h3>
 				<p class="branch-info">
@@ -967,7 +1519,7 @@
 				{/if}
 			</div>
 		</div>
-		<div class="blank-card">
+		<div id="pos-panel-operation" class="blank-card" class:inactive-panel={activePosTab !== 'operation'} role="tabpanel" aria-labelledby="pos-tab-operation">
 			<div class="card-header">
 				<h3>{$currentLocale === 'ar' ? 'صندوق العملية' : 'Operation Box'}</h3>
 				<p class="branch-info">
@@ -1120,8 +1672,174 @@
 				{/if}
 			</div>
 		</div>
+		<div id="pos-panel-manager" class="blank-card" class:inactive-panel={activePosTab !== 'manager'} role="tabpanel" aria-labelledby="pos-tab-manager">
+			<div class="card-header">
+				<h3>{$currentLocale === 'ar' ? 'عداد كاشير المدير' : 'Manager Cashier Counter'}</h3>
+			</div>
+			<div class="card-content counter-printer-content">
+				{#if counterPrinterAccessReady && canManageCounterPrinter}
+					<button type="button" on:click={() => { showPosCounterSetup = !showPosCounterSetup; posCounterMessage = ''; }}>Setup POS Counter</button>
+					{#if showPosCounterSetup}
+						<div class="pos-counter-setup">
+							<button type="button" on:click={getPosCounterDetails} disabled={posCounterBusy}>Get Counter Details</button>
+							{#if posCounterOptions.length}
+								<label for="pos-counter-device">POS counter for this device</label>
+								<select id="pos-counter-device" bind:value={selectedPosCounterId}>
+									<option value={0}>Select POS counter</option>
+									{#each posCounterOptions as counter}<option value={counter.id}>{counter.name} (POS {counter.number})</option>{/each}
+								</select>
+								<button type="button" on:click={savePosCounterAssignment} disabled={posCounterBusy || !selectedPosCounterId}>Save</button>
+							{/if}
+							{#if posCounterMessage}<p role="status">{posCounterMessage}</p>{/if}
+						</div>
+					{/if}
+				{/if}
+				{#if posCounterAssignment}<p class="counter-selected-printer">This device: <strong>{posCounterAssignment.counterName}</strong> · POS {posCounterAssignment.counterNumber}</p>{/if}
+				{#if counterPrinterAccessReady && canManageCounterPrinter}
+				<button type="button" on:click={selectCounterPrinter} disabled={counterPrinterBusy}>Select Printer</button>
+				{#if counterPrinters.length > 0}
+					<label for="counter-printer">Windows printer</label>
+					<select id="counter-printer" value={selectedCounterPrinter} on:change={changeCounterPrinter} disabled={counterPrinterBusy}>
+						<option value="">Choose a printer</option>
+						{#each counterPrinters as printer}
+							<option value={printer.name}>{printer.name}{printer.isDefault ? ' (Default)' : ''}</option>
+						{/each}
+					</select>
+				{/if}
+				{/if}
+				{#if selectedCounterPrinter}
+					<p class="counter-selected-printer">Selected printer: <strong>{selectedCounterPrinter}</strong></p>
+					{#if canManageCounterPrinter}
+					{#if counterPrinterSelectionLogged}
+						<button type="button" on:click={testCounterPrinter} disabled={counterPrinterBusy}>Test Print</button>
+					{:else}
+						<button type="button" on:click={saveCounterPrinterSelection} disabled={counterPrinterBusy}>Retry Printer Selection</button>
+					{/if}
+					{/if}
+				{/if}
+				{#if counterPrinterReady}
+					<button type="button" on:click={() => { counterReason = ''; counterOtherReason = ''; counterPrinterMessage = ''; showCounterReason = true; }} disabled={counterPrinterBusy}>Open Counter</button>
+				{/if}
+				{#if counterPrinterMessage}<p role="status" class="counter-printer-message">{counterPrinterMessage}</p>{/if}
+			</div>
+		</div>
+		<div id="pos-panel-change" class="blank-card" class:inactive-panel={activePosTab !== 'change'} role="tabpanel" aria-labelledby="pos-tab-change">
+			<div class="card-header">
+				<h3>{$currentLocale === 'ar' ? 'طلب فكة' : 'Request for Change'}</h3>
+			</div>
+			<div class="card-content change-request-content">
+				{#if !showChangeForm}
+					<button type="button" class="change-primary" on:click={openChangeForm}>Send Request</button>
+				{:else}
+					<div class="change-inline">
+						<label for="change-user-search">Select User</label>
+						<div class="change-user-picker">
+							<input id="change-user-search" type="search" role="combobox" aria-autocomplete="list" aria-controls="change-user-options" aria-expanded={changeOptionsOpen} placeholder="Search and select a user" bind:value={changeSearch} on:input={queueChangeSearch} on:keydown={(event) => { if (event.key === 'Escape') changeOptionsOpen = false; if (event.key === 'Enter' && changeOptionsOpen && changeUsers.length) { event.preventDefault(); selectChangeUser(changeUsers[0]); } }} on:blur={() => setTimeout(() => changeOptionsOpen = false, 150)} />
+							{#if changeOptionsOpen}
+								<div id="change-user-options" class="change-user-options" role="listbox">
+									{#each changeUsers as candidate (candidate.id)}
+										<button type="button" role="option" aria-selected={false} on:mousedown|preventDefault={() => selectChangeUser(candidate)}>{changeUserName(candidate)}</button>
+									{/each}
+									{#if !changeUsers.length}<p>Type to find a user</p>{/if}
+								</div>
+							{/if}
+						</div>
+						{#if selectedChangeUser}<p class="change-selected">Selected: <strong>{changeUserName(selectedChangeUser)}</strong></p>{/if}
+						<label for="change-amount">Amount needed (SAR)</label>
+						<input id="change-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="Enter amount" aria-invalid={changeAmountExceedsBalance} aria-describedby="change-balance-limit" bind:value={changeAmount} />
+						<p id="change-balance-limit" class:change-limit-error={changeAmountExceedsBalance} role="status">Available in Safe Box: {changeAvailabilityReady ? (changeAvailableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Loading…'} SAR{changeAmountExceedsBalance ? ' — reduce the requested amount.' : ''}</p>
+						<label class="change-optional-toggle"><input type="checkbox" bind:checked={showChangeDenominations} /> Specify preferred denominations (optional)</label>
+						{#if showChangeDenominations}
+						<h4>Preferred denominations</h4>
+						{#if !changeAvailabilityReady}<p role="status">Loading Safe Box availability…</p>{/if}
+						<div class="change-denominations">
+							{#each changeDenomKeys as key}
+								<div class="change-denomination-row">
+									<div class="change-denomination-info"><strong>{denomLabels[key]} SAR</strong><span>Available in Safe Box: {changeAvailabilityReady ? (changeAvailable[key] || 0) : '…'}</span></div>
+									<div class="change-quantity">
+										<button type="button" aria-label={`Remove one ${denomLabels[key]} SAR`} disabled={changeBusy || !changeCounts[key]} on:click={() => adjustChangeCount(key, -1)}>−</button>
+										<span>{changeCounts[key] || 0}</span>
+										<button type="button" aria-label={`Add one ${denomLabels[key]} SAR`} disabled={changeBusy || !changeAvailabilityReady || (changeCounts[key] || 0) >= (changeAvailable[key] || 0)} on:click={() => adjustChangeCount(key, 1)}>+</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+						<p class="change-total">Preferred denomination amount: {(changeTotalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</p>
+						{/if}
+						<p class="change-total">Total Requested Amount: {(Number(changeAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</p>
+						<div class="change-actions">
+							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance} on:click={sendChangeRequest}>Send Request</button>
+							<button type="button" disabled={changeBusy} on:click={resetChangeForm}>Cancel</button>
+						</div>
+					</div>
+				{/if}
+				{#if changeMessage}<p role="status" class="change-message">{changeMessage}</p>{/if}
+				{#if changeInbox.length}
+					<div class="change-inbox">
+						<h4>Safe Box Updates</h4>
+						{#each changeInbox as item (item.id)}
+							<div class="change-inbox-item">
+								<p><strong>Request {item.request_number || item.id.slice(0, 8)}</strong> · {item.status}</p>
+								<p>Safe Box user: {$currentLocale === 'ar' ? (item.safeBoxUser?.name_ar || item.safeBoxUser?.name_en || '—') : (item.safeBoxUser?.name_en || item.safeBoxUser?.name_ar || '—')}</p>
+								<p>Branch: {fullBranch?.name_en || branch?.name_en || branch?.id}</p>
+								{#if item.withdrawal_counts}
+									<div class="change-inbox-denoms">
+										{#each changeDenomKeys.filter(key => (item.withdrawal_counts?.[key] || 0) > 0) as key}
+											<label>
+												{#if item.status === 'Ready for Cashier Confirmation'}
+													<input type="checkbox" checked={changeChecks[item.id]?.[key] || false} disabled={changeFlowBusy === item.id}
+														on:change={(event) => changeChecks = { ...changeChecks, [item.id]: { ...changeChecks[item.id], [key]: (event.currentTarget as HTMLInputElement).checked } }} />
+												{/if}
+												{denomLabels[key]} SAR × {item.withdrawal_counts[key]}
+											</label>
+										{/each}
+									</div>
+									<p class="change-total">Total received from Safe Box: {Number(item.withdrawal_total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</p>
+								{/if}
+								{#if item.status === 'Ready for Cashier Confirmation'}
+									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id || !changeDenomKeys.filter(key => (item.withdrawal_counts?.[key] || 0) > 0).every(key => changeChecks[item.id]?.[key])}
+										on:click={() => confirmChangeRequest(item)}>Done</button>
+								{:else if item.status === 'Cashier Confirmed'}
+									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id} on:click={() => printChangeRequest(item)}>Print / Retry POS Opening</button>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+				{#if changeFlowMessage}<p role="status" class="change-message">{changeFlowMessage}</p>{/if}
+			</div>
+		</div>
 	</div>
 </div>
+
+{#if showCounterReason}
+	<div class="counter-reason-backdrop">
+		<div class="counter-reason-dialog" role="dialog" aria-modal="true" aria-labelledby="counter-reason-title">
+			<h3 id="counter-reason-title">Manager Cashier Counter</h3>
+			<p>Printer: {selectedCounterPrinter}</p>
+			<label for="counter-reason">Reason</label>
+			<select id="counter-reason" bind:value={counterReason} disabled={counterPrinterBusy}>
+				<option value="">Select a reason</option>
+				<option>Opening a POS Counter</option>
+				<option>Closing a POS Counter</option>
+				<option>Recharge Card Operation</option>
+				<option>Other (Specify)</option>
+			</select>
+			{#if counterReason === 'Other (Specify)'}
+				<label for="counter-other-reason">Specify reason</label>
+				<input id="counter-other-reason" type="text" maxlength="200" bind:value={counterOtherReason} disabled={counterPrinterBusy} />
+			{/if}
+			{#if counterReason}
+				<p class="counter-reason-preview"><strong>Reason to print:</strong> {counterReason === 'Other (Specify)' ? counterOtherReason.trim() || 'Enter a reason above' : counterReason}</p>
+			{/if}
+			{#if counterPrinterMessage}<p role="alert" class="counter-printer-message">{counterPrinterMessage}</p>{/if}
+			<div class="counter-reason-actions">
+				<button type="button" on:click={() => showCounterReason = false} disabled={counterPrinterBusy}>Cancel</button>
+				<button type="button" on:click={confirmCounterReason} disabled={counterPrinterBusy || !counterReason || (counterReason === 'Other (Specify)' && !counterOtherReason.trim())}>Confirm and Print</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#if showModal && selectedBox}
 	<div class="modal-overlay" on:click={closeModal} on:keydown={handleModalKeydown}>
@@ -1855,28 +2573,64 @@
 		width: 100%;
 		height: 100%;
 		padding: 1rem;
+		background: #fffdf8;
+	}
+
+	.pos-tabs {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 0.5rem;
+		padding: 0.4rem;
+		margin-bottom: 0.85rem;
+		border: 1px solid #eadfcb;
+		border-radius: 0.65rem;
+		background: #faf7f0;
+	}
+
+	.pos-tabs button {
+		min-width: 0;
+		min-height: 2.7rem;
+		padding: 0.55rem 0.75rem;
+		border: 1px solid #e8dcc3;
+		border-radius: 0.45rem;
+		background: #fffdfa;
+		color: #66583d;
+		font-family: inherit;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+	}
+
+	.pos-tabs button:hover { background: #fff3d5; border-color: #d7b867; }
+	.pos-tabs button:focus-visible { outline: 2px solid #a87916; outline-offset: 2px; }
+	.pos-tabs button.active {
+		border-color: #b88625;
+		background: #f5dfaa;
+		color: #574016;
+		box-shadow: 0 2px 5px #9b742329;
 	}
 
 	.cards-grid {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 1rem;
+		display: block;
 	}
 
 	.blank-card {
 		background: white;
-		border: 1px solid #e5e7eb;
+		border: 1px solid #e9dfca;
 		border-radius: 0.5rem;
-		min-height: 200px;
+		min-height: 240px;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		box-shadow: 0 2px 8px #755a1a0c;
 	}
+	.blank-card.inactive-panel { display: none; }
 
 	.card-header {
 		padding: 1rem;
-		border-bottom: 1px solid #e5e7eb;
-		background: #f9fafb;
+		border-bottom: 1px solid #eee3ce;
+		background: #fffcf5;
 	}
 
 	.card-header h3 {
@@ -1898,10 +2652,67 @@
 		overflow-y: auto;
 	}
 
+	.counter-printer-content { display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+	.counter-printer-content button, .counter-reason-actions button { border: 0; border-radius: 0.375rem; padding: 0.5rem 0.875rem; background: #2563eb; color: white; cursor: pointer; }
+	.counter-printer-content button:disabled, .counter-reason-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+	.counter-printer-content select, .counter-reason-dialog select, .counter-reason-dialog input { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; }
+	.counter-selected-printer, .counter-printer-message { margin: 0; overflow-wrap: anywhere; }
+	.pos-counter-setup { display: flex; flex-direction: column; align-items: flex-start; gap: 0.6rem; width: min(100%, 22rem); padding: 0.85rem; border: 1px solid #d7deea; border-radius: 0.5rem; background: #f8fafc; }
+	.pos-counter-setup label, .pos-counter-setup select { width: 100%; }
+	.pos-counter-setup p { margin: 0; color: #475569; }
+	.counter-reason-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, 0.5); padding: 1rem; }
+	.counter-reason-dialog { width: min(100%, 420px); display: flex; flex-direction: column; gap: 0.75rem; background: white; padding: 1.25rem; border-radius: 0.5rem; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2); }
+	.counter-reason-dialog h3, .counter-reason-dialog p { margin: 0; }
+	.counter-reason-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+	.change-request-content { overflow: visible; }
+	.change-inline { display: flex; flex-direction: column; gap: 0.75rem; }
+	.change-inline input { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem; }
+	.change-inline .change-optional-toggle { display: flex; align-items: center; gap: 0.5rem; }
+	.change-inline .change-optional-toggle input { width: auto; margin: 0; }
+	.change-inline h4, .change-inline p { margin: 0; }
+	.change-user-picker { position: relative; }
+	.change-user-options { position: absolute; z-index: 10; top: calc(100% + 0.2rem); left: 0; right: 0; max-height: 11rem; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 0.375rem; box-shadow: 0 8px 18px #14396b24; }
+	.change-user-options button { display: block; width: 100%; border: 0; padding: 0.55rem 0.75rem; background: white; text-align: left; cursor: pointer; }
+	.change-user-options button:hover, .change-user-options button:focus { background: #eff6ff; }
+	.change-user-options p { padding: 0.55rem 0.75rem; color: #64748b; }
+	.change-actions button, .change-primary { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.4rem 0.65rem; background: white; cursor: pointer; }
+	.change-primary, .change-actions button.change-primary { background: #2563eb; border-color: #2563eb; color: white; }
+	.change-denominations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
+	.change-denomination-row { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; padding: 0.35rem; border: 1px solid #e5e7eb; border-radius: 0.375rem; font-size: 0.8rem; }
+	.change-denomination-info { display: flex; flex-direction: column; gap: 0.15rem; }
+	.change-denomination-info span { color: #64748b; font-size: 0.72rem; }
+	.change-quantity { display: flex; align-items: center; gap: 0.4rem; }
+	.change-quantity button { width: 1.5rem; height: 1.5rem; border: 0; border-radius: 0.25rem; color: white; font-weight: 700; cursor: pointer; }
+	.change-quantity button:first-child { background: #dc2626; }
+	.change-quantity button:last-child { background: #16a34a; }
+	.change-quantity button:disabled, .change-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+	.change-quantity span { min-width: 1.5rem; text-align: center; }
+	.change-total { font-weight: 700; color: #166534; }
+	.change-limit-error { color: #b91c1c; font-weight: 600; }
+	.change-actions { display: flex; gap: 0.5rem; }
+	.change-message { margin-top: 0.75rem; color: #1e40af; }
+	.change-inbox { border-top: 1px solid #e4e9f1; margin-top: 1rem; padding-top: 0.8rem; display: grid; gap: 0.65rem; }
+	.change-inbox h4, .change-inbox p { margin: 0 0 0.4rem; }
+	.change-inbox-item { border: 1px solid #e2e8f0; border-radius: 0.5rem; background: white; padding: 0.75rem; }
+	.change-inbox-denoms { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.35rem; margin: 0.6rem 0; }
+	.change-inbox-denoms label { display: flex; align-items: center; gap: 0.4rem; }
+
 	.boxes-grid {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
 		gap: 0.75rem;
+	}
+
+	@media (max-width: 760px) {
+		.pos-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	}
+
+	@media (max-width: 460px) {
+		.pos-container { padding: 0.65rem; }
+		.pos-tabs { gap: 0.35rem; }
+		.pos-tabs button { padding: 0.45rem; font-size: 0.75rem; }
+		.boxes-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		.change-denominations { grid-template-columns: 1fr; }
 	}
 
 	.box-item {

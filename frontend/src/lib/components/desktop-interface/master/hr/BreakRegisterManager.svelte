@@ -1,18 +1,16 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { _ as t, locale } from '$lib/i18n';
+	import { locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
-	import { currentUser } from '$lib/utils/persistentAuth';
 	import YmdDatePicker from './YmdDatePicker.svelte';
+	import BreakLog from '$lib/components/common/BreakLog.svelte';
+	import BreakTotalSummary from '$lib/components/common/BreakTotalSummary.svelte';
+	import { loadBreakRegisterData } from '$lib/utils/breakRegisterApi';
 	import { addDays, breakShiftDate, shiftTimeLabel, type ShiftSchedules, type ShiftSlot } from '$lib/utils/breakShiftDate';
 
 	let breaks: any[] = [];
-	let loading = true;
 	let branches: any[] = [];
-	let now = Date.now();
-	let tickInterval: ReturnType<typeof setInterval> | null = null;
 	let realtimeChannel: any = null;
-	let pollInterval: ReturnType<typeof setInterval> | null = null;
 	let cleanupVisibility: (() => void) | null = null;
 	let cleanupOnline: (() => void) | null = null;
 
@@ -24,13 +22,6 @@
 		{ id: 'Employee Summary', label: isRtl ? 'ملخص الموظف' : 'Employee Summary', icon: '📊', color: 'orange' },
 		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' }
 	];
-
-	// Filters
-	let filterStatus = '';
-	let filterBranch = '';
-	let filterDateFrom = '';
-	let filterDateTo = '';
-	let searchQuery = '';
 
 	// Break Reasons
 	let breakReasons: any[] = [];
@@ -44,7 +35,7 @@
 		if (!dateFrom || !dateTo) return { records: [], schedules: emptySchedules };
 		const params: any = { p_date_from: addDays(dateFrom, -1), p_date_to: addDays(dateTo, 1) };
 		if (branchId) params.p_branch_id = parseInt(branchId);
-		const { data, error } = await supabase.rpc('get_all_breaks', params);
+		const { data, error } = await (async () => { try { return { data: await loadBreakRegisterData('logs', { from: params.p_date_from, to: params.p_date_to, branch: params.p_branch_id ? String(params.p_branch_id) : undefined, status: params.p_status }), error: null }; } catch (error) { return { data: null, error }; } })();
 		if (error) throw error;
 		const records: any[] = data?.breaks || [];
 		const ids = [...new Set([...records.map(b => String(b.employee_id)), ...scheduledEmployeeIds])];
@@ -106,28 +97,6 @@
 	let summaryActiveEmployeeIds = new Set<string>();
 	let summarySchedules: ShiftSchedules = { regular: [], weekday: [], dateWise: [] };
 
-	// Total Summary (flat rows for all employees)
-	let totalSummaryDateFrom = '';
-	let totalSummaryDateTo = '';
-	let totalSummarySpecificDate = '';
-	let totalSummaryBranch = '';
-	let totalSummarySearch = '';
-	let totalSummaryData: any[] = [];
-	let loadingTotalSummary = false;
-	let totalSummaryScheduledSet = new Set<string>();
-	let totalSummarySchedules: ShiftSchedules = { regular: [], weekday: [], dateWise: [] };
-
-	function onSpecificDateChange() {
-		if (totalSummarySpecificDate) {
-			totalSummaryDateFrom = totalSummarySpecificDate;
-			totalSummaryDateTo = totalSummarySpecificDate;
-			totalSummaryQuickFilter = '';
-			loadTotalSummary();
-		}
-	}
-
-	let totalSummaryQuickFilter = '';
-
 	// Riyadh-local date string, `daysAgo` days before today (0 = today, 1 = yesterday)
 	function riyadhDateStr(daysAgo = 0): string {
 		const now = new Date();
@@ -135,15 +104,6 @@
 		const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
 		const riyadhNow = new Date(utcMs + riyadhOffset * 60000 - daysAgo * 24 * 60 * 60 * 1000);
 		return riyadhNow.toISOString().split('T')[0];
-	}
-
-	function setTotalSummaryQuickFilter(filter: 'today' | 'yesterday') {
-		const dateStr = riyadhDateStr(filter === 'today' ? 0 : 1);
-		totalSummaryDateFrom = dateStr;
-		totalSummaryDateTo = dateStr;
-		totalSummarySpecificDate = dateStr;
-		totalSummaryQuickFilter = filter;
-		loadTotalSummary();
 	}
 
 	$: filteredSummaries = employeeSummaries.filter(emp => {
@@ -154,93 +114,24 @@
 			|| (emp.employee_id || '').toLowerCase().includes(s);
 	});
 
-	$: filteredTotalSummary = (() => {
-		const rows: any[] = [];
-		for (const emp of totalSummaryData) {
-			for (const day of (emp.days || [])) {
-				if (!totalSummaryScheduledSet.has(`${emp.employee_id}__${day.date}`)) continue;
-				rows.push({
-					date: day.date,
-					employee_name_en: emp.employee_name_en,
-					employee_name_ar: emp.employee_name_ar,
-					employee_id: emp.employee_id,
-					branch_id: emp.branch_id,
-					total_seconds: day.total_seconds,
-					break_count: day.break_count
-				});
-			}
-		}
-		rows.sort((a: any, b: any) => {
-			const dc = a.date.localeCompare(b.date);
-			if (dc !== 0) return dc;
-			// Top break taker first (descending by total_seconds)
-			return (b.total_seconds || 0) - (a.total_seconds || 0);
-		});
-		if (!totalSummarySearch.trim()) return rows;
-		const s = totalSummarySearch.toLowerCase();
-		return rows.filter((r: any) =>
-			(r.employee_name_en || '').toLowerCase().includes(s)
-			|| (r.employee_name_ar || '').includes(s)
-			|| String(r.employee_id).toLowerCase().includes(s)
-		);
-	})();
-
 	$: isRtl = $locale === 'ar';
-
-	$: filteredBreaks = breaks.filter(b => {
-		if (filterStatus && b.status !== filterStatus) return false;
-		if (filterBranch && String(b.branch_id) !== filterBranch) return false;
-		if (searchQuery.trim()) {
-			const s = searchQuery.toLowerCase();
-			const match = (b.employee_id || '').toLowerCase().includes(s)
-				|| (b.employee_name_en || '').toLowerCase().includes(s)
-				|| (b.employee_name_ar || '').includes(s)
-				|| (b.reason_en || '').toLowerCase().includes(s)
-				|| (b.reason_ar || '').includes(s);
-			if (!match) return false;
-		}
-		return true;
-	});
-
-	$: openBreaks = filteredBreaks.filter(b => b.status === 'open');
-	$: closedBreaks = filteredBreaks.filter(b => b.status === 'closed');
-
-	// Start real-time tick when there are open breaks
-	$: if (openBreaks.length > 0 && !tickInterval) {
-		tickInterval = setInterval(() => { now = Date.now(); }, 1000);
-	} else if (openBreaks.length === 0 && tickInterval) {
-		clearInterval(tickInterval);
-		tickInterval = null;
-	}
 
 	onMount(async () => {
 		// Default every tab to yesterday only — the user can pick any custom
 		// year/month/day range via the date filters once loaded.
 		const yesterdayStr = riyadhDateStr(1);
-		filterDateFrom = yesterdayStr;
-		filterDateTo = yesterdayStr;
 		summaryDateFrom = yesterdayStr;
 		summaryDateTo = yesterdayStr;
-		totalSummaryDateFrom = yesterdayStr;
-		totalSummaryDateTo = yesterdayStr;
-		totalSummarySpecificDate = yesterdayStr;
-		totalSummaryQuickFilter = 'yesterday';
 
-		await Promise.all([loadBreaks(), loadBranches(), loadBreakReasons()]);
+		await Promise.all([loadBranches(), loadBreakReasons()]);
 
 		// Subscribe to realtime changes
 		setupRealtimeChannel();
-
-		// Polling fallback for PWA — every 15s silently refresh data
-		pollInterval = setInterval(() => {
-			loadBreaks(true);
-		}, 15000);
 
 		// Handle PWA visibility changes — reconnect realtime + refresh data when app comes back
 		const handleVisibilityChange = () => {
 			if (document.visibilityState === 'visible') {
 				console.log('👁️ Break register: App became visible, refreshing data & reconnecting realtime');
-				loadBreaks(true);
 				loadBreakReasons();
 				// Re-establish realtime channel in case WebSocket dropped
 				if (realtimeChannel) {
@@ -256,7 +147,6 @@
 		// Also handle online event for network reconnection
 		const handleOnline = () => {
 			console.log('🌐 Break register: Network reconnected, refreshing data & reconnecting realtime');
-			loadBreaks(true);
 			loadBreakReasons();
 			if (realtimeChannel) {
 				supabase.removeChannel(realtimeChannel);
@@ -271,10 +161,6 @@
 	function setupRealtimeChannel() {
 		realtimeChannel = supabase
 			.channel('break-register-changes-' + Date.now())
-			.on('postgres_changes', { event: '*', schema: 'public', table: 'break_register' }, (payload: any) => {
-				console.log('🔄 Break register realtime event:', payload);
-				loadBreaks(true);
-			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'break_reasons' }, () => {
 				loadBreakReasons();
 			})
@@ -284,28 +170,17 @@
 	}
 
 	onDestroy(() => {
-		if (tickInterval) clearInterval(tickInterval);
-		if (pollInterval) clearInterval(pollInterval);
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
 		if (cleanupVisibility) cleanupVisibility();
 		if (cleanupOnline) cleanupOnline();
 	});
 
 	function handleTabChange() {
-		if (activeTab === 'Break Log') {
-			loadBreaks();
-		} else if (activeTab === 'Break Reasons') {
+		if (activeTab === 'Break Reasons') {
 			loadBreakReasons();
 		} else if (activeTab === 'Employee Summary') {
 			loadSummaryData();
-		} else if (activeTab === 'Total Summary') {
-			loadTotalSummary();
 		}
-	}
-
-	function getLiveDuration(startTime: string, _now: number): string {
-		const secs = Math.floor((_now - new Date(startTime).getTime()) / 1000);
-		return formatDuration(secs > 0 ? secs : 0);
 	}
 
 	async function loadBranches() {
@@ -313,22 +188,6 @@
 		if (data) branches = data;
 	}
 
-	async function loadBreaks(silent = false) {
-		if (!silent) loading = true;
-		const params: any = {};
-		if (filterDateFrom) params.p_date_from = filterDateFrom;
-		if (filterDateTo) params.p_date_to = filterDateTo;
-		if (filterBranch) params.p_branch_id = parseInt(filterBranch);
-		if (filterStatus) params.p_status = filterStatus;
-
-		const { data, error } = await supabase.rpc('get_all_breaks', params);
-		if (!error && data?.breaks) {
-			breaks = data.breaks;
-		}
-		if (!silent) loading = false;
-	}
-
-	// ═══════════════════════════════════════
 	// Break Reasons CRUD
 	// ═══════════════════════════════════════
 	async function loadBreakReasons() {
@@ -524,7 +383,7 @@
 		const params: any = { p_date_from: dateFrom, p_date_to: dateTo };
 		if (branchId) params.p_branch_id = parseInt(branchId);
 
-		const { data, error } = await supabase.rpc('get_break_schedule_status', params);
+		const { data, error } = await (async () => { try { return { data: await loadBreakRegisterData('schedule', { from: params.p_date_from, to: params.p_date_to, branch: params.p_branch_id ? String(params.p_branch_id) : undefined }), error: null }; } catch (error) { return { data: null, error }; } })();
 		if (error || !data?.rows) {
 			console.error('Error loading break schedule status:', error);
 			return { scheduled, employees, activeEmployeeIds };
@@ -559,32 +418,12 @@
 		});
 	}
 
-	function formatDuration(seconds: number | null): string {
-		if (!seconds) return '—';
-		const h = Math.floor(seconds / 3600);
-		const m = Math.floor((seconds % 3600) / 60);
-		const s = seconds % 60;
-		if (h > 0) return `${h}h ${m}m ${s}s`;
-		if (m > 0) return `${m}m ${s}s`;
-		return `${s}s`;
-	}
-
 	function formatDurationHM(seconds: number): string {
 		if (!seconds) return '0m';
 		const h = Math.floor(seconds / 3600);
 		const m = Math.floor((seconds % 3600) / 60);
 		if (h > 0) return `${h}h ${m}m`;
 		return `${m}m`;
-	}
-
-	function formatDateTime(dt: string | null): string {
-		if (!dt) return '—';
-		const d = new Date(dt);
-		return d.toLocaleString(isRtl ? 'ar-EG' : 'en-US', {
-			month: 'short', day: 'numeric',
-			hour: '2-digit', minute: '2-digit',
-			timeZone: 'Asia/Riyadh'
-		});
 	}
 
 	function getBranchName(branchId: number): string {
@@ -600,65 +439,6 @@
 	}
 
 	// ═══════════════════════════════════════
-	// Total Summary (day-wise grid for all employees)
-	// ═══════════════════════════════════════
-	async function loadTotalSummary() {
-		loadingTotalSummary = true;
-		try {
-			const scheduled = await computeScheduledSet(totalSummaryDateFrom, totalSummaryDateTo, totalSummaryBranch);
-			const shiftDated = await loadShiftDatedBreaks(totalSummaryDateFrom, totalSummaryDateTo, totalSummaryBranch, [...scheduled.employees.keys()]);
-			totalSummaryScheduledSet = scheduled.scheduled;
-			totalSummarySchedules = shiftDated.schedules;
-			const employees = new Map<string, any>();
-			const days = new Map<string, any>();
-			for (const key of scheduled.scheduled) {
-				const [employeeId, date] = key.split('__');
-				const emp = scheduled.employees.get(employeeId);
-				if (!emp) continue;
-				if (!employees.has(employeeId)) employees.set(employeeId, {
-					employee_id: employeeId, employee_name_en: emp.name_en,
-					employee_name_ar: emp.name_ar, branch_id: emp.branch_id, days: []
-				});
-				const day = { date, total_seconds: 0, break_count: 0 };
-				employees.get(employeeId).days.push(day);
-				days.set(key, day);
-			}
-			for (const b of shiftDated.records) {
-				const day = days.get(`${b.employee_id}__${b.shift_date}`);
-				if (!day) continue;
-				day.break_count++;
-				day.total_seconds += Number(b.duration_seconds) || 0;
-			}
-			totalSummaryData = [...employees.values()];
-		} catch (err) {
-			console.error('Error loading total summary:', err);
-			totalSummaryData = [];
-		} finally {
-			loadingTotalSummary = false;
-		}
-	}
-
-	function formatTotalSummaryDuration(seconds: number): string {
-		if (!seconds || seconds === 0) return '—';
-		const h = Math.floor(seconds / 3600);
-		const m = Math.floor((seconds % 3600) / 60);
-		if (h > 0) return `${h}h ${m}m`;
-		if (m > 0) return `${m}m`;
-		return `${seconds}s`;
-	}
-
-	function formatShortDate(dateStr: string): string {
-		const bare = dateStr.substring(0, 10);
-		const d = new Date(bare + 'T00:00:00');
-		return d.toLocaleDateString(isRtl ? 'ar-EG' : 'en-US', { month: 'short', day: 'numeric' });
-	}
-
-	function formatWeekday(dateStr: string): string {
-		const bare = dateStr.substring(0, 10);
-		const d = new Date(bare + 'T00:00:00');
-		return d.toLocaleDateString(isRtl ? 'ar-EG' : 'en-US', { weekday: 'short' });
-	}
-
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={isRtl ? 'rtl' : 'ltr'}>
@@ -700,179 +480,7 @@
 			<!-- TAB: Break Log -->
 			<!-- ═══════════════════════════════════════════════════ -->
 			{#if activeTab === 'Break Log'}
-				<!-- Filter Controls -->
-				<div class="flex gap-3 flex-wrap">
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'الحالة' : 'Status'}</label>
-						<select
-							bind:value={filterStatus}
-							on:change={() => loadBreaks()}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-							style="color: #000000 !important; background-color: #ffffff !important;"
-						>
-							<option value="" style="color: #000000 !important;">{isRtl ? 'الكل' : 'All'}</option>
-							<option value="open" style="color: #000000 !important;">{isRtl ? 'مفتوحة' : 'Open'}</option>
-							<option value="closed" style="color: #000000 !important;">{isRtl ? 'مغلقة' : 'Closed'}</option>
-						</select>
-					</div>
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'الفرع' : 'Branch'}</label>
-						<select
-							bind:value={filterBranch}
-							on:change={() => loadBreaks()}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-							style="color: #000000 !important; background-color: #ffffff !important;"
-						>
-							<option value="" style="color: #000000 !important;">{isRtl ? 'الكل' : 'All'}</option>
-							{#each branches as branch}
-								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}{branch.location_en || branch.location_ar ? ` - ${isRtl ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)}` : ''}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="flex-1 min-w-[220px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'التاريخ' : 'Date'}</label>
-						<YmdDatePicker bind:value={filterDateFrom} {isRtl} on:change={() => { filterDateTo = filterDateFrom; loadBreaks(); }} />
-					</div>
-					<div class="flex-[2] min-w-[200px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
-						<input type="text" bind:value={searchQuery} placeholder={isRtl ? 'اسم الموظف أو معرفه...' : 'Employee name or ID...'}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" />
-					</div>
-				</div>
-
-				<!-- Stats Row -->
-				<div class="flex gap-3">
-					<div class="flex-1 bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-4 flex flex-col items-center">
-						<span class="text-3xl font-black text-emerald-600">{openBreaks.length}</span>
-						<span class="text-xs font-bold text-slate-500 uppercase tracking-wide mt-1">{isRtl ? 'استراحات مفتوحة' : 'Open Breaks'}</span>
-					</div>
-					<div class="flex-1 bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-4 flex flex-col items-center">
-						<span class="text-3xl font-black text-slate-500">{closedBreaks.length}</span>
-						<span class="text-xs font-bold text-slate-500 uppercase tracking-wide mt-1">{isRtl ? 'استراحات مغلقة' : 'Closed Breaks'}</span>
-					</div>
-					<div class="flex-1 bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] p-4 flex flex-col items-center">
-						<span class="text-3xl font-black text-blue-600">{filteredBreaks.length}</span>
-						<span class="text-xs font-bold text-slate-500 uppercase tracking-wide mt-1">{isRtl ? 'الإجمالي' : 'Total'}</span>
-					</div>
-				</div>
-
-				{#if loading}
-					<div class="flex items-center justify-center py-16">
-						<div class="text-center">
-							<div class="animate-spin inline-block">
-								<div class="w-12 h-12 border-4 border-emerald-200 border-t-emerald-600 rounded-full"></div>
-							</div>
-							<p class="mt-4 text-slate-600 font-semibold">{isRtl ? 'جاري التحميل...' : 'Loading...'}</p>
-						</div>
-					</div>
-				{:else if filteredBreaks.length === 0}
-					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
-						<div class="text-5xl mb-4">☕</div>
-						<p class="text-slate-600 font-semibold">{isRtl ? 'لا توجد استراحات مسجلة' : 'No breaks recorded'}</p>
-					</div>
-				{:else}
-					<!-- Open Breaks Section -->
-					{#if openBreaks.length > 0}
-						<div>
-							<h3 class="text-sm font-black uppercase tracking-wider text-emerald-700 mb-3 flex items-center gap-2">
-								<span>🟢</span> {isRtl ? 'الاستراحات المفتوحة حالياً' : 'Currently Open Breaks'}
-							</h3>
-							<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
-								<div class="overflow-x-auto">
-									<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
-										<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
-											<tr>
-												<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'الموظف' : 'Employee'}</th>
-												<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'المعرف' : 'ID'}</th>
-												<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'الفرع' : 'Branch'}</th>
-												<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'السبب' : 'Reason'}</th>
-												<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'ملاحظة' : 'Note'}</th>
-												<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'وقت البدء' : 'Start Time'}</th>
-												<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'المدة' : 'Duration'}</th>
-											</tr>
-										</thead>
-										<tbody class="divide-y divide-slate-200">
-											{#each openBreaks as b}
-												<tr class="bg-emerald-50/50 hover:bg-emerald-100/50 transition-colors duration-200">
-													<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</td>
-													<td class="px-4 py-3 text-sm text-slate-400 font-mono">{b.employee_id}</td>
-											<td class="px-4 py-3 text-sm text-slate-700">
-												<div class="font-semibold">{b.branch_name_en ? (isRtl ? (b.branch_name_ar || b.branch_name_en) : b.branch_name_en) : getBranchName(b.branch_id)}</div>
-												{#if getBranchLocation(b.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(b.branch_id)}</div>{/if}
-											</td>
-													<td class="px-4 py-3 text-sm text-slate-700">{isRtl ? b.reason_ar : b.reason_en}</td>
-													<td class="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate">{b.reason_note || '—'}</td>
-													<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatDateTime(b.start_time)}</td>
-													<td class="px-4 py-3 text-sm text-center font-mono font-bold text-red-600">
-														{getLiveDuration(b.start_time, now)}
-													</td>
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								</div>
-								<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-									{isRtl ? `${openBreaks.length} استراحة مفتوحة` : `${openBreaks.length} open break(s)`}
-								</div>
-							</div>
-						</div>
-					{/if}
-
-					<!-- All Breaks Table -->
-					<div>
-						<h3 class="text-sm font-black uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-2">
-							<span>📋</span> {isRtl ? 'جميع الاستراحات' : 'All Breaks'}
-						</h3>
-						<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden">
-							<div class="max-h-[calc(100vh-380px)] overflow-auto">
-								<table class="w-full border-collapse [&_th]:border-x [&_th]:border-emerald-500/30 [&_td]:border-x [&_td]:border-slate-200">
-									<thead class="sticky top-0 bg-emerald-600 text-white shadow-lg z-10">
-										<tr>
-											<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'الموظف' : 'Employee'}</th>
-											<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'المعرف' : 'ID'}</th>
-											<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'الفرع' : 'Branch'}</th>
-											<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'السبب' : 'Reason'}</th>
-											<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'ملاحظة' : 'Note'}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'البدء' : 'Start'}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'الانتهاء' : 'End'}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'المدة' : 'Duration'}</th>
-											<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{isRtl ? 'الحالة' : 'Status'}</th>
-										</tr>
-									</thead>
-									<tbody class="divide-y divide-slate-200">
-										{#each filteredBreaks as b, index}
-											<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {b.status === 'open' ? '!bg-emerald-50/50' : ''}">
-												<td class="px-4 py-3 text-sm text-slate-700 font-medium">{isRtl ? (b.employee_name_ar || b.employee_name_en) : (b.employee_name_en || b.employee_name_ar)}</td>
-												<td class="px-4 py-3 text-sm text-slate-400 font-mono">{b.employee_id}</td>
-										<td class="px-4 py-3 text-sm text-slate-700">
-											<div class="font-semibold">{b.branch_name_en ? (isRtl ? (b.branch_name_ar || b.branch_name_en) : b.branch_name_en) : getBranchName(b.branch_id)}</div>
-											{#if getBranchLocation(b.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(b.branch_id)}</div>{/if}
-										</td>
-												<td class="px-4 py-3 text-sm text-slate-700">{isRtl ? b.reason_ar : b.reason_en}</td>
-												<td class="px-4 py-3 text-sm text-slate-500 max-w-[200px] truncate">{b.reason_note || '—'}</td>
-												<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatDateTime(b.start_time)}</td>
-												<td class="px-4 py-3 text-sm text-center font-mono text-slate-800">{formatDateTime(b.end_time)}</td>
-												<td class="px-4 py-3 text-sm text-center font-mono font-bold {b.status === 'open' ? 'text-red-600' : 'text-slate-700'}">{b.status === 'open' ? getLiveDuration(b.start_time, now) : formatDuration(b.duration_seconds)}</td>
-												<td class="px-4 py-3 text-sm text-center">
-													<span class="inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider {b.status === 'open' ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-200 text-slate-600'}">
-														{b.status === 'open' ? (isRtl ? 'مفتوحة' : 'Open') : (isRtl ? 'مغلقة' : 'Closed')}
-													</span>
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-							<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
-								{isRtl ? `عرض ${filteredBreaks.length} استراحة` : `Showing ${filteredBreaks.length} break(s)`}
-							</div>
-						</div>
-					</div>
-				{/if}
-
-			<!-- ═══════════════════════════════════════════════════ -->
-			<!-- TAB: Break Reasons -->
-			<!-- ═══════════════════════════════════════════════════ -->
+				<BreakLog layout="desktop" />
 			{:else if activeTab === 'Break Reasons'}
 				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
 					<!-- Action Button -->
@@ -1055,106 +663,7 @@
 			<!-- TAB: Total Summary (Flat table - one row per employee per date) -->
 			<!-- ═══════════════════════════════════════════════════ -->
 			{:else if activeTab === 'Total Summary'}
-				<!-- Quick Filters -->
-				<div class="flex gap-2 mb-3">
-					<button
-						class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wide transition-all duration-300 {totalSummaryQuickFilter === 'today' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]' : 'bg-white border border-slate-200 text-slate-600 hover:bg-purple-50 hover:border-purple-300'}"
-						on:click={() => setTotalSummaryQuickFilter('today')}>
-						📅 {isRtl ? 'اليوم' : 'Today'}
-					</button>
-					<button
-						class="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wide transition-all duration-300 {totalSummaryQuickFilter === 'yesterday' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 scale-[1.02]' : 'bg-white border border-slate-200 text-slate-600 hover:bg-purple-50 hover:border-purple-300'}"
-						on:click={() => setTotalSummaryQuickFilter('yesterday')}>
-						📅 {isRtl ? 'أمس' : 'Yesterday'}
-					</button>
-				</div>
-
-				<!-- Filters -->
-				<div class="flex gap-3 flex-wrap">
-					<div class="flex-1 min-w-[140px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'الفرع' : 'Branch'}</label>
-						<select
-							bind:value={totalSummaryBranch}
-							on:change={() => loadTotalSummary()}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-							style="color: #000000 !important; background-color: #ffffff !important;"
-						>
-							<option value="" style="color: #000000 !important;">{isRtl ? 'الكل' : 'All'}</option>
-							{#each branches as branch}
-								<option value={String(branch.id)} style="color: #000000 !important;">{isRtl ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar)}{branch.location_en || branch.location_ar ? ` - ${isRtl ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar)}` : ''}</option>
-							{/each}
-						</select>
-					</div>
-					<div class="flex-1 min-w-[220px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'التاريخ' : 'Date'}</label>
-						<YmdDatePicker bind:value={totalSummarySpecificDate} {isRtl} accentClass="focus:ring-purple-500" on:change={onSpecificDateChange} />
-					</div>
-					<div class="flex-[2] min-w-[200px]">
-						<label class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">{isRtl ? 'بحث' : 'Search'}</label>
-						<input type="text" bind:value={totalSummarySearch} placeholder={isRtl ? 'اسم الموظف أو معرفه...' : 'Employee name or ID...'}
-							class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all" />
-					</div>
-				</div>
-
-				{#if loadingTotalSummary}
-					<div class="flex items-center justify-center py-16">
-						<div class="text-center">
-							<div class="animate-spin inline-block">
-								<div class="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full"></div>
-							</div>
-							<p class="mt-4 text-slate-600 font-semibold">{isRtl ? 'جاري التحميل...' : 'Loading...'}</p>
-						</div>
-					</div>
-				{:else if filteredTotalSummary.length === 0}
-					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
-						<div class="text-5xl mb-4">📈</div>
-						<p class="text-slate-600 font-semibold">{isRtl ? 'لا توجد بيانات' : 'No data available'}</p>
-						<p class="text-slate-400 text-sm mt-2">{isRtl ? 'اختر نطاق تاريخ واضغط على تحميل' : 'Select a date range to view break totals'}</p>
-					</div>
-				{:else}
-					<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
-						<div class="max-h-[calc(100vh-380px)] overflow-auto flex-1">
-							<table class="w-full border-collapse [&_th]:border-x [&_th]:border-purple-500/30 [&_td]:border-x [&_td]:border-slate-200">
-								<thead class="sticky top-0 bg-purple-600 text-white shadow-lg z-10">
-									<tr>
-										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'التاريخ' : 'Date'}</th>
-										<th class="px-4 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'الموظف' : 'Employee'}</th>
-										<th class="px-3 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'المعرف' : 'Employee ID'}</th>
-										<th class="px-3 py-3 {isRtl ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'الفرع' : 'Branch'}</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'وقت الوردية' : 'Shift Time'}</th>
-										<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'إجمالي الاستراحة' : 'Total Break'}</th>
-										<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-purple-400">{isRtl ? 'عدد المرات' : 'Breaks'}</th>
-									</tr>
-								</thead>
-								<tbody class="divide-y divide-slate-200">
-									{#each filteredTotalSummary as row, index}
-										<tr class="hover:bg-purple-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
-											<td class="px-4 py-3 text-sm text-slate-700 font-semibold whitespace-nowrap">
-												<div>{formatShortDate(row.date)}</div>
-												<div class="text-[10px] text-slate-400">{formatWeekday(row.date)}</div>
-											</td>
-											<td class="px-4 py-3 text-sm text-slate-700 font-medium whitespace-nowrap">{isRtl ? (row.employee_name_ar || row.employee_name_en) : (row.employee_name_en || row.employee_name_ar)}</td>
-											<td class="px-3 py-3 text-sm text-slate-400 font-mono">{row.employee_id}</td>
-											<td class="px-3 py-3 text-sm text-slate-700 whitespace-nowrap">
-												<div class="font-semibold">{getBranchName(row.branch_id)}</div>
-												{#if getBranchLocation(row.branch_id)}<div class="text-[10px] text-slate-400">{getBranchLocation(row.branch_id)}</div>{/if}
-											</td>
-										<td class="px-4 py-3 text-sm text-center font-mono text-slate-700 whitespace-nowrap">{shiftTimeLabel(row.employee_id, row.date, totalSummarySchedules)}</td>
-											<td class="px-4 py-3 text-sm text-center font-mono font-black text-purple-700">{formatTotalSummaryDuration(row.total_seconds)}</td>
-											<td class="px-3 py-3 text-sm text-center text-slate-500">{row.break_count} {isRtl ? 'مرة' : row.break_count === 1 ? 'break' : 'breaks'}</td>
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-
-						<!-- Footer -->
-						<div class="px-6 py-3 bg-slate-100/50 border-t border-slate-200 text-xs text-slate-600 font-semibold flex justify-between">
-							<span>{isRtl ? `عرض ${filteredTotalSummary.length} سجل` : `Showing ${filteredTotalSummary.length} record(s)`}</span>
-							<span>{isRtl ? `${totalSummaryData.length} موظف` : `${totalSummaryData.length} employee(s)`}</span>
-						</div>
-					</div>
-				{/if}
+				<BreakTotalSummary layout="desktop" />
 			{/if}
 
 			<!-- Permission Manager moved into the App Permissions window

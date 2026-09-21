@@ -38,6 +38,8 @@
 	import ApprovalPermissionsManager from '$lib/components/desktop-interface/settings/ApprovalPermissionsManager.svelte';
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import SupportAppAccess from '$lib/components/desktop-interface/settings/SupportAppAccess.svelte';
+	import DefaultEntryTaskUsers from '$lib/components/desktop-interface/settings/DefaultEntryTaskUsers.svelte';
+	import SafeBoxControl from '$lib/components/desktop-interface/settings/SafeBoxControl.svelte';
 	import BreakPermissionManager from '$lib/components/desktop-interface/master/hr/BreakPermissionManager.svelte';
 	import DenominationPermissionManager from '$lib/components/desktop-interface/master/finance/DenominationPermissionManager.svelte';
 	import ReceivingRecordsPermissionsModal from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecordsPermissionsModal.svelte';
@@ -47,6 +49,7 @@
 		| 'buttonAccess'
 		| 'approval'
 		| 'defaultIncidentUsers'
+		| 'defaultEntryTaskUsers'
 		| 'interface'
 		| 'breakRegister'
 		| 'denomination'
@@ -54,7 +57,8 @@
 		| 'boxClosure'
 		| 'receiving'
 		| 'salaryStatement'
-		| 'camChecker';
+		| 'camChecker'
+		| 'safeBoxControl';
 
 	let activeTab: TabId = 'buttonAccess';
 
@@ -107,6 +111,7 @@
 		{ id: 'buttonAccess', icon: '🔘', labelKey: 'nav.buttonAccessControl', fallback: 'Button Access Control', locked: !canButtonAccess },
 		{ id: 'approval', icon: '✅', labelKey: 'nav.approvalPermissions', fallback: 'Approval Permissions', locked: !isMasterAdmin },
 		{ id: 'defaultIncidentUsers', icon: '🏢', labelKey: 'nav.defaultIncidentUsers', fallback: 'Default Incident Users', locked: !isMasterAdmin },
+		{ id: 'defaultEntryTaskUsers', icon: '🧾', labelKey: 'nav.defaultEntryTaskUsers', fallback: 'Default Entry Task Users', locked: !isMasterAdmin },
 		{ id: 'interface', icon: '🖥️', labelKey: 'nav.interfaceAccess', fallback: 'Interface Permissions', locked: !canInterfaceAccess },
 		{ id: 'breakRegister', icon: '☕', labelKey: 'nav.breakRegister', fallback: 'Break Register', locked: !isAdminOrMaster },
 		{ id: 'denomination', icon: '💵', labelKey: 'nav.denomination', fallback: 'Denomination', locked: !isMasterAdmin },
@@ -114,7 +119,8 @@
 		{ id: 'boxClosure', icon: '📦', labelKey: 'nav.completeBoxClosure', fallback: 'Complete Box Closure', locked: !isMasterAdmin },
 		{ id: 'receiving', icon: '📥', labelKey: 'nav.receivingRecords', fallback: 'Receiving Records', locked: !isMasterAdmin },
 		{ id: 'salaryStatement', icon: '💰', labelKey: 'nav.salaryStatement', fallback: 'Salary Statement', locked: !isMasterAdmin },
-		{ id: 'camChecker', icon: '🎥', labelKey: 'nav.camCheckerAccess', fallback: 'External Apps Access', locked: false }
+		{ id: 'camChecker', icon: '🎥', labelKey: 'nav.camCheckerAccess', fallback: 'External Apps Access', locked: false },
+		{ id: 'safeBoxControl', icon: '🔐', labelKey: 'nav.safeBoxControl', fallback: 'Safe Box Control', locked: !isMasterAdmin }
 	] as TabDef[];
 
 	function selectTab(tab: TabDef) {
@@ -154,6 +160,9 @@
 		{#if activeTab === 'defaultIncidentUsers' && isMasterAdmin}
 			<ApprovalPermissionsManager initialTab="default-users" hideTabSwitcher={true} />
 		{/if}
+		{#if activeTab === 'defaultEntryTaskUsers' && isMasterAdmin}
+			<DefaultEntryTaskUsers />
+		{/if}
 		{#if activeTab === 'interface' && canInterfaceAccess}
 			<InterfaceAccessManager />
 		{/if}
@@ -177,6 +186,9 @@
 		{/if}
 		{#if activeTab === 'camChecker'}
 			<SupportAppAccess />
+		{/if}
+		{#if activeTab === 'safeBoxControl' && isMasterAdmin}
+			<SafeBoxControl />
 		{/if}
 	</div>
 </div>

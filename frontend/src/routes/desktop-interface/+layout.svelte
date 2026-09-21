@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
+	import { initI18n, currentLocale, localeData, switchLocale, hasManualLocaleOverride } from '$lib/i18n';
 	import { sidebar } from '$lib/stores/sidebar';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -810,8 +810,15 @@
 				console.log('Current user changed:', user);
 				
 				// Account-level language preference takes priority over the
-				// device's localStorage value once the user is known.
-				if (user?.defaultLanguage && user.defaultLanguage !== get(currentLocale)) {
+				// device's localStorage value once the user is known — but only
+				// if the user hasn't already made a deliberate language choice
+				// this session (e.g. via the Sidebar/Taskbar toggle), otherwise
+				// a background auth refresh would keep reverting their choice.
+				if (
+					user?.defaultLanguage &&
+					user.defaultLanguage !== get(currentLocale) &&
+					!hasManualLocaleOverride()
+				) {
 					switchLocale(user.defaultLanguage);
 				}
 

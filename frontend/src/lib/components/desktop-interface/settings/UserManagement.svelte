@@ -272,25 +272,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		try {
 			const branchIdNum = parseInt(selectedBranchId);
 
-			// 1. Update users table branch_id
-			const { error: userError } = await supabase
-				.from('users')
-				.update({ branch_id: branchIdNum })
-				.eq('id', changeBranchUser.id);
-
-			if (userError) {
-				throw new Error('Failed to update user branch: ' + userError.message);
-			}
-
-			// 2. Update hr_employee_master current_branch_id
-			const { error: empError } = await supabase
-				.from('hr_employee_master')
-				.update({ current_branch_id: branchIdNum })
-				.eq('user_id', changeBranchUser.id);
-
-			if (empError) {
-				console.warn('Could not update hr_employee_master:', empError.message);
-			}
+			const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'changeBranch', userId: changeBranchUser.id, branchId: branchIdNum }) });
+			if (!response.ok) throw new Error((await response.json()).error || 'Failed to update branch');
 
 			// Close modal and reload data
 			showChangeBranchModal = false;

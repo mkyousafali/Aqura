@@ -8,7 +8,7 @@
 	import { notificationManagement } from '$lib/utils/notificationManagement';
 	import { createEventDispatcher } from 'svelte';
 	import { startNotificationListener } from '$lib/stores/notifications';
-	import { initI18n, currentLocale, localeData, switchLocale } from '$lib/i18n';
+	import { initI18n, currentLocale, localeData, switchLocale, hasManualLocaleOverride } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
 	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
@@ -82,7 +82,7 @@
 	let newOrdersCount = 0;
 	
 	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ8';
+	let mobileVersion = 'AQ9';
 
 	// FAB QR Scanner State
 	let fabScanning = false;
@@ -171,8 +171,14 @@
 			isLoading = false;
 
 			// Account-level language preference takes priority over the
-			// device's localStorage value once the user is known.
-			if ($currentUser.defaultLanguage && $currentUser.defaultLanguage !== $currentLocale) {
+			// device's localStorage value once the user is known — but only
+			// if the user hasn't already made a deliberate language choice
+			// this session (see hasManualLocaleOverride).
+			if (
+				$currentUser.defaultLanguage &&
+				$currentUser.defaultLanguage !== $currentLocale &&
+				!hasManualLocaleOverride()
+			) {
 				switchLocale($currentUser.defaultLanguage);
 			}
 
@@ -1047,7 +1053,7 @@
 	{/if}
 	
 	<!-- Mobile content goes here -->
-	<main class="mobile-content">
+	<main class="mobile-content" class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')}>
 			<slot />
 		</main>
 		
@@ -1977,6 +1983,7 @@
 		-webkit-overflow-scrolling: touch;
 		padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px)); /* Space for bottom nav + safe area (PWA) */
 	}
+	.mobile-content.break-log-content { min-height: 0; overflow: hidden; }
 
 	/* Bottom Navigation */
 	.bottom-nav {

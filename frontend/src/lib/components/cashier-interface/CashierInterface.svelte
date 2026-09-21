@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { t, switchLocale, currentLocale } from '$lib/i18n';
+	import { t, switchLocaleManually, currentLocale } from '$lib/i18n';
 	import WindowManager from '$lib/components/common/WindowManager.svelte';
 	import CashierTaskbar from '$lib/components/cashier-interface/CashierTaskbar.svelte';
 	import DancingCharacter from '$lib/components/desktop-interface/common/DancingCharacter.svelte';
@@ -25,7 +25,7 @@
 	let currentTime = '';
 
 	// Cashier interface version
-	let cashierVersion = 'AQ8';
+	let cashierVersion = 'AQ9';
 
 	// name_en/name_ar are the raw hr_employee_master values (locale-independent) — pick between
 	// them reactively so the name follows language switches, rather than trusting user.full_name/
@@ -92,7 +92,7 @@
 
 	function toggleLanguage() {
 		const newLocale = $currentLocale === 'en' ? 'ar' : 'en';
-		switchLocale(newLocale);
+		switchLocaleManually(newLocale);
 		// Reload the page to apply language changes throughout the app
 		window.location.reload();
 	}

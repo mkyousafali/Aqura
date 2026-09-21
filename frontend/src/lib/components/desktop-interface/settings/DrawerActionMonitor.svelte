@@ -5,6 +5,7 @@
 	// User Actions tab embeds the standalone live-query report directly — single implementation,
 	// shared between its own window and this tab, per the "live data only, one place" decision.
 	import UserActionReports from './UserActionReports.svelte';
+	import DrawerAuditActions from './DrawerAuditActions.svelte';
 
 	interface BranchOption {
 		id: number;
@@ -38,7 +39,7 @@
 		is_flagged: boolean | null;
 	}
 
-	let activeTab: 'useractions' | 'livecheck' | 'syncstatus' | 'erpcounters' = 'useractions';
+	let activeTab: 'useractions' | 'livecheck' | 'syncstatus' | 'erpcounters' | 'safebox' | 'cashiercounter' = 'useractions';
 
 	let branches: BranchOption[] = [];
 	let loadingBranches = true;
@@ -698,9 +699,17 @@
 		<button class="tab-btn" class:active={activeTab === 'livecheck'} on:click={() => (activeTab = 'livecheck')}>{$t('drawerMonitor.tabLiveCheck')}</button>
 		<button class="tab-btn" class:active={activeTab === 'syncstatus'} on:click={() => { activeTab = 'syncstatus'; loadSyncStatuses(); }}>{$t('drawerMonitor.tabSyncStatus')}</button>
 		<button class="tab-btn" class:active={activeTab === 'erpcounters'} on:click={() => { activeTab = 'erpcounters'; loadErpCountersTable(); }}>{$t('drawerMonitor.tabErpCounters')}</button>
+		<button class="tab-btn" class:active={activeTab === 'safebox'} on:click={() => (activeTab = 'safebox')}>Safe Box Actions</button>
+		<button class="tab-btn" class:active={activeTab === 'cashiercounter'} on:click={() => (activeTab = 'cashiercounter')}>Cashier Counter Actions</button>
 	</div>
 
 	<div class="tab-content">
+	<div class="embedded-user-actions" style:display={activeTab === 'safebox' ? 'block' : 'none'}>
+		<DrawerAuditActions kind="safeBox" active={activeTab === 'safebox'} />
+	</div>
+	<div class="embedded-user-actions" style:display={activeTab === 'cashiercounter' ? 'block' : 'none'}>
+		<DrawerAuditActions kind="cashier" active={activeTab === 'cashiercounter'} />
+	</div>
 	{#if activeTab === 'useractions'}
 	<div class="embedded-user-actions">
 		<UserActionReports hideHeader />
@@ -1111,7 +1120,7 @@
 		z-index: 1;
 	}
 
-	.tab-bar { position: relative; z-index: 1; display: flex; gap: 0.6rem; }
+	.tab-bar { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 0.6rem; }
 	.tab-btn {
 		padding: 0.6rem 1.3rem; border: 1px solid rgba(254, 202, 202, 0.7); border-radius: 12px;
 		background: rgba(255, 255, 255, 0.5); color: #991b1b; font-weight: 700; font-size: 0.85rem;
