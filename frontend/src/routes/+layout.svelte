@@ -599,7 +599,7 @@
 			// Only redirect if necessary and avoid loops
 			const isCashier = $page.url.pathname.startsWith('/cashier-interface');
 			const isCustomerLogin = $page.url.pathname.startsWith('/login/customer');
-			if (currentAuthState === false && $page.url.pathname !== '/login' && $page.url.pathname !== '/mobile-interface/login' && !isCashier && !isCustomerLogin) {
+			if (currentAuthState === false && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && $page.url.pathname !== '/mobile-interface/login' && !isCashier && !isCustomerLogin) {
 				console.log('🔐 Initial check: Not authenticated, will redirect to login');
 			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-interface/login') && !isCashier && !isCustomerLogin) {
 				console.log('🔐 Initial check: Already authenticated, will redirect to appropriate dashboard');
@@ -802,7 +802,7 @@
 			const isSurpriseBoxRoute = $page.url.pathname.startsWith('/surprise-box');
 			const isLoyaltyRoute = $page.url.pathname.startsWith('/loyalty');
 			const isCareersAdminRoute = $page.url.pathname.startsWith('/careers-admin');
-			if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
+			if (!authenticated && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -842,7 +842,7 @@
 					const isGiftWheelRouteTimeout = $page.url.pathname.startsWith('/gift-wheel');
 					const isLoyaltyRouteTimeout = $page.url.pathname.startsWith('/loyalty');
 					const isCareersAdminRouteTimeout = $page.url.pathname.startsWith('/careers-admin');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
+					if (!isAuthenticated && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto('/login');
 					}
@@ -872,7 +872,7 @@
 			const isCustomerLoginError = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRouteError = $page.url.pathname.startsWith('/privacy');
 			const isGiftWheelRouteError = $page.url.pathname.startsWith('/gift-wheel');
-			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isGiftWheelRouteError && !isPopoutMode) {
+			if ($page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isGiftWheelRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto('/login', { replaceState: true });
 			}
@@ -1080,7 +1080,7 @@
 	
 	// Check if current route is login page
 	// Page state management - detect mobile routes
-	$: isLoginPage = $page.url.pathname === '/login';
+	$: isLoginPage = $page.url.pathname === '/login' || $page.url.pathname.startsWith('/login/employee');
 	$: isMobileRoute = $page.url.pathname.startsWith('/mobile-interface');
 	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-interface/login');
 	$: isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');

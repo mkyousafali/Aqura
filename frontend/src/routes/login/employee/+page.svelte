@@ -55,9 +55,10 @@
 
 		checkExistingAuth();
 
-		// Hide mobile option when coming from desktop login page
+		// Open the employee login form directly for the Desktop app/login link.
 		if ($page.url.searchParams.get('mode') === 'desktop') {
 			hideMobile = true;
+			if (!$isAuthenticated) chooseInterface('desktop');
 		}
 	});
 
