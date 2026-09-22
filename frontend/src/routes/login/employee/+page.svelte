@@ -23,7 +23,9 @@
 	}
 
 	let interfaceChoice: 'desktop' | 'mobile' | null = null;
-	let loginMethod: 'username' | 'quickAccess' = 'username';
+	// Keep the login method cards in code for a future UI restoration.
+	const showDesktopLoginMethodCards = false;
+	let loginMethod: 'username' | 'quickAccess' = 'quickAccess';
 	let isLoading = false;
 	let errorMessage = '';
 	let successMessage = '';
@@ -69,7 +71,7 @@
 	}
 
 	function clearForm() {
-		loginMethod = 'username';
+		loginMethod = 'quickAccess';
 		username = '';
 		password = '';
 		quickAccessCode = '';
@@ -472,6 +474,7 @@
 							</div>
 						</div>
 					{:else}
+						{#if showDesktopLoginMethodCards}
 						<div class="method-selector">
 							<button 
 								class="method-btn" 
@@ -510,6 +513,7 @@
 								</div>
 							</button>
 						</div>
+						{/if}
 
 						<div class="auth-forms">
 							{#if loginMethod === 'username'}
