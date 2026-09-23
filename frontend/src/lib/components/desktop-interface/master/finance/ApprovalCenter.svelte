@@ -8,6 +8,10 @@
 	import { locale, t, tFor } from '$lib/i18n';
 	import AutoTaskApprovalList from '$lib/components/common/AutoTaskApprovalList.svelte';
 
+	// One component owns all approval behavior. The route selects only its
+	// presentation mode; desktop remains the default for existing callers.
+	export let layoutMode = 'desktop';
+
 	// Builds title_en/title_ar/message_en/message_ar for a notification from the
 	// same i18n key already passed to t(), regardless of the acting admin's own
 	// current locale, so the recipient can be shown their own preferred language
@@ -44,7 +48,12 @@
 	let filteredMyRequests = [];
 	let autoApprovalCount = 0;
 	let loading = true;
+	let loadError = '';
 	let realtimeChannel = null;
+	let realtimeRefreshTimer = null;
+	let hasRealtimeSubscribed = false;
+	let latestLoadRequest = 0;
+	let expandedMobileRequests = {};
 	let selectedStatus = 'pending';
 	let searchQuery = '';
 	let selectedRequisition = null;
@@ -147,10 +156,39 @@
 	});
 
 	onDestroy(() => {
+		if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer);
 		if (realtimeChannel) {
 			supabase.removeChannel(realtimeChannel);
 		}
 	});
+
+	function scheduleRealtimeRefresh() {
+		if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer);
+		realtimeRefreshTimer = setTimeout(() => {
+			realtimeRefreshTimer = null;
+			loadRequisitions();
+		}, 150);
+	}
+
+	function mobileRequestKey(req) {
+		return `${req.item_type || 'request'}:${req.id || req.requisition_number || req.serial_number || req.bill_number}`;
+	}
+
+	function toggleMobileRequest(req) {
+		const key = mobileRequestKey(req);
+		expandedMobileRequests = { ...expandedMobileRequests, [key]: !expandedMobileRequests[key] };
+	}
+
+	function mobileRequestAmount(req) {
+		const amount = req.final_bill_amount ?? req.bill_amount ?? req.amount ?? req.total_amount ?? req.voucher_value;
+		return amount === null || amount === undefined || amount === ''
+			? t('approvalCenter.na')
+			: `${Number(amount).toLocaleString()} SAR`;
+	}
+
+	function mobileRequestParty(req) {
+		return req.vendor_name || req.requester_name || req.co_user_name || req.employee?.name_en || req.branch_name || req.item_type?.replace(/_/g, ' ') || t('approvalCenter.na');
+	}
 
 	function setupRealtime() {
 		if (!supabase || !$currentUser?.id) return;
@@ -164,7 +202,7 @@
 					(payload.new && (payload.new.approver_id === $currentUser.id || payload.new.created_by === $currentUser.id)) ||
 					(payload.old && (payload.old.approver_id === $currentUser.id || payload.old.created_by === $currentUser.id));
 				
-				if (isRelevant) loadRequisitions();
+				if (isRelevant) scheduleRealtimeRefresh();
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'non_approved_payment_scheduler' }, (payload) => {
 				console.log('Real-time update: non_approved_payment_scheduler', payload);
@@ -172,10 +210,10 @@
 					(payload.new && (payload.new.approver_id === $currentUser.id || payload.new.created_by === $currentUser.id)) ||
 					(payload.old && (payload.old.approver_id === $currentUser.id || payload.old.created_by === $currentUser.id));
 				
-				if (isRelevant) loadRequisitions();
+				if (isRelevant) scheduleRealtimeRefresh();
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'vendor_payment_schedule' }, () => {
-				loadRequisitions();
+				scheduleRealtimeRefresh();
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_voucher_items' }, (payload) => {
 				console.log('Real-time update: purchase_voucher_items', payload);
@@ -183,29 +221,40 @@
 					(payload.new && (payload.new.approver_id === $currentUser.id || payload.new.issued_by === $currentUser.id)) ||
 					(payload.old && (payload.old.approver_id === $currentUser.id || payload.old.issued_by === $currentUser.id));
 				
-				if (isRelevant) loadRequisitions();
+				if (isRelevant) scheduleRealtimeRefresh();
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'day_off' }, (payload) => {
 				console.log('Real-time update: day_off', payload);
 				// day_off requests are visible to all with leave approval permission, or if they are the requester
-				loadRequisitions();
+				scheduleRealtimeRefresh();
 			})
 			.on('postgres_changes', { event: '*', schema: 'public', table: 'box_edit_requests' }, (payload) => {
 				console.log('Real-time update: box_edit_requests', payload);
 				const isRelevant =
 					(payload.new && (payload.new.assigned_approver_id === $currentUser?.id || payload.new.requested_by === $currentUser?.id)) ||
 					(payload.old && (payload.old.assigned_approver_id === $currentUser?.id || payload.old.requested_by === $currentUser?.id));
-				if (isRelevant) loadRequisitions();
+				if (isRelevant) scheduleRealtimeRefresh();
 			})
-			.subscribe();
+			.subscribe((status) => {
+				if (status === 'SUBSCRIBED') {
+					// The first subscription is covered by onMount. A later SUBSCRIBED
+					// status means the channel recovered and may have missed changes.
+					if (hasRealtimeSubscribed) scheduleRealtimeRefresh();
+					hasRealtimeSubscribed = true;
+				} else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+					console.error('Approval Center realtime connection:', status);
+				}
+			});
 	}
 
 	// Track if historical data is loaded
 	let historicalDataLoaded = false;
 
 	async function loadRequisitions() {
+		const requestId = ++latestLoadRequest;
 		try {
 			loading = true;
+			loadError = '';
 			
 			// Check if user is logged in
 			if (!$currentUser?.id) {
@@ -221,10 +270,13 @@
 		p_user_id: $currentUser.id
 	});
 
+	// Ignore an older response if a newer refresh started while this RPC was running.
+	if (requestId !== latestLoadRequest) return;
+
 	if (rpcError) {
 		console.error('❌ Error calling get_approval_center_data RPC:', rpcError);
+		loadError = t('approvalCenter.notifLoadError') + rpcError.message;
 		notifications.add({ type: 'error', message: t('approvalCenter.notifLoadError') + rpcError.message });
-		loading = false;
 		return;
 	}
 
@@ -285,11 +337,18 @@
 
 	// PO follow-up approvals (loaded separately)
 	await loadPoFollowupApprovals();
+	if (requestId !== latestLoadRequest) return;
 	if (poFollowupApprovals.length > 0) userCanApprove = true;
 
 	// Internal consumption approvals (loaded separately)
 	await loadInternalExpenseApprovals();
+	if (requestId !== latestLoadRequest) return;
 	if (internalExpenseApprovals.length > 0) userCanApprove = true;
+
+	// Auto Task approvals are rendered by a child component, but their count is
+	// needed here so the parent does not incorrectly choose its empty state.
+	await loadAutoApprovalCount();
+	if (requestId !== latestLoadRequest) return;
 
 	// My created items
 	myCreatedRequisitions = rpcResult.my_requisitions || [];
@@ -300,10 +359,8 @@
 	dayOffRequests = groupDayOffRequests(rpcResult.day_off_requests || []);
 	myDayOffRequests = groupDayOffRequests(rpcResult.my_day_off_requests || []);
 
-	// Initialize empty arrays for historical data (will load on demand)
-	myApprovedSchedules = [];
-	approvedPaymentSchedules = [];
-	rejectedPaymentSchedules = [];
+	// Do not clear already-loaded history during a pending-data refresh. Clearing
+	// it while historicalDataLoaded remains true makes approved/rejected tabs empty.
 
 	// Calculate stats (only pending for now, historical loads on demand)
 	stats.pending = requisitions.length + paymentSchedules.length + vendorPayments.length + purchaseVouchers.length + dayOffRequests.length + boxEditRequests.length + poFollowupApprovals.length + internalExpenseApprovals.length;
@@ -325,9 +382,10 @@
 		loadHistoricalData();
 	} catch (err) {
 		console.error('Error loading requisitions:', err);
+		loadError = t('approvalCenter.notifLoadError') + err.message;
 		notifications.add({ type: 'error', message: t('approvalCenter.notifLoadError') + err.message });
 	} finally {
-		loading = false;
+		if (requestId === latestLoadRequest) loading = false;
 	}
 }
 
@@ -338,7 +396,7 @@ async function loadPoFollowupApprovals() {
 		if (error) throw error;
 		poFollowupApprovals = data?.success ? (data.data || []) : [];
 		console.log('✅ Loaded PO follow-up approvals:', poFollowupApprovals.length);
-	} catch (err) { console.error('Error loading PO follow-up approvals:', err); poFollowupApprovals = []; }
+	} catch (err) { console.error('Error loading PO follow-up approvals:', err); }
 }
 
 async function loadInternalExpenseApprovals() {
@@ -348,7 +406,23 @@ async function loadInternalExpenseApprovals() {
 		if (error) throw error;
 		internalExpenseApprovals = data?.success ? (data.data || []) : [];
 		console.log('✅ Loaded internal consumption approvals:', internalExpenseApprovals.length);
-	} catch (err) { console.error('Error loading internal consumption approvals:', err); internalExpenseApprovals = []; }
+	} catch (err) { console.error('Error loading internal consumption approvals:', err); }
+}
+
+async function loadAutoApprovalCount() {
+	if (!$currentUser?.id) return;
+	try {
+		const { data, error } = await supabase.rpc('Autotask_list_my_advance_approvals', {
+			p_user_id: $currentUser.id
+		});
+		if (error) throw error;
+		autoApprovalCount = new Set(
+			(data || []).map((item) => `${item.source_table}:${item.source_record_id}`)
+		).size;
+	} catch (err) {
+		// Preserve the last successful count during a temporary connection failure.
+		console.error('Error loading Auto Task approval count:', err);
+	}
 }
 
 async function loadHistoricalData() {
@@ -1835,7 +1909,7 @@ async function loadHistoricalData() {
 
 </script>
 
-<div class="approval-center">
+<div class="approval-center" class:mobile-mode={layoutMode === 'mobile'}>
 	<!-- Section Tabs -->
 	<div class="section-tabs">
 		<button 
@@ -1958,7 +2032,13 @@ async function loadHistoricalData() {
 				<div class="spinner"></div>
 				<p>{t('approvalCenter.loadingRequisitions')}</p>
 			</div>
-		{:else if (activeSection === 'approvals' && filteredRequisitions.length === 0) || (activeSection === 'my_requests' && filteredMyRequests.length === 0)}
+		{:else if loadError && ((activeSection === 'approvals' && filteredRequisitions.length === 0 && autoApprovalCount === 0) || (activeSection === 'my_requests' && filteredMyRequests.length === 0))}
+			<div class="empty-state error-state">
+				<div class="empty-icon">⚠️</div>
+				<h3>{loadError}</h3>
+				<button class="btn-refresh" on:click={loadRequisitions}>{t('approvalCenter.refresh')}</button>
+			</div>
+		{:else if (activeSection === 'approvals' && filteredRequisitions.length === 0 && autoApprovalCount === 0) || (activeSection === 'my_requests' && filteredMyRequests.length === 0)}
 			<div class="empty-state">
 				<div class="empty-icon">📋</div>
 				<h3>{activeSection === 'approvals' ? t('approvalCenter.noApprovalsFound') : t('approvalCenter.noRequestsFound')}</h3>
@@ -1983,9 +2063,20 @@ async function loadHistoricalData() {
 						</tr>
 					</thead>
 					<tbody>
-						{#if activeSection === 'approvals'}<AutoTaskApprovalList displayMode="desktop_rows" bind:approvalCount={autoApprovalCount} />{/if}
+						{#if activeSection === 'approvals'}<AutoTaskApprovalList displayMode={layoutMode === 'mobile' ? 'mobile_compact_rows' : 'desktop_rows'} bind:approvalCount={autoApprovalCount} />{/if}
 						{#each (activeSection === 'approvals' ? filteredRequisitions : filteredMyRequests) as req (req.id || req.requisition_number)}
-							<tr>
+							<tr class:mobile-expanded={layoutMode === 'mobile' && expandedMobileRequests[mobileRequestKey(req)]}>
+								{#if layoutMode === 'mobile'}
+									<td class="mobile-card-toggle">
+										<button type="button" on:click={() => toggleMobileRequest(req)} aria-expanded={!!expandedMobileRequests[mobileRequestKey(req)]}>
+											<span class="mobile-card-summary">
+												<strong>{mobileRequestAmount(req)}</strong>
+												<small>{mobileRequestParty(req)}</small>
+											</span>
+											<span class="mobile-card-expand">{expandedMobileRequests[mobileRequestKey(req)] ? '−' : '+'}</span>
+										</button>
+									</td>
+								{/if}
 								{#if req.item_type === 'requisition'}
 									<!-- Expense Requisition Row -->
 									<td class="req-number">{req.requisition_number}</td>
@@ -2391,7 +2482,7 @@ async function loadHistoricalData() {
 
 <!-- Detail Modal -->
 {#if showDetailModal && selectedRequisition}
-	<div class="modal-overlay" on:click={closeDetail}>
+	<div class="modal-overlay" class:mobile-mode={layoutMode === 'mobile'} on:click={closeDetail}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
 				<h2>📄 {selectedRequisition.item_type === 'day_off' ? t('approvalCenter.leaveRequestDetails') : selectedRequisition.item_type === 'purchase_voucher' ? t('approvalCenter.voucherDetails') : t('approvalCenter.requisitionDetails')}</h2>
@@ -3031,7 +3122,7 @@ async function loadHistoricalData() {
 
 <!-- Internal Consumption Request Detail Modal -->
 {#if showInternalExpenseDetail && internalExpenseDetailReq}
-	<div class="modal-overlay" on:click={closeInternalExpenseDetail}>
+	<div class="modal-overlay" class:mobile-mode={layoutMode === 'mobile'} on:click={closeInternalExpenseDetail}>
 		<div class="modal-content" on:click|stopPropagation>
 			<div class="modal-header">
 				<h2>🧾 Internal Consumption Request Details</h2>
@@ -3137,7 +3228,7 @@ async function loadHistoricalData() {
 
 <!-- Day Off Approve Modal (date checkboxes) -->
 {#if showDayOffApproveModal && selectedRequisition}
-<div class="confirm-overlay" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+<div class="confirm-overlay" class:mobile-mode={layoutMode === 'mobile'} on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
 	<div class="confirm-modal dayoff-modal" on:click|stopPropagation>
 		<h3 class="confirm-title">✅ {t('approvalCenter.approveLeaveRequest')}</h3>
 		<p class="confirm-message" style="margin-bottom: 0.75rem;">
@@ -3174,7 +3265,7 @@ async function loadHistoricalData() {
 
 <!-- Confirmation Modal -->
 {#if showConfirmModal}
-<div class="confirm-overlay" on:click={cancelConfirm}>
+<div class="confirm-overlay" class:mobile-mode={layoutMode === 'mobile'} on:click={cancelConfirm}>
 	<div class="confirm-modal" on:click|stopPropagation>
 		<h3 class="confirm-title">
 			{confirmAction === 'approve' ? '✅ ' + t('approvalCenter.confirmApproval') : '❌ ' + t('approvalCenter.confirmRejection')}
@@ -4285,5 +4376,222 @@ async function loadHistoricalData() {
 	font-size: 0.95rem;
 	font-weight: 500;
 	color: #1e293b;
+}
+
+/* Mobile is a presentation mode of this same component. Keep these selectors
+   behind .mobile-mode so desktop window sizing and table layout are unchanged. */
+.approval-center.mobile-mode {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: auto;
+	min-height: 100%;
+	overflow-x: hidden;
+	overflow-y: visible;
+	padding: 0.35rem;
+	gap: 0.6rem;
+}
+
+.mobile-mode .section-tabs {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	gap: 0.35rem;
+	padding: 0.35rem;
+}
+
+.mobile-mode .tab-button {
+	min-height: 48px;
+	padding: 0.65rem 0.45rem;
+	font-size: 0.82rem;
+	line-height: 1.2;
+}
+
+.mobile-mode .stats-grid {
+	display: none;
+}
+
+.mobile-mode .stat-card {
+	min-width: 0;
+	min-height: 60px;
+	padding: 0.65rem;
+	gap: 0.4rem;
+}
+
+.mobile-mode .stat-icon { min-width: 28px; font-size: 1.2rem; }
+.mobile-mode .stat-value { font-size: 1.1rem; }
+.mobile-mode .stat-label { font-size: 0.66rem; overflow-wrap: anywhere; }
+
+.mobile-mode .filters {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.5rem;
+	padding: 0.65rem;
+}
+
+.mobile-mode .filter-group,
+.mobile-mode .filter-group.search { min-width: 0; width: 100%; }
+.mobile-mode .filter-group:first-child:not(.search) { grid-column: 1 / -1; }
+.mobile-mode .filter-group input,
+.mobile-mode .filter-group select,
+.mobile-mode .btn-refresh { min-height: 44px; font-size: 16px; }
+.mobile-mode .btn-refresh { padding: 0.55rem 0.7rem; }
+
+.mobile-mode .content {
+	min-width: 0;
+	width: 100%;
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	overflow: visible;
+}
+.mobile-mode .table-wrapper { min-width: 0; width: 100%; overflow: visible; }
+.mobile-mode .requisitions-table,
+.mobile-mode .requisitions-table tbody { display: block; width: 100%; min-width: 0; }
+.mobile-mode .requisitions-table thead { display: none; }
+.mobile-mode .requisitions-table tbody tr,
+.mobile-mode :global(.autotask-approval-row) {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	width: 100%;
+	box-sizing: border-box;
+	margin-bottom: 0.5rem;
+	border: 1px solid #dbe3ee;
+	border-radius: 12px;
+	background: white;
+	box-shadow: 0 2px 8px rgba(15, 23, 42, 0.07);
+	overflow: hidden;
+}
+
+.mobile-mode .requisitions-table td,
+.mobile-mode :global(.autotask-approval-row td) {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 0.2rem;
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	padding: 0.52rem 0.65rem;
+	border: 0;
+	border-bottom: 1px solid #edf2f7;
+	border-inline-end: 1px solid #edf2f7;
+	font-size: 0.82rem;
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.mobile-mode .requisitions-table td::before,
+.mobile-mode :global(.autotask-approval-row td::before) {
+	font-size: 0.62rem;
+	font-weight: 700;
+	color: #64748b;
+	text-transform: uppercase;
+}
+.mobile-mode .requisitions-table td:nth-child(2)::before { content: 'Request'; }
+.mobile-mode .requisitions-table td:nth-child(3)::before { content: 'Branch'; }
+.mobile-mode .requisitions-table td:nth-child(4)::before { content: 'Generated by'; }
+.mobile-mode .requisitions-table td:nth-child(5)::before { content: 'Requester'; }
+.mobile-mode .requisitions-table td:nth-child(6)::before { content: 'Category'; }
+.mobile-mode .requisitions-table td:nth-child(7)::before { content: 'Amount'; }
+.mobile-mode .requisitions-table td:nth-child(8)::before { content: 'Type'; }
+.mobile-mode .requisitions-table td:nth-child(9)::before { content: 'Status'; }
+.mobile-mode .requisitions-table td:nth-child(10)::before { content: 'Due date'; }
+.mobile-mode .requisitions-table td:nth-child(11)::before { content: 'Date'; }
+.mobile-mode .requisitions-table td:nth-child(12)::before { content: 'Actions'; }
+.mobile-mode .requisitions-table td:last-child,
+.mobile-mode :global(.autotask-approval-row td:last-child) {
+	grid-column: 1 / -1;
+	flex-direction: row;
+	align-items: center;
+	justify-content: flex-start;
+	flex-wrap: wrap;
+	border-bottom: 0;
+	border-inline-end: 0;
+}
+.mobile-mode .requisitions-table td:first-child,
+.mobile-mode :global(.autotask-approval-row td:first-child) {
+	grid-column: 1 / -1;
+	background: #f8fbff;
+	border-inline-end: 0;
+}
+.mobile-mode .requisitions-table tr:not(.mobile-expanded) > td:not(.mobile-card-toggle) { display: none; }
+.mobile-mode .requisitions-table .mobile-card-toggle {
+	display: block;
+	grid-column: 1 / -1;
+	padding: 0;
+	border: 0;
+}
+.mobile-mode .mobile-card-toggle::before { display: none; }
+.mobile-mode .mobile-card-toggle button {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.65rem;
+	width: 100%;
+	min-height: 58px;
+	padding: 0.65rem 0.8rem;
+	border: 0;
+	background: white;
+	color: #1e293b;
+	text-align: start;
+}
+.mobile-mode .mobile-card-summary { display: flex; min-width: 0; flex-direction: column; gap: 0.18rem; }
+.mobile-mode .mobile-card-summary strong { font-size: 0.84rem; overflow-wrap: anywhere; }
+.mobile-mode .mobile-card-summary small { color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-mode .mobile-card-expand {
+	display: grid;
+	width: 34px;
+	height: 34px;
+	flex: 0 0 34px;
+	place-items: center;
+	border-radius: 50%;
+	background: #eff6ff;
+	color: #2563eb;
+	font-size: 1.25rem;
+	font-weight: 700;
+}
+.mobile-mode .requisitions-table td:nth-child(2n),
+.mobile-mode :global(.autotask-approval-row td:nth-child(2n)) { border-inline-end: 0; }
+.mobile-mode .row-actions,
+.mobile-mode :global(.row-actions) { justify-content: flex-start; flex-wrap: wrap; }
+.mobile-mode .row-actions button,
+.mobile-mode :global(.row-actions button) { min-width: 44px; min-height: 44px; }
+
+.modal-overlay.mobile-mode,
+.confirm-overlay.mobile-mode {
+	padding: max(0.5rem, env(safe-area-inset-top)) 0.5rem max(0.5rem, env(safe-area-inset-bottom));
+	align-items: flex-start;
+	overflow-y: auto;
+	z-index: 11000;
+}
+.mobile-mode .modal-content,
+.mobile-mode .confirm-modal {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+	max-height: calc(100dvh - 1rem);
+	margin: auto 0;
+	border-radius: 14px;
+	overflow-y: auto;
+}
+.mobile-mode .modal-header { position: sticky; top: 0; z-index: 2; background: white; }
+.mobile-mode .modal-body { padding: 0.85rem; }
+.mobile-mode .detail-grid { grid-template-columns: minmax(0, 1fr); }
+.mobile-mode .modal-footer,
+.mobile-mode .confirm-actions { flex-wrap: wrap; gap: 0.5rem; }
+.mobile-mode .modal-footer button,
+.mobile-mode .confirm-actions button,
+.mobile-mode .btn-close { min-height: 46px; flex: 1 1 120px; }
+.mobile-mode textarea,
+.mobile-mode input,
+.mobile-mode select { max-width: 100%; box-sizing: border-box; }
+
+@media (max-width: 380px) {
+	.approval-center.mobile-mode { padding: 0.25rem; }
+	.mobile-mode .requisitions-table td,
+	.mobile-mode :global(.autotask-approval-row td) { padding: 0.48rem 0.55rem; }
 }
 </style>

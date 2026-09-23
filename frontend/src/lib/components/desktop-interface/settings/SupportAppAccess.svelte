@@ -3,12 +3,50 @@
 	import { _ as t, locale } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
-	type Tab = 'pcLockGuard' | 'actionSync' | 'camChecker';
+	type Tab = 'pcLockGuard' | 'actionSync' | 'erpPsdManager' | 'camChecker';
 	let activeTab: Tab = 'camChecker';
+
+	// Each tab's access list is backed by its own table (pc_lock_guard_access,
+	// action_sync_access, erp_psd_manager_access, cam_checker_access) via an
+	// identical grant/revoke/list RPC trio — same pattern as the original,
+	// Cam-Checker-only version of this screen, now generalized to 4 apps.
+	const TAB_CONFIG: Record<Tab, { label: string; icon: string; listRpc: string; grantRpc: string; revokeRpc: string; description: string }> = {
+		pcLockGuard: {
+			label: 'Aqura PC Lock Guard',
+			icon: '🔒',
+			listRpc: 'get_pc_lock_guard_access_list',
+			grantRpc: 'grant_pc_lock_guard_access',
+			revokeRpc: 'revoke_pc_lock_guard_access',
+			description: 'Only users listed below (plus Master Admins) can log into the Aqura PC Lock Guard desktop app.'
+		},
+		actionSync: {
+			label: 'Aqura Action Sync',
+			icon: '🔄',
+			listRpc: 'get_action_sync_access_list',
+			grantRpc: 'grant_action_sync_access',
+			revokeRpc: 'revoke_action_sync_access',
+			description: 'Only users listed below (plus Master Admins) can log into the Aqura Action Sync desktop app.'
+		},
+		erpPsdManager: {
+			label: 'Aqura Erp Psd Manager',
+			icon: '🔑',
+			listRpc: 'get_erp_psd_manager_access_list',
+			grantRpc: 'grant_erp_psd_manager_access',
+			revokeRpc: 'revoke_erp_psd_manager_access',
+			description: 'Only users listed below (plus Master Admins) can log into the Aqura Erp Psd Manager desktop app.'
+		},
+		camChecker: {
+			label: 'Aqura Cam Checker',
+			icon: '📷',
+			listRpc: 'get_cam_checker_access_list',
+			grantRpc: 'grant_cam_checker_access',
+			revokeRpc: 'revoke_cam_checker_access',
+			description: 'Only users listed below (plus Master Admins) can log into the Aqura Cam Checker desktop app.'
+		}
+	};
 
 	let supabase: any = null;
 
-	// ── Cam Checker access list ──────────────────────────────────────────
 	interface AccessRow {
 		id: string;
 		user_id: string;
@@ -37,11 +75,17 @@
 		await loadAccessList();
 	});
 
+	function switchTab(tab: Tab) {
+		if (activeTab === tab) return;
+		activeTab = tab;
+		loadAccessList();
+	}
+
 	async function loadAccessList() {
 		listLoading = true;
 		listError = '';
 		try {
-			const { data, error } = await supabase.rpc('get_cam_checker_access_list');
+			const { data, error } = await supabase.rpc(TAB_CONFIG[activeTab].listRpc);
 			if (error) throw error;
 			accessList = data ?? [];
 		} catch (e: any) {
@@ -108,7 +152,7 @@
 		adding = true;
 		addError = '';
 		try {
-			const { data, error } = await supabase.rpc('grant_cam_checker_access', {
+			const { data, error } = await supabase.rpc(TAB_CONFIG[activeTab].grantRpc, {
 				p_requesting_user_id: $currentUser?.id,
 				p_user_ids: Array.from(selectedUserIds)
 			});
@@ -124,9 +168,9 @@
 	}
 
 	async function removeUser(userId: string) {
-		if (!confirm('Remove this user\'s access to Aqura Cam Checker?')) return;
+		if (!confirm(`Remove this user's access to ${TAB_CONFIG[activeTab].label}?`)) return;
 		try {
-			const { data, error } = await supabase.rpc('revoke_cam_checker_access', {
+			const { data, error } = await supabase.rpc(TAB_CONFIG[activeTab].revokeRpc, {
 				p_requesting_user_id: $currentUser?.id,
 				p_user_id: userId
 			});
@@ -142,98 +186,72 @@
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
 	<!-- Tabs -->
 	<div class="flex items-center gap-2 px-4 pt-4 pb-2 bg-white border-b border-slate-200">
-		<button
-			type="button"
-			class="px-4 py-2 rounded-full text-sm font-bold transition-all {activeTab === 'pcLockGuard' ? 'bg-red-500 text-white shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}"
-			on:click={() => (activeTab = 'pcLockGuard')}
-		>
-			🔒 Aqura PC Lock Guard
-		</button>
-		<button
-			type="button"
-			class="px-4 py-2 rounded-full text-sm font-bold transition-all {activeTab === 'actionSync' ? 'bg-red-500 text-white shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}"
-			on:click={() => (activeTab = 'actionSync')}
-		>
-			🔄 Aqura Action Sync
-		</button>
-		<button
-			type="button"
-			class="px-4 py-2 rounded-full text-sm font-bold transition-all {activeTab === 'camChecker' ? 'bg-red-500 text-white shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}"
-			on:click={() => (activeTab = 'camChecker')}
-		>
-			📷 Aqura Cam Checker
-		</button>
+		{#each Object.entries(TAB_CONFIG) as [key, cfg] (key)}
+			<button
+				type="button"
+				class="px-4 py-2 rounded-full text-sm font-bold transition-all {activeTab === key ? 'bg-red-500 text-white shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}"
+				on:click={() => switchTab(key as Tab)}
+			>
+				{cfg.icon} {cfg.label}
+			</button>
+		{/each}
 	</div>
 
 	<div class="flex-1 overflow-y-auto p-5">
-		{#if activeTab === 'pcLockGuard'}
-			<div class="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
-				<span class="text-4xl">🔒</span>
-				<p class="text-sm font-bold">Aqura PC Lock Guard — Coming Soon</p>
-			</div>
-		{:else if activeTab === 'actionSync'}
-			<div class="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
-				<span class="text-4xl">🔄</span>
-				<p class="text-sm font-bold">Aqura Action Sync — Coming Soon</p>
-			</div>
-		{:else if activeTab === 'camChecker'}
-			<div class="flex items-center justify-between mb-4">
-				<h2 class="text-base font-black text-slate-700">Aqura Cam Checker — Access List</h2>
-				<button
-					type="button"
-					class="px-4 py-2 rounded-xl text-sm font-bold text-white bg-red-500 hover:bg-red-600 shadow transition-all"
-					on:click={openAddModal}
-				>
-					+ Add User
-				</button>
-			</div>
+		<div class="flex items-center justify-between mb-4">
+			<h2 class="text-base font-black text-slate-700">{TAB_CONFIG[activeTab].label} — Access List</h2>
+			<button
+				type="button"
+				class="px-4 py-2 rounded-xl text-sm font-bold text-white bg-red-500 hover:bg-red-600 shadow transition-all"
+				on:click={openAddModal}
+			>
+				+ Add User
+			</button>
+		</div>
 
-			<p class="text-xs text-slate-500 mb-4">
-				Only users listed below (plus Master Admins) can log into the Aqura Cam Checker desktop app.
-			</p>
+		<p class="text-xs text-slate-500 mb-4">{TAB_CONFIG[activeTab].description}</p>
 
-			{#if listError}
-				<div class="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600 font-semibold mb-3">{listError}</div>
-			{/if}
+		{#if listError}
+			<div class="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600 font-semibold mb-3">{listError}</div>
+		{/if}
 
-			{#if listLoading}
-				<p class="text-sm text-slate-400">Loading…</p>
-			{:else if accessList.length === 0}
-				<p class="text-sm text-slate-400">No users have been granted access yet.</p>
-			{:else}
-				<div class="overflow-x-auto rounded-xl border border-slate-200">
-					<table class="w-full text-sm">
-						<thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
-							<tr>
-								<th class="text-left px-4 py-2">Username</th>
-								<th class="text-left px-4 py-2">Employee</th>
-								<th class="text-left px-4 py-2">Granted By</th>
-								<th class="text-left px-4 py-2">Granted At</th>
-								<th class="text-right px-4 py-2">Actions</th>
+		{#if listLoading}
+			<p class="text-sm text-slate-400">Loading…</p>
+		{:else if accessList.length === 0}
+			<p class="text-sm text-slate-400">No users have been granted access yet.</p>
+		{:else}
+			<div class="overflow-x-auto rounded-xl border border-slate-200">
+				<table class="w-full text-sm">
+					<thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
+						<tr>
+							<th class="text-left px-4 py-2">Username</th>
+							<th class="text-left px-4 py-2">Employee</th>
+							<th class="text-left px-4 py-2">Granted By</th>
+							<th class="text-left px-4 py-2">Granted At</th>
+							<th class="text-right px-4 py-2">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each accessList as row (row.id)}
+							<tr class="border-t border-slate-100">
+								<td class="px-4 py-2 font-semibold text-slate-700">{row.username}</td>
+								<td class="px-4 py-2 text-slate-500">{row.employee_name ?? '—'}</td>
+								<td class="px-4 py-2 text-slate-500">{row.granted_by_username ?? '—'}</td>
+								<td class="px-4 py-2 text-slate-500">{formatDate(row.created_at)}</td>
+								<td class="px-4 py-2 text-right">
+									<button
+										type="button"
+										class="px-3 py-1 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50"
+										on:click={() => removeUser(row.user_id)}
+									>
+										Remove
+									</button>
+								</td>
 							</tr>
-						</thead>
-						<tbody>
-							{#each accessList as row (row.id)}
-								<tr class="border-t border-slate-100">
-									<td class="px-4 py-2 font-semibold text-slate-700">{row.username}</td>
-									<td class="px-4 py-2 text-slate-500">{row.employee_name ?? '—'}</td>
-									<td class="px-4 py-2 text-slate-500">{row.granted_by_username ?? '—'}</td>
-									<td class="px-4 py-2 text-slate-500">{formatDate(row.created_at)}</td>
-									<td class="px-4 py-2 text-right">
-										<button
-											type="button"
-											class="px-3 py-1 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50"
-											on:click={() => removeUser(row.user_id)}
-										>
-											Remove
-										</button>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{/if}
 	</div>
 </div>
@@ -247,7 +265,7 @@
 	>
 		<div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
 			<div class="px-5 py-4 bg-red-500 text-white flex items-center justify-between">
-				<h3 class="text-sm font-black uppercase tracking-wide">📷 Add User — Cam Checker Access</h3>
+				<h3 class="text-sm font-black uppercase tracking-wide">{TAB_CONFIG[activeTab].icon} Add User — {TAB_CONFIG[activeTab].label} Access</h3>
 				<button class="text-white/80 hover:text-white text-lg leading-none" on:click={closeAddModal}>✕</button>
 			</div>
 			<div class="p-5 space-y-3">

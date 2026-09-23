@@ -16,6 +16,7 @@
 	const ReceivingTaskDetailsModal = TaskDetailsModal;
 	const ReceivingTaskCompletionDialog = TaskCompletionModal;
 	let autoTaskCount = 0;
+	let autoTaskLoaded = false;
 	let legacyRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
 	let allTasks: any[] = [];
@@ -54,7 +55,7 @@
 	onMount(() => {
 		loadTasks();
 		startCountdownTimer();
-		legacyRefreshTimer = setInterval(loadTasks, 15000);
+		legacyRefreshTimer = setInterval(() => loadTasks(true), 15000);
 	});
 
 	onDestroy(() => {
@@ -63,12 +64,11 @@
 		if (copyNotificationTimeout) clearTimeout(copyNotificationTimeout);
 	});
 
-	async function loadTasks() {
+	async function loadTasks(silent = false) {
 		if (!authenticated || !activeUser?.id) return;
 		try {
-			isLoading = true;
-			allTasks = [];
-			visibleCount = VISIBLE_BATCH;
+			if (!silent || allTasks.length === 0) isLoading = true;
+			if (!silent) visibleCount = VISIBLE_BATCH;
 
 			const { data, error } = await supabase.rpc('get_my_tasks', {
 				p_user_id: activeUser.id,
@@ -77,8 +77,9 @@
 			});
 			if (error) throw error;
 
-			allTasks = data?.tasks || [];
-			await enrichTasksWithPriceInfo(allTasks);
+			const nextTasks = data?.tasks || [];
+			await enrichTasksWithPriceInfo(nextTasks);
+			allTasks = nextTasks;
 			extractBranches();
 			applyFilters();
 			isLoading = false;
@@ -442,7 +443,7 @@
 			</label>
 			<button
 				class="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded-xl text-xs font-bold hover:bg-teal-600 transition-all shadow-sm hover:shadow-md"
-				on:click={loadTasks}
+				on:click={() => loadTasks()}
 				disabled={isLoading}
 			>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class:animate-spin={isLoading}>
@@ -455,7 +456,6 @@
 
 	<!-- Content -->
 	<div class="flex-1 p-6 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white via-slate-50/50 to-slate-100/50">
-		<AutoTaskList embedded={true} tableView={true} bind:taskCount={autoTaskCount} />
 		<div class="absolute top-0 right-0 w-[400px] h-[400px] bg-teal-100/20 rounded-full blur-[120px] -mr-48 -mt-48 animate-pulse pointer-events-none"></div>
 		<div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-cyan-100/15 rounded-full blur-[120px] -ml-48 -mb-48 animate-pulse pointer-events-none" style="animation-delay: 2s;"></div>
 
@@ -469,21 +469,15 @@
 						<p class="mt-4 text-slate-600 font-semibold">{isRTL ? 'جاري تحميل المهام...' : 'Loading tasks...'}</p>
 					</div>
 				</div>
-			{:else if allTasks.length === 0 && autoTaskCount === 0}
-				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 h-full flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
-					<div class="text-5xl mb-4">📭</div>
-					<p class="text-slate-600 font-semibold text-lg">{isRTL ? 'لا توجد مهام' : 'No tasks assigned to you'}</p>
-				</div>
 			{:else}
-				{#if allTasks.length > 0}
 				<!-- KPI Cards -->
 				<div class="grid grid-cols-5 gap-3 mb-4">
 					<div class="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/80 shadow-sm p-3 text-center">
-						<p class="text-2xl font-black text-slate-800">{totalCount}</p>
+						<p class="text-2xl font-black text-slate-800">{totalCount + autoTaskCount}</p>
 						<p class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{isRTL ? 'المعروض' : 'Showing'}</p>
 					</div>
 					<div class="bg-teal-50/60 backdrop-blur-sm rounded-2xl border border-teal-100 shadow-sm p-3 text-center">
-						<p class="text-2xl font-black text-teal-600">{activeCount}</p>
+						<p class="text-2xl font-black text-teal-600">{activeCount + autoTaskCount}</p>
 						<p class="text-[10px] font-bold text-teal-500 uppercase tracking-wide">{isRTL ? 'نشط' : 'Active'}</p>
 					</div>
 					<div class="bg-red-50/60 backdrop-blur-sm rounded-2xl border border-red-100 shadow-sm p-3 text-center">
@@ -514,6 +508,7 @@
 							<option value="regular">{isRTL ? 'عادي' : 'Regular'}</option>
 							<option value="quick_task">{isRTL ? 'سريع' : 'Quick'}</option>
 							<option value="receiving">{isRTL ? 'استلام' : 'Receiving'}</option>
+							<option value="auto_task">Auto Task</option>
 						</select>
 					</div>
 					<div class="flex-1">
@@ -666,6 +661,18 @@
 									</tr>
 								{/each}
 							</tbody>
+							<AutoTaskList
+								embedded={true}
+								unifiedTableRows={true}
+								rowStartIndex={visibleTasks.length}
+								bind:taskCount={autoTaskCount}
+								bind:loaded={autoTaskLoaded}
+								{searchQuery}
+								{selectedType}
+								{selectedStatus}
+								{selectedPriority}
+								{selectedBranch}
+							/>
 						</table>
 						{#if filteredTasks.length === 0 && allTasks.length > 0}
 							<div class="flex items-center justify-center py-12">
@@ -685,6 +692,11 @@
 						{/if}
 					</div>
 				</div>
+				{#if autoTaskLoaded && allTasks.length === 0 && autoTaskCount === 0}
+					<div class="mt-4 bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-12 flex flex-col items-center justify-center border-dashed border-2 border-slate-200">
+						<div class="text-5xl mb-4">📭</div>
+						<p class="text-slate-600 font-semibold text-lg">{isRTL ? 'لا توجد مهام' : 'No tasks assigned to you'}</p>
+					</div>
 				{/if}
 			{/if}
 		</div>

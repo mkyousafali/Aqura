@@ -27,7 +27,11 @@ const inputSchema = z.object({
 }).strict();
 
 function buildEditRegionPrompt(instruction: string, contextName?: string, contextDescription?: string): string {
-  return `This is a small cropped region from a supermarket flyer page. Apply EXACTLY this one change, and nothing else: "${instruction}"
+  return `This is a small cropped region from a supermarket flyer page.
+
+REQUIRED EDIT — the returned image must visibly perform this instruction: "${instruction}"
+
+Do not return the input unchanged. The requested change is the primary objective and must be clearly visible inside the returned crop. Apply exactly that change while preserving everything unrelated to it.
 
 Keep everything else in this crop visually identical to the input — the same background, fonts, colors and style — unless the instruction above specifically asks to change it. Do not add any extra decoration, caption, icon, badge, or content beyond what the instruction asks for; do not redesign, restyle, or "improve" anything not mentioned. If the instruction asks to remove something, cleanly fill that space with a plausible continuation of the surrounding background/pattern rather than leaving a hole or an obvious patch. Any text or numerals you output must be crisp, correctly spelled, and — if Arabic — grammatically correct; never garbled or approximated.${contextName ? `\n\nFor reference only, this flyer's overall theme is "${contextName}" (${contextDescription}) — this does not license adding anything beyond the instruction above.` : ''}`;
 }

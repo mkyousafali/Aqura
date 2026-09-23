@@ -106,6 +106,20 @@
 
 	$: hasActiveFilters = searchQuery || filterStatus || filterBranch || filterDateFrom || filterDateTo;
 
+	// Multi-select for bulk export
+	let selectedRequestIds: Set<string> = new Set();
+	$: allSelected = filteredRequests.length > 0 && filteredRequests.every(r => selectedRequestIds.has(r.id));
+
+	function toggleSelectAll() {
+		selectedRequestIds = allSelected ? new Set() : new Set(filteredRequests.map(r => r.id));
+	}
+
+	function toggleSelectRow(id: string) {
+		const next = new Set(selectedRequestIds);
+		if (next.has(id)) next.delete(id); else next.add(id);
+		selectedRequestIds = next;
+	}
+
 	function getCachedImage(url: string | null): string | null {
 		if (!url) return null;
 		return imageCache[url] || url;
@@ -145,6 +159,46 @@
 		const wb = XLSX.utils.book_new();
 		XLSX.utils.book_append_sheet(wb, ws, 'BT Request');
 		XLSX.writeFile(wb, `BT_Request_${formatDate(selectedRequest.created_at).replace(/[^a-zA-Z0-9]/g, '_')}.xlsx`);
+	}
+
+	function exportSelectedToExcel() {
+		const selected = requests.filter(r => selectedRequestIds.has(r.id));
+		if (selected.length === 0) return;
+		const headerStyle = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '2563EB' } }, alignment: { horizontal: 'center' } };
+		const header = [
+			{ v: '#', s: headerStyle },
+			{ v: 'From Branch', s: headerStyle },
+			{ v: 'To Branch', s: headerStyle },
+			{ v: 'Status', s: headerStyle },
+			{ v: 'Date', s: headerStyle },
+			{ v: 'Barcode', s: headerStyle },
+			{ v: 'Product Name', s: headerStyle },
+			{ v: 'Quantity', s: headerStyle }
+		];
+		const rows: (string | number)[][] = [];
+		let seq = 1;
+		for (const req of selected) {
+			const items = getItemsList(req.items);
+			for (const item of items) {
+				rows.push([
+					seq++,
+					req.from_branch_name || '',
+					req.to_branch_name || '',
+					getLocalizedStatus(req.status),
+					formatDate(req.created_at),
+					item.barcode || '',
+					item.product_name || '',
+					item.quantity
+				]);
+			}
+		}
+		const wsData = [header, ...rows];
+		const ws = XLSX.utils.aoa_to_sheet(wsData);
+		ws['!cols'] = [{ wch: 5 }, { wch: 24 }, { wch: 24 }, { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 35 }, { wch: 10 }];
+		const wb = XLSX.utils.book_new();
+		XLSX.utils.book_append_sheet(wb, ws, 'BT Requests');
+		const stamp = new Date().toISOString().slice(0, 19).replace(/[^0-9]/g, '_');
+		XLSX.writeFile(wb, `BT_Requests_Export_${stamp}.xlsx`);
 	}
 
 	function printRequest() {
@@ -201,6 +255,7 @@
 	async function loadRequests(page = 0) {
 		loading = true;
 		error = '';
+		selectedRequestIds = new Set();
 		try {
 			// Single RPC call replaces 3 separate queries (requests + employees + branches)
 			const { data, error: err } = await supabase.rpc('get_bt_requests_with_details', {
@@ -772,6 +827,14 @@
 					{#if hasActiveFilters}
 						<button on:click={clearFilters} class="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-all">✕ {$locale === 'ar' ? 'مسح' : 'Clear'}</button>
 					{/if}
+					{#if selectedRequestIds.size > 0}
+						<button
+							class="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all text-xs shadow-lg shadow-emerald-200"
+							on:click={exportSelectedToExcel}
+						>
+							📥 {$locale === 'ar' ? `تصدير Excel (${selectedRequestIds.size})` : `Export Excel (${selectedRequestIds.size})`}
+						</button>
+					{/if}
 					<span class="text-[10px] text-slate-400 font-semibold {$locale === 'ar' ? 'mr-auto' : 'ml-auto'}">{filteredRequests.length} / {totalRequests}</span>
 				</div>
 
@@ -801,6 +864,9 @@
 						<table class="w-full text-xs border-collapse border border-slate-300">
 							<thead class="sticky top-0 z-10">
 								<tr class="bg-blue-600 text-white">
+									<th class="border-r border-blue-500 py-2.5 px-3 text-center font-bold w-8">
+										<input type="checkbox" checked={allSelected} on:change={toggleSelectAll} class="w-4 h-4 accent-emerald-500 cursor-pointer" />
+									</th>
 									<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">#</th>
 						<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'من فرع' : 'From Branch'}</th>
 								<th class="border-r border-blue-500 py-2.5 px-3 text-left font-bold">{$locale === 'ar' ? 'إلى فرع' : 'To Branch'}</th>
@@ -817,6 +883,9 @@
 							<tbody>
 								{#each filteredRequests as req, i}
 									<tr class="border-b border-slate-300 hover:bg-slate-50/50 cursor-pointer {highlightedRequestId === req.id ? 'bg-blue-100/80 ring-1 ring-blue-300' : i % 2 === 0 ? 'bg-white/30' : 'bg-slate-50/30'}" on:click={() => openDetail(req)}>
+										<td class="border-r border-slate-300 py-2.5 px-3 text-center" on:click|stopPropagation>
+											<input type="checkbox" checked={selectedRequestIds.has(req.id)} on:change={() => toggleSelectRow(req.id)} class="w-4 h-4 accent-emerald-500 cursor-pointer" />
+										</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 text-slate-400 font-mono">{i + 1}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-slate-800">{req.from_branch_name}</td>
 										<td class="border-r border-slate-300 py-2.5 px-3 font-semibold text-blue-700">{req.to_branch_name}</td>

@@ -866,6 +866,31 @@
     return canvas.toDataURL('image/png');
   }
 
+  // Image models can occasionally return the source crop unchanged while still reporting success.
+  // Compare a small normalized sample before compositing so Apply never appears to work while doing
+  // nothing. A tiny tolerance ignores encoding noise but still catches any meaningful visual edit.
+  async function editedRegionChanged(sourceDataUrl: string, editedBlob: Blob): Promise<boolean> {
+    const [source, edited] = await Promise.all([
+      loadImageEl(sourceDataUrl),
+      loadImageEl(URL.createObjectURL(editedBlob))
+    ]);
+    const width = 96, height = 96;
+    const sample = (image: HTMLImageElement) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(image, 0, 0, width, height);
+      return context.getImageData(0, 0, width, height).data;
+    };
+    const before = sample(source), after = sample(edited);
+    let changed = 0;
+    for (let i = 0; i < before.length; i += 4) {
+      const difference = Math.abs(before[i] - after[i]) + Math.abs(before[i + 1] - after[i + 1]) + Math.abs(before[i + 2] - after[i + 2]);
+      if (difference > 24) changed++;
+    }
+    return changed / (width * height) >= 0.002;
+  }
+
   async function submitRegionEdit() {
     if (editIndex === null || !editBox || !editInstruction.trim() || editBusy || !preview) return;
     editBusy = true; editError = '';
@@ -882,6 +907,9 @@
         throw new Error(failure?.error || `Could not edit this region (server responded ${response.status}).`);
       }
       const editedBlob = await response.blob();
+      if (!(await editedRegionChanged(cropUrl, editedBlob))) {
+        throw new Error('The AI returned this area unchanged. Try a clearer instruction or select a slightly larger area.');
+      }
       editResultUrl = await compositeEditedRegion(pageUrl, editBox, editedBlob);
     } catch (e) { editError = e instanceof Error ? e.message : 'Could not edit this region.'; }
     finally { editBusy = false; }

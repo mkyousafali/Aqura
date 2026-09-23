@@ -8,7 +8,15 @@
   export let compact = false;
   export let embedded = false;
   export let tableView = false;
+  export let unifiedTableRows = false;
   export let taskCount = 0;
+  export let loaded = false;
+  export let searchQuery = '';
+  export let selectedType = '';
+  export let selectedStatus = '';
+  export let selectedPriority = '';
+  export let selectedBranch = '';
+  export let rowStartIndex = 0;
 
   let tasks: any[] = [];
   let loading = true;
@@ -25,6 +33,17 @@
   let canvasEl: HTMLCanvasElement;
 
   $: isArabic = $locale === 'ar';
+  $: displayedTasks = tasks.filter((task) => {
+    const query = searchQuery.trim().toLowerCase();
+    const refs = task.source_refs || {};
+    const matchesSearch = !query || [title(task), refs.vendor_name, refs.bill_number, refs.received_by].some((value) => String(value || '').toLowerCase().includes(query));
+    const matchesType = !selectedType || selectedType === 'auto_task';
+    const matchesStatus = !selectedStatus || task.status === selectedStatus || (selectedStatus === 'assigned' && task.status === 'active');
+    const matchesPriority = !selectedPriority || task.priority === selectedPriority;
+    const branch = String(refs.branch_name || refs.branch_id || task.branch_id || '');
+    const matchesBranch = !selectedBranch || branch === selectedBranch;
+    return matchesSearch && matchesType && matchesStatus && matchesPriority && matchesBranch;
+  });
 
   onMount(() => {
     loadTasks();
@@ -56,19 +75,24 @@
       error = 'Current Aqura user is unavailable.';
       loading = false;
       isRefreshing = false;
+      loaded = true;
       return;
     }
     const { data, error: rpcError } = await supabase.rpc('Autotask_list_my_tasks', {
       p_user_id: $currentUser.id,
       p_include_completed: false,
-      p_limit: 200
+      p_limit: 500
     });
-    if (rpcError) error = rpcError.message || 'Failed to load Auto Tasks.';
-    tasks = data || [];
-    taskCount = tasks.length;
-    taskCountService.setAutoTaskCounts(taskCount, tasks.filter((task) => task.is_overdue).length);
+    if (rpcError) {
+      error = rpcError.message || 'Failed to load Auto Tasks.';
+    } else {
+      tasks = data || [];
+      taskCount = tasks.length;
+      taskCountService.setAutoTaskCounts(taskCount, tasks.filter((task) => task.is_overdue).length);
+    }
     loading = false;
     isRefreshing = false;
+    loaded = true;
   }
 
   function title(task: any) {
@@ -194,17 +218,50 @@
   }
 </script>
 
-<section class:compact class:embedded class="autotask-panel" aria-label={isArabic ? 'مهامي' : 'My Tasks'}>
+<svelte:element this={unifiedTableRows ? 'tbody' : 'section'} class:compact class:embedded class="autotask-panel" aria-label={isArabic ? 'مهامي' : 'My Tasks'}>
   {#if !embedded}<div class="panel-heading">
     <h2>{isArabic ? 'المهام التلقائية' : 'Auto Tasks'}</h2>
     <button type="button" on:click={loadTasks} disabled={loading}>{isArabic ? 'تحديث' : 'Refresh'}</button>
   </div>{/if}
 
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error && !unifiedTableRows}<p class="error" role="alert">{error}</p>{/if}
   {#if loading}
-    <p class="empty">{isArabic ? 'جارٍ التحميل…' : 'Loading…'}</p>
+    {#if unifiedTableRows}
+      <tr><td colspan="9" class="unified-loading">{isArabic ? 'جارٍ تحميل المهام التلقائية…' : 'Loading Auto Tasks…'}</td></tr>
+    {:else}
+      <p class="empty">{isArabic ? 'جارٍ التحميل…' : 'Loading…'}</p>
+    {/if}
   {:else if tasks.length === 0 && !embedded}
     <p class="empty">{isArabic ? 'لا توجد مهام تلقائية نشطة.' : 'No active Auto Tasks.'}</p>
+  {:else if unifiedTableRows}
+    {#each displayedTasks as task, index (task.id)}
+      <tr class:overdue-row={task.is_overdue} class:blocked-row={task.status === 'blocked'} class="unified-auto-row">
+        <td class="unified-cell unified-number">{rowStartIndex + index + 1}</td>
+        <td class="unified-cell"><div class="unified-title">{title(task)}</div><div class="unified-subtitle">{task.source_refs?.vendor_name || '—'}{#if task.source_refs?.bill_number} · {task.source_refs.bill_number}{/if}</div></td>
+        <td class="unified-cell unified-center"><span class="unified-type">⚙️ {isArabic ? 'تلقائي' : 'Auto Task'}</span></td>
+        <td class="unified-cell">{task.source_refs?.branch_name || task.source_refs?.branch_id || task.branch_id || '—'}</td>
+        <td class="unified-cell unified-center"><span class="status">{task.is_overdue ? (isArabic ? 'متأخرة' : 'Overdue') : task.status}</span></td>
+        <td class="unified-cell unified-center"><span class="unified-priority">{task.priority || (isArabic ? 'متوسط' : 'Medium')}</span></td>
+        <td class="unified-cell unified-center">{dueText(task)}</td>
+        <td class="unified-cell">{isArabic ? 'النظام التلقائي' : 'Auto Task System'}</td>
+        <td class="unified-cell unified-center unified-actions">
+          {#if task.status === 'blocked'}
+            <span class="condition-text">{isArabic ? 'بانتظار المهام السابقة' : 'Waiting for dependencies'}</span>
+          {:else if task.task_number === 1 || task.task_number === 2 || task.task_number === 3}
+            {#if task.task_number === 3}
+              <label><input type="radio" name={`unified-balance-${task.id}`} value="no" bind:group={balanceByTask[task.id]} /> {isArabic ? 'لا يوجد رصيد' : 'No balance'}</label>
+              <label><input type="radio" name={`unified-balance-${task.id}`} value="yes" bind:group={balanceByTask[task.id]} /> {isArabic ? 'يوجد رصيد' : 'Balance remains'}</label>
+            {/if}
+            {#if task.task_number === 1 || (task.task_number === 3 && balanceByTask[task.id] === 'yes')}
+              <button type="button" class="camera-btn" on:click={() => openCamera(task.id)}>{isArabic ? 'صورة' : 'Photo'}{#if (filesByTask[task.id] || []).length} ({filesByTask[task.id].length}){/if}</button>
+            {/if}
+            <button class="complete" type="button" on:click={() => complete(task)} disabled={busyTaskId === task.id}>{busyTaskId === task.id ? (isArabic ? 'جارٍ…' : 'Completing…') : (isArabic ? 'إكمال' : 'Complete')}</button>
+          {:else}
+            <span class="condition-text">{isArabic ? 'تغلق تلقائياً' : 'Closes automatically'}</span>
+          {/if}
+        </td>
+      </tr>
+    {/each}
   {:else if tableView}
     <div class="table-wrap">
       <table class="task-table">
@@ -299,7 +356,7 @@
       {/each}
     </div>
   {/if}
-</section>
+</svelte:element>
 
 {#if cameraTaskId}
   <div class="camera-modal" role="dialog" aria-modal="true">
@@ -330,4 +387,6 @@
   .table-wrap{width:100%;overflow:auto;margin-bottom:1rem;border:1px solid #e2e8f0;border-radius:12px;background:white}.task-table{width:100%;min-width:1180px;border-collapse:collapse;font-size:.75rem;color:#475569}.task-table th{position:sticky;top:0;z-index:1;padding:.7rem .6rem;text-align:left;background:#f1f5f9;color:#334155;font-weight:800;border-bottom:1px solid #cbd5e1;white-space:nowrap}.task-table td{padding:.65rem .6rem;vertical-align:top;border-bottom:1px solid #e2e8f0}.task-table tbody tr:last-child td{border-bottom:0}.task-table tbody tr:hover{background:#f8fafc}.task-table .blocked-row{background:#f8fafc}.task-table .overdue-row{background:#fff7f7}.task-number{font-weight:900;color:#2563eb;white-space:nowrap}.task-name{min-width:165px;font-weight:700;color:#1e293b}.table-action{min-width:190px}.table-action label{display:block;margin-bottom:.25rem;white-space:nowrap}.condition-text{font-size:.7rem;color:#64748b}.table-file{display:none}.table-complete{margin-top:.3rem;padding:.4rem .65rem;font-size:.72rem}
   .file-input{display:none}.camera-btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem .85rem;background:#10b981;color:white;border-radius:8px;font-size:.8rem;font-weight:600;cursor:pointer;border:none;width:fit-content}.camera-btn:hover{background:#059669}.table-camera-btn{display:inline-flex;padding:.35rem .6rem;font-size:.7rem;margin:.25rem 0}
   .camera-modal{position:fixed;inset:0;background:rgba(15,23,42,.85);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem}.camera-modal-inner{background:#0f172a;border-radius:14px;padding:.75rem;display:flex;flex-direction:column;gap:.6rem;max-width:480px;width:100%}.camera-video{width:100%;border-radius:10px;background:#000;max-height:60vh;object-fit:cover}.camera-thumbs{display:flex;gap:.4rem;flex-wrap:wrap;max-height:90px;overflow-y:auto}.camera-thumb{position:relative;width:56px;height:56px}.camera-thumb img{width:100%;height:100%;object-fit:cover;border-radius:6px}.thumb-remove{position:absolute;top:-6px;right:-6px;background:#dc2626;color:#fff;border:none;border-radius:999px;width:18px;height:18px;font-size:.7rem;line-height:1;cursor:pointer;padding:0}.camera-actions{display:flex;gap:.5rem}.camera-capture,.camera-done{flex:1;border:none;border-radius:8px;padding:.65rem;font-weight:700;cursor:pointer;color:#fff}.camera-capture{background:#2563eb}.camera-capture:disabled{opacity:.5;cursor:not-allowed}.camera-done{background:#10b981}
+  .autotask-panel:has(.unified-auto-row){display:contents}.unified-auto-row{transition:background .2s}.unified-auto-row:hover{background:#f0fdfa}.unified-cell{padding:.625rem 1rem;border-inline:1px solid #e2e8f0;font-size:.78rem;color:#475569}.unified-number{font-family:monospace;color:#94a3b8}.unified-center{text-align:center}.unified-title{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.875rem;font-weight:600;color:#1e293b}.unified-subtitle{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.65rem;color:#94a3b8}.unified-type{display:inline-flex;gap:.25rem;padding:.25rem .625rem;border:1px solid #99f6e4;border-radius:.5rem;background:#f0fdfa;color:#0f766e;font-size:.65rem;font-weight:700}.unified-priority{font-size:.72rem;font-weight:700;color:#d97706}.unified-actions{min-width:170px}.unified-actions label{display:block;font-size:.65rem}.unified-actions button{min-height:30px;margin:.15rem;border:0;border-radius:.5rem;padding:.35rem .55rem;color:#fff;font-size:.68rem;font-weight:700}.unified-actions .camera-btn{background:#3b82f6}.unified-actions .complete{background:#10b981}
+  tbody.autotask-panel{display:table-row-group!important}
 </style>
