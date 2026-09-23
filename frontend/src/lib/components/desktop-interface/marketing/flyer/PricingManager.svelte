@@ -27,6 +27,39 @@
 	
 	// Image loading tracking
 	let successfullyLoadedImages: Set<string> = new Set(); // Track which images loaded successfully
+	let previewImageUrl: string | null = null;
+	let previewImageAlt: string = '';
+	let showBarcodeCopied: boolean = false;
+	let barcodeCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function openImagePreview(url: string, alt: string) {
+		previewImageUrl = url;
+		previewImageAlt = alt;
+	}
+
+	function closeImagePreview() {
+		previewImageUrl = null;
+		previewImageAlt = '';
+	}
+
+	function handlePreviewKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && previewImageUrl) {
+			closeImagePreview();
+		}
+	}
+
+	async function copyBarcode(barcode: string) {
+		try {
+			await navigator.clipboard.writeText(barcode);
+			showBarcodeCopied = true;
+			if (barcodeCopiedTimer) clearTimeout(barcodeCopiedTimer);
+			barcodeCopiedTimer = setTimeout(() => {
+				showBarcodeCopied = false;
+			}, 1500);
+		} catch (error) {
+			console.error('Failed to copy barcode:', error);
+		}
+	}
 	
 	// Success message modal
 	let showSuccessModal: boolean = false;
@@ -2083,27 +2116,11 @@
 	});
 </script>
 
-<div class="space-y-6">
-	<!-- Header - Sticky -->
-	<div class="sticky top-0 z-20 bg-gray-50 pb-4">
-		<div class="flex items-center justify-between mb-4">
-			<div>
-				<h1 class="text-3xl font-bold text-gray-800">Pricing Manager</h1>
-				<p class="text-gray-600 mt-1">View active offers and their selected products</p>
-			</div>
-			
-			<button 
-				on:click={loadActiveOffers}
-				disabled={isLoading}
-				class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-				</svg>
-				Refresh
-			</button>
-		</div>
+<svelte:window on:keydown={handlePreviewKeydown} />
 
+<div class="flex h-full min-h-0 flex-col gap-2">
+	<!-- Header - Sticky -->
+	<div class="sticky top-0 z-20 flex-none bg-gray-50 pb-1">
 		<!-- Active Offers Buttons - Sticky -->
 	{#if isLoading}
 		<div class="bg-white rounded-lg shadow-lg p-12 text-center">
@@ -2122,30 +2139,31 @@
 			<p class="text-gray-600">Activate offers from the Offer Manager page.</p>
 		</div>
 	{:else}
-		<div class="bg-white rounded-lg shadow-md p-6">
-			<h2 class="text-xl font-bold text-gray-800 mb-4">Active Offer Templates</h2>
-			<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+		<div class="bg-white rounded-lg shadow-md p-2">
+			<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-1">
 				{#each activeOffers as offer (offer.id)}
 					<button
 						on:click={() => loadOfferProducts(offer.id)}
-						class="p-1.5 border-2 rounded transition-all text-xs {selectedOfferId === offer.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'}"
+						class="px-2 py-1 border rounded-md shadow-sm transition-all duration-150 text-left text-[10px] leading-tight hover:-translate-y-px hover:shadow-md {selectedOfferId === offer.id ? 'border-emerald-500 bg-gradient-to-r from-emerald-50 to-green-100 ring-1 ring-emerald-200' : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40'}"
 					>
-						{#if offer.offer_name && offer.offer_name.name_en}
-						<h3 class="font-semibold text-gray-800 text-sm leading-tight mb-0.5">{offer.offer_name.name_en}</h3>
-						<p class="text-xs text-gray-600 mb-0.5">Template: {offer.template_name}</p>
-					{:else}
-						<h3 class="font-semibold text-gray-800 text-sm leading-tight mb-0.5">{offer.template_name}</h3>
-					{/if}
-						<p class="text-xs text-gray-500 mb-0.5 font-mono">{offer.template_id}</p>
-						<div class="text-xs text-gray-600 space-y-0.5">
+						<div class="flex items-center gap-2 whitespace-nowrap">
+							{#if offer.offer_name && offer.offer_name.name_en}
+								<h3 class="font-bold {selectedOfferId === offer.id ? 'text-emerald-800' : 'text-slate-800'}">{offer.offer_name.name_en}</h3>
+								<span class="text-gray-600">Template: {offer.template_name}</span>
+							{:else}
+								<h3 class="font-bold {selectedOfferId === offer.id ? 'text-emerald-800' : 'text-slate-800'}">{offer.template_name}</h3>
+							{/if}
+						</div>
+						<div class="flex items-center justify-between gap-2 text-gray-600 whitespace-nowrap">
+							<span class="text-gray-500 font-mono">{offer.template_id}</span>
 							<div class="flex items-center gap-0.5">
-								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
 								</svg>
 								<span>{new Date(offer.start_date).toLocaleDateString()}</span>
 							</div>
 							<div class="flex items-center gap-0.5">
-								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
 								</svg>
 								<span>{new Date(offer.end_date).toLocaleDateString()}</span>
@@ -2161,40 +2179,57 @@
 
 	<!-- Selected Products Table -->
 	{#if selectedOfferId}
-		<div class="bg-white rounded-lg shadow-md">
-			<div class="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10">
-				<div>
-					<h2 class="text-xl font-bold text-gray-800">Selected Products</h2>
-					{#if getSelectedOffer()}
-						{#if getSelectedOffer().offer_name && getSelectedOffer().offer_name.name_en}
-							<p class="text-sm text-gray-600 mt-1">{getSelectedOffer().offer_name.name_en}</p>
-							<p class="text-xs text-gray-500">Template: {getSelectedOffer().template_name}</p>
-						{:else}
-							<p class="text-sm text-gray-600 mt-1">{getSelectedOffer().template_name}</p>
-						{/if}
-					{/if}
-				</div>
-				<div class="flex items-center gap-4">
+		<div class="flex min-h-0 flex-1 flex-col bg-white rounded-lg shadow-md">
+			<div class="flex flex-none items-center justify-between gap-2 p-2 border-b border-gray-200 sticky top-0 bg-white z-10">
+				{#if selectedProducts.length > 0}
+					<div class="flex items-center gap-1.5 shrink-0">
+						<div class="relative w-64">
+							<svg class="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+							<input
+								type="text"
+								bind:value={searchQuery}
+								placeholder="Search by product name or barcode..."
+								class="h-10 w-full pl-8 pr-7 text-xs border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+							/>
+							{#if searchQuery}
+								<button
+									on:click={() => searchQuery = ''}
+									class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							{/if}
+						</div>
+						<span class="text-xs text-gray-500 whitespace-nowrap">
+							{filteredProducts.length} of {selectedProducts.length}
+						</span>
+					</div>
+				{/if}
+				<div class="flex flex-1 items-center justify-end gap-1.5">
 					{#if selectedProducts.length > 0}
-						<span class="px-4 py-2 bg-green-100 text-green-800 font-semibold rounded-lg">
+						<span class="h-10 px-2 bg-green-100 text-green-800 text-xs font-semibold rounded-md flex items-center">
 							{selectedProducts.length} Products
 						</span>
 						
 						<!-- Average Profit on Offer Price -->
-						<div class="px-4 py-2 {calculateAvgProfitOnOfferPrice() >= 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'} font-semibold rounded-lg">
-							<div class="text-xs font-normal">Avg Profit (Offer)</div>
-							<div class="text-sm font-bold">{calculateAvgProfitOnOfferPrice().toFixed(2)}%</div>
+						<div class="h-10 px-2 {calculateAvgProfitOnOfferPrice() >= 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'} text-[10px] font-semibold rounded-md flex flex-col justify-center">
+							<div class="font-normal">Avg Profit (Offer)</div>
+							<div class="text-xs font-bold">{calculateAvgProfitOnOfferPrice().toFixed(2)}%</div>
 						</div>
 						
 						<!-- Average Profit on Normal Price -->
-						<div class="px-4 py-2 {calculateAvgProfitOnNormalPrice() >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} font-semibold rounded-lg">
-							<div class="text-xs font-normal">Avg Profit (Normal)</div>
-							<div class="text-sm font-bold">{calculateAvgProfitOnNormalPrice().toFixed(2)}%</div>
+						<div class="h-10 px-2 {calculateAvgProfitOnNormalPrice() >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} text-[10px] font-semibold rounded-md flex flex-col justify-center">
+							<div class="font-normal">Avg Profit (Normal)</div>
+							<div class="text-xs font-bold">{calculateAvgProfitOnNormalPrice().toFixed(2)}%</div>
 						</div>
 						
 						<!-- Target Profit Input -->
-						<div class="flex items-center gap-2 px-4 py-2 bg-indigo-100 rounded-lg">
-							<label for="targetProfit" class="text-xs font-semibold text-indigo-800 whitespace-nowrap">
+						<div class="h-10 flex items-center gap-1 px-2 bg-indigo-100 rounded-md">
+							<label for="targetProfit" class="text-[10px] font-semibold text-indigo-800 whitespace-nowrap">
 								Target Profit:
 							</label>
 							<div class="relative">
@@ -2205,28 +2240,28 @@
 									step="0.5"
 									min="0"
 									max="100"
-									class="w-20 px-2 py-1 text-sm font-bold border-2 border-indigo-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+									class="w-14 px-1.5 py-0.5 text-xs font-bold border border-indigo-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
 									placeholder="16"
 								/>
-								<span class="absolute right-2 top-1/2 transform -translate-y-1/2 text-indigo-600 text-xs font-bold">%</span>
+								<span class="absolute right-1.5 top-1/2 transform -translate-y-1/2 text-indigo-600 text-[10px] font-bold">%</span>
 							</div>
 						</div>
 					{/if}
 					{#if hasUnsavedChanges}
-						<span class="px-3 py-1 bg-yellow-100 text-yellow-800 text-sm font-medium rounded-lg animate-pulse">
+						<span class="h-10 px-2 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-md animate-pulse flex items-center">
 							Unsaved Changes
 						</span>
 					{/if}
 					
 				
 				<!-- Auto-Generation Buttons -->
-				<div class="flex items-center gap-2 border-l-2 border-gray-300 pl-4">
+				<div class="flex items-center border-l border-gray-300 pl-1.5">
 					<!-- Single Generate Offers Button (runs B1→B2→B3→B4→B5) -->
 					<div class="relative">
 						<button
 							on:click={generateOffersAllSteps}
 							disabled={!selectedProducts.length || !allProductsHaveCostAndPrice() || hasInvalidProducts()}
-							class="px-4 py-2 bg-gradient-to-r from-purple-600 via-blue-600 to-pink-600 text-white font-bold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+							class="h-10 px-2 bg-gradient-to-r from-purple-600 via-blue-600 to-pink-600 text-white text-xs font-bold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 							title={!selectedProducts.length 
 								? 'Select products first'
 								: hasInvalidProducts()
@@ -2234,7 +2269,7 @@
 								: !allProductsHaveCostAndPrice() ? 'All products must have Cost (Unit) and Price (Unit)' : 'Generate offers using all 5 steps automatically'}
 						>
 							Generate Offers
-							<span style="display: inline-block; margin-left: 8px; padding: 4px 8px; background: #ef4444; color: white; border-radius: 4px; font-size: 12px; font-weight: bold; white-space: nowrap;">
+							<span style="display: inline-block; margin-left: 2px; padding: 2px 4px; background: #ef4444; color: white; border-radius: 4px; font-size: 10px; font-weight: bold; white-space: nowrap;">
 								Invalid: {invalidProductCount}
 							</span>
 						</button>
@@ -2301,9 +2336,9 @@
 				<button
 						on:click={exportToExcel}
 						disabled={!selectedProducts.length}
-						class="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+						class="h-10 px-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white text-xs font-semibold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 					>
-						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
 						</svg>
 						Export to Excel
@@ -2311,9 +2346,9 @@
 				<button
 					on:click={printStockCheck}
 					disabled={!selectedProducts.length}
-					class="px-4 py-2 bg-gradient-to-r from-gray-700 to-gray-900 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+					class="h-10 px-2 bg-gradient-to-r from-gray-700 to-gray-900 text-white text-xs font-semibold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
 					</svg>
 					Print for Stock Check
@@ -2321,9 +2356,9 @@
 				<button
 					on:click={printOfferCheck}
 					disabled={!selectedProducts.length}
-					class="px-4 py-2 bg-gradient-to-r from-orange-600 to-orange-800 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+					class="h-10 px-2 bg-gradient-to-r from-orange-600 to-orange-800 text-white text-xs font-semibold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
 					</svg>
 					Print for Offer Check
@@ -2331,9 +2366,9 @@
 					<button
 						on:click={handleImportClick}
 						disabled={!selectedProducts.length}
-						class="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+						class="h-10 px-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-xs font-semibold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 					>
-						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 						</svg>
 						Import from Excel
@@ -2341,16 +2376,16 @@
 					<button
 						on:click={saveAllPrices}
 						disabled={isSavingPrices || !hasUnsavedChanges}
-						class="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+						class="h-10 px-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white text-xs font-bold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 					>
 						{#if isSavingPrices}
-							<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
 								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 							</svg>
 							Saving...
 						{:else}
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
 							</svg>
 							Save All Changes
@@ -2360,16 +2395,16 @@
 					<button
 						on:click={updateMissingTotals}
 						disabled={isSavingPrices}
-						class="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-lg hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+						class="h-10 px-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-1"
 					>
 						{#if isSavingPrices}
-							<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+							<svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
 								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 							</svg>
 							Updating...
 						{:else}
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 							</svg>
 							Update Missing Totals
@@ -2378,36 +2413,6 @@
 				</div>
 			</div>
 			
-			<!-- Search Bar -->
-			{#if selectedProducts.length > 0}
-				<div class="mb-4 flex items-center gap-4">
-					<div class="relative flex-1 max-w-md">
-						<svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-						</svg>
-						<input
-							type="text"
-							bind:value={searchQuery}
-							placeholder="Search by product name or barcode..."
-							class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-						/>
-						{#if searchQuery}
-							<button
-								on:click={() => searchQuery = ''}
-								class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-							>
-								<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-								</svg>
-							</button>
-						{/if}
-					</div>
-					<span class="text-sm text-gray-500">
-						{filteredProducts.length} of {selectedProducts.length} products
-					</span>
-				</div>
-			{/if}
-
 			{#if isLoadingProducts}
 				<div class="text-center py-8">
 					<svg class="animate-spin w-8 h-8 mx-auto text-blue-600 mb-2" fill="none" viewBox="0 0 24 24">
@@ -2425,9 +2430,9 @@
 				</div>
 			{:else}
 				<!-- Scrollable table container -->
-				<div class="overflow-auto max-h-[600px]">
-					<table class="min-w-full table-fixed border-collapse">
-						<thead class="bg-gray-100 sticky top-0 z-10">
+				<div class="min-h-0 flex-1 overflow-auto">
+					<table class="pricing-products-table min-w-full table-auto border-collapse">
+						<thead class="bg-green-700 sticky top-0 z-10 [&_th]:whitespace-nowrap [&_th]:!bg-green-700 [&_th]:!px-2 [&_th]:!py-2 [&_th]:!text-[11px] [&_th]:!text-white [&_th]:!tracking-normal">
 							<tr>
 								<th class="w-20 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Image
@@ -2444,10 +2449,10 @@
 								<th class="w-32 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Barcode
 								</th>
-								<th class="w-48 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-64 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Product Name (EN)
 								</th>
-								<th class="w-48 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-64 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Product Name (AR)
 								</th>
 								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
@@ -2459,45 +2464,45 @@
 								<th class="w-40 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Offer Type
 								</th>
-								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-20 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Offer Qty
 								</th>
-								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-20 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Free Qty
 								</th>
-								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-28 min-w-28 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Limit
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-24 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Cost (Unit)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-24 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Cost (Total)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-24 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Price (Unit)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-24 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Price (Total)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-24 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Offer Price (Total)
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
-									Profit (Amount)
+								<th class="w-20 px-1 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+									Profit Amt
 								</th>
-								<th class="w-24 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+								<th class="w-20 px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
 									Profit %
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
-									Profit % After Offer
+								<th class="w-20 px-1 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+									Offer Profit %
 								</th>
-								<th class="w-28 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
-									Decrease Amount
+								<th class="w-20 px-1 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b-2 border-gray-200">
+									Decrease
 								</th>
 							</tr>
 						</thead>
-						<tbody class="bg-white divide-y divide-gray-200">
+						<tbody class="bg-white divide-y divide-gray-200 [&_td]:!text-[13px] [&_input]:!text-[13px]">
 							{#each filteredProducts as product (product.barcode)}
 								<tr 
 									class="hover:bg-gray-50 transition-colors"
@@ -2508,16 +2513,23 @@
 									<td class="w-24 px-4 py-4 align-middle">
 										<div class="relative w-20 h-20 bg-gray-100 rounded-lg border-2 border-gray-200 overflow-hidden flex items-center justify-center">
 											{#if product.image_url}
-												<img 
-													src={product.image_url}
-													alt={product.product_name_en || product.barcode}
-													data-barcode={product.barcode}
-													class="w-full h-full object-scale-down p-1"
-													loading="eager"
-													decoding="async"
-													on:load={handleImageLoad}
-													on:error={handleImageError}
-												/>
+												<button
+													type="button"
+													class="w-full h-full cursor-zoom-in"
+													on:click={() => openImagePreview(product.image_url, product.product_name_en || product.barcode)}
+													title="Preview product image"
+												>
+													<img 
+														src={product.image_url}
+														alt={product.product_name_en || product.barcode}
+														data-barcode={product.barcode}
+														class="w-full h-full object-scale-down p-1"
+														loading="eager"
+														decoding="async"
+														on:load={handleImageLoad}
+														on:error={handleImageError}
+													/>
+												</button>
 											{/if}
 											<!-- Placeholder (doesn't interfere with image) -->
 											<svg class="w-8 h-8 text-gray-400 absolute pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2579,9 +2591,9 @@
 										{product.page_order || 1}
 									</td>
 									<td class="w-32 px-4 py-4 align-middle text-xs font-medium text-gray-900">
-										{product.barcode}
+										<span on:dblclick={() => copyBarcode(product.barcode)}>{product.barcode}</span>
 									</td>
-									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900">
+									<td class="w-64 px-4 py-4 align-middle text-xs text-gray-900">
 										<div class="flex flex-col gap-1">
 											<div class="flex items-center gap-2">
 												<span>{product.product_name_en || '-'}</span>
@@ -2607,7 +2619,7 @@
 											{/if}
 										</div>
 									</td>
-									<td class="w-48 px-4 py-4 align-middle text-xs text-gray-900" dir="rtl">
+									<td class="w-64 px-4 py-4 align-middle text-xs text-gray-900" dir="rtl">
 										<div class="flex flex-col gap-1">
 											<div>{product.product_name_ar || '-'}</div>
 											{#if product.is_variation && product.variation_group_name_ar}
@@ -2636,7 +2648,7 @@
 											{getOfferType(product.offer_qty, product.limit_qty, product.free_qty, product.offer_price)}
 										</span>
 									</td>
-									<td class="w-24 px-4 py-4 align-middle">
+									<td class="w-20 px-2 py-4 align-middle">
 										<input
 											type="number"
 											bind:value={product.offer_qty}
@@ -2652,7 +2664,7 @@
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
 										/>
 									</td>
-									<td class="w-24 px-4 py-4 align-middle">
+									<td class="w-20 px-2 py-4 align-middle">
 										<input
 											type="number"
 											bind:value={product.free_qty}
@@ -2664,7 +2676,7 @@
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
 										/>
 									</td>
-									<td class="w-24 px-4 py-4 align-middle">
+									<td class="w-28 min-w-28 px-2 py-4 align-middle">
 										<input
 											type="number"
 											bind:value={product.limit_qty}
@@ -2676,22 +2688,13 @@
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
 										/>
 									</td>
-									<td class="w-28 px-4 py-4 align-middle">
-										<input
-											type="number"
-											bind:value={product.cost}
-											on:input={markAsChanged}
-											on:change={markAsChanged}
-											step="0.01"
-											min="0"
-											placeholder="0.00"
-											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-										/>
+									<td class="w-24 px-2 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
+										{Number(product.cost || 0).toFixed(2)}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
+									<td class="w-24 px-2 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
 										{calculateTotalCost(product.cost, product.offer_qty).toFixed(2)}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle">
+									<td class="w-24 px-2 py-4 align-middle">
 										<input
 											type="number"
 											bind:value={product.sales_price}
@@ -2708,12 +2711,12 @@
 											class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
 										/>
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
+									<td class="w-24 px-2 py-4 align-middle text-xs font-medium text-blue-600 bg-blue-50">
 										{#key `${product.barcode}-${product.offer_qty}-${productsVersion}`}
 											{(product.total_sales_price || calculateTotalSalesPrice(product.sales_price, product.offer_qty)).toFixed(2)}
 										{/key}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle">
+									<td class="w-24 px-2 py-4 align-middle">
 										{#key `${product.barcode}-${product.offer_price}-${product.offer_qty}-${productsVersion}`}
 											<input
 												type="number"
@@ -2744,16 +2747,16 @@
 											/>
 										{/key}
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAmount(product.cost, product.sales_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
+									<td class="w-20 px-1 py-4 align-middle text-xs font-bold {calculateProfitAmount(product.cost, product.sales_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
 										{calculateProfitAmount(product.cost, product.sales_price, product.offer_qty).toFixed(2)}
 									</td>
-									<td class="w-24 px-4 py-4 align-middle text-xs font-bold {calculateProfitPercentage(product.cost, product.sales_price) < 27.5 ? 'text-white bg-red-600' : calculateProfitPercentage(product.cost, product.sales_price) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
+									<td class="w-20 px-1 py-4 align-middle text-xs font-bold {calculateProfitPercentage(product.cost, product.sales_price) < 27.5 ? 'text-white bg-red-600' : calculateProfitPercentage(product.cost, product.sales_price) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
 										{calculateProfitPercentage(product.cost, product.sales_price).toFixed(2)}%
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) < targetProfitPercent ? 'text-white bg-red-600' : calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
+									<td class="w-20 px-1 py-4 align-middle text-xs font-bold {calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) < targetProfitPercent ? 'text-white bg-red-600' : calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty) >= 0 ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}">
 										{calculateProfitAfterOffer(product.cost, product.offer_price, product.offer_qty).toFixed(2)}%
 									</td>
-									<td class="w-28 px-4 py-4 align-middle text-xs font-bold {calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 3 ? 'text-green-700 bg-yellow-100' : (calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 0 ? 'text-purple-600 bg-purple-50' : 'text-orange-600 bg-orange-50')}">
+									<td class="w-20 px-1 py-4 align-middle text-xs font-bold {calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 3 ? 'text-green-700 bg-yellow-100' : (calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty) >= 0 ? 'text-purple-600 bg-purple-50' : 'text-orange-600 bg-orange-50')}">
 										{calculateDecreaseAmount(product.sales_price, product.offer_price, product.offer_qty).toFixed(2)}
 									</td>
 								</tr>
@@ -2774,6 +2777,55 @@
 		class="hidden"
 	/>
 </div>
+
+<style>
+	.pricing-products-table th:not(:last-child),
+	.pricing-products-table td:not(:last-child) {
+		border-right: 1px solid #e5e7eb;
+	}
+
+	.pricing-products-table input[type='number'] {
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+
+	.pricing-products-table input[type='number']::-webkit-inner-spin-button,
+	.pricing-products-table input[type='number']::-webkit-outer-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+</style>
+
+{#if previewImageUrl}
+	<div
+		class="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-6"
+		role="presentation"
+		on:click={closeImagePreview}
+	>
+		<div class="relative flex max-h-full max-w-5xl items-center justify-center" on:click|stopPropagation>
+			<img
+				src={previewImageUrl}
+				alt={previewImageAlt}
+				class="max-h-[90vh] max-w-[90vw] object-contain"
+			/>
+			<button
+				type="button"
+				class="absolute -right-3 -top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white text-xl font-bold text-gray-800 shadow-lg hover:bg-gray-100"
+				on:click={closeImagePreview}
+				aria-label="Close image preview"
+				title="Close"
+			>
+				&times;
+			</button>
+		</div>
+	</div>
+{/if}
+
+{#if showBarcodeCopied}
+	<div class="fixed bottom-5 left-1/2 z-[110] -translate-x-1/2 rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white shadow-lg">
+		Barcode copied
+	</div>
+{/if}
 
 <!-- Success Modal -->
 {#if showSuccessModal}
