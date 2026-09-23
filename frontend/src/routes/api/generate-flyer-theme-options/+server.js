@@ -6,7 +6,7 @@ const supabaseUrl = env.VITE_SUPABASE_URL || '';
 const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
 
 // NOTE: text-only model for this quick "suggest color themes" step (separate from the
-// gpt-image-2 model used for the actual background image). Not yet confirmed against the
+// gpt-image-2.5-sunburst model used for the actual background image). Not yet confirmed against the
 // project's OpenAI account — swap this if it 404s/400s as an unknown model.
 const TEXT_MODEL = 'gpt-4o-mini';
 

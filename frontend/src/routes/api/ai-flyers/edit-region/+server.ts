@@ -53,10 +53,10 @@ export const POST: RequestHandler = async ({ request, url }) => {
     if (!key.data?.api_key) throw new Error('Configure an active OpenAI key in API Keys Manager.');
 
     const form = new FormData();
-    form.append('model', 'gpt-image-2');
+    form.append('model', 'gpt-image-2.5-sunburst');
     form.append('image[]', new Blob([imageBytes], { type: 'image/png' }), 'region.png');
     form.append('prompt', buildEditRegionPrompt(input.data.instruction, input.data.contextName, input.data.contextDescription));
-    form.append('quality', 'medium');
+    form.append('quality', 'max');
 
     const response = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST', headers: { Authorization: `Bearer ${key.data.api_key}` }, body: form,

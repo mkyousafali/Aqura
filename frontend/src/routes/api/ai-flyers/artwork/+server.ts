@@ -57,9 +57,9 @@ export const POST: RequestHandler = async ({ request, fetch, url }) => {
       ? 'This promotion is general/department-neutral and spans many different product categories — do not skew the scene toward any single department (no fruit/vegetable, bakery, dairy, meat or similar produce-specific imagery) unless the offer context above explicitly names that department. Still make it feel premium and distinctive, not a copy of a previous generation.'
       : 'The offer context above specifically names a department/occasion — let the scene, the sign/plaque/banner shape, its mount, and the decorative elements authentically lean into that theme.';
     const form = new FormData();
-    form.append('model', 'gpt-image-2');
+    form.append('model', 'gpt-image-2.5-sunburst');
     form.append('size', '1024x1536');
-    form.append('quality', 'medium');
+    form.append('quality', 'max');
     form.append('output_format', 'jpeg');
     form.append('output_compression', '85');
     form.append('image[]', await logoResponse.blob(), 'brand-logo.png');
@@ -89,7 +89,7 @@ NO watermarks, product packaging, barcodes or invented promotional claims. Every
     if (typeof encoded !== 'string' || !encoded) throw new Error('OpenAI returned no flyer artwork.');
     const bytes = Buffer.from(encoded, 'base64');
     if (bytes.length > 4_000_000) throw new Error('Generated artwork exceeded the export size limit. Please retry.');
-    return new Response(bytes, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'X-Artwork-Model': 'gpt-image-2' } });
+    return new Response(bytes, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'X-Artwork-Model': 'gpt-image-2.5-sunburst' } });
   } catch (error) {
     return json({ error: error instanceof Error && error.name === 'TimeoutError' ? 'OpenAI artwork generation timed out. Please retry.' : 'Could not generate flyer artwork. Check the server configuration and retry.' }, { status: 500 });
   }
