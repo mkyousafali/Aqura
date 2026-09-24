@@ -9,7 +9,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
   const sessionToken = request.headers.get('x-cashier-session-token');
   const term = (url.searchParams.get('search') || '').trim();
   const branchId = Number(url.searchParams.get('branchId'));
-  if (!userId || !sessionToken || !term || term.length > 100 || !Number.isSafeInteger(branchId) || branchId <= 0) {
+  if (!userId || !sessionToken || term.length > 100 || !Number.isSafeInteger(branchId) || branchId <= 0) {
     return json({ error: 'Invalid search or branch' }, { status: 400 });
   }
   try {
@@ -19,14 +19,17 @@ export const GET: RequestHandler = async ({ request, url }) => {
     });
     if (sessionError || session?.valid !== true) return json({ error: 'Cashier session expired' }, { status: 401 });
     if (!await cashierInBranch(db, userId, branchId)) return json({ error: 'Cashier branch mismatch.' }, { status: 403 });
-    const pattern = `%${term.replace(/[%_]/g, '\\$&')}%`;
-    const [english, arabic] = await Promise.all([
-      db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId).ilike('name_en', pattern).limit(30),
-      db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId).ilike('name_ar', pattern).limit(30)
-    ]);
-    if (english.error) throw english.error;
-    if (arabic.error) throw arabic.error;
-    const employees = [...new Map([...(english.data || []), ...(arabic.data || [])]
+    const employeeResults = term
+      ? await Promise.all([
+          db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId)
+            .ilike('name_en', `%${term.replace(/[%_]/g, '\\$&')}%`).limit(30),
+          db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId)
+            .ilike('name_ar', `%${term.replace(/[%_]/g, '\\$&')}%`).limit(30)
+        ])
+      : [await db.from('hr_employee_master').select('user_id,name_en,name_ar')
+          .eq('current_branch_id', branchId).limit(100)];
+    for (const result of employeeResults) if (result.error) throw result.error;
+    const employees = [...new Map(employeeResults.flatMap(result => result.data || [])
       .map(item => [item.user_id, item])).values()];
     if (!employees.length) return json({ users: [] }, { headers: { 'Cache-Control': 'no-store' } });
     const employeeIds = employees.map(item => item.user_id);

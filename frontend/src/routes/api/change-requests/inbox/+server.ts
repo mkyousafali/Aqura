@@ -18,7 +18,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
     const { data, error } = await db.from('aqura_change_requests')
       .select('id,request_number,requested_to_user_id,denomination_counts,total_amount,status,requested_at,withdrawal_counts,withdrawal_total,cashier_confirmed_at')
       .eq('requested_by_user_id', userId).eq('branch_id', branchId)
-      .in('status', ['Ready for Cashier Confirmation', 'Cashier Confirmed'])
+      .in('status', ['Pending', 'Ready for Cashier Confirmation', 'Cashier Confirmed'])
       .order('requested_at', { ascending: false }).limit(30);
     if (error) throw error;
     const recipientIds = [...new Set((data || []).map(item => item.requested_to_user_id))];

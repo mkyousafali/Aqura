@@ -148,14 +148,14 @@
 				printed = true;
 				await changeRequestAction(item.id, 'print_event', { printStatus: 'success', printerName: selectedCounterPrinter });
 				changeInbox = changeInbox.filter(request => request.id !== item.id);
-				changeFlowMessage = 'POS opening print sent. Request completed.';
+				changeFlowMessage = L('Cash drawer opened. Request completed.', 'تم فتح درج النقد. اكتمل الطلب.');
 			} catch (error) {
 				if (!printed) await changeRequestAction(item.id, 'print_event', { printStatus: 'failure',
 					printerName: selectedCounterPrinter, errorMessage: error instanceof Error ? error.message : 'Print failed.' });
 				throw error;
 			}
 			await loadChangeInbox();
-		} catch (error) { changeFlowMessage = error instanceof Error ? error.message : 'POS print failed.'; }
+		} catch (error) { changeFlowMessage = error instanceof Error ? error.message : L('Could not open the cash drawer.', 'تعذر فتح درج النقد.'); }
 		finally { changeFlowBusy = ''; }
 	}
 
@@ -167,7 +167,7 @@
 			await changeRequestAction(item.id, 'confirm', { counts: item.withdrawal_counts });
 			await loadChangeInbox();
 			await printChangeRequest(item);
-		} catch (error) { changeFlowMessage = error instanceof Error ? error.message : 'Could not confirm request.'; }
+		} catch (error) { changeFlowMessage = error instanceof Error ? error.message : L('Could not confirm request.', 'تعذر تأكيد الطلب.'); }
 		finally { changeFlowBusy = ''; }
 	}
 	$: changeTotalCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeCounts[key] || 0), 0);
@@ -193,10 +193,31 @@
 		clearTimeout(changeSearchTimer);
 	}
 
+	async function openCounterForChange() {
+		changeBusy = true;
+		changeMessage = '';
+		try {
+			if (!selectedCounterPrinter || !counterPrinterBridge() || !counterPrinterReady) {
+				throw new Error(L('Test and configure the POS printer in Manager Cashier Counter first.', 'اختبر واضبط طابعة نقطة البيع في إعداد جهاز الكاشير أولاً.'));
+			}
+			const reason = 'Opening a POS Counter for Change Purpose';
+			counterFlowId = crypto.randomUUID();
+			await recordCounterAction('opening_pos_counter', reason);
+			if (!await printCounterReceipt(reason, false)) return;
+			openChangeForm();
+			changeMessage = L('Cash drawer opened for change purpose.', 'تم فتح درج النقد لغرض الفكة.');
+		} catch (error) {
+			changeMessage = error instanceof Error ? error.message : L('Could not open the cash drawer.', 'تعذر فتح درج النقد.');
+		} finally {
+			changeBusy = false;
+		}
+	}
+
 	function openChangeForm() {
 		resetChangeForm();
 		showChangeForm = true;
 		void refreshChangeAvailability();
+		void searchChangeUsers();
 	}
 
 	async function refreshChangeAvailability() {
@@ -225,16 +246,12 @@
 	async function searchChangeUsers() {
 		const term = changeSearch.trim();
 		const sequence = ++changeSearchSequence;
-		if (!term) {
-			changeUsers = [];
-			changeOptionsOpen = false;
-			return;
-		}
 		try {
 			const sessionToken = get(cashierSessionToken);
 			const userId = user?.id || user?.user_id;
 			if (!sessionToken || !userId || !branch?.id) throw new Error('Cashier session or branch is unavailable.');
-			const params = new URLSearchParams({ search: term, branchId: String(branch.id) });
+			const params = new URLSearchParams({ branchId: String(branch.id) });
+			if (term) params.set('search', term);
 			const response = await fetch(`/api/change-request-users?${params}`, {
 				cache: 'no-store', headers: { 'x-cashier-user-id': userId, 'x-cashier-session-token': sessionToken }
 			});
@@ -258,7 +275,6 @@
 		selectedChangeUser = candidate;
 		changeSearch = changeUserName(candidate);
 		changeOptionsOpen = false;
-		changeUsers = [];
 		clearTimeout(changeSearchTimer);
 		changeSearchSequence++;
 	}
@@ -1744,20 +1760,18 @@
 			</div>
 			<div class="card-content change-request-content">
 				{#if !showChangeForm}
-					<button type="button" class="change-primary" on:click={openChangeForm}>{L('Send Request', 'إرسال الطلب')}</button>
+					{#if !changeInbox.length}
+						<button type="button" class="change-primary" disabled={changeBusy} on:click={openCounterForChange}>{L('Open Counter', 'فتح العداد')}</button>
+					{/if}
 				{:else}
 					<div class="change-inline">
-						<label for="change-user-search">{L('Select User', 'اختر المستخدم')}</label>
-						<div class="change-user-picker">
-							<input id="change-user-search" type="search" role="combobox" aria-autocomplete="list" aria-controls="change-user-options" aria-expanded={changeOptionsOpen} placeholder={L('Search and select a user', 'ابحث واختر مستخدماً')} bind:value={changeSearch} on:input={queueChangeSearch} on:keydown={(event) => { if (event.key === 'Escape') changeOptionsOpen = false; if (event.key === 'Enter' && changeOptionsOpen && changeUsers.length) { event.preventDefault(); selectChangeUser(changeUsers[0]); } }} on:blur={() => setTimeout(() => changeOptionsOpen = false, 150)} />
-							{#if changeOptionsOpen}
-								<div id="change-user-options" class="change-user-options" role="listbox">
-									{#each changeUsers as candidate (candidate.id)}
-										<button type="button" role="option" aria-selected={false} on:mousedown|preventDefault={() => selectChangeUser(candidate)}>{changeUserName(candidate)}</button>
-									{/each}
-									{#if !changeUsers.length}<p>{L('Type to find a user', 'اكتب للبحث عن مستخدم')}</p>{/if}
-								</div>
-							{/if}
+						<label>{L('Select User', 'اختر المستخدم')}</label>
+						<div class="change-user-list" role="listbox" aria-label={L('Available users', 'المستخدمون المتاحون')}>
+							{#each changeUsers as candidate (candidate.id)}
+								<button type="button" role="option" aria-selected={selectedChangeUser?.id === candidate.id}
+									class:selected={selectedChangeUser?.id === candidate.id} on:click={() => selectChangeUser(candidate)}>{changeUserName(candidate)}</button>
+							{/each}
+							{#if !changeUsers.length}<p>{L('No available users found.', 'لم يتم العثور على مستخدمين متاحين.')}</p>{/if}
 						</div>
 						{#if selectedChangeUser}<p class="change-selected">{L('Selected', 'المختار')}: <strong>{changeUserName(selectedChangeUser)}</strong></p>{/if}
 						<label for="change-amount">{L('Amount needed (SAR)', 'المبلغ المطلوب (ريال)')}</label>
@@ -1815,7 +1829,7 @@
 									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id || !changeDenomKeys.filter(key => (item.withdrawal_counts?.[key] || 0) > 0).every(key => changeChecks[item.id]?.[key])}
 										on:click={() => confirmChangeRequest(item)}>{L('Done', 'تم')}</button>
 								{:else if item.status === 'Cashier Confirmed'}
-									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id} on:click={() => printChangeRequest(item)}>{L('Print / Retry POS Opening', 'طباعة / إعادة محاولة فتح نقطة البيع')}</button>
+									<button type="button" class="change-primary" disabled={changeFlowBusy === item.id} on:click={() => printChangeRequest(item)}>{L('Open Counter / Retry', 'فتح العداد / إعادة المحاولة')}</button>
 								{/if}
 							</div>
 						{/each}
@@ -2690,6 +2704,10 @@
 	.change-user-options button { display: block; width: 100%; border: 0; padding: 0.55rem 0.75rem; background: white; text-align: left; cursor: pointer; }
 	.change-user-options button:hover, .change-user-options button:focus { background: #eff6ff; }
 	.change-user-options p { padding: 0.55rem 0.75rem; color: #64748b; }
+	.change-user-list { display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 2.5rem; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.375rem; }
+	.change-user-list button { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.5rem 0.75rem; background: white; color: #1e293b; cursor: pointer; }
+	.change-user-list button:hover, .change-user-list button:focus, .change-user-list button.selected { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+	.change-user-list p { margin: 0; padding: 0.25rem; color: #64748b; }
 	.change-actions button, .change-primary { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.4rem 0.65rem; background: white; cursor: pointer; }
 	.change-primary, .change-actions button.change-primary { background: #2563eb; border-color: #2563eb; color: white; }
 	.change-denominations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
