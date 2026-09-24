@@ -562,7 +562,7 @@
 								</span>
 							{/if}
 							{#if $currentUser?.isMasterAdmin}
-								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ11.9.10.8</button>
+								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ12.9.10.8</button>
 							{/if}
 
 							<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>

@@ -273,7 +273,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Use a short delay to ensure cleanup completes
 			setTimeout(() => {
 				console.log('🚪 [Taskbar] Executing redirect to login...');
-				window.location.href = '/login';
+				window.location.href = '/login/employee?mode=desktop';
 			}, 100);
 			
 		} catch (error) {
@@ -281,7 +281,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			// Force redirect even if there's an error
 			setTimeout(() => {
 				console.log('🚪 [Taskbar] Error occurred, forcing redirect...');
-				window.location.href = '/login';
+				window.location.href = '/login/employee?mode=desktop';
 			}, 100);
 		}
 	}
