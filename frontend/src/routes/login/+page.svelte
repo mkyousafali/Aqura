@@ -214,7 +214,11 @@
 	});
 
 	function goTeam() {
-		goto('/mobile-interface/login');
+		if (window.innerWidth <= 768) {
+			goto('/mobile-interface/login');
+		} else {
+			goto('/login/employee');
+		}
 	}
 
 	// Careers section - Job Ads are managed from BrandingManager's Careers tab and live in

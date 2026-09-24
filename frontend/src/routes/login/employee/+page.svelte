@@ -51,6 +51,7 @@
 
 	onMount(async () => {
 		mounted = true;
+		hideMobile = window.matchMedia('(min-width: 769px)').matches;
 		setTimeout(() => {
 			showContent = true;
 		}, 300);
@@ -135,6 +136,15 @@
 		return quickAccessValid;
 	}
 
+	function clearQuickAccessInputs() {
+		for (let index = 0; index < 6; index++) {
+			const input = document.getElementById(`digit-${index}`) as HTMLInputElement | null;
+			if (input) input.value = '';
+		}
+		const firstDigit = document.getElementById('digit-0') as HTMLInputElement | null;
+		firstDigit?.focus();
+	}
+
 	async function handleUsernameLogin() {
 		if (!validateUsername() || !validatePassword()) {
 			errorMessage = 'Please check your credentials and try again.';
@@ -188,13 +198,7 @@
 				quickAccessDigits = ['', '', '', '', '', ''];
 				quickAccessCode = '';
 				quickAccessValid = false;
-				setTimeout(() => {
-					const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
-					if (firstDigit) {
-						firstDigit.value = '';
-						firstDigit.focus();
-					}
-				}, 50);
+				setTimeout(clearQuickAccessInputs, 50);
 			}
 
 		} catch (error) {
@@ -203,13 +207,7 @@
 			quickAccessDigits = ['', '', '', '', '', ''];
 			quickAccessCode = '';
 			quickAccessValid = false;
-			setTimeout(() => {
-				const firstDigit = document.getElementById('digit-0') as HTMLInputElement;
-				if (firstDigit) {
-					firstDigit.value = '';
-					firstDigit.focus();
-				}
-			}, 50);
+			setTimeout(clearQuickAccessInputs, 50);
 		} finally {
 			isLoading = false;
 		}
@@ -316,6 +314,7 @@
 		}
 		
 		validateQuickAccess();
+		if (quickAccessValid && !isLoading) setTimeout(() => handleQuickAccessLogin(), 100);
 	}
 </script>
 
@@ -335,6 +334,40 @@
 	{#if showContent}
 		<div class="login-content">
 			<div class="login-main-card">
+				<aside class="brand-panel" aria-label={$currentLocale === 'ar' ? 'بوابة أقورا المكتبية' : 'Aqura Desktop portal'}>
+					<div class="brand-glow brand-glow-one"></div>
+					<div class="brand-glow brand-glow-two"></div>
+					<div class="brand-panel-content">
+						<div class="brand-lockup">
+							<div class="brand-logo-card aqura-logo-card">
+								<button on:click={handleLogoClick} class="brand-logo-button" type="button" aria-label="Aqura Logo">
+									<img src="/icons/Aqura logo.png" alt="Aqura" class="aqura-brand-logo" />
+								</button>
+							</div>
+							<div class="brand-logo-card urban-logo-card">
+								<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" class="urban-brand-logo" />
+							</div>
+						</div>
+
+						<div class="brand-copy">
+							<span class="eyebrow">{$currentLocale === 'ar' ? 'واجهة سطح المكتب' : 'DESKTOP INTERFACE'}</span>
+							<h1>{$currentLocale === 'ar' ? 'مساحة عمل واحدة. تحكّم كامل.' : 'One workspace. Complete control.'}</h1>
+							<p>{$currentLocale === 'ar' ? 'إدارة أعمال آمنة وانسيابية في نظام ذكي واحد.' : 'Secure, streamlined business operations in one intelligent system.'}</p>
+						</div>
+
+						<div class="security-note">
+							<span class="security-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+							</span>
+							<div>
+								<strong>{$currentLocale === 'ar' ? 'دخول محمي' : 'Protected access'}</strong>
+								<span>{$currentLocale === 'ar' ? 'يتم التحقق من هويتك عبر نظام أقورا الآمن.' : 'Your identity is verified through Aqura secure access.'}</span>
+							</div>
+						</div>
+					</div>
+				</aside>
+
+				<div class="login-workspace">
 				<div class="logo-section">
 					<div class="logo-header">
 						{#if interfaceChoice === null}
@@ -362,18 +395,6 @@
 								</svg>
 							</button>
 						{/if}
-
-						<div class="logo">
-							<button 
-								on:click={handleLogoClick}
-								class="logo-btn"
-								type="button"
-								title="Logo"
-								aria-label="Aqura Logo"
-							>
-								<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
-							</button>
-						</div>
 
 						<button 
 							class="language-toggle-main" 
@@ -403,7 +424,7 @@
 									class="interface-btn desktop-btn"
 									on:click={() => chooseInterface('desktop')}
 									disabled={isLoading}
-									title={$_('customer.login.interface.desktop')}
+									title={$currentLocale === 'ar' ? 'الإدارة' : 'Operations'}
 								>
 									<div class="interface-icon">
 										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -412,7 +433,7 @@
 											<path d="M8 20h8"/>
 										</svg>
 									</div>
-									<span class="interface-label">{$_('customer.login.interface.desktop')}</span>
+									<span class="interface-label">{$currentLocale === 'ar' ? 'الإدارة' : 'Operations'}</span>
 								</button>
 
 						{#if !hideMobile}
@@ -437,17 +458,17 @@
 									on:click={() => goto('/cashier-interface')}
 									disabled={isLoading}
 									type="button"
-									title={$_('coupon.cashier') || 'Cashier'}
+									title={$currentLocale === 'ar' ? 'أدوات الكاشير' : 'Cashier Tools'}
 								>
 									<div class="interface-icon">
 										<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<rect x="3" y="3" width="18" height="18" rx="2"/>
-											<circle cx="8.5" cy="8.5" r="1.5"/>
-											<polyline points="21 15 16 10 5 21"/>
-											<line x1="10" y1="18" x2="18" y2="10"/>
+											<path d="M6 3h12l1 7H5l1-7Z"/>
+											<rect x="3" y="10" width="18" height="11" rx="2"/>
+											<path d="M7 14h4M7 17h4M15 14h2M15 17h2"/>
+											<path d="M8 6h8"/>
 										</svg>
 									</div>
-									<span class="interface-label">{$_('coupon.cashier') || 'Cashier'}</span>
+									<span class="interface-label">{$currentLocale === 'ar' ? 'أدوات الكاشير' : 'Cashier Tools'}</span>
 								</button>
 
 								{#if showCustomerButton}
@@ -545,7 +566,7 @@
 										<div class="field-group">
 											<div class="label-with-toggle">
 										<label for="password">{t('common.password')}</label>
-										<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} tabindex="-1">
+										<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} aria-label={$currentLocale === 'ar' ? (showAccessCode ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور') : (showAccessCode ? 'Hide password' : 'Show password')} title={$currentLocale === 'ar' ? (showAccessCode ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور') : (showAccessCode ? 'Hide password' : 'Show password')}>
 											{#if showAccessCode}
 												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
 											{:else}
@@ -611,7 +632,7 @@
 										<div class="field-group">
 											<div class="label-with-toggle">
 										<label for="quickAccess">{t('common.securityCode')}</label>
-										<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} tabindex="-1">
+										<button type="button" class="eye-toggle" on:click={() => showAccessCode = !showAccessCode} aria-label={$currentLocale === 'ar' ? (showAccessCode ? 'إخفاء رمز الوصول' : 'إظهار رمز الوصول') : (showAccessCode ? 'Hide access code' : 'Show access code')} title={$currentLocale === 'ar' ? (showAccessCode ? 'إخفاء رمز الوصول' : 'إظهار رمز الوصول') : (showAccessCode ? 'Hide access code' : 'Show access code')}>
 											{#if showAccessCode}
 												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
 											{:else}
@@ -626,7 +647,6 @@
 														type={showAccessCode ? 'text' : 'password'} 
 														class="digit-input"
 														class:error={!quickAccessValid && quickAccessDigits.every(d => d !== '')}
-														bind:value={quickAccessDigits[index]}
 														on:input={(e) => handleDigitInput(e, index)}
 														on:keydown={(e) => handleDigitKeydown(e, index)}
 														on:paste={handleDigitPaste}
@@ -719,6 +739,7 @@
 						</div>
 					</div>
 				{/if}
+				</div>
 			</div>
 		</div>
 
@@ -1483,5 +1504,691 @@
 
 	:global(html[dir="rtl"]) .interface-btn {
 		direction: rtl;
+	}
+
+	/* Desktop login experience */
+	.login-page {
+		padding: clamp(1.25rem, 3vw, 3.5rem);
+		background:
+			radial-gradient(circle at 8% 12%, rgba(24, 177, 224, 0.14), transparent 30%),
+			radial-gradient(circle at 92% 88%, rgba(30, 78, 150, 0.12), transparent 34%),
+			linear-gradient(145deg, #eef7fb 0%, #f8fbfd 44%, #edf2f8 100%);
+	}
+
+	.login-page::before {
+		background-image:
+			linear-gradient(rgba(11, 70, 111, 0.035) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(11, 70, 111, 0.035) 1px, transparent 1px);
+		background-size: 44px 44px;
+		mask-image: linear-gradient(to bottom right, black, transparent 72%);
+	}
+
+	.login-content {
+		max-width: 1180px;
+	}
+
+	.login-main-card {
+		display: grid;
+		grid-template-columns: minmax(360px, 0.92fr) minmax(520px, 1.08fr);
+		min-height: min(720px, calc(100dvh - 5rem));
+		border: 1px solid rgba(255, 255, 255, 0.88);
+		border-radius: 28px;
+		background: rgba(255, 255, 255, 0.94);
+		box-shadow: 0 32px 90px rgba(15, 48, 79, 0.17), 0 4px 16px rgba(15, 48, 79, 0.08);
+		backdrop-filter: blur(22px);
+	}
+
+	.brand-panel {
+		position: relative;
+		overflow: hidden;
+		min-width: 0;
+		color: #fff;
+		background:
+			linear-gradient(155deg, rgba(5, 31, 63, 0.97) 0%, rgba(5, 58, 102, 0.98) 52%, rgba(4, 91, 125, 0.97) 100%);
+	}
+
+	.brand-panel::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background:
+			linear-gradient(125deg, transparent 0 56%, rgba(255, 255, 255, 0.055) 56% 56.4%, transparent 56.4%),
+			radial-gradient(circle at 70% 22%, rgba(33, 211, 238, 0.19), transparent 24%);
+	}
+
+	.brand-glow {
+		position: absolute;
+		border-radius: 999px;
+		filter: blur(2px);
+		pointer-events: none;
+	}
+
+	.brand-glow-one {
+		width: 300px;
+		height: 300px;
+		right: -150px;
+		top: -90px;
+		border: 1px solid rgba(87, 220, 244, 0.24);
+		box-shadow: inset 0 0 70px rgba(18, 183, 218, 0.08);
+	}
+
+	.brand-glow-two {
+		width: 460px;
+		height: 460px;
+		left: -300px;
+		bottom: -260px;
+		background: rgba(20, 184, 201, 0.12);
+	}
+
+	.brand-panel-content {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 100%;
+		padding: clamp(2.4rem, 4vw, 4.6rem);
+		box-sizing: border-box;
+	}
+
+	.brand-lockup {
+		display: flex;
+		align-items: center;
+		gap: 1.4rem;
+		width: fit-content;
+		align-self: center;
+	}
+
+	.brand-logo-card {
+		position: relative;
+		z-index: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 112px;
+		height: 96px;
+		padding: 0.55rem;
+		box-sizing: border-box;
+		border: none;
+		border-radius: 18px;
+		background: #ffffff;
+		box-shadow: none;
+	}
+
+	.brand-logo-card::before {
+		content: '';
+		position: absolute;
+		inset: -4px;
+		pointer-events: none;
+		border: 1px solid rgba(255, 255, 255, 0.55);
+		border-radius: 22px;
+		background: transparent;
+		box-shadow: none;
+		z-index: 0;
+	}
+
+	.brand-logo-card > * {
+		position: relative;
+		z-index: 1;
+	}
+
+	.aqura-logo-card,
+	.urban-logo-card {
+		background: #ffffff;
+	}
+
+	.aqura-brand-logo {
+		display: block;
+		object-fit: contain;
+		filter: drop-shadow(0 5px 9px rgba(0, 0, 0, 0.15));
+		width: 86px;
+		height: 72px;
+	}
+
+	.brand-logo-button {
+		display: block;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.urban-brand-logo {
+		display: block;
+		width: 86px;
+		height: 72px;
+		object-fit: contain;
+	}
+
+	.brand-copy {
+		margin: auto 0;
+		padding: 3rem 0;
+	}
+
+	.eyebrow {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		font-size: 0.72rem;
+		font-weight: 800;
+		letter-spacing: 0.18em;
+		color: #75e7f4;
+	}
+
+	.eyebrow::before {
+		content: '';
+		width: 24px;
+		height: 2px;
+		border-radius: 2px;
+		background: currentColor;
+	}
+
+	.brand-copy h1 {
+		max-width: 470px;
+		margin: 1.1rem 0 1rem;
+		font-size: clamp(2.3rem, 4.1vw, 4.4rem);
+		font-weight: 760;
+		line-height: 1.02;
+		letter-spacing: -0.045em;
+		text-wrap: balance;
+		animation: headlineFadeIn 5.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s infinite both;
+	}
+
+	@keyframes headlineFadeIn {
+		0% {
+			opacity: 0;
+			transform: translateY(22px);
+			filter: blur(5px);
+		}
+		20%,
+		82% {
+			opacity: 1;
+			transform: translateY(0);
+			filter: blur(0);
+		}
+		100% {
+			opacity: 0;
+			transform: translateY(-8px);
+			filter: blur(3px);
+		}
+	}
+
+	.brand-copy p {
+		max-width: 430px;
+		margin: 0;
+		font-size: 1rem;
+		line-height: 1.75;
+		color: rgba(231, 248, 255, 0.76);
+		animation: headlineFadeIn 5.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s infinite both;
+	}
+
+	.security-note {
+		display: flex;
+		align-items: center;
+		gap: 0.9rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.13);
+	}
+
+	.security-icon {
+		display: grid;
+		place-items: center;
+		width: 42px;
+		height: 42px;
+		border-radius: 13px;
+		color: #72e7f3;
+		background: rgba(31, 202, 224, 0.12);
+		border: 1px solid rgba(91, 222, 239, 0.2);
+		flex: 0 0 auto;
+	}
+
+	.security-icon svg {
+		width: 21px;
+		height: 21px;
+	}
+
+	.security-note div {
+		display: grid;
+		gap: 0.2rem;
+	}
+
+	.security-note strong {
+		font-size: 0.86rem;
+	}
+
+	.security-note span:not(.security-icon) {
+		font-size: 0.75rem;
+		line-height: 1.4;
+		color: rgba(227, 246, 253, 0.62);
+	}
+
+	.login-workspace {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		background: rgba(255, 255, 255, 0.98);
+	}
+
+	.logo-section {
+		padding: 1.4rem clamp(1.7rem, 3.4vw, 3.4rem) 0;
+		background: transparent;
+		color: #15334d;
+	}
+
+	.logo-header {
+		max-width: none;
+		margin: 0;
+	}
+
+	.header-back-btn,
+	.language-toggle-main {
+		color: #24465f;
+		background: #f3f7fa;
+		border: 1px solid #dce7ed;
+		box-shadow: 0 3px 10px rgba(16, 56, 84, 0.05);
+	}
+
+	.header-back-btn {
+		width: 42px;
+		height: 42px;
+		border-radius: 13px;
+	}
+
+	.header-back-btn:hover:not(:disabled),
+	.language-toggle-main:hover {
+		color: #075985;
+		background: #e9f7fb;
+		border-color: #b8e5ed;
+		transform: translateY(-1px);
+	}
+
+	.logo {
+		justify-content: center;
+		padding: 0;
+		background: transparent;
+		box-shadow: none;
+	}
+
+	.logo-image {
+		height: 54px;
+		max-width: 130px;
+	}
+
+	.language-toggle-main {
+		min-height: 42px;
+		padding: 0.58rem 0.9rem;
+		border-radius: 13px;
+		font-size: 0.82rem;
+		font-weight: 700;
+	}
+
+	.auth-section {
+		flex: 1;
+		justify-content: center;
+		padding: 1.8rem clamp(2.5rem, 5vw, 5.5rem) 1.2rem;
+		gap: 1.25rem;
+	}
+
+	.auth-forms,
+	.interface-choice {
+		width: 100%;
+		max-width: 510px;
+	}
+
+	.auth-form {
+		gap: 1.15rem;
+	}
+
+	.form-header {
+		margin-bottom: 1.25rem;
+		text-align: start;
+	}
+
+	.form-header::before {
+		content: '';
+		display: block;
+		width: 42px;
+		height: 4px;
+		margin-bottom: 1.25rem;
+		border-radius: 99px;
+		background: linear-gradient(90deg, #08b6d5, #1768b0);
+	}
+
+	.form-header h2 {
+		margin-bottom: 0.55rem;
+		font-size: clamp(1.9rem, 2.7vw, 2.65rem);
+		font-weight: 760;
+		letter-spacing: -0.035em;
+		color: #102f49;
+	}
+
+	.form-header p {
+		font-size: 0.98rem;
+		line-height: 1.6;
+		color: #688094;
+	}
+
+	.form-fields {
+		gap: 1.15rem;
+	}
+
+	.field-group {
+		gap: 0.75rem;
+	}
+
+	.field-group label {
+		font-size: 0.78rem;
+		font-weight: 750;
+		letter-spacing: 0.035em;
+		text-transform: uppercase;
+		color: #466075;
+	}
+
+	.eye-toggle {
+		width: 38px;
+		height: 38px;
+		justify-content: center;
+		padding: 0;
+		border-radius: 11px;
+		color: #3e6985;
+		background: #f3f8fa;
+		border-color: #dce9ee;
+	}
+
+	.quick-access-digits {
+		justify-content: flex-start;
+		gap: clamp(0.55rem, 1vw, 0.75rem);
+		margin: 0;
+	}
+
+	.digit-input {
+		width: clamp(52px, 4.6vw, 61px);
+		height: clamp(58px, 5.2vw, 68px);
+		box-sizing: border-box;
+		border: 1px solid #cbdce5;
+		border-radius: 15px;
+		background: #f8fbfc;
+		font-size: 1.65rem;
+		font-weight: 760;
+		color: #123a56;
+		caret-color: #089bb9;
+		box-shadow: inset 0 1px 2px rgba(15, 56, 82, 0.025);
+	}
+
+	.digit-input:hover:not(:disabled) {
+		border-color: #9cc8d6;
+		background: #fff;
+	}
+
+	.digit-input:focus {
+		border-color: #0aa8c4;
+		background: #fff;
+		box-shadow: 0 0 0 4px rgba(10, 168, 196, 0.13), 0 9px 24px rgba(13, 105, 139, 0.08);
+		transform: translateY(-2px);
+	}
+
+	.field-spacer {
+		display: none;
+	}
+
+	.checkbox-option {
+		width: fit-content;
+		gap: 0.7rem;
+		font-size: 0.9rem;
+		font-weight: 550;
+		color: #425c70;
+	}
+
+	.checkbox-option input {
+		width: 18px;
+		height: 18px;
+		accent-color: #087fa5;
+	}
+
+	.auth-submit-btn {
+		min-height: 58px;
+		margin-top: 0.35rem;
+		border-radius: 15px;
+		background: linear-gradient(115deg, #087ca5 0%, #075b91 52%, #063d70 100%);
+		font-size: 1rem;
+		font-weight: 760;
+		letter-spacing: 0.01em;
+		box-shadow: 0 13px 28px rgba(7, 91, 145, 0.22);
+	}
+
+	.auth-submit-btn:hover:not(:disabled) {
+		box-shadow: 0 18px 34px rgba(7, 91, 145, 0.31);
+		transform: translateY(-2px);
+	}
+
+	.auth-submit-btn:focus-visible,
+	.change-code-link:focus-visible,
+	.header-back-btn:focus-visible,
+	.language-toggle-main:focus-visible,
+	.eye-toggle:focus-visible {
+		outline: 3px solid rgba(8, 162, 193, 0.25);
+		outline-offset: 3px;
+	}
+
+	.change-code-link {
+		width: fit-content;
+		margin: 0.2rem auto 0;
+		padding: 0.65rem 0.8rem;
+		border-radius: 10px;
+		color: #176b9e;
+		font-size: 0.82rem;
+		font-weight: 650;
+		text-decoration: none;
+	}
+
+	.change-code-link:hover {
+		color: #075985;
+		background: #eef8fb;
+	}
+
+	.status-message {
+		margin: 0 clamp(2.5rem, 5vw, 5.5rem) 2rem;
+		border-radius: 14px;
+		box-shadow: 0 8px 24px rgba(16, 58, 84, 0.07);
+	}
+
+	.interface-options {
+		gap: 1rem;
+	}
+
+	.interface-btn {
+		min-height: 155px;
+		padding: 1.5rem;
+		border: 1px solid #d8e6ec;
+		border-radius: 18px;
+		background: #f8fbfc;
+	}
+
+	.desktop-btn,
+	.cashier-btn {
+		animation: interfaceHeartbeat 2.8s ease-in-out infinite;
+	}
+
+	@keyframes interfaceHeartbeat {
+		0%,
+		55%,
+		100% {
+			transform: scale(1);
+		}
+		8% {
+			transform: scale(1.025);
+		}
+		15% {
+			transform: scale(1);
+		}
+		23% {
+			transform: scale(1.018);
+		}
+		31% {
+			transform: scale(1);
+		}
+	}
+
+	.interface-btn:hover:not(:disabled) {
+		animation-play-state: paused;
+		border-color: #61b6cc;
+		background: #f1fbfd;
+		box-shadow: 0 14px 30px rgba(21, 100, 129, 0.12);
+	}
+
+	.interface-icon {
+		width: 58px;
+		height: 58px;
+		border-radius: 16px;
+		background: linear-gradient(135deg, #0aa8c4, #075b91);
+		box-shadow: 0 10px 22px rgba(7, 91, 145, 0.2);
+	}
+
+	.interface-label {
+		font-size: 0.94rem;
+		color: #24465f;
+	}
+
+	:global(html[dir="rtl"]) .brand-panel,
+	:global(html[dir="rtl"]) .login-workspace {
+		direction: rtl;
+	}
+
+	:global(html[dir="rtl"]) .brand-copy h1 {
+		letter-spacing: 0;
+		line-height: 1.18;
+	}
+
+	:global(html[dir="rtl"]) .form-header,
+	:global(html[dir="rtl"]) .form-header p {
+		text-align: right;
+	}
+
+	:global(html[dir="rtl"]) .form-header::before {
+		margin-left: 0;
+		margin-right: 0;
+	}
+
+	:global(html[dir="rtl"]) .label-with-toggle {
+		flex-direction: row;
+	}
+
+	:global(html[dir="rtl"]) .quick-access-digits {
+		justify-content: flex-end;
+	}
+
+	:global(html[dir="rtl"]) .checkbox-option {
+		flex-direction: row;
+	}
+
+	@media (max-width: 980px) {
+		.login-page {
+			padding: 1rem;
+		}
+
+		.login-main-card {
+			grid-template-columns: minmax(280px, 0.75fr) minmax(480px, 1.25fr);
+			min-height: min(680px, calc(100dvh - 2rem));
+		}
+
+		.brand-panel-content {
+			padding: 2.2rem;
+		}
+
+		.brand-copy h1 {
+			font-size: 2.55rem;
+		}
+
+		.auth-section {
+			padding-inline: 2.5rem;
+		}
+
+		.status-message {
+			margin-inline: 2.5rem;
+		}
+	}
+
+	@media (max-width: 760px) {
+		.login-main-card {
+			display: flex;
+			min-height: auto;
+			border-radius: 22px;
+		}
+
+		.brand-panel {
+			display: none;
+		}
+
+		.logo-section {
+			padding: 1.1rem 1.2rem 0;
+		}
+
+		.auth-section {
+			padding: 1.8rem 1.3rem 1rem;
+		}
+
+		.form-header h2 {
+			font-size: 1.9rem;
+		}
+
+		.quick-access-digits {
+			justify-content: center;
+			gap: 0.42rem;
+		}
+
+		.digit-input {
+			width: clamp(40px, 11vw, 52px);
+			height: 55px;
+			border-radius: 12px;
+		}
+
+		.status-message {
+			margin: 0 1.3rem 1.3rem;
+		}
+	}
+
+	@media (max-height: 720px) and (min-width: 761px) {
+		.login-page {
+			padding: 0.75rem;
+		}
+
+		.login-main-card {
+			min-height: calc(100dvh - 1.5rem);
+		}
+
+		.brand-panel-content {
+			padding-block: 2rem;
+		}
+
+		.brand-copy {
+			padding-block: 1.5rem;
+		}
+
+		.brand-copy h1 {
+			font-size: 2.5rem;
+		}
+
+		.auth-section {
+			padding-block: 1rem;
+		}
+
+		.form-header {
+			margin-bottom: 0.6rem;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.login-page,
+		.login-main-card,
+		.brand-copy h1,
+		.brand-copy p,
+		.desktop-btn,
+		.cashier-btn,
+		.digit-input,
+		.auth-submit-btn,
+		.header-back-btn,
+		.language-toggle-main {
+			animation: none;
+			transition: none;
+		}
 	}
 </style>

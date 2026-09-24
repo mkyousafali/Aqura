@@ -224,6 +224,12 @@
 		if (value.length > 0) {
 			accessDigits[index] = value.slice(-1);
 			input.value = accessDigits[index];
+
+			// Match the Desktop login: submit automatically when the sixth digit is entered.
+			if (accessDigits.every(digit => digit !== '') && !loading) {
+				void handleAccessCodeSubmit();
+				return;
+			}
 			
 			// Auto-focus next input
 			if (index < 5 && accessDigits[index] !== '') {
@@ -309,18 +315,45 @@
 		if (targetInput) {
 			targetInput.focus();
 		}
+
+		if (digits.length === 6 && !loading) {
+			void handleAccessCodeSubmit();
+		}
 	}
 </script>
 
 <div class="cashier-login-page mounted" inert={showSessionConfirmation} aria-hidden={showSessionConfirmation}>
 	<div class="login-content">
 		<div class="login-main-card">
+			<aside class="cashier-brand-panel" aria-label={$currentLocale === 'ar' ? 'بوابة عمليات الكاشير' : 'Aqura Cashier Operations portal'}>
+				<div class="cashier-brand-content">
+					<div class="cashier-brand-lockup">
+						<div class="cashier-logo-card"><img src="/icons/Aqura logo.png" alt="Aqura" /></div>
+						<div class="cashier-logo-card"><img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" /></div>
+					</div>
+					<div class="cashier-brand-copy">
+						<span>{$currentLocale === 'ar' ? 'واجهة الكاشير' : 'CASHIER INTERFACE'}</span>
+						<h1>{$currentLocale === 'ar' ? 'أدوات الكاشير. مساحة عمل واحدة.' : 'Cashier tools. One secure workspace.'}</h1>
+						<p>{$currentLocale === 'ar' ? 'إدارة الصناديق وطلبات الفكة وعمليات الاستبدال بسهولة وأمان.' : 'Manage counters, change requests, and redemptions with clarity and control.'}</p>
+					</div>
+					<div class="cashier-security-note">
+						<span class="cashier-security-icon" aria-hidden="true">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+						</span>
+						<div>
+							<strong>{$currentLocale === 'ar' ? 'دخول محمي' : 'Protected access'}</strong>
+							<span>{$currentLocale === 'ar' ? 'يتم التحقق من هويتك عبر نظام أقورا الآمن.' : 'Your identity is verified through Aqura secure access.'}</span>
+						</div>
+					</div>
+				</div>
+			</aside>
+			<div class="cashier-login-workspace">
 			<!-- Logo Section with Language Toggle -->
 			<div class="logo-section">
 				<div class="logo-header">
-					<div class="logo">
-						<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Aqura Logo" class="logo-image" />
-					</div>
+					<button type="button" class="header-back-btn" on:click={() => goto('/login')} aria-label={$currentLocale === 'ar' ? 'رجوع' : 'Back'}>
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+					</button>
 					<button 
 						class="language-toggle-main" 
 						on:click={() => {
@@ -347,12 +380,6 @@
 					<!-- Access Code Step -->
 					<form class="auth-form" on:submit|preventDefault={handleAccessCodeSubmit}>
 						<div class="form-header">
-							<button type="button" class="back-btn" on:click={() => goto('/login')}>
-								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M19 12H5M12 19l-7-7 7-7"/>
-								</svg>
-								{t('common.backToLogin') || 'Back to Login'}
-							</button>
 							<h2>{t('auth.quickAccess') || 'Quick Access'}</h2>
 							<p>{t('coupon.accessCodeInstructions') || 'Enter your 6-digit security code to access the cashier interface'}</p>
 						</div>
@@ -534,6 +561,7 @@
 			<!-- Footer -->
 			<div class="login-footer">
 				<p>{t('app.shortName')} - {t('app.description')}</p>
+			</div>
 			</div>
 		</div>
 	</div>
@@ -1144,6 +1172,137 @@
 		color: #6b7280;
 		font-size: 0.875rem;
 		margin: 0;
+	}
+
+	/* Premium split-screen POS login */
+	.cashier-login-page {
+		padding: clamp(1rem, 3vw, 3rem);
+		background:
+			linear-gradient(rgba(8, 145, 178, 0.035) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(8, 145, 178, 0.035) 1px, transparent 1px),
+			radial-gradient(circle at 12% 15%, rgba(34, 211, 238, 0.13), transparent 28%),
+			#f6fafc;
+		background-size: 32px 32px, 32px 32px, auto, auto;
+	}
+
+	.login-content { max-width: 1180px; }
+
+	.login-main-card {
+		display: grid;
+		grid-template-columns: minmax(360px, 0.92fr) minmax(520px, 1.08fr);
+		min-height: min(720px, calc(100dvh - 5rem));
+		border-radius: 28px;
+		border-color: rgba(255, 255, 255, 0.88);
+		box-shadow: 0 32px 90px rgba(15, 48, 79, 0.17), 0 4px 16px rgba(15, 48, 79, 0.08);
+	}
+
+	.cashier-brand-panel {
+		position: relative;
+		overflow: hidden;
+		color: white;
+		background: linear-gradient(155deg, rgba(5, 31, 63, 0.97) 0%, rgba(5, 58, 102, 0.98) 52%, rgba(4, 91, 125, 0.97) 100%);
+	}
+
+	.cashier-brand-panel::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(125deg, transparent 0 56%, rgba(255, 255, 255, 0.055) 56% 56.4%, transparent 56.4%), radial-gradient(circle at 70% 22%, rgba(33, 211, 238, 0.19), transparent 24%);
+		pointer-events: none;
+	}
+
+	.cashier-brand-content {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 100%;
+		padding: clamp(2.4rem, 4vw, 4.6rem);
+		box-sizing: border-box;
+	}
+
+	.cashier-brand-lockup {
+		display: flex;
+		justify-content: center;
+		gap: 1.4rem;
+	}
+
+	.cashier-logo-card {
+		display: grid;
+		place-items: center;
+		width: 112px;
+		height: 96px;
+		padding: 0.55rem;
+		box-sizing: border-box;
+		border-radius: 18px;
+		background: white;
+		outline: 1px solid rgba(255, 255, 255, 0.55);
+		outline-offset: 4px;
+	}
+
+	.cashier-logo-card img { width: 86px; height: 72px; object-fit: contain; }
+
+	.cashier-brand-copy { margin: auto 0; padding: 3rem 0; }
+	.cashier-brand-copy > span { display: inline-flex; align-items: center; gap: .55rem; color: #75e7f4; font-size: .72rem; font-weight: 800; letter-spacing: .18em; }
+	.cashier-brand-copy > span::before { content: ''; width: 24px; height: 2px; border-radius: 2px; background: currentColor; }
+	.cashier-brand-copy h1 {
+		max-width: 470px;
+		margin: 1.1rem 0 1rem;
+		font-size: clamp(2.3rem, 4.1vw, 4.4rem);
+		font-weight: 760;
+		line-height: 1.02;
+		letter-spacing: -0.045em;
+		animation: cashierCopyFade 5.5s cubic-bezier(0.22, 1, 0.36, 1) infinite both;
+	}
+	.cashier-brand-copy p {
+		max-width: 430px;
+		margin: 0;
+		color: rgba(231, 248, 255, 0.78);
+		line-height: 1.75;
+		animation: cashierCopyFade 5.5s cubic-bezier(0.22, 1, 0.36, 1) infinite both;
+	}
+	.cashier-security-note { display: flex; align-items: center; gap: .9rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,.13); }
+	.cashier-security-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: #72e7f3; background: rgba(31,202,224,.12); border: 1px solid rgba(91,222,239,.2); flex: 0 0 auto; }
+	.cashier-security-icon svg { width: 21px; height: 21px; }
+	.cashier-security-note > div { display: grid; gap: .2rem; }
+	.cashier-security-note strong { font-size: .86rem; }
+	.cashier-security-note > div span { font-size: .75rem; line-height: 1.4; color: rgba(227,246,253,.62); }
+
+	@keyframes cashierCopyFade {
+		0% { opacity: 0; transform: translateY(20px); filter: blur(4px); }
+		20%, 82% { opacity: 1; transform: translateY(0); filter: blur(0); }
+		100% { opacity: 0; transform: translateY(-8px); filter: blur(3px); }
+	}
+
+	.cashier-login-workspace { display: flex; flex-direction: column; min-width: 0; background: rgba(255,255,255,.98); }
+	.logo-section { padding: 1.4rem clamp(1.7rem, 3vw, 3rem) 0; background: transparent; color: #15334d; }
+	.logo-header { justify-content: space-between; max-width: none; }
+	.header-back-btn, .language-toggle-main { color: #24465f; background: #f3f7fa; border: 1px solid #dce7ed; box-shadow: 0 3px 10px rgba(16,56,84,.05); }
+	.header-back-btn { display: grid; place-items: center; width: 42px; height: 42px; padding: 0; border-radius: 13px; cursor: pointer; }
+	.language-toggle-main:hover { color: #075985; background: #e9f7fb; border-color: #b8e5ed; }
+	.language-toggle-main { min-height: 42px; padding: .58rem .9rem; border-radius: 13px; font-size: .82rem; font-weight: 700; }
+	.login-container { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 1.8rem clamp(2.5rem, 5vw, 5.5rem) 1.2rem; }
+	.auth-form { width: 100%; max-width: 510px; }
+	.form-header { margin-bottom: 1.25rem; text-align: start; }
+	.form-header::before { content: ''; display: block; width: 42px; height: 4px; margin-bottom: 1.25rem; border-radius: 99px; background: linear-gradient(90deg,#08b6d5,#1768b0); }
+	.form-header h2 { margin-bottom: .55rem; font-size: clamp(1.9rem,2.7vw,2.65rem); font-weight: 760; letter-spacing: -.035em; color: #102f49; }
+	.form-header p { font-size: .98rem; line-height: 1.6; color: #688094; }
+	.field-group label { font-size: .78rem; font-weight: 750; letter-spacing: .035em; text-transform: uppercase; color: #466075; }
+	.quick-access-digits { justify-content: flex-start; gap: clamp(.55rem,1vw,.75rem); margin: 0; }
+	.digit-input { width: clamp(52px,4.6vw,61px); height: clamp(58px,5.2vw,68px); box-sizing: border-box; border: 1px solid #cbdce5; border-radius: 15px; background: #f8fbfc; font-size: 1.65rem; font-weight: 760; color: #123a56; }
+	.eye-toggle { width: 38px; height: 38px; justify-content: center; padding: 0; border-radius: 11px; color: #3e6985; background: #f3f8fa; border-color: #dce9ee; }
+	.field-spacer { display: none; }
+	.auth-submit-btn { min-height: 58px; margin-top: .35rem; border-radius: 15px; background: linear-gradient(115deg,#087ca5 0%,#075b91 52%,#063d70 100%); font-size: 1rem; font-weight: 760; box-shadow: 0 13px 28px rgba(7,91,145,.22); }
+	.digit-input:focus, .field-input:focus { border-color: #08a6c1; box-shadow: 0 0 0 4px rgba(8,166,193,.12); }
+	.change-code-link { width: fit-content; margin: .2rem auto 0; padding: .65rem .8rem; border-radius: 10px; color: #176b9e; font-size: .82rem; font-weight: 650; text-decoration: none; }
+	.login-footer { display: none; }
+
+	:global(html[dir="rtl"]) .cashier-brand-copy { text-align: right; }
+	:global(html[dir="rtl"]) .header-back-btn svg { transform: scaleX(-1); }
+
+	@media (max-width: 980px) {
+		.login-main-card { grid-template-columns: 1fr; min-height: auto; }
+		.cashier-brand-panel { display: none; }
 	}
 
 	/* Responsive */
