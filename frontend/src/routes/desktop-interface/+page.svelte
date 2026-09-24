@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { localeData, t, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
-	import { currentUser } from '$lib/utils/persistentAuth';
+	import { currentUser, persistentAuthService } from '$lib/utils/persistentAuth';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { favoritesStore, favoriteButtonCodes, favoritesPanelOpen } from '$lib/stores/favorites';
 	import type { FavoriteButton } from '$lib/stores/favorites';
@@ -120,6 +121,36 @@
 	let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let logoClickCount = 0;
 	let logoClickTimeout: ReturnType<typeof setTimeout> | null = null;
+	const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
+	let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastActivityReset = 0;
+	let showInactivityPrompt = false;
+	let showReauthentication = false;
+	let reauthDigits = ['', '', '', '', '', ''];
+	let reauthError = '';
+	let reauthLoading = false;
+
+	function clearInactivityTimer() {
+		if (inactivityTimer) clearTimeout(inactivityTimer);
+		inactivityTimer = null;
+	}
+
+	function scheduleInactivityPrompt() {
+		clearInactivityTimer();
+		if (!$currentUser || showInactivityPrompt) return;
+		lastActivityReset = Date.now();
+		inactivityTimer = setTimeout(() => {
+			showInactivityPrompt = true;
+			showReauthentication = false;
+			reauthDigits = ['', '', '', '', '', ''];
+			reauthError = '';
+		}, INACTIVITY_TIMEOUT_MS);
+	}
+
+	function recordDesktopActivity() {
+		if (!$currentUser || showInactivityPrompt || Date.now() - lastActivityReset < 1000) return;
+		scheduleInactivityPrompt();
+	}
 
 	// Map button_code → i18n translation key for showing translated button names
 	const buttonCodeTranslationMap: Record<string, string> = {
@@ -327,6 +358,12 @@
 
 	onMount(async () => {
 		mounted = true;
+		scheduleInactivityPrompt();
+		window.addEventListener('pointerdown', recordDesktopActivity, true);
+		window.addEventListener('pointermove', recordDesktopActivity, true);
+		window.addEventListener('keydown', recordDesktopActivity, true);
+		window.addEventListener('touchstart', recordDesktopActivity, true);
+		window.addEventListener('scroll', recordDesktopActivity, true);
 		
 		// Load favorites for current user
 		if ($currentUser) {
@@ -344,11 +381,89 @@
 
 	});
 
-	onDestroy(() => {});
+	onDestroy(() => {
+		clearInactivityTimer();
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('pointerdown', recordDesktopActivity, true);
+			window.removeEventListener('pointermove', recordDesktopActivity, true);
+			window.removeEventListener('keydown', recordDesktopActivity, true);
+			window.removeEventListener('touchstart', recordDesktopActivity, true);
+			window.removeEventListener('scroll', recordDesktopActivity, true);
+		}
+	});
+
+	async function beginReauthentication() {
+		showReauthentication = true;
+		reauthDigits = ['', '', '', '', '', ''];
+		reauthError = '';
+		await tick();
+		(document.getElementById('desktop-reauth-digit-0') as HTMLInputElement | null)?.focus();
+	}
+
+	async function verifyReauthentication() {
+		const code = reauthDigits.join('');
+		if (code.length !== 6 || reauthLoading || !$currentUser) return;
+		reauthLoading = true;
+		reauthError = '';
+		try {
+			const { data, error } = await supabase.rpc('verify_quick_access_code', { p_code: code });
+			if (error || !data?.success || String(data.user?.id) !== String($currentUser.id)) throw new Error('invalid');
+			showInactivityPrompt = false;
+			showReauthentication = false;
+			reauthDigits = ['', '', '', '', '', ''];
+			scheduleInactivityPrompt();
+		} catch {
+			reauthError = $currentLocale === 'ar' ? 'رمز الوصول غير صحيح لهذا المستخدم.' : 'The access code does not match this user.';
+			reauthDigits = ['', '', '', '', '', ''];
+			await tick();
+			(document.getElementById('desktop-reauth-digit-0') as HTMLInputElement | null)?.focus();
+		} finally {
+			reauthLoading = false;
+		}
+	}
+
+	function handleReauthInput(event: Event, index: number) {
+		const input = event.target as HTMLInputElement;
+		const digit = input.value.replace(/\D/g, '').slice(-1);
+		reauthDigits[index] = digit;
+		input.value = digit;
+		if (digit && index < 5) (document.getElementById(`desktop-reauth-digit-${index + 1}`) as HTMLInputElement | null)?.focus();
+		if (reauthDigits.every(value => value !== '')) void verifyReauthentication();
+	}
+
+	function handleReauthKeydown(event: KeyboardEvent, index: number) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void verifyReauthentication();
+			return;
+		}
+		if (event.key === 'Backspace' && !reauthDigits[index] && index > 0) {
+			(document.getElementById(`desktop-reauth-digit-${index - 1}`) as HTMLInputElement | null)?.focus();
+		}
+	}
+
+	function handleReauthPaste(event: ClipboardEvent) {
+		event.preventDefault();
+		const digits = (event.clipboardData?.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+		reauthDigits = Array.from({ length: 6 }, (_, index) => digits[index] || '');
+		if (digits.length === 6) void verifyReauthentication();
+	}
+
+	async function logoutFromInactivityPrompt() {
+		clearInactivityTimer();
+		showInactivityPrompt = false;
+		await persistentAuthService.logout();
+		goto('/login/employee?mode=desktop', { replaceState: true });
+	}
 
 	// Reload favorites when user changes
 	$: if ($currentUser && mounted) {
 		favoritesStore.load($currentUser.id, $currentUser.employee_id || null);
+	}
+
+	// Start the inactivity timer if authentication finishes after this page mounts.
+	$: if ($currentUser && mounted && !showInactivityPrompt && !inactivityTimer) {
+		scheduleInactivityPrompt();
 	}
 
 	// Refresh every time the panel opens so removed buttons and permission
@@ -562,7 +677,7 @@
 								</span>
 							{/if}
 							{#if $currentUser?.isMasterAdmin}
-								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ13.10.11.9</button>
+								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ14.11.12.10</button>
 							{/if}
 
 							<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
@@ -578,7 +693,58 @@
 	{/if}
 </div>
 
+{#if showInactivityPrompt}
+	<div class="desktop-inactivity-backdrop" role="presentation">
+		<div class="desktop-inactivity-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="desktop-inactivity-title" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+			<div class="desktop-inactivity-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+			</div>
+			<h2 id="desktop-inactivity-title">{$currentLocale === 'ar' ? 'تم إيقاف الجلسة مؤقتاً' : 'Session paused'}</h2>
+			<p>{$currentLocale === 'ar' ? 'لم يتم رصد أي نشاط لمدة 3 دقائق. اختر المتابعة أو تسجيل الخروج.' : 'No activity was detected for 3 minutes. Continue securely or log out.'}</p>
+
+			{#if showReauthentication}
+				<div class="desktop-reauth-section">
+					<div class="desktop-reauth-label">{$currentLocale === 'ar' ? 'أدخل رمز الوصول المكوّن من 6 أرقام' : 'Enter your 6-digit access code'}</div>
+					<div class="desktop-reauth-digits" dir="ltr">
+						{#each reauthDigits as digit, index}
+							<input id="desktop-reauth-digit-{index}" type="password" value={digit} maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off" disabled={reauthLoading} on:input={(event) => handleReauthInput(event, index)} on:keydown={(event) => handleReauthKeydown(event, index)} on:paste={handleReauthPaste} />
+						{/each}
+					</div>
+					{#if reauthError}<div class="desktop-reauth-error" role="alert">{reauthError}</div>{/if}
+					<button class="desktop-unlock-btn" type="button" on:click={verifyReauthentication} disabled={reauthLoading || reauthDigits.some(value => value === '')}>
+						{reauthLoading ? ($currentLocale === 'ar' ? 'جارٍ التحقق…' : 'Verifying…') : ($currentLocale === 'ar' ? 'فتح الجلسة' : 'Unlock session')}
+					</button>
+				</div>
+			{:else}
+				<div class="desktop-inactivity-actions">
+					<button class="desktop-continue-btn" type="button" on:click={beginReauthentication}>{$currentLocale === 'ar' ? 'متابعة الجلسة' : 'Continue session'}</button>
+					<button class="desktop-inactivity-logout-btn" type="button" on:click={logoutFromInactivityPrompt}>{$currentLocale === 'ar' ? 'تسجيل الخروج' : 'Log out'}</button>
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
+
 <style>
+	.desktop-inactivity-backdrop { position: fixed; inset: 0; z-index: 100000; display: grid; place-items: center; padding: 1.25rem; background: rgba(4,22,39,.72); backdrop-filter: blur(10px); }
+	.desktop-inactivity-dialog { width: min(100%,480px); padding: 2.2rem; box-sizing: border-box; border: 1px solid rgba(255,255,255,.8); border-radius: 24px; background: #fff; box-shadow: 0 28px 80px rgba(0,20,38,.35); text-align: center; }
+	.desktop-inactivity-icon { display: grid; place-items: center; width: 62px; height: 62px; margin: 0 auto 1.1rem; border-radius: 18px; color: #087ca5; background: #e9f8fb; border: 1px solid #c4e9f0; }
+	.desktop-inactivity-icon svg { width: 31px; height: 31px; }
+	.desktop-inactivity-dialog h2 { margin: 0 0 .65rem; color: #102f49; font-size: 1.65rem; }
+	.desktop-inactivity-dialog > p { margin: 0 auto 1.5rem; max-width: 390px; color: #60798b; line-height: 1.6; }
+	.desktop-inactivity-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+	.desktop-inactivity-actions button, .desktop-unlock-btn { min-height: 48px; padding: .8rem 1rem; border-radius: 12px; font-size: .95rem; font-weight: 750; cursor: pointer; }
+	.desktop-continue-btn, .desktop-unlock-btn { border: 0; color: #fff; background: linear-gradient(115deg,#087ca5,#075b91); }
+	.desktop-inactivity-logout-btn { border: 1px solid #d8e3e9; color: #40596c; background: #f7fafb; }
+	.desktop-reauth-section { display: grid; gap: 1rem; }
+	.desktop-reauth-label { color: #405c71; font-size: .85rem; font-weight: 700; }
+	.desktop-reauth-digits { display: flex; justify-content: center; gap: .55rem; }
+	.desktop-reauth-digits input { width: 50px; height: 58px; box-sizing: border-box; border: 1px solid #cbdce5; border-radius: 13px; background: #f8fbfc; text-align: center; font-size: 1.5rem; font-weight: 750; outline: none; }
+	.desktop-reauth-digits input:focus { border-color: #0aa8c4; background: #fff; box-shadow: 0 0 0 4px rgba(10,168,196,.13); }
+	.desktop-reauth-error { color: #b42318; font-size: .84rem; }
+	.desktop-unlock-btn:disabled { opacity: .5; cursor: not-allowed; }
+	@media (max-width: 560px) { .desktop-inactivity-dialog { padding: 1.5rem; } .desktop-inactivity-actions { grid-template-columns: 1fr; } .desktop-reauth-digits { gap: .35rem; } .desktop-reauth-digits input { width: 42px; height: 52px; } }
+
 	:global(.desktop) {
 		background: transparent !important;
 	}
