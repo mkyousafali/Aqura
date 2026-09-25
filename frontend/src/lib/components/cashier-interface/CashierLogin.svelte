@@ -328,8 +328,14 @@
 			<aside class="cashier-brand-panel" aria-label={$currentLocale === 'ar' ? 'بوابة عمليات الكاشير' : 'Aqura Cashier Operations portal'}>
 				<div class="cashier-brand-content">
 					<div class="cashier-brand-lockup">
-						<div class="cashier-logo-card"><img src="/icons/Aqura logo.png" alt="Aqura" /></div>
-						<div class="cashier-logo-card"><img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" /></div>
+						<div class="cashier-marquee-track">
+							{#each [0, 1, 2, 3] as copy}
+								<div class="cashier-marquee-group" aria-hidden={copy === 0 ? undefined : 'true'}>
+									<div class="cashier-logo-card"><img src="/icons/Aqura logo.png" alt={copy === 0 ? 'Aqura' : ''} /></div>
+									<div class="cashier-logo-card"><img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt={copy === 0 ? 'Urban Market' : ''} /></div>
+								</div>
+							{/each}
+						</div>
 					</div>
 					<div class="cashier-brand-copy">
 						<span>{$currentLocale === 'ar' ? 'واجهة الكاشير' : 'CASHIER INTERFACE'}</span>
@@ -1222,9 +1228,39 @@
 	}
 
 	.cashier-brand-lockup {
+		width: 100%;
+		overflow: hidden;
+		padding-block: 6px;
+		direction: ltr;
+		-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+		mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+	}
+
+	.cashier-marquee-track {
 		display: flex;
-		justify-content: center;
+		width: max-content;
+		animation: cashierBrandMarquee 28s linear infinite;
+	}
+
+	.cashier-brand-lockup:hover .cashier-marquee-track {
+		animation-play-state: paused;
+	}
+
+	.cashier-marquee-group {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
 		gap: 1.4rem;
+		padding-inline: 0.7rem;
+	}
+
+	@keyframes cashierBrandMarquee {
+		from { transform: translateX(0); }
+		to { transform: translateX(-50%); }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.cashier-marquee-track { animation: none; }
 	}
 
 	.cashier-logo-card {

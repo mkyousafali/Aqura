@@ -11,7 +11,6 @@
 	import { initI18n, currentLocale, localeData, switchLocale, hasManualLocaleOverride } from '$lib/i18n';
 	import LanguageToggle from '$lib/components/mobile-interface/common/LanguageToggle.svelte';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
-	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
 
@@ -111,14 +110,10 @@
 		
 		// Initialize i18n system (will load from localStorage or use default 'ar')
 		initI18n();
-		
-		// If no locale is set yet, default to Arabic
+
 		const storedLocale = typeof window !== 'undefined' ? localStorage.getItem('aqura-locale') : null;
 		if (!storedLocale) {
 			switchLocale('ar');
-			console.log('ðŸŒ Mobile: Locale defaulted to Arabic (ar)');
-		} else {
-			console.log('ðŸŒ Mobile: Locale loaded from storage:', storedLocale);
 		}
 		
 		// Skip authentication check if on login page
@@ -1432,9 +1427,6 @@
 				</div>
 			</div>
 		{/if}
-
-		<!-- Language Picker - mask over content, below header & bottom-nav -->
-		<LanguagePickerOverlay mode="mobile" />
 
 		<!-- Contact Info Overlay - mask over content, below header & bottom-nav -->
 		<ContactInfoOverlay mode="mobile" />

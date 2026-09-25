@@ -6,7 +6,7 @@
 	import BreakLog from '$lib/components/common/BreakLog.svelte';
 	import BreakTotalSummary from '$lib/components/common/BreakTotalSummary.svelte';
 	import { loadBreakRegisterData } from '$lib/utils/breakRegisterApi';
-	import { addDays, breakShiftDate, shiftTimeLabel, type ShiftSchedules, type ShiftSlot } from '$lib/utils/breakShiftDate';
+	import { addDays, shiftTimeLabel, type ShiftSchedules, type ShiftSlot } from '$lib/utils/breakShiftDate';
 
 	let breaks: any[] = [];
 	let branches: any[] = [];
@@ -21,7 +21,7 @@
 		{ id: 'Break Reasons', label: isRtl ? 'أسباب الاستراحة' : 'Break Reasons', icon: '📌', color: 'blue' },
 		{ id: 'Employee Summary', label: isRtl ? 'ملخص الموظف' : 'Employee Summary', icon: '📊', color: 'orange' },
 		{ id: 'Total Summary', label: isRtl ? 'الملخص الإجمالي' : 'Total Summary', icon: '📈', color: 'purple' }
-	];
+	].filter(tab => tab.id !== 'Employee Summary');
 
 	// Break Reasons
 	let breakReasons: any[] = [];
@@ -80,8 +80,8 @@
 		const schedules: ShiftSchedules = { regular, weekday, dateWise };
 		return {
 			schedules,
-			records: records.map(b => ({ ...b, shift_date: breakShiftDate(String(b.employee_id), b.start_time, schedules) }))
-				.filter(b => b.shift_date >= dateFrom && b.shift_date <= dateTo)
+			// shift_date is authoritative output from analyze-breaks.
+			records: records.filter(b => b.shift_date >= dateFrom && b.shift_date <= dateTo)
 		};
 	}
 

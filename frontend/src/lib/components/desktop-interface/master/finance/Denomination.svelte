@@ -19,6 +19,15 @@
 	let isSaving = false;
 	let lastSaved: Date | null = null;
 	let autoSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+	type MainRecordLoadState = 'idle' | 'loading' | 'loaded' | 'missing' | 'error';
+	let mainRecordLoadState: MainRecordLoadState = 'idle';
+	let mainRecordLoadError = '';
+	let safeBoxDirty = false;
+	let showRecoveryPopup = false;
+	let recoveryRecords: any[] = [];
+	let isLoadingRecovery = false;
+	let recoveryError = '';
+	let restoringAuditId = '';
 
 	// Realtime channel
 	let realtimeChannel: RealtimeChannel | null = null;
@@ -95,7 +104,8 @@
 	$: isMasterAdmin = $currentUser?.isMasterAdmin ?? false;
 	$: denomCanEdit = isMasterAdmin || (userPerm?.can_edit ?? false);
 	// No perm record at all = fully locked (treat as no access)
-	$: denomReadOnly = !isMasterAdmin && !denomCanEdit;
+	$: denominationDataReady = mainRecordLoadState === 'loaded';
+	$: denomReadOnly = (!isMasterAdmin && !denomCanEdit) || !denominationDataReady;
 	$: denomOneBranchOnly = !isMasterAdmin && (userPerm?.can_see_one_branch ?? false) && !(userPerm?.can_see_all_branches ?? false);
 	$: denomAllBranches = isMasterAdmin || (userPerm?.can_see_all_branches ?? false);
 	// Lock branch selector to user's own branch when one-branch only OR when userPerm is null/no access
@@ -129,14 +139,14 @@
 		await loadDenominationTypes();
 		await loadClosedBoxesCount();
 		await loadPendingBoxesCount();
-		isLoading = false;
-		
-		// Setup realtime subscription after branch is selected
+
+		// Load the selected branch exactly once. Mark it as handled before enabling
+		// the reactive branch watcher so login/session restoration cannot race two loads.
 		if (selectedBranch) {
-			await loadExistingRecords();
-			await fetchBoxOperations();
-			setupRealtimeSubscription();
+			previousBranch = selectedBranch;
+			await handleBranchChange();
 		}
+		isLoading = false;
 	});
 
 	onDestroy(() => {
@@ -166,6 +176,13 @@
 	}
 
 	async function handleBranchChange() {
+		if (autoSaveTimeout) {
+			clearTimeout(autoSaveTimeout);
+			autoSaveTimeout = null;
+		}
+		mainRecordLoadState = 'loading';
+		mainRecordLoadError = '';
+		safeBoxDirty = false;
 		// Reset all data first
 		closeSafeBoxTransfer();
 		resetCounts();
@@ -300,29 +317,50 @@
 
 	async function loadExistingRecords() {
 		if (!selectedBranch) return;
+		const requestedBranchId = Number(selectedBranch);
+		if (!Number.isInteger(requestedBranchId) || !branches.some((branch) => branch.id === requestedBranchId)) {
+			mainRecordLoadState = 'error';
+			mainRecordLoadError = 'The selected branch is invalid. Denomination balances were not loaded or changed.';
+			return;
+		}
+		mainRecordLoadState = 'loading';
+		mainRecordLoadError = '';
 
 		try {
 			// Load main denomination record (most recent)
 			const { data: mainData, error: mainError } = await supabase
 				.from('denomination_records')
 				.select('*')
-				.eq('branch_id', parseInt(selectedBranch))
+				.eq('branch_id', requestedBranchId)
 				.eq('record_type', 'main')
 				.order('created_at', { ascending: false })
 				.limit(1)
 				.maybeSingle();
 
-			if (!mainError && mainData) {
+			if (mainError) {
+				throw mainError;
+			}
+			if (Number(selectedBranch) !== requestedBranchId) return;
+
+			if (mainData) {
+				if (mainData.branch_id !== requestedBranchId) {
+					throw new Error('Loaded denomination record belongs to a different branch.');
+				}
 				mainRecordId = mainData.id;
 				const savedCounts = typeof mainData.counts === 'string' ? JSON.parse(mainData.counts) : mainData.counts;
+				if (!savedCounts || typeof savedCounts.safe_box !== 'object' || savedCounts.safe_box === null) {
+					throw new Error('Safe Box balances are missing from the saved branch record. No zero values were applied.');
+				}
 				counts = readMainCounts(savedCounts);
 				safeBoxCounts = readSafeBoxCounts(savedCounts);
 				erpBalance = mainData.erp_balance || '';
 				counts = { ...counts }; // Trigger reactivity
+				safeBoxDirty = false;
+				mainRecordLoadState = 'loaded';
 			} else {
-				// Reset if no record found
 				mainRecordId = null;
-				resetCounts();
+				mainRecordLoadState = 'missing';
+				mainRecordLoadError = 'No saved denomination record exists for this branch. Nothing was initialized or saved as zero.';
 			}
 
 			// Load box records (most recent for each box)
@@ -332,6 +370,7 @@
 				.eq('branch_id', parseInt(selectedBranch))
 				.eq('record_type', 'advance_box')
 				.order('created_at', { ascending: false });
+			if (Number(selectedBranch) !== requestedBranchId) return;
 
 			if (!boxError && boxData) {
 				// Reset box data first
@@ -354,6 +393,122 @@
 			}
 		} catch (error) {
 			console.error('Error loading existing records:', error);
+			mainRecordLoadState = 'error';
+			mainRecordLoadError = error instanceof Error ? error.message : 'Could not load denomination balances. No values were changed.';
+		}
+	}
+
+	async function retryMainRecordLoad() {
+		await loadExistingRecords();
+	}
+
+	function auditSnapshotTotal(snapshot: Record<string, any> | null): number {
+		if (!snapshot) return 0;
+		return Object.entries(snapshot).reduce((sum, [key, quantity]) => {
+			if (key === 'safe_box' || key === 'safe_box_balance') return sum;
+			return sum + Number(quantity || 0) * (denomValues[key] || 0);
+		}, 0);
+	}
+
+	function auditSafeBoxTotal(snapshot: Record<string, any> | null): number {
+		const safeBox = snapshot?.safe_box;
+		if (!safeBox || typeof safeBox !== 'object') return 0;
+		return Object.entries(safeBox).reduce(
+			(sum, [key, quantity]) => sum + Number(quantity || 0) * (denomValues[key] || 0), 0
+		);
+	}
+
+	function isRecoverableAudit(record: any): boolean {
+		return record?.branch_id === Number(selectedBranch)
+			&& record?.record_id === mainRecordId
+			&& record?.old_counts
+			&& typeof record.old_counts.safe_box === 'object'
+			&& record.old_counts.safe_box !== null;
+	}
+
+	async function openRecoveryPopup() {
+		if (!selectedBranch || !mainRecordId || mainRecordLoadState !== 'loaded') return;
+		showRecoveryPopup = true;
+		isLoadingRecovery = true;
+		recoveryError = '';
+		recoveryRecords = [];
+		try {
+			const branchId = Number(selectedBranch);
+			const recordId = mainRecordId;
+			const { data, error } = await supabase
+				.from('denomination_audit_log')
+				.select('id, record_id, branch_id, user_id, action, old_counts, new_counts, old_erp_balance, new_erp_balance, old_grand_total, new_grand_total, old_difference, new_difference, created_at')
+				.eq('branch_id', branchId)
+				.eq('record_id', recordId)
+				.eq('record_type', 'main')
+				.order('created_at', { ascending: false })
+				.limit(20);
+			if (error) throw error;
+			if (Number(selectedBranch) !== branchId || mainRecordId !== recordId) {
+				throw new Error('The selected branch changed while recovery history was loading.');
+			}
+			recoveryRecords = data || [];
+		} catch (error) {
+			recoveryError = error instanceof Error ? error.message : 'Could not load recovery history.';
+		} finally {
+			isLoadingRecovery = false;
+		}
+	}
+
+	function closeRecoveryPopup() {
+		if (restoringAuditId) return;
+		showRecoveryPopup = false;
+		recoveryError = '';
+	}
+
+	async function restoreAuditSnapshot(record: any) {
+		if (!denomCanEdit || !isRecoverableAudit(record) || !$currentUser?.id) return;
+		const branchId = Number(selectedBranch);
+		const recordId = mainRecordId;
+		if (!confirm(`Restore the denomination balances from ${new Date(record.created_at).toLocaleString()}? The current values will be preserved in the audit log.`)) return;
+		restoringAuditId = record.id;
+		recoveryError = '';
+		if (autoSaveTimeout) {
+			clearTimeout(autoSaveTimeout);
+			autoSaveTimeout = null;
+		}
+		try {
+			const { data: current, error: currentError } = await supabase
+				.from('denomination_records')
+				.select('id, branch_id, record_type')
+				.eq('id', recordId)
+				.eq('branch_id', branchId)
+				.eq('record_type', 'main')
+				.single();
+			if (currentError || !current) throw currentError || new Error('The current branch denomination record was not found.');
+			if (Number(selectedBranch) !== branchId || mainRecordId !== recordId) throw new Error('The selected branch changed. Restore was cancelled.');
+
+			const restoredCounts = structuredClone(record.old_counts);
+			const verifiedSafeBoxTotal = auditSafeBoxTotal(restoredCounts);
+			restoredCounts.safe_box_balance = verifiedSafeBoxTotal;
+			const restoredGrandTotal = record.old_grand_total ?? auditSnapshotTotal(restoredCounts);
+			const { data: restored, error } = await supabase
+				.from('denomination_records')
+				.update({
+					user_id: $currentUser.id,
+					counts: restoredCounts,
+					erp_balance: record.old_erp_balance,
+					grand_total: restoredGrandTotal,
+					difference: record.old_difference
+				})
+				.eq('id', recordId)
+				.eq('branch_id', branchId)
+				.eq('record_type', 'main')
+				.select('id, branch_id, counts')
+				.single();
+			if (error || !restored || restored.branch_id !== branchId) throw error || new Error('Recovery update failed.');
+			if (auditSafeBoxTotal(restored.counts) !== verifiedSafeBoxTotal) throw new Error('Restored Safe Box total verification failed.');
+			await loadExistingRecords();
+			await openRecoveryPopup();
+		} catch (error) {
+			recoveryError = error instanceof Error ? error.message : 'Could not restore the selected snapshot.';
+		} finally {
+			restoringAuditId = '';
 		}
 	}
 
@@ -461,12 +616,21 @@
 					clearTimeout(autoSaveTimeout);
 					autoSaveTimeout = null;
 				}
-				mainRecordId = newRecord.id;
+				if (Number(newRecord.branch_id) !== Number(selectedBranch)) return;
 				const savedCounts = typeof newRecord.counts === 'string' ? JSON.parse(newRecord.counts) : newRecord.counts;
+				if (!savedCounts || typeof savedCounts.safe_box !== 'object' || savedCounts.safe_box === null) {
+					mainRecordLoadState = 'error';
+					mainRecordLoadError = 'A synchronization update did not contain Safe Box balances. Existing values were kept and no save was attempted.';
+					return;
+				}
+				mainRecordId = newRecord.id;
 				counts = readMainCounts(savedCounts);
 				safeBoxCounts = readSafeBoxCounts(savedCounts);
 				erpBalance = newRecord.erp_balance || '';
 				counts = { ...counts };
+				safeBoxDirty = false;
+				mainRecordLoadState = 'loaded';
+				mainRecordLoadError = '';
 			} else if (newRecord.record_type === 'advance_box') {
 				const boxIndex = newRecord.box_number - 1;
 				console.log('🔄 Updating advance box:', newRecord.box_number);
@@ -507,6 +671,7 @@
 
 	// Auto-save with debounce
 	function triggerAutoSave() {
+		if (mainRecordLoadState !== 'loaded' || !mainRecordId) return;
 		if (autoSaveTimeout) {
 			clearTimeout(autoSaveTimeout);
 		}
@@ -516,49 +681,54 @@
 	}
 
 	async function saveMainDenomination() {
-		if (!selectedBranch || !$currentUser?.id) return;
+		if (!selectedBranch || !$currentUser?.id || !mainRecordId || mainRecordLoadState !== 'loaded') return;
 
 		isSaving = true;
 		try {
+			const branchId = Number(selectedBranch);
+			const recordId = mainRecordId;
+			const { data: persisted, error: persistedError } = await supabase
+				.from('denomination_records')
+				.select('id, branch_id, counts')
+				.eq('id', recordId)
+				.eq('branch_id', branchId)
+				.eq('record_type', 'main')
+				.single();
+			if (persistedError || !persisted) throw persistedError || new Error('The saved branch denomination record was not found.');
+			if (Number(selectedBranch) !== branchId || mainRecordId !== recordId) return;
+			const persistedCounts = typeof persisted.counts === 'string' ? JSON.parse(persisted.counts) : persisted.counts;
+			if (!persistedCounts || typeof persistedCounts.safe_box !== 'object' || persistedCounts.safe_box === null) {
+				throw new Error('Safe Box balances could not be verified before saving. No values were changed.');
+			}
+			const safeCountsToSave = safeBoxDirty ? { ...safeBoxCounts } : { ...persistedCounts.safe_box };
+			const safeBalanceToSave = Object.entries(safeCountsToSave).reduce(
+				(sum, [key, quantity]) => sum + Number(quantity || 0) * (denomValues[key] || 0), 0
+			);
 			const recordData = {
-				branch_id: parseInt(selectedBranch),
 				user_id: $currentUser.id,
-				record_type: 'main',
-				box_number: null,
-				counts: { ...counts, safe_box: { ...safeBoxCounts }, safe_box_balance: safeBoxBalance },
+				counts: { ...counts, safe_box: safeCountsToSave, safe_box_balance: safeBalanceToSave },
 				erp_balance: erpBalanceNumber || null,
 				grand_total: grandTotal,
 				difference: difference
 			};
 
-			if (mainRecordId) {
-				// Update existing record
-				const { error } = await supabase
-					.from('denomination_records')
-					.update(recordData)
-					.eq('id', mainRecordId);
+			const { data: updated, error } = await supabase
+				.from('denomination_records')
+				.update(recordData)
+				.eq('id', recordId)
+				.eq('branch_id', branchId)
+				.eq('record_type', 'main')
+				.select('id, branch_id, counts')
+				.single();
 
-				if (error) {
-					console.error('Error updating main denomination:', error);
-				}
-			} else {
-				// Insert new record
-				const { data, error } = await supabase
-					.from('denomination_records')
-					.insert(recordData)
-					.select('id')
-					.single();
-
-				if (error) {
-					console.error('Error saving main denomination:', error);
-				} else if (data) {
-					mainRecordId = data.id;
-				}
-			}
+			if (error || !updated || updated.branch_id !== branchId) throw error || new Error('Branch-safe denomination update failed.');
 
 			lastSaved = new Date();
+			safeBoxDirty = false;
 		} catch (error) {
 			console.error('Error saving main denomination:', error);
+			mainRecordLoadState = 'error';
+			mainRecordLoadError = error instanceof Error ? error.message : 'Could not safely save denomination balances.';
 		} finally {
 			isSaving = false;
 		}
@@ -840,6 +1010,7 @@
 		const countChange = transferDirection === 'toSafeBox' ? -quantity : quantity;
 		counts = { ...counts, [transferKey]: counts[transferKey] + countChange };
 		safeBoxCounts = { ...safeBoxCounts, [transferKey]: safeBoxCounts[transferKey] - countChange };
+		safeBoxDirty = true;
 		triggerAutoSave();
 		closeSafeBoxTransfer();
 	}
@@ -2420,6 +2591,47 @@
 </div>
 {/if}
 
+{#if showRecoveryPopup}
+<div class="modal-overlay recovery-overlay" role="presentation" on:click|self={closeRecoveryPopup}>
+	<div class="recovery-modal" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+		<div class="recovery-modal-header">
+			<div>
+				<h3 id="recovery-title">Denomination Recovery</h3>
+				<p>Latest 20 saved changes for {branches.find((branch) => branch.id === Number(selectedBranch))?.name_en || 'selected branch'}</p>
+			</div>
+			<button type="button" class="recovery-close" on:click={closeRecoveryPopup} disabled={!!restoringAuditId} aria-label="Close recovery history">×</button>
+		</div>
+		<div class="recovery-modal-body">
+			{#if isLoadingRecovery}
+				<div class="recovery-state">Loading audit history…</div>
+			{:else if recoveryError}
+				<div class="recovery-state error">{recoveryError}</div>
+			{:else if recoveryRecords.length === 0}
+				<div class="recovery-state">No recovery records were found for this branch.</div>
+			{:else}
+				<div class="recovery-table-wrap">
+					<table class="recovery-table">
+						<thead><tr><th>Date and time</th><th>Action</th><th>Count balance</th><th>Safe Box balance</th><th>Difference</th><th>Recovery</th></tr></thead>
+						<tbody>
+							{#each recoveryRecords as record (record.id)}
+								<tr>
+									<td>{new Date(record.created_at).toLocaleString()}</td>
+									<td>{record.action}</td>
+									<td>{auditSnapshotTotal(record.old_counts).toLocaleString()} SAR</td>
+									<td>{isRecoverableAudit(record) ? `${auditSafeBoxTotal(record.old_counts).toLocaleString()} SAR` : 'Unavailable'}</td>
+									<td class:recovery-positive={Number(record.old_difference) > 0} class:recovery-negative={Number(record.old_difference) < 0}>{record.old_difference == null ? 'Unavailable' : `${Number(record.old_difference) > 0 ? '+' : ''}${Number(record.old_difference).toLocaleString()} SAR`}</td>
+									<td><button type="button" class="restore-btn" disabled={!denomCanEdit || !isRecoverableAudit(record) || !!restoringAuditId} on:click={() => restoreAuditSnapshot(record)}>{restoringAuditId === record.id ? 'Restoring…' : 'Restore'}</button></td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	</div>
+</div>
+{/if}
+
 <div class="denomination-container">
 	{#if denomNoAccess}
 		<div class="no-access-mask">
@@ -2661,6 +2873,13 @@
 			<!-- Denomination Table Card -->
 			<div class="card big-card">
 				<div class="card-body">
+					{#if mainRecordLoadState !== 'loaded'}
+						<div class="denomination-load-state" class:error={mainRecordLoadState === 'error' || mainRecordLoadState === 'missing'} role="status" aria-live="polite">
+							<strong>{mainRecordLoadState === 'loading' ? 'Loading saved denomination balances…' : 'Denomination balances unavailable'}</strong>
+							{#if mainRecordLoadError}<span>{mainRecordLoadError}</span>{/if}
+							{#if mainRecordLoadState === 'error'}<button type="button" on:click={retryMainRecordLoad}>Retry</button>{/if}
+						</div>
+					{:else}
 					<table class="denomination-table">
 						<thead>
 							<tr>
@@ -2691,6 +2910,7 @@
 							<tr class="grand-total-row"><td colspan="4"><strong>Grand Total</strong></td><td class="safe-box-total-cell"><strong>{safeBoxBalance.toLocaleString()}</strong></td><td class="total-cell"><strong>{grandTotal.toLocaleString()}</strong></td></tr>
 						</tfoot>
 					</table>
+					{/if}
 					
 					<!-- ERP Balance and Difference Cards -->
 					<div class="balance-cards-container">
@@ -2764,6 +2984,13 @@
 							<div class="safe-box-placeholder">{safeBoxBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} SAR</div>
 						</div>
 					</div>
+					</div>
+					<div class="recovery-card">
+						<div>
+							<strong>Denomination Recovery</strong>
+							<span>Review the latest 20 audited balance changes and restore a verified snapshot.</span>
+						</div>
+						<button type="button" on:click={openRecoveryPopup} disabled={!denominationDataReady || !mainRecordId}>Load</button>
 					</div>
 				</div>
 			</div>
@@ -3114,6 +3341,76 @@
 {/if}
 
 <style>
+	.denomination-load-state {
+		min-height: 240px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		padding: 24px;
+		text-align: center;
+		color: #475569;
+		background: #f8fafc;
+		border: 1px solid #cbd5e1;
+		border-radius: 10px;
+	}
+
+	.denomination-load-state.error {
+		color: #991b1b;
+		background: #fff7ed;
+		border-color: #fdba74;
+	}
+
+	.denomination-load-state button {
+		padding: 7px 18px;
+		border: 0;
+		border-radius: 6px;
+		color: white;
+		background: #0369a1;
+		cursor: pointer;
+	}
+
+	.recovery-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		margin-top: 12px;
+		padding: 14px 16px;
+		border: 1px solid #c4b5fd;
+		border-radius: 10px;
+		background: #f5f3ff;
+	}
+
+	.recovery-card > div { display: flex; flex-direction: column; gap: 3px; }
+	.recovery-card strong { color: #5b21b6; }
+	.recovery-card span { color: #64748b; font-size: 12px; }
+	.recovery-card button, .restore-btn {
+		border: 0;
+		border-radius: 7px;
+		padding: 8px 18px;
+		color: white;
+		font-weight: 700;
+		background: #7c3aed;
+		cursor: pointer;
+	}
+	.recovery-card button:disabled, .restore-btn:disabled { opacity: .5; cursor: not-allowed; }
+	.recovery-overlay { z-index: 10020; }
+	.recovery-modal { width: min(940px, 94vw); max-height: 84vh; overflow: hidden; border-radius: 12px; background: white; box-shadow: 0 24px 70px rgba(15, 23, 42, .35); }
+	.recovery-modal-header { display: flex; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e8f0; }
+	.recovery-modal-header h3 { margin: 0; color: #1e293b; }
+	.recovery-modal-header p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+	.recovery-close { width: 34px; height: 34px; border: 0; border-radius: 8px; font-size: 24px; background: #f1f5f9; cursor: pointer; }
+	.recovery-modal-body { max-height: calc(84vh - 84px); overflow: auto; padding: 16px 20px 20px; }
+	.recovery-state { padding: 32px; text-align: center; color: #64748b; }
+	.recovery-state.error { color: #b91c1c; background: #fef2f2; border-radius: 8px; }
+	.recovery-table-wrap { overflow: auto; }
+	.recovery-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+	.recovery-table th, .recovery-table td { padding: 10px; text-align: left; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+	.recovery-table th { position: sticky; top: 0; color: #334155; background: #f8fafc; }
+	.recovery-positive { color: #15803d; font-weight: 700; }
+	.recovery-negative { color: #dc2626; font-weight: 700; }
 	.denomination-container {
 		width: 100%;
 		height: 100%;

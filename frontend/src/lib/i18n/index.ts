@@ -42,7 +42,8 @@ export function initI18n(config: Partial<I18nConfig> = {}) {
     }
   }
 
-  // Load persisted locale if available
+  // Load the current app-language selection. This is separate from the
+  // account default and is used only to survive the language-toggle refresh.
   if (mergedConfig.persistLocale && typeof window !== "undefined") {
     const persistedLocale = localStorage.getItem("aqura-locale");
     if (
@@ -70,10 +71,10 @@ export function initI18n(config: Partial<I18nConfig> = {}) {
       }
     }
 
-    // Persist locale
     if (mergedConfig.persistLocale && typeof window !== "undefined") {
       localStorage.setItem("aqura-locale", locale);
     }
+
   });
 }
 
@@ -219,17 +220,17 @@ export function switchLocale(locale: string) {
 // (cleared on logout, not on page reload) so the choice survives reloads
 // triggered by the toggle itself, but a fresh login always re-derives the
 // locale from the account's saved default_language instead of inheriting it.
-const MANUAL_LOCALE_KEY = "aqura-locale-manual";
-
 // Use this (instead of switchLocale) from user-facing language toggle
 // controls, so the choice is remembered for the rest of this login session.
+const MANUAL_LOCALE_KEY = "aqura-locale-manual";
+
 export function switchLocaleManually(locale: string) {
   switchLocale(locale);
   if (typeof window !== "undefined") {
     try {
       sessionStorage.setItem(MANUAL_LOCALE_KEY, "1");
     } catch {
-      // ignore (e.g. storage disabled)
+      // Ignore unavailable browser storage.
     }
   }
 }
@@ -252,7 +253,7 @@ export function clearManualLocaleOverride() {
   try {
     sessionStorage.removeItem(MANUAL_LOCALE_KEY);
   } catch {
-    // ignore
+    // Ignore unavailable browser storage.
   }
 }
 

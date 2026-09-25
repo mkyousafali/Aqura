@@ -433,8 +433,8 @@
 		left: 0;
 		right: 0;
 		height: 56px;
-		background: linear-gradient(to bottom, #374151, #1f2937);
-		border-top: 1px solid #4b5563;
+		background: linear-gradient(to bottom, #0b3c68, #051f3f);
+		border-top: 1px solid rgba(7, 152, 174, 0.65);
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -489,8 +489,8 @@
 		bottom: 50px;
 		left: 0;
 		min-width: 220px;
-		background: linear-gradient(to bottom, #374151, #1f2937);
-		border: 1px solid #4b5563;
+		background: linear-gradient(to bottom, #0b3c68, #051f3f);
+		border: 1px solid rgba(7, 152, 174, 0.55);
 		border-radius: 8px;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 		z-index: 9999;

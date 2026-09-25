@@ -28,6 +28,14 @@
 	import { loadIcons } from '$lib/stores/iconStore';
 	import { onNativeLogout } from '$lib/utils/nativeShell';
 
+	const DESKTOP_EMPLOYEE_LOGIN_ROUTE = '/login/employee?mode=desktop';
+
+	function getUnauthenticatedLoginRoute(pathname: string): string {
+		return pathname.startsWith('/desktop-interface')
+			? DESKTOP_EMPLOYEE_LOGIN_ROUTE
+			: '/login';
+	}
+
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
 		import('$lib/utils/taskBadgeDebug');
@@ -804,7 +812,7 @@
 			const isCareersAdminRoute = $page.url.pathname.startsWith('/careers-admin');
 			if (!authenticated && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
-				goto('/login', { replaceState: true });
+				goto(getUnauthenticatedLoginRoute($page.url.pathname), { replaceState: true });
 			}
 			
 			// Redirect authenticated users away from login page (except cashier)
@@ -844,7 +852,7 @@
 					const isCareersAdminRouteTimeout = $page.url.pathname.startsWith('/careers-admin');
 					if (!isAuthenticated && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
-						goto('/login');
+						goto(getUnauthenticatedLoginRoute($page.url.pathname));
 					}
 				}
 			}, 5000); // 5 second timeout
@@ -874,7 +882,7 @@
 			const isGiftWheelRouteError = $page.url.pathname.startsWith('/gift-wheel');
 			if ($page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isGiftWheelRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
-				goto('/login', { replaceState: true });
+				goto(getUnauthenticatedLoginRoute($page.url.pathname), { replaceState: true });
 			}
 		}
 		

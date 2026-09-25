@@ -51,7 +51,7 @@
 		'MANAGE_ADMIN_USERS': '👥', 'MANAGE_MASTER_ADMIN': '🔐',
 		'INTERFACE_ACCESS_MANAGER': '🔧', 'APPROVAL_PERMISSIONS': '🔐',
 		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
-		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️', 'THEME_MANAGER': '🎨',
+		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️',
 		'APP_PERMISSIONS': '🛡️',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
 		'ERP_PRODUCT_MANAGER': '🏭', 'ERP_CREDENTIALS': '🏭',
@@ -129,6 +129,21 @@
 	let reauthDigits = ['', '', '', '', '', ''];
 	let reauthError = '';
 	let reauthLoading = false;
+
+	function activateInactivityModal(node: HTMLDialogElement) {
+		if (!node.open) node.showModal();
+		return {
+			destroy() {
+				if (node.open) node.close();
+			}
+		};
+	}
+
+	function containLockedKeyboardEvent(event: KeyboardEvent) {
+		// Keep keyboard shortcuts inside the native modal while the desktop is locked.
+		if (event.key === 'Escape') event.preventDefault();
+		event.stopPropagation();
+	}
 
 	function clearInactivityTimer() {
 		if (inactivityTimer) clearTimeout(inactivityTimer);
@@ -248,7 +263,6 @@
 		'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'APP_PERMISSIONS': 'nav.appPermissions',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide',
-		'THEME_MANAGER': 'nav.themeManager',
 		'LEAVES_AND_VACATIONS': 'nav.leavesAndVacations',
 		'LEAVE_REQUEST': 'nav.leaveRequest',
 		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager',
@@ -666,7 +680,7 @@
 			<div class="welcome-container">
 				<div class="card-qr-row">
 					<div class="welcome-card">
-						<div class="logo-section">
+						<div class="welcome-meta-bar">
 							{#if $updateAvailable}
 								<button class="update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
 									🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
@@ -679,11 +693,14 @@
 							{#if $currentUser?.isMasterAdmin}
 								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ14.11.12.10</button>
 							{/if}
-
+						</div>
+						<div class="logo-section">
 							<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>
 								<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" class="logo-image" />
 							</div>
-							<p class="app-subtitle">{$localeData ? t('app.description') : 'AI-powered management system'}</p>
+							<div class="aqura-brand-logo" aria-label="Aqura">
+								<img src="/icons/Aqura logo.png" alt="Original Aqura Logo" class="aqura-brand-logo-image" />
+							</div>
 						</div>
 					</div>
 				</div>
@@ -694,7 +711,7 @@
 </div>
 
 {#if showInactivityPrompt}
-	<div class="desktop-inactivity-backdrop" role="presentation">
+	<dialog class="desktop-inactivity-backdrop" use:activateInactivityModal on:cancel|preventDefault on:keydown={containLockedKeyboardEvent}>
 		<div class="desktop-inactivity-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="desktop-inactivity-title" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 			<div class="desktop-inactivity-icon" aria-hidden="true">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
@@ -722,11 +739,12 @@
 				</div>
 			{/if}
 		</div>
-	</div>
+	</dialog>
 {/if}
 
 <style>
-	.desktop-inactivity-backdrop { position: fixed; inset: 0; z-index: 100000; display: grid; place-items: center; padding: 1.25rem; background: rgba(4,22,39,.72); backdrop-filter: blur(10px); }
+	.desktop-inactivity-backdrop { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; box-sizing: border-box; border: 0; display: grid; place-items: center; padding: 1.25rem; background: rgba(4,22,39,.72); backdrop-filter: blur(10px); }
+	.desktop-inactivity-backdrop::backdrop { background: rgba(4,22,39,.72); backdrop-filter: blur(10px); }
 	.desktop-inactivity-dialog { width: min(100%,480px); padding: 2.2rem; box-sizing: border-box; border: 1px solid rgba(255,255,255,.8); border-radius: 24px; background: #fff; box-shadow: 0 28px 80px rgba(0,20,38,.35); text-align: center; }
 	.desktop-inactivity-icon { display: grid; place-items: center; width: 62px; height: 62px; margin: 0 auto 1.1rem; border-radius: 18px; color: #087ca5; background: #e9f8fb; border: 1px solid #c4e9f0; }
 	.desktop-inactivity-icon svg { width: 31px; height: 31px; }
@@ -749,10 +767,6 @@
 		background: transparent !important;
 	}
 	
-	:global(.app::before) {
-		display: none !important;
-	}
-
 	.manage-favorites-star {
 		background: rgba(255, 255, 255, 0.2);
 		border: 2px solid rgba(255, 255, 255, 0.4);
@@ -954,7 +968,7 @@
 		width: 100%;
 		height: 100%;
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: center;
 		padding: 0;
 		margin: 0;
@@ -966,31 +980,55 @@
 		align-items: center;
 		gap: 16px;
 		max-height: 95vh;
-		padding: 60px 20px 20px;
+		padding: 64px 20px 20px;
 	}
 
 	.welcome-card {
-		background: #FFFFFF;
-		width: 600px;
-		max-width: 90%;
-		height: auto;
+		background: transparent;
+		width: 0;
+		max-width: none;
+		height: 0;
 		display: block;
 		padding: 0;
 		margin: 0;
-		border-radius: 24px;
-		box-shadow: 0 25px 50px rgba(11, 18, 32, 0.1);
-		overflow: hidden;
+		border: 0;
+		box-shadow: none;
+		overflow: visible;
 		position: relative;
+	}
+
+	.welcome-meta-bar {
+		position: fixed;
+		top: 20px;
+		right: 20px;
+		z-index: 100;
+		height: 44px;
+		width: auto;
+		min-width: 0;
+		padding: 0;
+		background: transparent;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		border: 0;
+		border-radius: 0;
+		box-shadow: none;
+	}
+
+	.welcome-meta-bar .update-badge,
+	.welcome-meta-bar .version-badge {
+		position: static;
 	}
 
 	.logo-section {
 		text-align: center;
-		padding: 3rem 2rem 2rem;
-		background: var(--theme-logo-bar-bg, linear-gradient(135deg, #15A34A 0%, #22C55E 100%));
-		color: var(--theme-logo-bar-text, white);
+		padding: 0;
+		background: transparent;
+		color: #111827;
 		position: relative;
-		width: 100%;
-		height: 100%;
+		width: 0;
+		height: 0;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -998,21 +1036,24 @@
 	}
 
 	.logo {
+		position: fixed;
+		right: 20px;
+		bottom: 74px;
+		z-index: 100;
 		width: 200px;
 		height: 120px;
-		margin: 0 auto 1.5rem;
-		background: #FFFFFF;
-		border: 6px solid var(--theme-logo-border, #F59E0B);
+		margin: 0;
+		background: #F5FAFC;
+		border: 6px solid #0798AE;
 		border-radius: 20px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		overflow: hidden;
-		box-shadow: 
-			0 0 25px rgba(245, 158, 11, 0.5),
-			0 0 50px rgba(245, 158, 11, 0.3),
-			inset 0 0 15px rgba(245, 158, 11, 0.15);
-		animation: ledGlow 2s ease-in-out infinite alternate;
+		box-shadow:
+			0 0 8px rgba(7, 152, 174, 0.18),
+			0 4px 12px rgba(3, 76, 140, 0.08);
+		animation: logoContainerFadeOne 16s ease-in-out infinite;
 		cursor: pointer;
 		transition: transform 0.1s ease;
 	}
@@ -1021,18 +1062,71 @@
 		transform: scale(1.02);
 	}
 
+	.aqura-brand-logo {
+		position: fixed;
+		right: 20px;
+		bottom: 74px;
+		z-index: 100;
+		width: 200px;
+		height: 120px;
+		padding: 0;
+		background: #F5FAFC;
+		border: 6px solid #0798AE;
+		border-radius: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		box-shadow:
+			0 0 8px rgba(7, 152, 174, 0.18),
+			0 4px 12px rgba(3, 76, 140, 0.08);
+		animation: logoContainerFadeTwo 16s ease-in-out infinite;
+	}
+
+	@keyframes logoContainerFadeOne {
+		0%, 42% { opacity: 1; filter: blur(0); visibility: visible; }
+		50%, 92% { opacity: 0; filter: blur(5px); visibility: hidden; }
+		100% { opacity: 1; filter: blur(0); visibility: visible; }
+	}
+
+	@keyframes logoContainerFadeTwo {
+		0%, 42% { opacity: 0; filter: blur(5px); visibility: hidden; }
+		50%, 92% { opacity: 1; filter: blur(0); visibility: visible; }
+		100% { opacity: 0; filter: blur(5px); visibility: hidden; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.logo,
+		.aqura-brand-logo {
+			animation: none;
+			opacity: 1;
+			filter: none;
+		}
+
+		.aqura-brand-logo {
+			opacity: 0;
+			visibility: hidden;
+		}
+	}
+
+	.aqura-brand-logo-image {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+
 	@keyframes ledGlow {
 		from {
 			box-shadow: 
-				0 0 25px rgba(245, 158, 11, 0.5),
-				0 0 50px rgba(245, 158, 11, 0.3),
-				inset 0 0 15px rgba(245, 158, 11, 0.15);
+				0 0 25px rgba(16, 220, 229, 0.46),
+				0 0 50px rgba(7, 159, 208, 0.26),
+				inset 0 0 15px rgba(16, 220, 229, 0.14);
 		}
 		to {
 			box-shadow: 
-				0 0 40px rgba(245, 158, 11, 0.7),
-				0 0 80px rgba(245, 158, 11, 0.4),
-				inset 0 0 25px rgba(245, 158, 11, 0.25);
+				0 0 40px rgba(16, 220, 229, 0.62),
+				0 0 80px rgba(7, 159, 208, 0.34),
+				inset 0 0 25px rgba(16, 220, 229, 0.20);
 		}
 	}
 
@@ -1054,8 +1148,10 @@
 
 	.app-subtitle {
 		font-size: 1.1rem;
-		opacity: 0.9;
-		font-weight: 300;
+		color: #0B2B50;
+		opacity: 1;
+		font-weight: 500;
+		margin: 0;
 	}
 
 	.version-badge {
@@ -1111,6 +1207,35 @@
 		color: rgba(255, 255, 255, 0.7);
 		border: 1px solid rgba(255, 255, 255, 0.2);
 		cursor: default;
+	}
+
+	/* Separate fixed-theme containers for update status and version. */
+	.welcome-meta-bar .update-badge,
+	.welcome-meta-bar .version-badge {
+		position: static;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 44px;
+		min-width: 132px;
+		padding: 0 14px;
+		background: #F5FAFC;
+		color: #0B2B50;
+		border: 6px solid #0798AE;
+		border-radius: 8px;
+		box-shadow:
+			0 0 8px rgba(7, 152, 174, 0.18),
+			0 4px 12px rgba(3, 76, 140, 0.08);
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.2px;
+	}
+
+	.welcome-meta-bar .update-badge.update-available:hover,
+	.welcome-meta-bar .version-badge:hover {
+		background: #E8FBFD;
+		color: #034C8C;
+		border-color: #0798AE;
 	}
 
 	@keyframes pulse-update {

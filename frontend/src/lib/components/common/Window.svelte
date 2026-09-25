@@ -446,8 +446,8 @@
 	}
 
 	.window.modal {
-		border-color: #15A34A;
-		box-shadow: 0 20px 40px rgba(21, 163, 74, 0.3);
+		border-color: var(--theme-window-border-active, #10DCE5);
+		box-shadow: 0 20px 40px rgba(3, 76, 140, 0.24);
 	}
 
 	.window.maximized,

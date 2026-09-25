@@ -517,9 +517,13 @@
 					}
 				});
 
-			// Step 13: Map break totals from RPC (returned in minutes, convert to seconds)
-			breakTotalToday = (result.break_total_today || 0) * 60;
-			breakTotalYesterday = (result.break_total_yesterday || 0) * 60;
+			// Step 13: Read canonical analyzed-break totals (exact seconds).
+			// get_mobile_dashboard_data still supplies the other dashboard fields, but its
+			// legacy shift-window break calculation is intentionally no longer displayed.
+			const breakSummary = await loadBreakRegisterData('summary', { from: result.yesterday, to: result.today }, 'mobile');
+			const employeeBreaks = (breakSummary.employees || []).find((entry: any) => String(entry.employee_id) === String(employeeId));
+			breakTotalToday = Number((employeeBreaks?.days || []).find((day: any) => day.date === result.today)?.total_seconds) || 0;
+			breakTotalYesterday = Number((employeeBreaks?.days || []).find((day: any) => day.date === result.yesterday)?.total_seconds) || 0;
 
 			stats.pendingTasks = result.pending_tasks || 0;
 			console.log('📋 Pending tasks:', stats.pendingTasks);

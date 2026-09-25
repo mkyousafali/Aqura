@@ -7,6 +7,68 @@
   box-sizing: border-box;
 }
 
+/* Desktop-only fixed component treatment. Mobile and cashier do not receive
+   these rules because neither interface adds body.desktop-mode. */
+body.desktop-mode {
+  color: var(--aqura-fixed-text);
+  background: var(--aqura-fixed-bg);
+}
+
+body.desktop-mode :where(input, select, textarea) {
+  background-color: #FFFFFF;
+  color: #111827;
+  border-color: #DCE7ED;
+}
+
+body.desktop-mode :where(input, select, textarea):focus {
+	border-color: #10DCE5;
+	box-shadow: 0 0 0 3px rgba(16, 220, 229, 0.16);
+  outline: none;
+}
+
+body.desktop-mode :where(.modal-content, .dialog-content, .popup-content, .dropdown-menu, .popover-content) {
+  background: #FFFFFF;
+  color: #111827;
+  border-color: #E5E7EB;
+  box-shadow: 0 18px 45px rgba(17, 24, 39, 0.16);
+}
+
+body.desktop-mode :where(.card, .panel, .content-card, .form-card, .table-container) {
+  border-color: #E5E7EB;
+}
+
+body.desktop-mode :where(table) thead,
+body.desktop-mode :where(.data-table) thead {
+  background: #F3F7FA;
+  color: #374151;
+}
+
+body.desktop-mode :where(table) th {
+  color: #374151;
+  border-color: #E5E7EB;
+}
+
+body.desktop-mode :where(table) td {
+  border-color: #E5E7EB;
+}
+
+body.desktop-mode :where(.btn-primary, .primary-button, .submit-button, .save-button, .add-button, .action-primary) {
+  background: var(--aqura-fixed-action);
+  border-color: #075B91;
+  color: #FFFFFF;
+}
+
+body.desktop-mode :where(.btn-primary, .primary-button, .submit-button, .save-button, .add-button, .action-primary):hover:not(:disabled) {
+	background: linear-gradient(115deg, #3BE7ED 0%, #10DCE5 48%, #079FD0 100%);
+	border-color: #10DCE5;
+}
+
+body.desktop-mode :where(.btn-secondary, .secondary-button, .cancel-button, .reset-button) {
+  background: #FFFFFF;
+  border-color: #CBDCE5;
+  color: #24465F;
+}
+
 /* App Design System Variables */
 :root {
   /* Brand Colors - Official Pantone Profile */
@@ -103,6 +165,76 @@
   body.desktop-mode {
     overflow: hidden;
     touch-action: none;
+
+    /* Fixed Aqura desktop theme — derived from the employee login screen. */
+    --aqura-fixed-bg: #F5FAFC;
+    --aqura-fixed-surface: #FFFFFF;
+    --aqura-fixed-text: #0B2B50;
+    --aqura-fixed-text-secondary: #244D70;
+    --aqura-fixed-muted: #647A91;
+    --aqura-fixed-border: #CFE3EC;
+    --aqura-fixed-chrome: linear-gradient(135deg, #0B3C68 0%, #061F55 100%);
+    --aqura-fixed-action: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
+    --aqura-fixed-focus: #10DCE5;
+    --aqura-fixed-focus-soft: #E8FBFD;
+
+    /* Rebind shared design-system tokens only while the desktop interface is active. */
+    --color-primary: #079FD0;
+    --color-primary-light: #10DCE5;
+    --color-primary-dark: #034C8C;
+    --color-secondary: #0B3C68;
+    --color-accent: #10DCE5;
+    --color-accent-dark: #079FD0;
+    --gradient-primary: var(--aqura-fixed-action);
+    --gradient-accent: linear-gradient(135deg, #4B5563 0%, #374151 100%);
+    --color-ink: #0B2B50;
+    --color-ink-light: #244D70;
+    --color-background: #F5FAFC;
+    --color-surface: #FFFFFF;
+    --color-surface-dark: #F3F4F6;
+    --color-border: #CFE3EC;
+    --color-border-light: #E8F2F7;
+    --color-border-focus: #10DCE5;
+
+    --theme-taskbar-bg: var(--aqura-fixed-chrome);
+    --theme-taskbar-border: rgba(255, 255, 255, 0.22);
+    --theme-taskbar-btn-active-bg: var(--aqura-fixed-action);
+    --theme-taskbar-btn-active-text: #FFFFFF;
+    --theme-taskbar-btn-inactive-bg: rgba(255, 255, 255, 0.94);
+    --theme-taskbar-btn-inactive-text: #0B2B50;
+    --theme-taskbar-btn-hover-border: #10DCE5;
+    --theme-taskbar-quick-access-bg: rgba(255, 255, 255, 0.14);
+
+    --theme-sidebar-bg: var(--aqura-fixed-chrome);
+    --theme-sidebar-text: #FFFFFF;
+    --theme-sidebar-border: rgba(255, 255, 255, 0.16);
+    --theme-sidebar-favorites-bg: rgba(255, 255, 255, 0.12);
+    --theme-sidebar-favorites-text: #FFFFFF;
+    --theme-section-btn-bg: #FFFFFF;
+    --theme-section-btn-text: #0B2B50;
+    --theme-section-btn-hover-bg: #079FD0;
+    --theme-section-btn-hover-text: #FFFFFF;
+    --theme-subsection-btn-bg: #F3F7FA;
+    --theme-subsection-btn-text: #0B2B50;
+    --theme-subsection-btn-hover-bg: #079FD0;
+    --theme-subsection-btn-hover-text: #FFFFFF;
+    --theme-submenu-item-bg: #FFFFFF;
+    --theme-submenu-item-text: #0B2B50;
+    --theme-submenu-item-hover-bg: #079FD0;
+    --theme-submenu-item-hover-text: #FFFFFF;
+
+    --theme-logo-bar-bg: var(--aqura-fixed-chrome);
+    --theme-logo-bar-text: #FFFFFF;
+    --theme-logo-border: #10DCE5;
+    --theme-window-title-active-bg: var(--aqura-fixed-action);
+    --theme-window-title-active-text: #FFFFFF;
+    --theme-window-title-inactive-bg: linear-gradient(135deg, #FFFFFF 0%, #F3F4F6 100%);
+    --theme-window-title-inactive-text: #374151;
+    --theme-window-border-active: #10DCE5;
+    --theme-desktop-bg: radial-gradient(circle at 50% 18%, #FFFFFF 0%, #F5FAFC 48%, #E8F2F7 100%);
+    --theme-desktop-pattern-opacity: 0.18;
+    --theme-interface-switch-bg: var(--aqura-fixed-action);
+    --theme-interface-switch-hover-bg: linear-gradient(115deg, #3BE7ED 0%, #10DCE5 48%, #079FD0 100%);
   }
 
   /* Custom scrollbar for webkit browsers */

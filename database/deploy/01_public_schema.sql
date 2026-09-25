@@ -403,14 +403,17 @@ end $$;
 CREATE FUNCTION public."Autotask_decide_advance_approval"(p_actor_user_id uuid, p_source_table text, p_source_record_id text, p_decision text, p_notes text DEFAULT NULL::text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
-    AS $_$ declare v_row jsonb; v_updated bigint; begin
+    AS $_$ declare v_row jsonb; v_posted_row jsonb; v_updated bigint; begin
   if not exists(select 1 from public.users where id=p_actor_user_id and status='active') then raise exception 'Active Aqura user not found'; end if;
   if p_source_table not in ('receiving_records','pending_receiving_records') or p_decision not in ('approved','rejected') then raise exception 'Invalid approval decision'; end if;
   execute format('select to_jsonb(r) from public.%I r where r.id::text=$1 for update',p_source_table) into v_row using p_source_record_id;
   if coalesce(v_row->>'autotask_advance_approval_status','')<>'sent_for_approval' then raise exception 'Approval already decided or unavailable'; end if;
-  if nullif(btrim(coalesce(v_row->>'original_bill_url','')),'') is null then raise exception 'Original bill must be uploaded before this request can be decided'; end if;
+  if p_source_table='pending_receiving_records' and nullif(v_row->>'posted_receiving_record_id','') is not null then
+    select to_jsonb(r) into v_posted_row from public.receiving_records r where r.id::text=v_row->>'posted_receiving_record_id';
+  end if;
+  if coalesce(nullif(btrim(coalesce(v_posted_row->>'original_bill_url','')),''),nullif(btrim(coalesce(v_row->>'original_bill_url','')),'')) is null then raise exception 'Original bill must be uploaded before this request can be decided'; end if;
   if not (p_actor_user_id=any(array(select jsonb_array_elements_text(coalesce(v_row->'autotask_advance_approval_approver_ids','[]'::jsonb))::uuid))) then raise exception 'User is not an eligible approver'; end if;
-  execute format('update public.%I set autotask_advance_approval_status=$1,autotask_advance_approval_decided_by=$2,autotask_advance_approval_decided_at=now(),autotask_advance_approval_notes=$3 where id::text=$4 and autotask_advance_approval_status=$5 and nullif(btrim(coalesce(original_bill_url,'''')::text),'''') is not null',p_source_table) using p_decision,p_actor_user_id,p_notes,p_source_record_id,'sent_for_approval';
+  execute format('update public.%I set autotask_advance_approval_status=$1,autotask_advance_approval_decided_by=$2,autotask_advance_approval_decided_at=now(),autotask_advance_approval_notes=$3 where id::text=$4 and autotask_advance_approval_status=$5',p_source_table) using p_decision,p_actor_user_id,p_notes,p_source_record_id,'sent_for_approval';
   get diagnostics v_updated = row_count;
   if v_updated=0 then raise exception 'Approval was already decided or the original bill is unavailable'; end if;
   perform public."Autotask_refresh_source"(p_source_table,p_source_record_id);
@@ -579,8 +582,8 @@ CREATE FUNCTION public."Autotask_list_my_advance_approvals"(p_user_id uuid) RETU
     select 'receiving_records'::text source_table,r.id::text source_record_id,r.branch_id::text branch_id,coalesce(v.vendor_name,'Unknown vendor') vendor_name,r.bill_number::text bill_number,coalesce(r.final_bill_amount,r.bill_amount,0)::numeric amount,r.autotask_advance_approval_requested_at requested_at,r.autotask_advance_approval_status status,r.original_bill_url::text original_bill_url
     from public.receiving_records r left join public.vendors v on v.erp_vendor_id=r.vendor_id where r.autotask_advance_approval_status='sent_for_approval' and p_user_id=any(r.autotask_advance_approval_approver_ids)
     union all
-    select 'pending_receiving_records'::text,r.id::text,r.branch_id::text,coalesce(v.vendor_name,'Unknown vendor'),r.bill_number::text,coalesce(r.final_bill_amount,r.bill_amount,0)::numeric,r.autotask_advance_approval_requested_at,r.autotask_advance_approval_status,r.original_bill_url::text
-    from public.pending_receiving_records r left join public.vendors v on v.erp_vendor_id=r.vendor_id where r.autotask_advance_approval_status='sent_for_approval' and p_user_id=any(r.autotask_advance_approval_approver_ids)
+    select 'pending_receiving_records'::text,r.id::text,r.branch_id::text,coalesce(v.vendor_name,'Unknown vendor'),coalesce(posted.bill_number,r.bill_number)::text,coalesce(posted.final_bill_amount,posted.bill_amount,r.final_bill_amount,r.bill_amount,0)::numeric,r.autotask_advance_approval_requested_at,r.autotask_advance_approval_status,coalesce(posted.original_bill_url,r.original_bill_url)::text
+    from public.pending_receiving_records r left join public.receiving_records posted on posted.id=r.posted_receiving_record_id left join public.vendors v on v.erp_vendor_id=coalesce(posted.vendor_id,r.vendor_id) and v.branch_id=coalesce(posted.branch_id,r.branch_id) where r.autotask_advance_approval_status='sent_for_approval' and p_user_id=any(r.autotask_advance_approval_approver_ids)
   ) q where exists(select 1 from public.users u where u.id=p_user_id and u.status='active') order by q.requested_at desc
 $$;
 
@@ -602,6 +605,63 @@ CREATE FUNCTION public."Autotask_list_my_tasks"(p_user_id uuid, p_include_comple
     AND (p_include_completed OR t.status NOT IN ('completed','cancelled'))
   ORDER BY t.created_at DESC
   LIMIT least(greatest(p_limit,1),500)
+$$;
+
+
+--
+-- Name: Autotask_list_pending_tasks(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public."Autotask_list_pending_tasks"(p_requesting_user_id uuid) RETURNS TABLE(id uuid, task_number integer, rule_code text, title_en text, title_ar text, status text, is_overdue boolean, triggered_at timestamp with time zone, available_at timestamp with time zone, due_at timestamp with time zone, branch_id text, branch_name_en text, branch_name_ar text, assignee_user_id uuid, assignee_username text, assignee_name_en text, assignee_name_ar text, source_table text, source_record_id text, source_refs jsonb, pending_dependencies jsonb, source_vendor_name text, source_bill_amount numeric, source_record_date date)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.users u
+    WHERE u.id=p_requesting_user_id AND u.status='active'
+      AND (coalesce(u.is_master_admin,false) OR EXISTS(
+        SELECT 1 FROM public.button_permissions bp
+        WHERE bp.user_id=u.id AND bp.button_code IN ('DEFAULT_POSITIONS','APP_PERMISSIONS') AND bp.is_enabled=true
+      ))
+  ) THEN RAISE EXCEPTION 'Not authorized to view pending Auto Tasks'; END IF;
+
+  RETURN QUERY
+  SELECT t.id,t.task_number,t.rule_code,t.title_en,t.title_ar,t.status,
+    (t.due_at<now()),t.triggered_at,t.available_at,t.due_at,t.branch_id,
+    coalesce(b.name_en,'Unknown branch')::text,coalesce(b.name_ar,b.name_en,'Unknown branch')::text,
+    t.assignee_user_id,coalesce(u.username,'Unknown user')::text,
+    coalesce(he.name_en,u.username,'Unknown user')::text,
+    coalesce(he.name_ar,he.name_en,u.username,'Unknown user')::text,
+    t.source_table,t.source_record_id,t.source_refs,coalesce(deps.items,'[]'::jsonb),
+    coalesce(v.vendor_name,t.source_refs->>'vendor_name','Unknown vendor')::text,
+    coalesce(rr.bill_amount,pr.bill_amount),coalesce(rr.bill_date,pr.bill_date)
+  FROM public."Autotask_tasks" t
+  LEFT JOIN public.branches b ON b.id::text=t.branch_id
+  LEFT JOIN public.users u ON u.id=t.assignee_user_id
+  LEFT JOIN public.hr_employee_master he ON he.user_id=t.assignee_user_id
+  LEFT JOIN public.receiving_records rr ON t.source_table='receiving_records' AND rr.id::text=t.source_record_id
+  LEFT JOIN public.pending_receiving_records pr ON t.source_table='pending_receiving_records' AND pr.id::text=t.source_record_id
+  LEFT JOIN public.vendors v ON v.erp_vendor_id=coalesce(rr.vendor_id,pr.vendor_id) AND v.branch_id=coalesce(rr.branch_id,pr.branch_id)
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object(
+      'id',prerequisite.id,'task_number',prerequisite.task_number,
+      'title_en',prerequisite.title_en,'title_ar',prerequisite.title_ar,'status',prerequisite.status,
+      'assignee_user_id',prerequisite.assignee_user_id,
+      'assignee_username',coalesce(prerequisite_user.username,'Unknown user'),
+      'assignee_name_en',coalesce(prerequisite_employee.name_en,prerequisite_user.username,'Unknown user'),
+      'assignee_name_ar',coalesce(prerequisite_employee.name_ar,prerequisite_employee.name_en,prerequisite_user.username,'Unknown user'),
+      'due_at',prerequisite.due_at,'is_overdue',prerequisite.due_at<now()
+    ) ORDER BY prerequisite.task_number,prerequisite.due_at) items
+    FROM public."Autotask_dependencies" dependency
+    JOIN public."Autotask_tasks" prerequisite ON prerequisite.id=dependency.prerequisite_task_id
+    LEFT JOIN public.users prerequisite_user ON prerequisite_user.id=prerequisite.assignee_user_id
+    LEFT JOIN public.hr_employee_master prerequisite_employee ON prerequisite_employee.user_id=prerequisite.assignee_user_id
+    WHERE dependency.dependent_task_id=t.id AND prerequisite.status NOT IN ('completed','cancelled')
+  ) deps ON true
+  WHERE t.status IN ('open','blocked')
+  ORDER BY t.due_at ASC,t.task_number ASC,t.created_at ASC;
+END;
 $$;
 
 
@@ -695,14 +755,18 @@ CREATE FUNCTION public."Autotask_refresh_source"(p_source_table text, p_source_r
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $_$
-DECLARE v_row jsonb; v_posted_row jsonb; v_task record; v_match boolean; v_closed integer:=0;
+DECLARE v_row jsonb; v_posted_row jsonb; v_source_approval_status text; v_task record; v_match boolean; v_closed integer:=0;
 BEGIN
   IF p_source_table NOT IN ('receiving_records','pending_receiving_records') THEN RAISE EXCEPTION 'Unsupported source table'; END IF;
   EXECUTE format('select to_jsonb(r) from public.%I r where r.id::text=$1',p_source_table) INTO v_row USING p_source_record_id;
   IF v_row IS NULL THEN RETURN 0; END IF;
   IF p_source_table='pending_receiving_records' AND nullif(v_row->>'posted_receiving_record_id','') IS NOT NULL THEN
+    v_source_approval_status:=v_row->>'autotask_advance_approval_status';
     SELECT to_jsonb(r) INTO v_posted_row FROM public.receiving_records r WHERE r.id::text=v_row->>'posted_receiving_record_id';
-    IF v_posted_row IS NOT NULL THEN v_row:=v_row||v_posted_row; END IF;
+    IF v_posted_row IS NOT NULL THEN
+      v_row:=v_row||v_posted_row;
+      v_row:=jsonb_set(v_row,'{autotask_advance_approval_status}',to_jsonb(v_source_approval_status),true);
+    END IF;
   END IF;
   FOR v_task IN SELECT * FROM public."Autotask_tasks" WHERE source_table=p_source_table AND source_record_id=p_source_record_id AND status IN ('open','blocked') LOOP
     v_match:=false;
@@ -64091,6 +64155,15 @@ GRANT ALL ON FUNCTION public."Autotask_list_my_advance_approvals"(p_user_id uuid
 REVOKE ALL ON FUNCTION public."Autotask_list_my_tasks"(p_user_id uuid, p_include_completed boolean, p_limit integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION public."Autotask_list_my_tasks"(p_user_id uuid, p_include_completed boolean, p_limit integer) TO anon;
 GRANT ALL ON FUNCTION public."Autotask_list_my_tasks"(p_user_id uuid, p_include_completed boolean, p_limit integer) TO authenticated;
+
+
+--
+-- Name: FUNCTION "Autotask_list_pending_tasks"(p_requesting_user_id uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public."Autotask_list_pending_tasks"(p_requesting_user_id uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public."Autotask_list_pending_tasks"(p_requesting_user_id uuid) TO anon;
+GRANT EXECUTE ON FUNCTION public."Autotask_list_pending_tasks"(p_requesting_user_id uuid) TO authenticated;
 
 
 --

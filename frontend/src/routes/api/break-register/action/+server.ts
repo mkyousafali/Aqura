@@ -1,6 +1,17 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { databaseClient, requireBreakUser } from '$lib/server/breakRegisterAuth';
+import { env } from '$env/dynamic/private';
+
+async function analyzeBreak(breakId: string | undefined): Promise<void> {
+	if (!breakId || !env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_SERVICE_KEY) return;
+	const response = await fetch(`${env.VITE_SUPABASE_URL}/functions/v1/analyze-breaks`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.VITE_SUPABASE_SERVICE_KEY}` },
+		body: JSON.stringify({ breakId })
+	});
+	if (!response.ok) console.error('Break saved, but immediate analysis failed:', await response.text());
+}
 
 export const GET: RequestHandler = async ({ cookies }) => {
 	try {
@@ -23,6 +34,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			? { p_user_id: user.id, p_reason_id: body.reasonId, p_reason_note: typeof body.reasonNote === 'string' ? body.reasonNote : null, p_security_code: body.securityCode }
 			: { p_user_id: user.id, p_security_code: body.securityCode });
 		if (error) throw error;
+		if (data?.success) await analyzeBreak(data.break_id);
 		return json(data);
 	} catch { return json({ error: 'Break action failed' }, { status: 401 }); }
 };

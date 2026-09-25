@@ -339,13 +339,19 @@
 					<div class="brand-glow brand-glow-two"></div>
 					<div class="brand-panel-content">
 						<div class="brand-lockup">
-							<div class="brand-logo-card aqura-logo-card">
-								<button on:click={handleLogoClick} class="brand-logo-button" type="button" aria-label="Aqura Logo">
-									<img src="/icons/Aqura logo.png" alt="Aqura" class="aqura-brand-logo" />
-								</button>
-							</div>
-							<div class="brand-logo-card urban-logo-card">
-								<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt="Urban Market" class="urban-brand-logo" />
+							<div class="brand-marquee-track">
+								{#each [0, 1, 2, 3] as copy}
+									<div class="brand-marquee-group" aria-hidden={copy === 0 ? undefined : 'true'}>
+										<div class="brand-logo-card aqura-logo-card">
+											<button on:click={handleLogoClick} class="brand-logo-button" type="button" aria-label="Aqura Logo" tabindex={copy === 0 ? 0 : -1}>
+												<img src="/icons/Aqura logo.png" alt={copy === 0 ? 'Aqura' : ''} class="aqura-brand-logo" />
+											</button>
+										</div>
+										<div class="brand-logo-card urban-logo-card">
+											<img src={$iconUrlMap['logo'] || '/icons/logo.png'} alt={copy === 0 ? 'Urban Market' : ''} class="urban-brand-logo" />
+										</div>
+									</div>
+								{/each}
 							</div>
 						</div>
 
@@ -1591,11 +1597,39 @@
 	}
 
 	.brand-lockup {
+		width: 100%;
+		overflow: hidden;
+		padding-block: 6px;
+		direction: ltr;
+		-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+		mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+	}
+
+	.brand-marquee-track {
 		display: flex;
+		width: max-content;
+		animation: brandMarquee 28s linear infinite;
+	}
+
+	.brand-lockup:hover .brand-marquee-track {
+		animation-play-state: paused;
+	}
+
+	.brand-marquee-group {
+		display: flex;
+		flex-shrink: 0;
 		align-items: center;
 		gap: 1.4rem;
-		width: fit-content;
-		align-self: center;
+		padding-inline: 0.7rem;
+	}
+
+	@keyframes brandMarquee {
+		from {
+			transform: translateX(0);
+		}
+		to {
+			transform: translateX(-50%);
+		}
 	}
 
 	.brand-logo-card {
@@ -2186,7 +2220,8 @@
 		.digit-input,
 		.auth-submit-btn,
 		.header-back-btn,
-		.language-toggle-main {
+		.language-toggle-main,
+		.brand-marquee-track {
 			animation: none;
 			transition: none;
 		}

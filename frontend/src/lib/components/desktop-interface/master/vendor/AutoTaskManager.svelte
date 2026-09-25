@@ -28,6 +28,14 @@
   let savingTaskNumber = null;
   let userPickerTask = null;
   let userSearch = '';
+  let pendingTasks = [];
+  let pendingTasksLoaded = false;
+  let pendingTasksLoading = false;
+  let pendingTasksError = '';
+  let pendingBranchId = '';
+  let pendingStatus = '';
+  let pendingEmployeeSearch = '';
+  let expandedBlockedTaskIds = [];
 
   // Default assignees are global active users; branch membership is not required.
   $: branchUsers = selectedBranchId ? users : [];
@@ -37,6 +45,27 @@
         (user.username || '').toLowerCase().includes(userSearch.trim().toLowerCase())
       )
     : [];
+  $: pendingBranches = Array.from(
+    new Map(
+      pendingTasks.map((task) => [
+        String(task.branch_id),
+        {
+          id: String(task.branch_id),
+          name_en: task.branch_name_en,
+          name_ar: task.branch_name_ar
+        }
+      ])
+    ).values()
+  ).sort((a, b) => (a.name_en || '').localeCompare(b.name_en || ''));
+  $: filteredPendingTasks = pendingTasks.filter((task) => {
+    if (pendingBranchId && String(task.branch_id) !== pendingBranchId) return false;
+    if (pendingStatus && task.status !== pendingStatus) return false;
+    const query = pendingEmployeeSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [task.assignee_username, task.assignee_name_en, task.assignee_name_ar]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query));
+  });
 
   onMount(async () => {
     const [branchResult, userResult] = await Promise.all([
@@ -152,12 +181,69 @@
     saveSuccess = '';
     await loadBranchConfig();
   }
+
+  async function loadPendingTasks() {
+    if (pendingTasksLoading || !$currentUser?.id) return;
+    pendingTasksLoading = true;
+    pendingTasksError = '';
+    const { data, error } = await supabase.rpc('Autotask_list_pending_tasks', {
+      p_requesting_user_id: $currentUser.id
+    });
+    if (error) {
+      pendingTasksError = error.message || 'Failed to load pending Auto Tasks.';
+    } else {
+      pendingTasks = data || [];
+      pendingTasksLoaded = true;
+    }
+    pendingTasksLoading = false;
+  }
+
+  async function selectTab(tab) {
+    activeTab = tab;
+    if (tab === 'pending' && !pendingTasksLoaded) await loadPendingTasks();
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '—';
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date(value));
+  }
+
+  function formatRecordDate(value) {
+    if (!value) return '—';
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit'
+    }).format(new Date(`${value}T00:00:00`));
+  }
+
+  function formatBillAmount(value) {
+    if (value === null || value === undefined) return '—';
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: 'SAR',
+      minimumFractionDigits: 2
+    }).format(Number(value));
+  }
+
+  function toggleBlockedTask(taskId) {
+    expandedBlockedTaskIds = expandedBlockedTaskIds.includes(taskId)
+      ? expandedBlockedTaskIds.filter((id) => id !== taskId)
+      : [...expandedBlockedTaskIds, taskId];
+  }
 </script>
 
 <div class="auto-task-manager">
   <div class="tab-bar">
-    <button class:active={activeTab === 'list'} class="tab-button" type="button" on:click={() => (activeTab = 'list')}>Auto Task List</button>
-    <button class:active={activeTab === 'users'} class="tab-button" type="button" on:click={() => (activeTab = 'users')}>Default User Management</button>
+    <button class:active={activeTab === 'list'} class="tab-button" type="button" on:click={() => selectTab('list')}>Auto Task List</button>
+    <button class:active={activeTab === 'users'} class="tab-button" type="button" on:click={() => selectTab('users')}>Default User Management</button>
+    <button class:active={activeTab === 'pending'} class="tab-button" type="button" on:click={() => selectTab('pending')}>Pending Auto Tasks</button>
   </div>
 
   {#if activeTab === 'list'}
@@ -399,7 +485,7 @@
       </table>
     </div>
   </div>
-  {:else}
+  {:else if activeTab === 'users'}
     <div class="tab-content" aria-label="Default User Management">
       <div class="management-panel">
         <div class="management-heading">
@@ -544,6 +630,145 @@
           </div>
         </div>
       {/if}
+    </div>
+  {:else}
+    <div class="tab-content" aria-label="Pending Auto Tasks">
+      <div class="pending-panel">
+        <div class="pending-heading">
+          <div>
+            <h2>Pending Auto Tasks</h2>
+            <p>All open and blocked Auto Tasks across every branch and employee.</p>
+          </div>
+          <button class="refresh-button" type="button" on:click={loadPendingTasks} disabled={pendingTasksLoading}>
+            {pendingTasksLoading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+
+        <div class="pending-filters">
+          <label>
+            <span>Branch</span>
+            <select bind:value={pendingBranchId}>
+              <option value="">All branches</option>
+              {#each pendingBranches as branch}
+                <option value={branch.id}>{branch.name_en || branch.name_ar || branch.id}</option>
+              {/each}
+            </select>
+          </label>
+          <label>
+            <span>Status</span>
+            <select bind:value={pendingStatus}>
+              <option value="">All pending statuses</option>
+              <option value="open">Open</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </label>
+          <label>
+            <span>Employee / User</span>
+            <input type="search" bind:value={pendingEmployeeSearch} placeholder="Search employee name or username…" />
+          </label>
+          <div class="pending-count" role="status">
+            Showing {filteredPendingTasks.length} of {pendingTasks.length} pending tasks
+          </div>
+        </div>
+
+        {#if pendingTasksLoading && !pendingTasksLoaded}
+          <p class="state-message">Loading pending Auto Tasks…</p>
+        {:else if pendingTasksError}
+          <p class="state-message error" role="alert">{pendingTasksError}</p>
+        {:else if filteredPendingTasks.length === 0}
+          <p class="state-message">No pending Auto Tasks match the selected filters.</p>
+        {:else}
+          <div class="pending-table-wrapper">
+            <table class="pending-table">
+              <thead>
+                <tr>
+                  <th>Serial No.</th>
+                  <th>Task</th>
+                  <th>Employee / User</th>
+                  <th>Branch</th>
+                  <th>Status</th>
+                  <th>Due</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each filteredPendingTasks as task, index}
+                  <tr class:overdue-row={task.is_overdue}>
+                    <td class="serial-number">{index + 1}</td>
+                    <td>
+                      <div class="task-title-line">
+                        {#if task.status === 'blocked'}
+                          <button
+                            class="expand-button"
+                            type="button"
+                            aria-expanded={expandedBlockedTaskIds.includes(task.id)}
+                            aria-label={`${expandedBlockedTaskIds.includes(task.id) ? 'Hide' : 'Show'} pending dependencies for ${task.title_en}`}
+                            on:click={() => toggleBlockedTask(task.id)}
+                          >{expandedBlockedTaskIds.includes(task.id) ? '▾' : '▸'}</button>
+                        {/if}
+                        <strong>#{task.task_number} {task.title_en}</strong>
+                      </div>
+                      <span class="secondary-text" lang="ar" dir="rtl">{task.title_ar}</span>
+                    </td>
+                    <td>
+                      <strong>{task.assignee_name_en || task.assignee_username}</strong>
+                      <span class="secondary-text">@{task.assignee_username}</span>
+                    </td>
+                    <td>{task.branch_name_en || task.branch_name_ar || task.branch_id}</td>
+                    <td>
+                      <span class:blocked={task.status === 'blocked'} class="status-badge">{task.status}</span>
+                      {#if task.is_overdue}<span class="overdue-badge">Overdue</span>{/if}
+                    </td>
+                    <td>{formatDateTime(task.due_at)}</td>
+                    <td>
+                      <strong>{task.source_vendor_name || 'Unknown vendor'}</strong>
+                      <span class="secondary-text">{formatBillAmount(task.source_bill_amount)}</span>
+                      <span class="secondary-text">{formatRecordDate(task.source_record_date)}</span>
+                    </td>
+                  </tr>
+                  {#if task.status === 'blocked' && expandedBlockedTaskIds.includes(task.id)}
+                    <tr class="dependency-row">
+                      <td></td>
+                      <td colspan="6">
+                        <div class="dependency-panel">
+                          <h3>Pending dependencies</h3>
+                          {#if (task.pending_dependencies || []).length === 0}
+                            <p>No incomplete prerequisite tasks were found.</p>
+                          {:else}
+                            <div class="dependency-list">
+                              {#each task.pending_dependencies as dependency}
+                                <div class="dependency-item">
+                                  <div>
+                                    <strong>#{dependency.task_number} {dependency.title_en}</strong>
+                                    <span class="secondary-text" lang="ar" dir="rtl">{dependency.title_ar}</span>
+                                  </div>
+                                  <div>
+                                    <span class="dependency-label">Assigned user</span>
+                                    <strong>{dependency.assignee_name_en || dependency.assignee_username}</strong>
+                                    <span class="secondary-text">@{dependency.assignee_username}</span>
+                                  </div>
+                                  <div>
+                                    <span class="status-badge">{dependency.status}</span>
+                                    {#if dependency.is_overdue}<span class="overdue-badge">Overdue</span>{/if}
+                                  </div>
+                                  <div>
+                                    <span class="dependency-label">Due</span>
+                                    <span>{formatDateTime(dependency.due_at)}</span>
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+                      </td>
+                    </tr>
+                  {/if}
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </div>
     </div>
   {/if}
 </div>
@@ -907,5 +1132,239 @@
 
   .configuration-note {
     margin-top: 0.75rem;
+  }
+
+  .pending-panel {
+    min-height: 100%;
+    padding: 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    background: #ffffff;
+  }
+
+  .pending-heading {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .pending-heading h2,
+  .pending-heading p {
+    margin: 0;
+  }
+
+  .pending-heading h2 {
+    color: #1e293b;
+    font-size: 1.1rem;
+  }
+
+  .pending-heading p {
+    margin-top: 0.25rem;
+    color: #64748b;
+    font-size: 0.85rem;
+  }
+
+  .refresh-button {
+    padding: 0.55rem 0.9rem;
+    border: 1px solid #2563eb;
+    border-radius: 0.5rem;
+    background: #2563eb;
+    color: #ffffff;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .refresh-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+
+  .pending-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.7fr) minmax(170px, 0.55fr) minmax(240px, 1fr) auto;
+    align-items: end;
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+  }
+
+  .pending-filters label {
+    display: grid;
+    gap: 0.35rem;
+    color: #334155;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .pending-filters select,
+  .pending-filters input {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    color: #1e293b;
+    outline: none;
+  }
+
+  .pending-filters select:focus,
+  .pending-filters input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+
+  .pending-count {
+    padding: 0.65rem 0;
+    color: #64748b;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .pending-table-wrapper {
+    overflow: auto;
+    max-height: calc(100vh - 290px);
+    border: 1px solid #e2e8f0;
+    border-radius: 0.6rem;
+  }
+
+  table.pending-table {
+    min-width: 1050px;
+  }
+
+  .pending-table thead {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+
+  .pending-table strong,
+  .secondary-text {
+    display: block;
+  }
+
+  .pending-table strong {
+    color: #1e293b;
+  }
+
+  .task-title-line {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .expand-button {
+    flex: 0 0 26px;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid #f59e0b;
+    border-radius: 0.4rem;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .dependency-row td {
+    padding-top: 0;
+    background: #fffbeb;
+  }
+
+  .dependency-panel {
+    padding: 0.8rem;
+    border: 1px solid #fde68a;
+    border-radius: 0.6rem;
+    background: #ffffff;
+  }
+
+  .dependency-panel h3,
+  .dependency-panel p {
+    margin: 0;
+  }
+
+  .dependency-panel h3 {
+    margin-bottom: 0.65rem;
+    color: #92400e;
+    font-size: 0.85rem;
+  }
+
+  .dependency-list {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .dependency-item {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.4fr) minmax(180px, 1fr) minmax(130px, 0.6fr) minmax(150px, 0.7fr);
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    background: #f8fafc;
+  }
+
+  .dependency-label {
+    display: block;
+    margin-bottom: 0.15rem;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .serial-number {
+    width: 90px;
+    color: #475569;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .secondary-text {
+    margin-top: 0.2rem;
+    color: #64748b;
+    font-size: 0.75rem;
+  }
+
+  .status-badge,
+  .overdue-badge {
+    display: inline-block;
+    margin: 0 0.3rem 0.2rem 0;
+    padding: 0.22rem 0.5rem;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+
+  .status-badge.blocked {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .overdue-badge {
+    background: #fee2e2;
+    color: #b91c1c;
+  }
+
+  .overdue-row {
+    background: #fffafa;
+  }
+
+  @media (max-width: 850px) {
+    .pending-filters {
+      grid-template-columns: 1fr;
+    }
+
+    .pending-count {
+      padding: 0;
+    }
+
+    .dependency-item {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

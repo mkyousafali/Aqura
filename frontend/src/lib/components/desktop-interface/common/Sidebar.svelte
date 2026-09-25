@@ -106,7 +106,6 @@
 	import VipCampaignWindow from '$lib/components/desktop-interface/marketing/vip/VipCampaignWindow.svelte';
 	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
 	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
-	import ThemeManager from '$lib/components/desktop-interface/settings/ThemeManager.svelte';
 	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
 	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
 	import SidebarAnimationManager from '$lib/components/desktop-interface/settings/SidebarAnimationManager.svelte';
@@ -583,7 +582,7 @@
 		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE"],
 		ControlsReports: ["PC_LOCK_GUARD"],
 		SystemDashboard: [],
-		SystemManage: ["BRANCHES","THEME_MANAGER","ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
+		SystemManage: ["BRANCHES","ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
 		SystemOperations: ["HELPER_APPS","SIDEBAR_ANIMATION"],
 		SystemReports: ["CENTRAL_PERFORMANCE","DRAWER_ACTION_MONITOR"],
 		WhatsAppDashboard: ["WA_DASHBOARD"],
@@ -2138,30 +2137,6 @@ function openApprovalCenter() {
 		showSystemManageSubmenu = false;
 	}
 
-	function openThemeManager() {
-		const windowId = generateWindowId('theme-manager');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `${t('nav.themeManager')} #${instanceNumber}`,
-			component: ThemeManager,
-			componentName: "ThemeManager",
-			icon: '🎨',
-			size: { width: 1100, height: 700 },
-			position: { 
-				x: 150 + (Math.random() * 100), 
-				y: 80 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showSystemSubmenu = false;
-		showSystemManageSubmenu = false;
-	}
-
 	function openAIChatGuide() {
 		const windowId = generateWindowId('ai-chat-guide');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2395,7 +2370,6 @@ function openApprovalCenter() {
 			'E_R_P_CONNECTIONS': openERPConnections,
 			'CLEAR_TABLES': openClearTables,
 			'APP_PERMISSIONS': openAppPermissions,
-			'THEME_MANAGER': openThemeManager,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
 			'ERP_CREDENTIALS': openErpCredentials,
@@ -6648,14 +6622,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('THEME_MANAGER')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openThemeManager}>
-								<span class="menu-icon">🎨</span>
-								<span class="menu-text">{t('nav.themeManager')}</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('ERP_PRODUCT_MANAGER')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openErpProductManager}>
@@ -7242,10 +7208,7 @@ function openApprovalCenter() {
 	.interface-switch-btn {
 		width: 100%;
 		padding: 0.5rem 1rem;
-		background: linear-gradient(145deg,
-			rgba(59, 130, 246, 0.8),
-			rgba(37, 99, 235, 0.75)
-		);
+		background: var(--theme-interface-switch-bg, linear-gradient(145deg, #087CA5, #075B91));
 		border: 1px solid rgba(255, 255, 255, 0.18);
 		border-radius: 0.5rem;
 		color: white;
@@ -7262,10 +7225,7 @@ function openApprovalCenter() {
 	}
 
 	.interface-switch-btn:hover {
-		background: linear-gradient(145deg,
-			rgba(37, 99, 235, 0.88),
-			rgba(29, 78, 216, 0.82)
-		);
+		background: var(--theme-interface-switch-hover-bg, linear-gradient(145deg, #0AA8C4, #087CA5));
 		transform: translateY(-1px);
 		box-shadow:
 			0 5px 16px rgba(59, 130, 246, 0.5),
@@ -7288,13 +7248,7 @@ function openApprovalCenter() {
 		bottom: 56px;
 		width: 154px;
 		/* Rich glass gradient — visible even on dark desktop */
-		background:
-			linear-gradient(
-				175deg,
-				rgba(55, 75, 100, 0.96) 0%,
-				rgba(28, 38, 56, 0.98) 40%,
-				rgba(18, 26, 42, 0.99) 100%
-			);
+		background: var(--theme-sidebar-bg, linear-gradient(135deg, #4B5563 0%, #374151 100%));
 		backdrop-filter: blur(18px) saturate(160%);
 		-webkit-backdrop-filter: blur(18px) saturate(160%);
 		color: var(--theme-sidebar-text, #e5e7eb);
@@ -7337,13 +7291,7 @@ function openApprovalCenter() {
 	}
 
 	.sidebar.favorites-mode {
-		background:
-			linear-gradient(
-				175deg,
-				rgba(45, 70, 140, 0.96) 0%,
-				rgba(22, 35, 80, 0.98) 40%,
-				rgba(14, 22, 55, 0.99) 100%
-			);
+		background: var(--theme-sidebar-bg, linear-gradient(135deg, #4B5563 0%, #374151 100%));
 		border-right-color: rgba(99, 150, 255, 0.15);
 		box-shadow:
 			4px 0 32px rgba(0, 0, 40, 0.65),
@@ -8510,6 +8458,60 @@ function openApprovalCenter() {
 	.submenu-inline {
 		background: rgba(2, 8, 23, 0.14);
 		border-color: rgba(148, 163, 184, 0.14);
+	}
+
+	/* Fixed light desktop navigation — matches the approved preview. */
+	.sidebar,
+	.sidebar.favorites-mode {
+		background: linear-gradient(180deg, #0B3C68 0%, #082E61 48%, #061F55 100%);
+		border-right: 1px solid #2B658F;
+		box-shadow: 4px 0 22px rgba(17, 24, 39, 0.22), inset -1px 0 0 rgba(255, 255, 255, 0.24);
+	}
+
+	.sidebar::before {
+		background: linear-gradient(160deg, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.04) 58%, transparent 78%);
+	}
+
+	.view-mode-toggle,
+	.bottom-controls-row {
+		background: rgba(255, 255, 255, 0.92);
+		border-color: rgba(255, 255, 255, 0.72);
+		box-shadow: 0 3px 10px rgba(17, 24, 39, 0.12);
+	}
+
+	.section-button,
+	.submenu-subsection-button,
+	.submenu-subsection-button.icon-only,
+	.submenu-item,
+	.submenu-inline .submenu-item {
+		background: rgba(255, 255, 255, 0.96);
+		color: #0B2B50;
+		border: 1px solid #CFE3EC;
+		box-shadow: 0 2px 7px rgba(17, 24, 39, 0.10);
+		text-shadow: none;
+	}
+
+	.section-button:hover,
+	.submenu-subsection-button:hover,
+	.submenu-item:hover,
+	.submenu-inline .submenu-item:hover,
+	.section-button:has(.arrow.expanded) {
+		background: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
+		color: #FFFFFF;
+		border-color: #10DCE5;
+		box-shadow: 0 5px 14px rgba(3, 76, 140, 0.28);
+		transform: none;
+	}
+
+	.submenu-inline {
+		background: rgba(255, 255, 255, 0.30);
+		border-color: rgba(255, 255, 255, 0.42);
+	}
+
+	.section-icon,
+	.menu-icon,
+	.submenu-subsection-button .menu-icon {
+		filter: none;
 	}
 </style>
 

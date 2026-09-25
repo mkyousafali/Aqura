@@ -945,7 +945,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.task-button.active {
 		background: var(--theme-taskbar-btn-active-bg, linear-gradient(135deg, #4F46E5 0%, #6366F1 100%));
 		color: var(--theme-taskbar-btn-active-text, white);
-		border-color: #4338CA;
+		border-color: var(--theme-taskbar-btn-hover-border, #0AA8C4);
 	}
 
 	.task-button.minimized {
@@ -1058,6 +1058,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.approvals-btn .quick-badge.pending {
 		background: #f59e0b;
 		animation: pulse 2s infinite;
+	}
+
+	/* Fixed desktop taskbar — matches the approved preview. */
+	.taskbar {
+		background: linear-gradient(180deg, #0B3C68 0%, #061F55 100%);
+		border-top-color: rgba(255, 255, 255, 0.42);
+		box-shadow: 0 -4px 20px rgba(17, 24, 39, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+	}
+
+	.task-button {
+		border-radius: 8px;
+		border-color: rgba(255, 255, 255, 0.58);
+		box-shadow: 0 2px 7px rgba(17, 24, 39, 0.14);
+	}
+
+	.quick-btn {
+		background: rgba(255, 255, 255, 0.18);
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+	}
+
+	.quick-btn:hover {
+		background: rgba(255, 255, 255, 0.30);
+		border-color: rgba(255, 255, 255, 0.38);
 	}
 
 	.notifications-btn .quick-badge {

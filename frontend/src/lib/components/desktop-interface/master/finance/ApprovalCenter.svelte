@@ -182,12 +182,63 @@
 	function mobileRequestAmount(req) {
 		const amount = req.final_bill_amount ?? req.bill_amount ?? req.amount ?? req.total_amount ?? req.voucher_value;
 		return amount === null || amount === undefined || amount === ''
-			? t('approvalCenter.na')
+			? mobileRequestTypeLabel(req)
 			: `${Number(amount).toLocaleString()} SAR`;
 	}
 
 	function mobileRequestParty(req) {
 		return req.vendor_name || req.requester_name || req.co_user_name || req.employee?.name_en || req.branch_name || req.item_type?.replace(/_/g, ' ') || t('approvalCenter.na');
+	}
+
+	function mobileRequestTypeLabel(req) {
+		const labels = {
+			requisition: $locale === 'ar' ? 'طلب مصروف' : 'Expense Requisition',
+			payment_schedule: $locale === 'ar' ? 'جدول دفع' : 'Payment Schedule',
+			vendor_payment: $locale === 'ar' ? 'دفعة مورد' : 'Vendor Payment',
+			purchase_voucher: $locale === 'ar' ? 'قسيمة شراء' : 'Purchase Voucher',
+			day_off: $locale === 'ar' ? 'طلب إجازة' : 'Day Off Request',
+			box_edit: $locale === 'ar' ? 'تعديل صندوق' : 'Box Edit Request',
+			po_followup: $locale === 'ar' ? 'متابعة أمر شراء' : 'PO Follow-Up',
+			internal_expense: $locale === 'ar' ? 'استهلاك داخلي' : 'Internal Consumption'
+		};
+		return labels[req.item_type] || req.item_type?.replace(/_/g, ' ') || ($locale === 'ar' ? 'طلب موافقة' : 'Approval Request');
+	}
+
+	function mobileRequestRelatedTo(req) {
+		switch (req.item_type) {
+			case 'requisition':
+				return `${$locale === 'ar' ? 'طلب مصروف رقم' : 'Expense Requisition #'}${req.requisition_number || req.id || '—'}`;
+			case 'payment_schedule':
+				return `${$locale === 'ar' ? 'جدول دفع رقم' : 'Payment Schedule #'}${req.id || '—'}`;
+			case 'vendor_payment':
+				return `${$locale === 'ar' ? 'فاتورة مورد رقم' : 'Vendor Bill #'}${req.bill_number || '—'}`;
+			case 'purchase_voucher':
+				return `${$locale === 'ar' ? 'قسيمة شراء رقم' : 'Purchase Voucher #'}${req.serial_number || req.purchase_voucher_id || '—'}`;
+			case 'day_off': {
+				const from = req._dateFrom || req.day_off_date;
+				const to = req._dateTo;
+				const dates = from ? `${formatDateOnly(from)}${to && to !== from ? ` → ${formatDateOnly(to)}` : ''}` : '—';
+				return `${$locale === 'ar' ? 'إجازة بتاريخ ' : 'Day off: '}${dates}`;
+			}
+			case 'box_edit':
+				return `${$locale === 'ar' ? 'تعديل الصندوق رقم' : 'Box Edit #'}${req.box_number || '—'}`;
+			case 'po_followup':
+				return `${$locale === 'ar' ? 'متابعة أمر شراء: ' : 'PO Follow-Up: '}${req.vendor_name || req.vendor_erp_id || '—'}`;
+			case 'internal_expense':
+				return `${$locale === 'ar' ? 'استهلاك داخلي: ' : 'Internal Consumption: '}${(req.items || []).length} ${$locale === 'ar' ? 'منتج' : ((req.items || []).length === 1 ? 'product' : 'products')}`;
+			default:
+				return mobileRequestTypeLabel(req);
+		}
+	}
+
+	function mobileApprovalStatus(req) {
+		const status = req.approval_status || req.status || 'pending';
+		const isActionable = ['pending', 'sent_for_approval', 'requested'].includes(status)
+			|| ['vendor_payment', 'po_followup', 'internal_expense'].includes(req.item_type);
+		if (activeSection === 'approvals' && isActionable) {
+			return { ready: true, label: $locale === 'ar' ? 'جاهز للموافقة' : 'Ready for Approval' };
+		}
+		return { ready: false, label: getStatusText(status) };
 	}
 
 	function setupRealtime() {
@@ -2072,8 +2123,9 @@ async function loadHistoricalData() {
 											<span class="mobile-card-summary">
 												<strong>{mobileRequestAmount(req)}</strong>
 												<small>{mobileRequestParty(req)}</small>
+												<small class="mobile-related-request">{$locale === 'ar' ? 'مرتبط بـ: ' : 'Related to: '}{mobileRequestRelatedTo(req)}</small>
 											</span>
-											<span class="mobile-card-expand">{expandedMobileRequests[mobileRequestKey(req)] ? '−' : '+'}</span>
+											<span class="mobile-card-side"><span class:ready={mobileApprovalStatus(req).ready} class="mobile-readiness-badge">{mobileApprovalStatus(req).label}</span><span class="mobile-card-expand">{expandedMobileRequests[mobileRequestKey(req)] ? '−' : '+'}</span></span>
 										</button>
 									</td>
 								{/if}
@@ -4541,6 +4593,10 @@ async function loadHistoricalData() {
 .mobile-mode .mobile-card-summary { display: flex; min-width: 0; flex-direction: column; gap: 0.18rem; }
 .mobile-mode .mobile-card-summary strong { font-size: 0.84rem; overflow-wrap: anywhere; }
 .mobile-mode .mobile-card-summary small { color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-mode .mobile-card-summary .mobile-related-request { color: #2563eb; font-size: 0.68rem; font-weight: 700; }
+.mobile-mode .mobile-card-side { display: flex; flex: 0 0 auto; align-items: center; gap: 0.45rem; }
+.mobile-mode .mobile-readiness-badge { display: inline-flex; width: max-content; padding: 0.25rem 0.5rem; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 0.64rem; font-weight: 800; white-space: nowrap; }
+.mobile-mode .mobile-readiness-badge.ready { background: #dcfce7; color: #166534; }
 .mobile-mode .mobile-card-expand {
 	display: grid;
 	width: 34px;
@@ -4552,6 +4608,11 @@ async function loadHistoricalData() {
 	color: #2563eb;
 	font-size: 1.25rem;
 	font-weight: 700;
+}
+@media (max-width: 430px) {
+	.mobile-mode .mobile-card-toggle button { min-height: 72px; align-items: flex-start; }
+	.mobile-mode .mobile-card-side { align-items: flex-end; flex-direction: column-reverse; }
+	.mobile-mode .mobile-readiness-badge { font-size: 0.59rem; }
 }
 .mobile-mode .requisitions-table td:nth-child(2n),
 .mobile-mode :global(.autotask-approval-row td:nth-child(2n)) { border-inline-end: 0; }

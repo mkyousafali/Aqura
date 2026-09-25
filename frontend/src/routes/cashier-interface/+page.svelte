@@ -14,7 +14,6 @@
 	} from '$lib/stores/cashierAuth';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ContactInfoOverlay from '$lib/components/common/ContactInfoOverlay.svelte';
-	import LanguagePickerOverlay from '$lib/components/common/LanguagePickerOverlay.svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale, switchLocale, hasManualLocaleOverride } from '$lib/i18n';
 	import { onNativeLogout } from '$lib/utils/nativeShell';
@@ -260,8 +259,6 @@
 			branch={selectedBranch}
 			on:logout={handleLogout}
 		/>
-		<!-- Language Picker - blocks once until a default language is chosen -->
-		<LanguagePickerOverlay mode="cashier" employeeId={cashierUser?.id} />
 		<!-- Contact Info Overlay - blocks until WhatsApp & email are provided -->
 		<ContactInfoOverlay mode="cashier" employeeId={cashierUser?.id} />
 	{/if}

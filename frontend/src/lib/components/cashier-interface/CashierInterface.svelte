@@ -122,7 +122,9 @@
 					<div class="app-logo">
 						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" />
 					</div>
-					<p class="app-tagline">{t('app.description') || 'AI-powered management system'}</p>
+					<div class="aqura-brand-logo" aria-label="Aqura">
+						<img src="/icons/Aqura logo.png" alt="Original Aqura Logo" />
+					</div>
 					<span class="version-badge">{cashierVersion}</span>
 				</div>
 				<div class="logout-container">
@@ -159,10 +161,51 @@
 <style>
 	.cashier-desktop {
 		min-height: 100vh;
-		background: #fafaf8;
+		background:
+			radial-gradient(ellipse 48% 38% at 72% 12%, rgba(52, 221, 237, 0.22), transparent 67%),
+			radial-gradient(ellipse 36% 54% at 8% 58%, rgba(18, 184, 211, 0.17), transparent 72%),
+			radial-gradient(ellipse 46% 42% at 88% 82%, rgba(15, 130, 181, 0.24), transparent 70%),
+			linear-gradient(155deg, #051f3f 0%, #053a66 52%, #045b7d 100%);
 		position: relative;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.cashier-desktop::before,
+	.cashier-desktop::after {
+		content: '';
+		position: fixed;
+		width: 760px;
+		height: 760px;
+		border-radius: 50%;
+		background: radial-gradient(circle, rgba(78, 230, 240, 0.22), rgba(14, 145, 184, 0.10) 46%, transparent 71%);
+		filter: blur(6px);
+		pointer-events: none;
+		z-index: 0;
+	}
+
+	.cashier-desktop::before { animation: cashierAuroraOne 24s ease-in-out infinite; }
+	.cashier-desktop::after { width: 920px; height: 920px; animation: cashierAuroraTwo 31s ease-in-out infinite; }
+
+	@keyframes cashierAuroraOne {
+		0% { left: 12%; top: -34%; opacity: 0; transform: scale(.78); }
+		12% { opacity: .82; }
+		34% { left: 42%; top: 4%; opacity: .48; transform: scale(1.04); }
+		49% { opacity: 0; }
+		62% { left: -8%; top: 36%; opacity: 0; transform: scale(.72); }
+		74% { opacity: .72; }
+		100% { left: 12%; top: -34%; opacity: 0; transform: scale(.78); }
+	}
+
+	@keyframes cashierAuroraTwo {
+		0% { right: -14%; bottom: -42%; opacity: .65; transform: scale(1); }
+		20% { opacity: 0; }
+		36% { right: 38%; bottom: 8%; opacity: 0; transform: scale(.72); }
+		49% { opacity: .7; }
+		68% { right: 4%; bottom: 28%; opacity: .36; transform: scale(.94); }
+		80% { opacity: 0; }
+		100% { right: -14%; bottom: -42%; opacity: .65; transform: scale(1); }
 	}
 
 	.cashier-dancing-character {
@@ -231,12 +274,12 @@
 		top: 0;
 		left: 0;
 		z-index: 1;
-		padding: 2rem;
+		padding: 0;
 	}
 
 	.welcome-screen {
-		max-width: 600px;
-		width: 90%;
+		width: 0;
+		height: 0;
 	}
 
 	.app-branding {
@@ -246,58 +289,57 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0;
-		padding: 3rem 2rem 2rem;
-		background: linear-gradient(135deg, #15A34A 0%, #22C55E 100%);
-		border-radius: 24px;
-		box-shadow: 0 25px 50px rgba(11, 18, 32, 0.1);
+		padding: 0;
+		background: transparent;
+		border-radius: 0;
+		box-shadow: none;
 		position: relative;
-		overflow: hidden;
+		overflow: visible;
 	}
 
-	.app-branding::after {
-		content: '';
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		height: 4px;
-		background: linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%);
-	}
+	.app-branding::after { display: none; }
 
 	.logout-container {
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		gap: 0.75rem;
-		margin: 1.25rem 0 0;
-		padding: 0.5rem 0.75rem 0.5rem 1.1rem;
-		background: #ffffff;
-		border: 1px solid #e5e7eb;
-		border-radius: 9999px;
-		box-shadow: 0 2px 8px rgba(11, 18, 32, 0.06);
+		position: fixed;
+		left: auto;
+		top: 20px;
+		right: 308px;
+		bottom: auto;
+		z-index: 100;
+		margin: 0;
+		height: 44px;
+		box-sizing: border-box;
+		padding: 0 10px 0 16px;
+		background: #F5FAFC;
+		border: 6px solid #0798AE;
+		border-radius: 10px;
+		box-shadow: 0 0 8px rgba(7, 152, 174, .18), 0 4px 12px rgba(3, 76, 140, .08);
 		width: fit-content;
-		margin-left: auto;
-		margin-right: auto;
 	}
 
 	.current-user-name {
-		font-size: 1.1rem;
+		font-size: 0.82rem;
 		font-weight: 700;
-		color: #1f2937;
+		color: #0B2B50;
+		white-space: nowrap;
 	}
 
 	.user-bar-divider {
 		width: 1px;
-		height: 1.4rem;
-		background: #e5e7eb;
+		height: 1.25rem;
+		background: rgba(7, 152, 174, 0.28);
 	}
 
 	.panel-logout-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 2.25rem;
-		height: 2.25rem;
+		width: 1.55rem;
+		height: 1.55rem;
 		padding: 0;
 		background: #dc2626;
 		color: #ffffff;
@@ -315,26 +357,60 @@
 		transform: translateY(0);
 	}
 	.panel-logout-icon {
-		width: 1.15rem;
-		height: 1.15rem;
+		width: 0.9rem;
+		height: 0.9rem;
 	}
 
 	.app-logo {
+		position: fixed;
+		right: 20px;
+		bottom: 74px;
+		z-index: 100;
 		width: 200px;
 		height: 120px;
-		margin: 0 auto 1.5rem;
-		background: #FFFFFF;
-		border: 6px solid #F59E0B;
+		margin: 0;
+		background: #F5FAFC;
+		border: 6px solid #0798AE;
 		border-radius: 20px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 
-			0 0 25px rgba(245, 158, 11, 0.5),
-			0 0 50px rgba(245, 158, 11, 0.3),
-			inset 0 0 15px rgba(245, 158, 11, 0.15);
-		animation: ledGlow 2s ease-in-out infinite alternate;
+		box-shadow: 0 0 8px rgba(7, 152, 174, .18), 0 4px 12px rgba(3, 76, 140, .08);
+		animation: cashierLogoOne 16s ease-in-out infinite;
 		overflow: hidden;
+	}
+
+	.aqura-brand-logo {
+		position: fixed;
+		right: 20px;
+		bottom: 74px;
+		z-index: 100;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 200px;
+		height: 120px;
+		box-sizing: border-box;
+		background: #F5FAFC;
+		border: 6px solid #0798AE;
+		border-radius: 20px;
+		box-shadow: 0 0 8px rgba(7, 152, 174, .18), 0 4px 12px rgba(3, 76, 140, .08);
+		overflow: hidden;
+		animation: cashierLogoTwo 16s ease-in-out infinite;
+	}
+
+	.aqura-brand-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+	@keyframes cashierLogoOne {
+		0%, 42% { opacity: 1; filter: blur(0); visibility: visible; }
+		50%, 92% { opacity: 0; filter: blur(5px); visibility: hidden; }
+		100% { opacity: 1; filter: blur(0); visibility: visible; }
+	}
+
+	@keyframes cashierLogoTwo {
+		0%, 42% { opacity: 0; filter: blur(5px); visibility: hidden; }
+		50%, 92% { opacity: 1; filter: blur(0); visibility: visible; }
+		100% { opacity: 0; filter: blur(5px); visibility: hidden; }
 	}
 
 	@keyframes ledGlow {
@@ -378,14 +454,20 @@
 	}
 
 	.version-badge {
-		position: absolute;
-		top: 10px;
-		right: 12px;
-		background: rgba(255, 255, 255, 0.2);
-		color: white;
-		border: 1px solid rgba(255, 255, 255, 0.35);
-		border-radius: 12px;
-		padding: 3px 10px;
+		position: fixed;
+		top: 20px;
+		right: 20px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 44px;
+		min-width: 132px;
+		box-sizing: border-box;
+		background: #F5FAFC;
+		color: #0B2B50;
+		border: 6px solid #0798AE;
+		border-radius: 8px;
+		padding: 0 14px;
 		font-size: 0.7rem;
 		font-weight: 500;
 		z-index: 2;
@@ -393,17 +475,26 @@
 	}
 
 	.cashier-update-badge {
-		position: absolute;
-		top: 10px;
-		left: 12px;
-		border-radius: 12px;
-		padding: 3px 10px;
+		position: fixed;
+		top: 20px;
+		right: 164px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 44px;
+		min-width: 132px;
+		box-sizing: border-box;
+		border-radius: 8px;
+		padding: 0 14px;
 		font-size: 0.7rem;
 		font-weight: 600;
 		transition: all 0.3s;
 		z-index: 2;
 		letter-spacing: 0.5px;
-		border: none;
+		border: 6px solid #0798AE;
+		background: #F5FAFC;
+		color: #0B2B50;
+		box-shadow: 0 0 8px rgba(7, 152, 174, .18), 0 4px 12px rgba(3, 76, 140, .08);
 	}
 
 	.cashier-update-badge.update-available {
@@ -420,10 +511,28 @@
 	}
 
 	.cashier-update-badge.up-to-date {
-		background: rgba(255, 255, 255, 0.15);
-		color: rgba(255, 255, 255, 0.7);
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: #F5FAFC;
+		color: #0B2B50;
+		border: 6px solid #0798AE;
 		cursor: default;
+	}
+
+	.cashier-update-badge.update-available {
+		background: #F5FAFC;
+		color: #0B2B50;
+		border: 6px solid #0798AE;
+	}
+
+	.version-badge {
+		box-shadow: 0 0 8px rgba(7, 152, 174, .18), 0 4px 12px rgba(3, 76, 140, .08);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.cashier-desktop::before,
+		.cashier-desktop::after,
+		.app-logo,
+		.aqura-brand-logo { animation: none; }
+		.aqura-brand-logo { opacity: 0; visibility: hidden; }
 	}
 
 	@keyframes pulse-update {
