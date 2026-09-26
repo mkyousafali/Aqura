@@ -4,6 +4,7 @@
   export let snapshot: FlyerSnapshot;
   export let page: FlyerPage;
   export let artworkUrl = '';
+  export let elementUrl = '';
   $: design = snapshot.design;
   const typeOf = (field: any) => field.label || field.type || '';
   function fieldsFor(slot: FlyerSlot) {
@@ -111,7 +112,12 @@
     {#if snapshot.logoUrl}<img class="brand-logo" src={snapshot.logoUrl} crossorigin="anonymous" alt="Brand logo" />{/if}
     <!-- The offer name is baked into the artwork itself as 3D typography (see /api/ai-flyers/artwork) — no HTML headline overlay here. -->
     <div class="artwork-footer">
-      <div class="date-plaque"><span dir="rtl">من {snapshot.offer.start_date}</span><span dir="rtl">إلى {snapshot.offer.end_date}</span><small dir="rtl">أو حتى نفاد الكمية</small></div>
+      <div class="date-range" dir="rtl">
+        <div class="calendar-card"><b>من</b><span dir="ltr">{snapshot.offer.start_date}</span></div>
+        <span class="date-arrow" aria-hidden="true">←</span>
+        <div class="calendar-card"><b>إلى</b><span dir="ltr">{snapshot.offer.end_date}</span></div>
+        <small>أو حتى نفاد الكمية</small>
+      </div>
       <span class="page-counter">{String(page.pageNumber).padStart(2, '0')} / {snapshot.pageCount}</span>
     </div>
   {:else if page.backgroundUrl}
@@ -126,6 +132,11 @@
   {/if}
   {#each page.slots as slot (slot.field.id)}
     <section class="template-slot" class:product-panel={slot.products.length > 0} class:standalone-card={!page.backgroundUrl} style={box(slot.field)} data-slot={`${slot.field.pageNumber ?? page.pageNumber}:${slot.field.pageOrder ?? ''}`}>
+      {#if elementUrl && slot.products.length}
+        <div class="product-elements-clip" aria-hidden="true">
+          <img src={elementUrl} alt="" style={`left:${-Number(slot.field.x || 0)}px;top:${-Number(slot.field.y || 0)}px;width:${page.width}px;height:${page.height}px;`} />
+        </div>
+      {/if}
       {#each fieldsFor(slot) as field}
         {@const type = typeOf(field)}
         {@const text = flyerFieldText(type, slot, snapshot, page)}
@@ -183,18 +194,16 @@
 </article>
 
 <style>
-  .artwork-footer{position:absolute;left:35px;right:30px;top:1380px;height:135px;display:flex;align-items:center;justify-content:space-between;gap:28px;color:white;font-family:Tahoma,Arial,sans-serif;}
-  /* align-items:stretch (flex's own default — do NOT override to center) is what actually makes
-     multi-line centering work here: with no explicit width on .date-plaque itself, the browser
-     first sizes it to its widest line (the "or while supplies last" line), THEN stretches every
-     other line to that same resolved width — only then does text-align:center have a shared
-     width to center every line against. align-items:center looks like it should also work, but a
-     child's width:100% inside an auto-width flex container is a circular reference (container
-     width depends on children, children's 100% depends on container) that resolves to width:auto
-     per spec — silently undoing the fix and leaving shorter lines back to centering only within
-     their own shrink-to-fit width, which is what made the last line look off against the others. */
-  .date-plaque{display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:center;gap:5px;padding:12px 24px;border:3px solid #ad763d;border-radius:13px;background:linear-gradient(125deg,#fff6da,#efd09b);color:#211508;font-weight:700;font-size:22px;box-shadow:0 5px 10px #0005;}.date-plaque small{font-size:16px;}
-  .date-plaque span,.date-plaque small{display:block;width:100%;}.page-counter{align-self:flex-end;font-size:16px;padding-bottom:9px;}
+  .artwork-footer{position:absolute;left:35px;right:30px;top:1380px;height:135px;color:white;font-family:Tahoma,Arial,sans-serif;}
+  .date-range{position:absolute;left:50%;top:0;transform:translateX(-50%);width:470px;display:grid;grid-template-columns:190px 50px 190px;grid-template-rows:82px 30px;align-items:center;justify-content:center;text-align:center;color:#241507;font-weight:700;}
+  .calendar-card{position:relative;height:68px;padding-top:22px;box-sizing:border-box;border:2px solid #b77a32;border-radius:8px;background:linear-gradient(180deg,#fff9e7,#efd7a5);box-shadow:0 5px 10px #0006,inset 0 1px 0 #fff;overflow:hidden;}
+  .calendar-card::before,.calendar-card::after{content:'';position:absolute;top:-10px;width:7px;height:22px;border-radius:5px;background:linear-gradient(90deg,#f5c84b,#fff0a2,#ba7a1f);box-shadow:0 1px 2px #0006;}
+  .calendar-card::before{left:42px}.calendar-card::after{right:42px}
+  .calendar-card b{position:absolute;left:0;right:0;top:2px;color:#b20c17;font-size:18px;line-height:20px;}
+  .calendar-card span{display:block;font:bold 19px/38px Arial,sans-serif;white-space:nowrap;}
+  .date-arrow{font:bold 35px/1 Arial;color:#f7c73c;text-shadow:0 2px 3px #0008;}
+  .date-range small{grid-column:1 / 4;justify-self:center;margin-top:-3px;padding:4px 20px;border-radius:14px;background:linear-gradient(180deg,#fff2b8,#e6c46c);border:1px solid #a86a22;box-shadow:0 3px 6px #0005;font-size:14px;line-height:20px;white-space:nowrap;}
+  .page-counter{position:absolute;right:0;bottom:9px;font-size:16px;}
   .old-price-panel{z-index:9;background:#ffe000;border-radius:7px 7px 0 0;}
   .offer-art{position:absolute;inset:0;z-index:-1;background:linear-gradient(140deg,var(--paper),#fff 60%,var(--paper));overflow:hidden;}
   .art-light{position:absolute;inset:0 0 auto;height:435px;background:radial-gradient(ellipse at 65% 20%,#ffffff50,transparent 50%),linear-gradient(120deg,var(--primary),#172015);border-bottom:12px solid var(--accent);box-shadow:0 12px 25px #0003;}
@@ -208,7 +217,18 @@
   .ai-flyer-page{position:relative;overflow:hidden;background:white;flex-shrink:0;box-sizing:border-box;isolation:isolate;}
   .template-background{position:absolute;inset:0;width:100%;height:100%;z-index:-1;}
   .template-slot{position:absolute;transform-origin:center;box-sizing:border-box;}
-  .product-panel::before{content:'';position:absolute;inset:0;pointer-events:none;border-radius:8px;box-shadow:0 var(--depth) var(--blur) var(--shadow),inset 0 2px 2px var(--bevel),inset 0 -2px 3px rgba(0,0,0,.08);background:linear-gradient(145deg,rgba(255,255,255,.035),transparent 40%);}
+  /* The AI now sees the fully rendered page and places decorations only in real empty space.
+     Clip the page-sized overlay to each card, but do not apply a second CSS mask: that mask was
+     hiding valid generated pixels (and is not rendered consistently by html-to-image). */
+  .product-elements-clip{position:absolute;inset:0;z-index:3;overflow:hidden;border-radius:inherit;pointer-events:none;}
+  .product-elements-clip img{position:absolute;max-width:none;object-fit:fill;}
+  .configured-field{z-index:4;}
+  /* Match the reference card shell without altering any configured content geometry. The AI
+     artwork remains inside each card; only the physical card treatment changes here. */
+  .product-panel{--card-accent:#078be3;border-radius:13px;background:#fff;border:1px solid #d7d7d7;box-shadow:0 3px 7px rgba(35,27,16,.25),inset 0 1px 0 #fff;overflow:hidden;}
+  .product-panel:nth-of-type(2),.product-panel:nth-of-type(4),.product-panel:nth-of-type(6){--card-accent:#ef1537;}
+  .product-panel::before{content:'';position:absolute;inset:0;z-index:5;pointer-events:none;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.78),inset 0 -8px 12px rgba(0,0,0,.045);}
+  .product-panel::after{content:'';position:absolute;left:0;right:0;bottom:0;height:7px;z-index:6;pointer-events:none;background:var(--card-accent);box-shadow:0 -1px 3px rgba(0,0,0,.16);}
   .configured-field{position:absolute;transform-origin:center;box-sizing:border-box;}
   .template-text{position:absolute;inset:0;display:flex;align-items:center;line-height:1;white-space:pre-line;overflow-wrap:anywhere;}
   .template-text>span{position:relative;max-width:100%;}.template-text small{font-size:.55em;}
@@ -216,8 +236,10 @@
      between them instead of centering independently, so a short name doesn't leave a gap. */
   /* field.color/bold are always set inline by textStyle(), so only non-color layout tweaks
      belong in these attribute-selector rules — an inline style always wins over a CSS rule. */
-  .template-text[data-field-label="product_name_ar"]{align-items:flex-end;padding-bottom:1px;}
-  .template-text[data-field-label="product_name_en"]{align-items:flex-start;padding-top:3px;margin-top:1px;border-top:1px solid #f0d9a8;letter-spacing:.2px;}
+  .template-text[data-field-label="product_name_ar"],
+  .template-text[data-field-label="product_name_en"]{background:linear-gradient(90deg,rgba(255,255,255,.88),rgba(255,253,247,.96),rgba(255,255,255,.88));box-shadow:0 0 8px rgba(255,255,255,.9);padding-left:4px;padding-right:4px;}
+  .template-text[data-field-label="product_name_ar"]{align-items:flex-end;padding-bottom:1px;border-radius:7px 7px 0 0;}
+  .template-text[data-field-label="product_name_en"]{align-items:flex-start;padding-top:3px;margin-top:1px;border-top:1px solid #f0d9a8;border-radius:0 0 7px 7px;letter-spacing:.2px;}
   /* Meta chips (unit / limit / bonus) render as small pills so a lone chip reads as a
      deliberate label instead of stray text floating in its quadrant. */
   .template-text[data-field-label="unit_name"],

@@ -23,6 +23,7 @@
   // its own design+render round-trip completes, with a per-page Retry on failure.
   let flyerPages: FlyerPageStatus[] = [];
   let artworkUrl = '';
+  let elementUrls: Record<number, string> = {};
   let savedId = '';
   export let busy = false;
   let progress = '';
@@ -89,7 +90,7 @@
   $: selectedContext = contexts.find(c => c.id === contextId) || null;
   $: completedPageCount = flyerPages.filter(p => p.status === 'done').length;
   $: allPagesDone = flyerPages.length > 0 && completedPageCount === flyerPages.length;
-  onDestroy(() => { if (artworkUrl) URL.revokeObjectURL(artworkUrl); });
+  onDestroy(() => { if (artworkUrl) URL.revokeObjectURL(artworkUrl); Object.values(elementUrls).forEach(url => URL.revokeObjectURL(url)); });
 
   onMount(async () => {
     mounted = true;
@@ -109,7 +110,9 @@
 
   function discardGeneration() {
     if (artworkUrl) URL.revokeObjectURL(artworkUrl);
+    Object.values(elementUrls).forEach(url => URL.revokeObjectURL(url));
     artworkUrl = '';
+    elementUrls = {};
     snapshot = null; flyerPages = []; templatePages = []; savedId = ''; success = '';
     error = ''; themeOptions = []; colorTheme = ''; themeError = '';
   }
@@ -199,8 +202,22 @@
       // each other cleanly in a layout.
       const outData = outCtx.getImageData(0, 0, cropWidth, cropHeight);
       const px = outData.data;
-      const whiteThreshold = 248, opaqueThreshold = 250;
-      const isBackgroundPixel = (o: number) => px[o + 3] < alphaThreshold || (px[o + 3] >= opaqueThreshold && px[o] > whiteThreshold && px[o + 1] > whiteThreshold && px[o + 2] > whiteThreshold);
+      const opaqueThreshold = 245;
+      // JPEG/WebP product photos often have an off-white background (roughly 225-250), not
+      // literal #fff. Learn that background from the image corners instead of requiring every
+      // channel to exceed 248. Flood filling still means an identical white area enclosed inside
+      // packaging (labels, logos, highlights) is preserved because it is not connected to an edge.
+      const cornerOffsets = [0, (cropWidth - 1) * 4, (cropHeight - 1) * cropWidth * 4, (cropHeight * cropWidth - 1) * 4];
+      const corner = (channel: number) => cornerOffsets.reduce((sum, o) => sum + px[o + channel], 0) / cornerOffsets.length;
+      const bgR = corner(0), bgG = corner(1), bgB = corner(2);
+      const bgBrightness = (bgR + bgG + bgB) / 3;
+      const isBackgroundPixel = (o: number) => {
+        if (px[o + 3] < alphaThreshold) return true;
+        if (px[o + 3] < opaqueThreshold || bgBrightness < 190) return false;
+        const distance = Math.sqrt((px[o] - bgR) ** 2 + (px[o + 1] - bgG) ** 2 + (px[o + 2] - bgB) ** 2);
+        const brightness = (px[o] + px[o + 1] + px[o + 2]) / 3;
+        return brightness > 185 && distance < 58;
+      };
       const seen = new Uint8Array(cropWidth * cropHeight);
       const queue: number[] = [];
       const seed = (idx: number) => { if (!seen[idx] && isBackgroundPixel(idx * 4)) { seen[idx] = 1; queue.push(idx); } };
@@ -308,9 +325,31 @@
         artworkUrl = URL.createObjectURL(await art.blob());
       }
       if (snapshot) snapshot.model = `${data.model} + gpt-image-2`;
+      templatePages = [data.page];
+      const oldElementUrl = elementUrls[pageNumber];
+      if (oldElementUrl) URL.revokeObjectURL(oldElementUrl);
+      elementUrls = { ...elementUrls };
+      delete elementUrls[pageNumber];
+      progress = `Creating product elements for page ${pageNumber} of ${flyerPages.length}…`;
+      const elementResponse = await fetch('/api/ai-flyers/elements', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offerId, pageNumber, colorTheme, contextName: selectedContext?.name,
+          cards: data.page.slots.filter((slot: any) => slot.products?.length).map((slot: any) => ({
+            pageOrder: slot.field.pageOrder, x: slot.field.x, y: slot.field.y,
+            width: slot.field.width, height: slot.field.height,
+            namesAr: slot.products.map((p: any) => p.product_name_ar).filter(Boolean),
+            namesEn: slot.products.map((p: any) => p.product_name_en).filter(Boolean),
+            unitName: slot.products[0]?.unit_name || '', offerQty: Number(slot.products[0]?.offer_qty || 0),
+            freeQty: Number(slot.products[0]?.free_qty || 0), limitQty: slot.products[0]?.limit_qty == null ? null : Number(slot.products[0].limit_qty),
+            isVariation: slot.products.length > 1
+          }))
+        }), signal: AbortSignal.timeout(285000)
+      });
+      if (!elementResponse.ok) { const failure = await elementResponse.json().catch(() => null); throw new Error(failure?.error || 'Product element generation failed.'); }
+      elementUrls = { ...elementUrls, [pageNumber]: URL.createObjectURL(await elementResponse.blob()) };
       if (!title) title = offerName.trim();
       progress = `Rendering page ${pageNumber} of ${flyerPages.length}…`;
-      templatePages = [data.page];
       const [url] = await capturePages();
       flyerPages[index] = { pageNumber, status: 'done', url, error: '' };
       flyerPages = [...flyerPages];
@@ -334,7 +373,8 @@
     if (!offerId || !offerName.trim() || !colorTheme || busy) return;
     busy = true; error = ''; success = ''; savedId = ''; title = '';
     if (artworkUrl) URL.revokeObjectURL(artworkUrl);
-    artworkUrl = ''; snapshot = null;
+    Object.values(elementUrls).forEach(url => URL.revokeObjectURL(url));
+    artworkUrl = ''; elementUrls = {}; snapshot = null;
     flyerPages = [{ pageNumber: 1, status: 'pending', url: '', error: '' }];
     try {
       // Page 1 also produces the shared artwork every other page depends on — only continue
@@ -722,7 +762,7 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           // Reuse this flyer's own saved context (from generation) so Improve enhances it without
           // drifting into a different theme — see offer_context_ai_flyer_spec.md §9.
-          body: JSON.stringify({ pageUrl: preview.pages[i], contextName: preview.context?.name, contextDescription: preview.context?.description }),
+          body: JSON.stringify({ pageUrl: preview.pages[i], flyerId: preview.id, pageNumber: i + 1, contextName: preview.context?.name, contextDescription: preview.context?.description }),
           signal: AbortSignal.timeout(285000)
         });
         // A platform-level rejection (a gateway/proxy 413, 502, etc.) never returns our own JSON
@@ -1011,7 +1051,7 @@
   {/if}
 </div>
 
-{#if snapshot && templatePages.length}<div class="render-host" bind:this={renderHost} aria-hidden="true">{#each templatePages as page}<AiFlyerPage {snapshot} {page} {artworkUrl} />{/each}</div>{/if}
+{#if snapshot && templatePages.length}<div class="render-host" bind:this={renderHost} aria-hidden="true">{#each templatePages as page}<AiFlyerPage {snapshot} {page} {artworkUrl} elementUrl={elementUrls[page.pageNumber] || ''} />{/each}</div>{/if}
 {#if preview}
   <div class="preview-overlay" role="presentation">
     <div class="preview-dialog" role="dialog" aria-modal="true" aria-label={preview.title} tabindex="-1" use:focusDialog>
@@ -1026,7 +1066,7 @@
         {:else}
           <button disabled={busy} on:click={() => downloadPng(preview!.pages, preview!.title)}>Download PNG</button>
           <button disabled={busy} on:click={() => downloadPdf(preview!.pages, preview!.title)}>Download as PDF</button>
-          <button disabled={busy || improving} on:click={improveFlyer}>{improving ? 'Improving…' : '✨ Improve'}</button>
+          <button disabled={busy || improving || !preview.pages.length} on:click={() => openRegionEdit(0)}>Edit</button>
           <button disabled={busy || improving} on:click={() => openPublishDialog(preview)}>Publish</button>
           <button disabled={improving} on:click={closePreview}>Close</button>
         {/if}
