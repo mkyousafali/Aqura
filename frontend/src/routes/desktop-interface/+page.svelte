@@ -691,7 +691,7 @@
 								</span>
 							{/if}
 							{#if $currentUser?.isMasterAdmin}
-								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ14.11.12.10</button>
+								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ14.12.12.10</button>
 							{/if}
 						</div>
 						<div class="logo-section">
