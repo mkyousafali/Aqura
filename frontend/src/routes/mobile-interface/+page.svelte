@@ -720,7 +720,7 @@
 				</div>
 			</div>
 			<div class="stat-card attendance-card clickable" on:click={() => goto('/mobile-interface/fingerprint-analysis')}>
-				<div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10B981;">
+				<div class="stat-icon attendance-today-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
 						<line x1="16" y1="2" x2="16" y2="6"/>
@@ -752,7 +752,7 @@
 				</div>
 			</div>
 			<div class="stat-card attendance-card clickable" on:click={() => goto('/mobile-interface/fingerprint-analysis')}>
-				<div class="stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366F1;">
+				<div class="stat-icon attendance-yesterday-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
 						<line x1="16" y1="2" x2="16" y2="6"/>
@@ -1030,7 +1030,7 @@
 
 <style>
 	.mobile-dashboard {
-		background: #F8FAFC;
+		background: transparent;
 		overflow-x: hidden;
 		position: relative;
 		padding-bottom: 1rem;
@@ -1057,7 +1057,7 @@
 		width: 24px;
 		height: 24px;
 		border: 3px solid rgba(255, 255, 255, 0.2);
-		border-top: 3px solid #3B82F6;
+		border-top: 3px solid #079FD0;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 		margin-bottom: 1rem;
@@ -1111,7 +1111,7 @@
 		width: 32px;
 		height: 32px;
 		border: 3px solid #E5E7EB;
-		border-top: 3px solid #3B82F6;
+		border-top: 3px solid #079FD0;
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 		margin-bottom: 1rem;
@@ -1813,6 +1813,99 @@
 		overflow-y: auto;
 		max-height: calc(90vh - 80px);
 	}
+
+	/* ── Aqura logo palette ──────────────────────────────────────────────
+	   Card colours are sampled from static/icons/Aqura logo.png: the navy wordmark,
+	   the royal and ocean blues of the "Q", and the cyan highlight of the "A".
+	   Alerts (expiring products, active break, attendance status, badges) keep
+	   their semantic colours. */
+	.mobile-dashboard {
+		--aq-navy: #0B2A6B;       --aq-navy-tint: #E7ECF6;
+		--aq-royal: #1150A8;      --aq-royal-tint: #E6EFFB;
+		--aq-ocean: #0A89CB;      --aq-ocean-tint: #E2F3FB;
+		--aq-cyan: #08A9DF;       --aq-cyan-tint: #DFF7FD;
+		--aq-ink: #0B1E5B;
+		--aq-muted: #4A6585;
+		--aq-gradient: linear-gradient(135deg, #3EEFF7 0%, #0AAEE8 40%, #0B5FA5 100%);
+	}
+
+	/* The dashboard sits on the layout's dark aurora background (see +layout.svelte). */
+	.mobile-dashboard .loading-content { color: rgba(255, 255, 255, 0.82); }
+	.mobile-dashboard .loading-spinner { border-color: rgba(255, 255, 255, 0.2); border-top-color: #10DCE5; }
+
+	.mobile-dashboard .stat-card {
+		border: 1px solid rgba(255, 255, 255, 0.55);
+		box-shadow: 0 6px 18px rgba(2, 16, 38, 0.28);
+	}
+	.mobile-dashboard .stat-card.clickable:hover {
+		border-color: #10DCE5;
+		box-shadow: 0 12px 26px rgba(2, 16, 38, 0.36), 0 0 0 1px rgba(16, 220, 229, 0.35);
+	}
+	.mobile-dashboard .stat-info h3 { color: var(--aq-ink); }
+	.mobile-dashboard .stat-info p { color: var(--aq-muted); }
+	.mobile-dashboard .attendance-label { color: var(--aq-muted) !important; }
+	.mobile-dashboard .attendance-date { color: var(--aq-ink) !important; }
+
+	/* Navy */
+	.mobile-dashboard .erp-access-card .stat-icon,
+	.mobile-dashboard .attendance-today-icon,
+	.mobile-dashboard .customer-request-card .stat-icon,
+	.mobile-dashboard .expiry-mgr-card .stat-icon {
+		background: var(--aq-navy-tint) !important;
+		color: var(--aq-navy) !important;
+	}
+	/* Royal blue */
+	.mobile-dashboard .stat-card.date-time .stat-icon,
+	.mobile-dashboard .attendance-yesterday-icon,
+	.mobile-dashboard .price-checker-card .stat-icon,
+	.mobile-dashboard .in-use-box .stat-icon {
+		background: var(--aq-royal-tint) !important;
+		color: var(--aq-royal) !important;
+	}
+	/* Ocean blue */
+	.mobile-dashboard .my-profile-card .stat-icon,
+	.mobile-dashboard .stat-card.pending .stat-icon,
+	.mobile-dashboard .break-register-card:not(.break-active) .stat-icon,
+	.mobile-dashboard .my-products-card .stat-icon,
+	.mobile-dashboard .closed-box .stat-icon {
+		background: var(--aq-ocean-tint) !important;
+		color: var(--aq-ocean) !important;
+	}
+	/* Cyan */
+	.mobile-dashboard .scan-request-card .stat-icon,
+	.mobile-dashboard .my-checklist .stat-icon:not(.completed),
+	.mobile-dashboard .quick-task-card .stat-icon,
+	.mobile-dashboard .product-request-card .stat-icon,
+	.mobile-dashboard .pending-box .stat-icon {
+		background: var(--aq-cyan-tint) !important;
+		color: var(--aq-cyan) !important;
+	}
+
+	/* POS boxes: light logo tints instead of orange / green / purple */
+	.mobile-dashboard .pending-box { background: linear-gradient(135deg, #F2FCFF 0%, #DFF7FD 100%) !important; }
+	.mobile-dashboard .closed-box { background: linear-gradient(135deg, #F1F9FE 0%, #E2F3FB 100%) !important; }
+	.mobile-dashboard .in-use-box { background: linear-gradient(135deg, #F2F6FD 0%, #E6EFFB 100%) !important; }
+	.mobile-dashboard .pending-box h3,
+	.mobile-dashboard .closed-box h3,
+	.mobile-dashboard .in-use-box h3 { color: var(--aq-ink); }
+	.mobile-dashboard .pending-box p,
+	.mobile-dashboard .closed-box p,
+	.mobile-dashboard .in-use-box p { color: var(--aq-muted); }
+
+	.mobile-dashboard .break-total-value.has-value { color: var(--aq-royal); }
+	.mobile-dashboard .customer-request-card .click-hint { color: var(--aq-ocean) !important; }
+
+	/* Follow-Ups: featured card using the logo's cyan-to-blue sweep */
+	.mobile-dashboard .followups-card {
+		background: linear-gradient(135deg, #FFFFFF 0%, #EEF9FD 100%) !important;
+		border: 1px solid rgba(10, 174, 232, 0.35) !important;
+		box-shadow: 0 4px 16px rgba(11, 95, 165, 0.14) !important;
+	}
+	.mobile-dashboard .followups-card .stat-icon {
+		background: var(--aq-gradient) !important;
+		color: #FFFFFF !important;
+	}
+	.mobile-dashboard .followups-card .stat-info p { color: var(--aq-royal) !important; }
 </style>
 
 

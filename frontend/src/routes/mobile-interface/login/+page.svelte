@@ -14,17 +14,13 @@
 		switchLocaleManually(isAr ? 'en' : 'ar');
 	}
 
-	// Branding - pulled from the same login_layout data BrandingManager edits, so the mobile
-	// login screen automatically follows whatever colors/logo are set for the public login page.
-	// Defaults below match the public login page's own fallback palette (dark green / gold / cream).
+	// Colours are the fixed Aqura theme shared with the desktop and cashier interfaces.
+	// login_layout (BrandingManager) is still read for the company name and footer text only.
 	let layout: any = null;
 	const LAYOUT_CACHE_KEY = 'login_layout_cache_v1';
 
-	$: brandPageBg = layout?.main_layout?.bg_color || '#f7f2e9';
-	$: brandHeaderBg = layout?.topbar?.bg_color || '';
-	$: brandPrimaryColor = layout?.main_layout?.contact_btn_color || layout?.main_layout?.headline_text_color || '#1f3d2f';
-	$: brandAccentColor = layout?.main_layout?.headline_highlight_color || '#c8912f';
-	$: brandLogoUrl = (layout?.topbar?.logo_enabled !== false ? layout?.topbar?.logo_url : '') || $iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png';
+	const brandPrimaryColor = '#0B3C68';
+	$: companyLogoUrl = $iconUrlMap['logo'] || '/icons/logo.png';
 	$: companyName = layout?.company?.[$currentLocale === 'ar' ? 'name_ar' : 'name_en'] || ($currentLocale === 'ar' ? 'اسم شركتك' : 'Your Company Name');
 	$: footerCopyrightText =
 		layout?.footer?.[$currentLocale === 'ar' ? 'ar' : 'en']?.copyright ??
@@ -358,7 +354,6 @@
 	class="mobile-login-page"
 	class:mounted
 	class:rtl={$currentLocale === 'ar'}
-	style="--brand-bg: {brandPageBg}; --brand-primary: {brandPrimaryColor}; --brand-accent: {brandAccentColor}; {brandHeaderBg ? `--brand-header-bg: ${brandHeaderBg};` : ''}"
 >
 	{#if showContent}
 		<!-- Top Bar -->
@@ -377,15 +372,16 @@
 		<div class="mobile-login-content">
 			<!-- Logo Card -->
 			<div class="logo-card">
-				<img src={brandLogoUrl} alt="Logo" class="logo-image" />
-				<p class="app-description">{t('app.description')}</p>
+				<div class="logo-swap">
+					<img src="/icons/Aqura logo.png" alt="Aqura" class="logo-image logo-aqura" />
+					<img src={companyLogoUrl} alt={companyName} class="logo-image logo-company" />
+				</div>
 			</div>
 
 			<!-- Quick Access Form -->
 			<div class="mobile-auth-section">
 				<div class="auth-heading">
 					<h1 class="page-title">{t('mobile.login.quickAccess')}</h1>
-					<p class="page-subtitle">{t('mobile.login.subtitle')}</p>
 				</div>
 				<form class="mobile-auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
 					<div class="form-fields">
@@ -480,10 +476,26 @@
 					🔑 {t('auth.changeAccessCode') || 'Change Access Code'}
 				</button>
 				<p class="secure-footnote">🔒 {t('mobile.login.secureLogin')}</p>
+
+				<!-- Tagline + security note, same copy as the desktop employee login -->
+				<div class="brand-copy">
+					<h2>{$currentLocale === 'ar' ? 'مساحة عمل واحدة. تحكّم كامل.' : 'One workspace. Complete control.'}</h2>
+					<p>{$currentLocale === 'ar' ? 'إدارة أعمال آمنة وانسيابية في نظام ذكي واحد.' : 'Secure, streamlined business operations in one intelligent system.'}</p>
+				</div>
+
+				<div class="security-note">
+					<span class="security-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+					</span>
+					<div>
+						<strong>{$currentLocale === 'ar' ? 'دخول محمي' : 'Protected access'}</strong>
+						<span>{$currentLocale === 'ar' ? 'يتم التحقق من هويتك عبر نظام أقورا الآمن.' : 'Your identity is verified through Aqura secure access.'}</span>
+					</div>
+				</div>
 			</div>
 		</div>
 
-		<footer class="mobile-footer" style={layout?.footer?.bg_color ? `background: ${layout.footer.bg_color}` : undefined}>
+		<footer class="mobile-footer">
 			<span>{footerCopyrightText}</span>
 			<a href="/privacy">{isAr ? 'سياسة الخصوصية' : 'Privacy Policy'}</a>
 		</footer>
@@ -498,7 +510,7 @@
 	.change-code-link {
 		background: none;
 		border: none;
-		color: var(--brand-primary, #1f3d2f);
+		color: #8FE9F2;
 		font-size: 13px;
 		cursor: pointer;
 		padding: 8px 0;
@@ -509,18 +521,27 @@
 	}
 
 	.change-code-link:hover {
-		color: var(--brand-accent, #c8912f);
+		color: #FFFFFF;
 	}
 
-	/* Mobile-first login page - mirrors the public login page's cream + green/gold palette,
-	   driven by CSS vars set from BrandingManager (falls back to the same defaults as /login). */
+	/* Mobile-first login page - fixed Aqura theme (navy aurora background, cyan accents),
+	   matching the desktop employee login and the cashier login. */
 	.mobile-login-page {
+		--brand-primary: #0B3C68;
+		--brand-accent: #10DCE5;
+		--brand-action: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
+		--brand-action-hover: linear-gradient(115deg, #3BE7ED 0%, #10DCE5 48%, #079FD0 100%);
 		width: 100%;
 		min-height: 100vh;
 		min-height: 100dvh;
 		display: flex;
 		flex-direction: column;
-		background: var(--brand-bg, #f7f2e9);
+		background:
+			radial-gradient(ellipse 70% 30% at 78% 8%, rgba(52, 221, 237, 0.22), transparent 67%),
+			radial-gradient(ellipse 60% 40% at 6% 55%, rgba(18, 184, 211, 0.17), transparent 72%),
+			radial-gradient(ellipse 70% 34% at 92% 88%, rgba(15, 130, 181, 0.24), transparent 70%),
+			linear-gradient(155deg, #051f3f 0%, #053a66 52%, #045b7d 100%);
+		background-attachment: fixed;
 		position: relative;
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -532,17 +553,58 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	.mobile-login-page::before {
+	/* Drifting aurora glows - same motion as the desktop/cashier backgrounds */
+	.mobile-login-page::before,
+	.mobile-login-page::after {
 		content: '';
 		position: fixed;
-		inset: 0;
+		border-radius: 50%;
 		z-index: 0;
 		pointer-events: none;
-		background:
-			radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--brand-primary, #1f3d2f) 35%, transparent), transparent 40%),
-			radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--brand-accent, #c8912f) 35%, transparent), transparent 40%),
-			radial-gradient(circle at 20% 90%, color-mix(in srgb, var(--brand-accent, #c8912f) 18%, transparent), transparent 45%);
-		filter: blur(60px);
+	}
+
+	.mobile-login-page::before {
+		left: -20%;
+		top: -18%;
+		width: 420px;
+		height: 420px;
+		background: radial-gradient(circle at 64% 68%, rgba(78, 230, 240, 0.24), rgba(14, 145, 184, 0.10) 46%, transparent 71%);
+		box-shadow: 0 0 110px rgba(32, 203, 228, 0.18);
+		filter: blur(5px);
+		animation: loginAuroraOne 24s ease-in-out infinite;
+	}
+
+	.mobile-login-page::after {
+		right: -30%;
+		bottom: -24%;
+		width: 520px;
+		height: 520px;
+		background: radial-gradient(circle at 36% 30%, rgba(36, 205, 224, 0.26), rgba(6, 106, 154, 0.12) 48%, transparent 72%);
+		box-shadow: 0 0 130px rgba(17, 143, 185, 0.22);
+		filter: blur(7px);
+		animation: loginAuroraTwo 31s ease-in-out infinite;
+	}
+
+	@keyframes loginAuroraOne {
+		0% { transform: translate(0, 0) scale(0.78); opacity: 0; }
+		12% { opacity: 0.85; }
+		34% { transform: translate(45vw, 22vh) scale(1.04); opacity: 0.5; }
+		49% { opacity: 0; }
+		62% { transform: translate(-10vw, 50vh) scale(0.72); opacity: 0; }
+		74% { opacity: 0.75; }
+		90% { transform: translate(25vw, 30vh) scale(0.92); opacity: 0.4; }
+		100% { transform: translate(0, 0) scale(0.78); opacity: 0; }
+	}
+
+	@keyframes loginAuroraTwo {
+		0% { transform: translate(0, 0) scale(1); opacity: 0.65; }
+		20% { opacity: 0; }
+		36% { transform: translate(-50vw, -30vh) scale(0.72); opacity: 0; }
+		49% { opacity: 0.7; }
+		68% { transform: translate(-15vw, -45vh) scale(0.94); opacity: 0.38; }
+		80% { opacity: 0; }
+		92% { transform: translate(-60vw, -8vh) scale(0.82); opacity: 0.52; }
+		100% { transform: translate(0, 0) scale(1); opacity: 0.65; }
 	}
 
 	.mobile-login-page.mounted {
@@ -568,11 +630,11 @@
 		position: relative;
 		z-index: 1;
 		width: 100%;
-		background: rgba(17, 17, 17, 0.6);
+		background: rgba(5, 25, 55, 0.62);
 		backdrop-filter: blur(20px);
 		-webkit-backdrop-filter: blur(20px);
-		border-top: 1px solid rgba(255, 255, 255, 0.08);
-		color: #cfcfcf;
+		border-top: 1px solid rgba(16, 220, 229, 0.22);
+		color: #BFD4E4;
 		padding: 0.9rem 1rem;
 		display: flex;
 		align-items: center;
@@ -582,7 +644,7 @@
 	}
 
 	.mobile-footer a {
-		color: #b8b8b8;
+		color: #8FE9F2;
 		text-decoration: none;
 		white-space: nowrap;
 	}
@@ -598,11 +660,11 @@
 		position: sticky;
 		top: 0;
 		z-index: 20;
-		background: var(--brand-header-bg, linear-gradient(180deg, rgba(50, 50, 50, 0.92) 0%, rgba(10, 10, 10, 0.95) 55%, rgba(0, 0, 0, 0.97) 100%));
+		background: linear-gradient(135deg, #0B3C68 0%, #061F55 100%);
 		border-radius: 0;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+		border-bottom: 1px solid rgba(16, 220, 229, 0.35);
 		height: 52px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+		box-shadow: 0 4px 18px rgba(6, 31, 85, 0.3);
 		color: #ffffff;
 	}
 
@@ -670,12 +732,46 @@
 		width: calc(100% - 2rem);
 		max-width: 260px;
 		margin: 0.5rem auto 0.6rem;
-		background: #ffffff;
-		border: 1px solid color-mix(in srgb, var(--brand-accent, #c8912f) 30%, transparent);
-		border-radius: 16px;
+		background: #F5FAFC;
+		border: 4px solid #0798AE;
+		border-radius: 18px;
 		padding: 0.9rem 1rem 0.75rem;
 		text-align: center;
-		box-shadow: 0 16px 32px -10px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.08);
+		box-shadow: 0 0 18px rgba(16, 220, 229, 0.25), 0 16px 32px -10px rgba(2, 16, 38, 0.45);
+	}
+
+	/* Aqura logo and company logo take turns, like the desktop/cashier logo badge */
+	.logo-swap {
+		display: grid;
+		place-items: center;
+		height: 110px;
+	}
+
+	.logo-swap .logo-image {
+		grid-area: 1 / 1;
+		max-height: 110px;
+	}
+
+	.logo-aqura { animation: loginLogoFadeOne 16s ease-in-out infinite; }
+	.logo-company { animation: loginLogoFadeTwo 16s ease-in-out infinite; }
+
+	@keyframes loginLogoFadeOne {
+		0%, 42% { opacity: 1; filter: blur(0); visibility: visible; }
+		50%, 92% { opacity: 0; filter: blur(5px); visibility: hidden; }
+		100% { opacity: 1; filter: blur(0); visibility: visible; }
+	}
+
+	@keyframes loginLogoFadeTwo {
+		0%, 42% { opacity: 0; filter: blur(5px); visibility: hidden; }
+		50%, 92% { opacity: 1; filter: blur(0); visibility: visible; }
+		100% { opacity: 0; filter: blur(5px); visibility: hidden; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.mobile-login-page::before,
+		.mobile-login-page::after { animation: none; opacity: 0.55; }
+		.logo-aqura { animation: none; }
+		.logo-company { animation: none; opacity: 0; visibility: hidden; }
 	}
 
 	.logo-image {
@@ -701,22 +797,23 @@
 		opacity: 0.8;
 		font-weight: 400;
 		margin: 0.3rem 0 0;
-		color: #4b5563;
+		color: #244D70;
 	}
 
+	/* Heading, footnote and change-code link sit directly on the dark aurora background */
 	.page-title {
 		font-size: 1.15rem;
 		font-weight: 700;
 		margin-bottom: 0.2rem;
-		color: var(--brand-primary, #1f3d2f);
+		color: #FFFFFF;
 		letter-spacing: -0.01em;
 	}
 
 	.page-subtitle {
 		font-size: 0.8rem;
-		opacity: 0.75;
+		opacity: 0.85;
 		font-weight: 400;
-		color: #4b5563;
+		color: #BFD4E4;
 	}
 
 	.auth-heading {
@@ -739,9 +836,87 @@
 	.secure-footnote {
 		text-align: center;
 		font-size: 0.7rem;
-		color: #6b7280;
+		color: #BFD4E4;
 		margin-top: 0.6rem;
 		opacity: 0.85;
+	}
+
+	/* Tagline + security note - copied from the desktop employee login (login/employee) */
+	.brand-copy {
+		padding: 1.6rem 0.5rem 1.2rem;
+		color: #FFFFFF;
+	}
+
+	.brand-copy h2 {
+		margin: 0 0 0.8rem;
+		font-size: clamp(2.2rem, 11vw, 3rem);
+		font-weight: 760;
+		line-height: 1.02;
+		letter-spacing: -0.045em;
+		text-wrap: balance;
+		color: #FFFFFF;
+		animation: headlineFadeIn 5.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s infinite both;
+	}
+
+	.brand-copy p {
+		margin: 0;
+		font-size: 0.92rem;
+		line-height: 1.7;
+		color: rgba(231, 248, 255, 0.76);
+		animation: headlineFadeIn 5.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s infinite both;
+	}
+
+	@keyframes headlineFadeIn {
+		0% { opacity: 0; transform: translateY(22px); filter: blur(5px); }
+		20%, 82% { opacity: 1; transform: translateY(0); filter: blur(0); }
+		100% { opacity: 0; transform: translateY(-8px); filter: blur(3px); }
+	}
+
+	.security-note {
+		display: flex;
+		align-items: center;
+		gap: 0.9rem;
+		margin: 0 0.5rem 1.2rem;
+		padding-top: 1.2rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.13);
+		color: #FFFFFF;
+	}
+
+	.security-icon {
+		display: grid;
+		place-items: center;
+		width: 42px;
+		height: 42px;
+		border-radius: 13px;
+		color: #72e7f3;
+		background: rgba(31, 202, 224, 0.12);
+		border: 1px solid rgba(91, 222, 239, 0.2);
+		flex: 0 0 auto;
+	}
+
+	.security-icon svg {
+		width: 21px;
+		height: 21px;
+	}
+
+	.security-note div {
+		display: grid;
+		gap: 0.2rem;
+	}
+
+	.security-note strong {
+		font-size: 0.86rem;
+	}
+
+	.security-note span:not(.security-icon) {
+		font-size: 0.75rem;
+		line-height: 1.4;
+		color: rgba(227, 246, 253, 0.62);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.brand-copy h2,
+		.brand-copy p { animation: none; }
 	}
 
 	/* Auth Section */
@@ -752,14 +927,14 @@
 
 	.mobile-auth-form {
 		position: relative;
-		background: rgba(255, 255, 255, 0.92);
+		background: rgba(255, 255, 255, 0.96);
 		backdrop-filter: blur(20px);
-		border: 1px solid color-mix(in srgb, var(--brand-primary, #1f3d2f) 12%, transparent);
+		border: 1px solid rgba(255, 255, 255, 0.7);
 		border-radius: 16px;
 		padding: 1.1rem 1rem 0.9rem;
 		margin-bottom: 0.6rem;
-		box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
-		color: #2a2a2a;
+		box-shadow: 0 20px 40px -10px rgba(2, 16, 38, 0.5), 0 2px 8px rgba(2, 16, 38, 0.18);
+		color: #0B2B50;
 		overflow: hidden;
 	}
 
@@ -770,7 +945,7 @@
 		left: 0;
 		right: 0;
 		height: 4px;
-		background: linear-gradient(90deg, var(--brand-primary, #1f3d2f), var(--brand-accent, #c8912f));
+		background: var(--brand-action);
 	}
 
 	/* Form fields */
@@ -831,7 +1006,7 @@
 	}
 
 	.digit-input::placeholder {
-		color: rgba(31, 61, 47, 0.4);
+		color: rgba(11, 60, 104, 0.4);
 		font-weight: 400;
 	}
 
@@ -876,10 +1051,10 @@
 	.mobile-submit-btn {
 		width: 100%;
 		padding: 0.6rem 0.75rem;
-		background: var(--brand-primary, #1f3d2f);
+		background: var(--brand-action);
 		color: #ffffff;
-		border: 1.5px solid var(--brand-primary, #1f3d2f);
-		border-radius: 8px;
+		border: 0;
+		border-radius: 10px;
 		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
@@ -894,11 +1069,10 @@
 	}
 
 	.mobile-submit-btn:hover:not(:disabled) {
-		background: var(--brand-accent, #c8912f);
-		border-color: var(--brand-accent, #c8912f);
-		color: #161616;
+		background: var(--brand-action-hover);
+		color: #FFFFFF;
 		transform: translateY(-2px);
-		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 8px 25px rgba(7, 159, 208, 0.35);
 	}
 
 	.mobile-submit-btn:active:not(:disabled) {
@@ -981,10 +1155,13 @@
 		opacity: 0.9;
 	}
 
+	/* Solid light cards so messages stay readable on the dark background */
 	.error-status,
 	.success-status {
-		color: #2a2a2a;
+		color: #0B2B50;
 	}
+	.error-status { background: #FEF2F2; border-color: #FECACA; }
+	.success-status { background: #F0FDF4; border-color: #BBF7D0; }
 
 	.error-status .status-icon,
 	.error-status h4 {

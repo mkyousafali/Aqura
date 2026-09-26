@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { currentUser, isAuthenticated, persistentAuthService } from '$lib/utils/persistentAuth';
@@ -91,7 +91,126 @@
 	let fabBarcodeDetector: any = null;
 	let fabScanCanvas: HTMLCanvasElement | null = null;
 	let fabScanCtx: CanvasRenderingContext2D | null = null;
-	
+
+	// Inactivity lock — same behaviour as the desktop and cashier interfaces
+	const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
+	let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastActivityReset = 0;
+	let showInactivityPrompt = false;
+	let showReauthentication = false;
+	let reauthDigits = ['', '', '', '', '', ''];
+	let reauthError = '';
+	let reauthLoading = false;
+
+	$: inactivityEligible = !isLoading && $isAuthenticated && !!$currentUser && $page.url.pathname !== '/mobile-interface/login';
+
+	function clearInactivityTimer() {
+		if (inactivityTimer) clearTimeout(inactivityTimer);
+		inactivityTimer = null;
+	}
+
+	function lockForInactivity() {
+		clearInactivityTimer();
+		fabStopScan();
+		showInactivityPrompt = true;
+		showReauthentication = false;
+		reauthDigits = ['', '', '', '', '', ''];
+		reauthError = '';
+	}
+
+	function scheduleInactivityPrompt() {
+		clearInactivityTimer();
+		if (!inactivityEligible || showInactivityPrompt) return;
+		lastActivityReset = Date.now();
+		inactivityTimer = setTimeout(lockForInactivity, INACTIVITY_TIMEOUT_MS);
+	}
+
+	function recordMobileActivity() {
+		if (!inactivityEligible || showInactivityPrompt || Date.now() - lastActivityReset < 1000) return;
+		scheduleInactivityPrompt();
+	}
+
+	// Phones throttle or freeze timers while the app is in the background, so check the
+	// elapsed time directly when the app becomes visible again.
+	function handleMobileVisibilityChange() {
+		if (document.visibilityState !== 'visible' || !inactivityEligible || showInactivityPrompt) return;
+		if (lastActivityReset && Date.now() - lastActivityReset >= INACTIVITY_TIMEOUT_MS) lockForInactivity();
+	}
+
+	// Start the timer once auth finishes; stop it on the login page or after logout.
+	$: if (inactivityEligible && !showInactivityPrompt && !inactivityTimer) {
+		scheduleInactivityPrompt();
+	}
+	$: if (!inactivityEligible && (inactivityTimer || showInactivityPrompt)) {
+		clearInactivityTimer();
+		showInactivityPrompt = false;
+		showReauthentication = false;
+	}
+
+	async function beginReauthentication() {
+		showReauthentication = true;
+		reauthDigits = ['', '', '', '', '', ''];
+		reauthError = '';
+		await tick();
+		(document.getElementById('mobile-reauth-digit-0') as HTMLInputElement | null)?.focus();
+	}
+
+	async function verifyReauthentication() {
+		const code = reauthDigits.join('');
+		if (code.length !== 6 || reauthLoading || !$currentUser) return;
+		reauthLoading = true;
+		reauthError = '';
+		try {
+			const { data, error } = await supabase.rpc('verify_quick_access_code', { p_code: code });
+			if (error || !data?.success || String(data.user?.id) !== String($currentUser.id)) throw new Error('invalid');
+			showInactivityPrompt = false;
+			showReauthentication = false;
+			reauthDigits = ['', '', '', '', '', ''];
+			scheduleInactivityPrompt();
+		} catch {
+			reauthError = $currentLocale === 'ar' ? 'رمز الوصول غير صحيح لهذا المستخدم.' : 'The access code does not match this user.';
+			reauthDigits = ['', '', '', '', '', ''];
+			await tick();
+			(document.getElementById('mobile-reauth-digit-0') as HTMLInputElement | null)?.focus();
+		} finally {
+			reauthLoading = false;
+		}
+	}
+
+	function handleReauthInput(event: Event, index: number) {
+		const input = event.target as HTMLInputElement;
+		const digit = input.value.replace(/\D/g, '').slice(-1);
+		reauthDigits[index] = digit;
+		input.value = digit;
+		if (digit && index < 5) (document.getElementById(`mobile-reauth-digit-${index + 1}`) as HTMLInputElement | null)?.focus();
+		if (reauthDigits.every(value => value !== '')) void verifyReauthentication();
+	}
+
+	function handleReauthKeydown(event: KeyboardEvent, index: number) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void verifyReauthentication();
+			return;
+		}
+		if (event.key === 'Backspace' && !reauthDigits[index] && index > 0) {
+			(document.getElementById(`mobile-reauth-digit-${index - 1}`) as HTMLInputElement | null)?.focus();
+		}
+	}
+
+	function handleReauthPaste(event: ClipboardEvent) {
+		event.preventDefault();
+		const digits = (event.clipboardData?.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+		reauthDigits = Array.from({ length: 6 }, (_, index) => digits[index] || '');
+		if (digits.length === 6) void verifyReauthentication();
+	}
+
+	function logoutFromInactivityPrompt() {
+		clearInactivityTimer();
+		showInactivityPrompt = false;
+		showReauthentication = false;
+		logout();
+	}
+
 	// Reactive page title that updates when route changes or locale changes
 	$: pageTitle = getPageTitle($page.url.pathname, $currentLocale);
 
@@ -102,6 +221,13 @@
 	}
 
 	onMount(() => {
+		window.addEventListener('pointerdown', recordMobileActivity, true);
+		window.addEventListener('pointermove', recordMobileActivity, true);
+		window.addEventListener('keydown', recordMobileActivity, true);
+		window.addEventListener('touchstart', recordMobileActivity, true);
+		window.addEventListener('scroll', recordMobileActivity, true);
+		document.addEventListener('visibilitychange', handleMobileVisibilityChange);
+
 		// CRITICAL: Set maximum timeout to prevent infinite loading
 		const maxLoadingTimeout = setTimeout(() => {
 			console.warn('âš ï¸ Mobile: Maximum loading timeout (3s) reached, forcing app to load');
@@ -199,6 +325,18 @@
 		};
 		
 		checkAuth();
+	});
+
+	onDestroy(() => {
+		clearInactivityTimer();
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('pointerdown', recordMobileActivity, true);
+			window.removeEventListener('pointermove', recordMobileActivity, true);
+			window.removeEventListener('keydown', recordMobileActivity, true);
+			window.removeEventListener('touchstart', recordMobileActivity, true);
+			window.removeEventListener('scroll', recordMobileActivity, true);
+			document.removeEventListener('visibilitychange', handleMobileVisibilityChange);
+		}
 	});
 
 	// Subscribe to auth changes
@@ -887,7 +1025,7 @@
 <svelte:head>
 	<title>Aqura Mobile Dashboard</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
-	<meta name="theme-color" content="#3B82F6" />
+	<meta name="theme-color" content="#0B3C68" />
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -1048,7 +1186,7 @@
 	{/if}
 	
 	<!-- Mobile content goes here -->
-	<main class="mobile-content" class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')}>
+	<main class="mobile-content" class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')} class:home-content={$page.url.pathname === '/mobile-interface' || $page.url.pathname === '/mobile-interface/'}>
 			<slot />
 		</main>
 		
@@ -1442,7 +1580,58 @@
 	</div>
 {/if}
 
+{#if showInactivityPrompt}
+	<div class="mobile-inactivity-backdrop" role="presentation">
+		<div class="mobile-inactivity-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="mobile-inactivity-title" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+			<div class="mobile-inactivity-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+			</div>
+			<h2 id="mobile-inactivity-title">{$currentLocale === 'ar' ? 'تم إيقاف الجلسة مؤقتاً' : 'Session paused'}</h2>
+			<p>{$currentLocale === 'ar' ? 'لم يتم رصد أي نشاط لمدة 3 دقائق. اختر المتابعة أو تسجيل الخروج.' : 'No activity was detected for 3 minutes. Continue securely or log out.'}</p>
+
+			{#if showReauthentication}
+				<div class="mobile-reauth-section">
+					<div class="mobile-reauth-label">{$currentLocale === 'ar' ? 'أدخل رمز الوصول المكوّن من 6 أرقام' : 'Enter your 6-digit access code'}</div>
+					<div class="mobile-reauth-digits" dir="ltr">
+						{#each reauthDigits as digit, index}
+							<input id="mobile-reauth-digit-{index}" type="password" value={digit} maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off" disabled={reauthLoading} on:input={(event) => handleReauthInput(event, index)} on:keydown={(event) => handleReauthKeydown(event, index)} on:paste={handleReauthPaste} />
+						{/each}
+					</div>
+					{#if reauthError}<div class="mobile-reauth-error" role="alert">{reauthError}</div>{/if}
+					<button class="mobile-unlock-btn" type="button" on:click={verifyReauthentication} disabled={reauthLoading || reauthDigits.some(value => value === '')}>
+						{reauthLoading ? ($currentLocale === 'ar' ? 'جارٍ التحقق…' : 'Verifying…') : ($currentLocale === 'ar' ? 'فتح الجلسة' : 'Unlock session')}
+					</button>
+				</div>
+			{:else}
+				<div class="mobile-inactivity-actions">
+					<button class="mobile-continue-btn" type="button" on:click={beginReauthentication}>{$currentLocale === 'ar' ? 'متابعة الجلسة' : 'Continue session'}</button>
+					<button class="mobile-inactivity-logout-btn" type="button" on:click={logoutFromInactivityPrompt}>{$currentLocale === 'ar' ? 'تسجيل الخروج' : 'Log out'}</button>
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
+
 <style>
+	.mobile-inactivity-backdrop { position: fixed; inset: 0; z-index: 100000; display: grid; place-items: center; padding: 1rem; background: rgba(4,22,39,.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+	.mobile-inactivity-dialog { width: min(100%,420px); padding: 1.6rem 1.25rem; box-sizing: border-box; border: 1px solid rgba(255,255,255,.8); border-radius: 22px; background: #fff; box-shadow: 0 28px 80px rgba(0,20,38,.35); text-align: center; }
+	.mobile-inactivity-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 1rem; border-radius: 16px; color: #087ca5; background: #e9f8fb; border: 1px solid #c4e9f0; }
+	.mobile-inactivity-icon svg { width: 28px; height: 28px; }
+	.mobile-inactivity-dialog h2 { margin: 0 0 .6rem; color: #102f49; font-size: 1.4rem; }
+	.mobile-inactivity-dialog > p { margin: 0 auto 1.3rem; max-width: 340px; color: #60798b; font-size: .92rem; line-height: 1.6; }
+	.mobile-inactivity-actions { display: grid; gap: .7rem; }
+	.mobile-inactivity-actions button, .mobile-unlock-btn { min-height: 48px; padding: .8rem 1rem; border-radius: 12px; font-size: .95rem; font-weight: 750; cursor: pointer; }
+	.mobile-continue-btn, .mobile-unlock-btn { border: 0; color: #fff; background: linear-gradient(115deg,#087ca5,#075b91); }
+	.mobile-inactivity-logout-btn { border: 1px solid #d8e3e9; color: #40596c; background: #f7fafb; }
+	.mobile-reauth-section { display: grid; gap: 1rem; }
+	.mobile-reauth-label { color: #405c71; font-size: .85rem; font-weight: 700; }
+	.mobile-reauth-digits { display: flex; justify-content: center; gap: .35rem; }
+	.mobile-reauth-digits input { width: 42px; height: 52px; box-sizing: border-box; border: 1px solid #cbdce5; border-radius: 12px; background: #f8fbfc; text-align: center; font-size: 1.4rem; font-weight: 750; outline: none; }
+	.mobile-reauth-digits input:focus { border-color: #0aa8c4; background: #fff; box-shadow: 0 0 0 4px rgba(10,168,196,.13); }
+	.mobile-reauth-error { color: #b42318; font-size: .84rem; }
+	.mobile-unlock-btn:disabled { opacity: .5; cursor: not-allowed; }
+	@media (max-width: 360px) { .mobile-reauth-digits { gap: .25rem; } .mobile-reauth-digits input { width: 38px; height: 48px; } }
+
 	/* Complete CSS reset and mobile-specific styling */
 	:global(*) {
 		box-sizing: border-box;
@@ -1465,10 +1654,10 @@
 		padding: 0 !important;
 		overflow: auto !important;
 		-webkit-overflow-scrolling: touch;
-		background: #F8FAFC !important;
+		background: #F5FAFC !important;
 		font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
 		line-height: 1.5;
-		color: #1F2937;
+		color: #0B2B50;
 	}
 
 	:global(#app),
@@ -1502,7 +1691,7 @@
 		height: 100vh !important;
 		height: 100dvh !important;
 		z-index: 9999 !important;
-		background: #F8FAFC !important;
+		background: #F5FAFC !important;
 		overflow-x: hidden !important;
 		overflow-y: auto !important;
 	}
@@ -1520,7 +1709,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+		background: linear-gradient(135deg, #0B3C68 0%, #061F55 100%);
 		color: white;
 		font-family: 'Inter', 'Segoe UI', sans-serif;
 		text-align: center;
@@ -1559,7 +1748,7 @@
 		width: 100vw;
 		height: 100vh;
 		height: 100dvh;
-		background: #F8FAFC;
+		background: #F5FAFC;
 		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
@@ -1571,11 +1760,12 @@
 
 	/* Global Mobile Header */
 	.global-mobile-header {
-		background: var(--theme-header-bg, #1261A0);
+		background: linear-gradient(135deg, #0B3C68 0%, #061F55 100%);
+		border-bottom: 1px solid rgba(16, 220, 229, 0.35);
 		color: var(--theme-header-text, white);
 		padding: 0.8rem 1.2rem;
 		padding-top: calc(0.8rem + env(safe-area-inset-top));
-		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 4px 18px rgba(6, 31, 85, 0.22);
 		position: sticky;
 		top: 0;
 		z-index: 100;
@@ -1608,7 +1798,7 @@
 	}
 
 	.menu-version-item {
-		background: rgba(59, 130, 246, 0.6) !important;
+		background: rgba(11, 60, 104, 0.72) !important;
 		cursor: default !important;
 		pointer-events: none;
 		font-family: 'Courier New', monospace;
@@ -1617,7 +1807,7 @@
 
 	.menu-version-item:hover {
 		transform: none !important;
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+		box-shadow: 0 4px 12px rgba(6, 31, 85, 0.25) !important;
 	}
 
 	.menu-spacer {
@@ -1628,6 +1818,7 @@
 	.menu-logout {
 		background: #EF4444 !important;
 		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
+		border-color: rgba(255, 255, 255, 0.3) !important;
 	}
 
 	.menu-logout:hover {
@@ -1726,8 +1917,8 @@
 		align-items: center;
 		justify-content: flex-start;
 		padding: 0 16px;
-		background: #3B82F6;
-		border: none;
+		background: linear-gradient(135deg, #0B3C68 0%, #061F55 100%);
+		border: 1px solid rgba(16, 220, 229, 0.45);
 		min-width: 48px;
 		height: 48px;
 		border-radius: 24px;
@@ -1735,7 +1926,7 @@
 		cursor: pointer;
 		transition: all 0.25s ease;
 		text-decoration: none;
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+		box-shadow: 0 4px 14px rgba(6, 31, 85, 0.3);
 		gap: 12px;
 		white-space: nowrap;
 	}
@@ -1745,9 +1936,9 @@
 	}
 
 	.menu-item:hover {
-		background: #2563EB;
+		background: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
 		transform: scale(1.05);
-		box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+		box-shadow: 0 6px 20px rgba(7, 159, 208, 0.45);
 	}
 
 	.menu-item:active {
@@ -1774,22 +1965,23 @@
 
 	.menu-language {
 		padding: 0 16px;
-		background: #3B82F6;
+		background: linear-gradient(135deg, #0B3C68 0%, #061F55 100%);
+		border: 1px solid rgba(16, 220, 229, 0.45);
 		min-width: 48px;
 		height: 48px;
 		border-radius: 24px;
 		display: flex;
 		align-items: center;
 		justify-content: flex-start;
-		box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+		box-shadow: 0 4px 14px rgba(6, 31, 85, 0.3);
 		gap: 12px;
 		cursor: pointer;
 	}
 
 	.menu-language:hover {
-		background: #2563EB;
+		background: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
 		transform: scale(1.05);
-		box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+		box-shadow: 0 6px 20px rgba(7, 159, 208, 0.45);
 	}
 
 	.menu-language :global(*) {
@@ -1977,6 +2169,79 @@
 	}
 	.mobile-content.break-log-content { min-height: 0; overflow: hidden; }
 
+	/* Home screen: same animated navy "aurora" background as the desktop and cashier
+	   interfaces. Sub-pages paint their own light backgrounds, so it is scoped to home. */
+	.mobile-content.home-content {
+		position: relative;
+		isolation: isolate;
+		background:
+			radial-gradient(ellipse 70% 30% at 78% 8%, rgba(52, 221, 237, 0.22), transparent 67%),
+			radial-gradient(ellipse 60% 40% at 6% 55%, rgba(18, 184, 211, 0.17), transparent 72%),
+			radial-gradient(ellipse 70% 34% at 92% 88%, rgba(15, 130, 181, 0.24), transparent 70%),
+			linear-gradient(155deg, #051f3f 0%, #053a66 52%, #045b7d 100%);
+	}
+
+	.mobile-content.home-content::before,
+	.mobile-content.home-content::after {
+		content: '';
+		position: fixed;
+		border-radius: 50%;
+		pointer-events: none;
+		z-index: -1;
+	}
+
+	.mobile-content.home-content::before {
+		left: -20%;
+		top: -18%;
+		width: 420px;
+		height: 420px;
+		background: radial-gradient(circle at 64% 68%, rgba(78, 230, 240, 0.24), rgba(14, 145, 184, 0.10) 46%, transparent 71%);
+		box-shadow: 0 0 110px rgba(32, 203, 228, 0.18);
+		filter: blur(5px);
+		animation: mobileAuroraOne 24s ease-in-out infinite;
+	}
+
+	.mobile-content.home-content::after {
+		right: -30%;
+		bottom: -24%;
+		width: 520px;
+		height: 520px;
+		background: radial-gradient(circle at 36% 30%, rgba(36, 205, 224, 0.26), rgba(6, 106, 154, 0.12) 48%, transparent 72%);
+		box-shadow: 0 0 130px rgba(17, 143, 185, 0.22);
+		filter: blur(7px);
+		animation: mobileAuroraTwo 31s ease-in-out infinite;
+	}
+
+	@keyframes mobileAuroraOne {
+		0% { transform: translate(0, 0) scale(0.78); opacity: 0; }
+		12% { opacity: 0.85; }
+		34% { transform: translate(45vw, 22vh) scale(1.04); opacity: 0.5; }
+		49% { opacity: 0; }
+		62% { transform: translate(-10vw, 50vh) scale(0.72); opacity: 0; }
+		74% { opacity: 0.75; }
+		90% { transform: translate(25vw, 30vh) scale(0.92); opacity: 0.4; }
+		100% { transform: translate(0, 0) scale(0.78); opacity: 0; }
+	}
+
+	@keyframes mobileAuroraTwo {
+		0% { transform: translate(0, 0) scale(1); opacity: 0.65; }
+		20% { opacity: 0; }
+		36% { transform: translate(-50vw, -30vh) scale(0.72); opacity: 0; }
+		49% { opacity: 0.7; }
+		68% { transform: translate(-15vw, -45vh) scale(0.94); opacity: 0.38; }
+		80% { opacity: 0; }
+		92% { transform: translate(-60vw, -8vh) scale(0.82); opacity: 0.52; }
+		100% { transform: translate(0, 0) scale(1); opacity: 0.65; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.mobile-content.home-content::before,
+		.mobile-content.home-content::after {
+			animation: none;
+			opacity: 0.55;
+		}
+	}
+
 	/* Bottom Navigation */
 	.bottom-nav {
 		position: fixed;
@@ -1985,14 +2250,14 @@
 		right: 0.35rem;
 		height: 3.6rem; /* Reduced from 4.5rem (20% smaller) */
 		background: #ffffff;
-		border: 1.5px solid #16a34a;
+		border: 1px solid #CFE3EC;
 		border-radius: 14px;
 		display: flex;
 		align-items: center;
 		justify-content: space-around;
 		padding: 0.4rem; /* Reduced from 0.5rem */
 		padding-bottom: calc(0.4rem + env(safe-area-inset-bottom));
-		box-shadow: 0 4px 16px rgba(22, 163, 74, 0.16);
+		box-shadow: 0 6px 22px rgba(11, 60, 104, 0.16);
 		z-index: 1000;
 	}
 
@@ -2017,7 +2282,7 @@
 		align-items: center;
 		justify-content: center;
 		text-decoration: none;
-		color: var(--theme-navbar-btn-inactive-text, #6B7280);
+		color: #647A91;
 		transition: all 0.2s ease;
 		padding: 0.2rem; /* Reduced from 0.25rem */
 		border-radius: 6px; /* Reduced from 8px */
@@ -2026,17 +2291,17 @@
 	}
 
 	.nav-item:hover {
-		color: var(--theme-navbar-btn-active-text, #3B82F6);
-		background: var(--theme-navbar-btn-hover-bg, rgba(59, 130, 246, 0.05));
+		color: #079FD0;
+		background: rgba(7, 159, 208, 0.06);
 	}
 
 	.nav-item.active {
-		color: var(--theme-navbar-btn-active-text, #3B82F6);
+		color: #079FD0;
 	}
 
 	.nav-item.active .nav-icon {
-		background: rgba(59, 130, 246, 0.1);
-		color: var(--theme-navbar-btn-active-text, #3B82F6);
+		background: #E8FBFD;
+		color: #079FD0;
 	}
 
 	.nav-icon {
@@ -2106,56 +2371,63 @@
 		white-space: nowrap;
 	}
 
+	/* Fixed Aqura theme: the active bottom-nav item always uses the brand cyan (emergencies stay red). */
+	.bottom-nav .nav-item.active:not(.emergencies-btn),
+	.bottom-nav .nav-item.active:not(.emergencies-btn) .nav-icon,
+	.bottom-nav .nav-item.active:not(.emergencies-btn) .nav-label {
+		color: #079FD0;
+	}
+
 	/* Special styling for quick task button */
 	.nav-item.quick-task-btn {
-		color: #6B7280;
+		color: #647A91;
 		text-decoration: none;
 	}
 
 	.nav-item.quick-task-btn:hover {
-		color: #F59E0B;
-		background: rgba(245, 158, 11, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.quick-task-btn.active {
-		color: #F59E0B;
+		color: #0B3C68;
 	}
 
 	.nav-item.quick-task-btn .quick-icon {
-		background: linear-gradient(135deg, #F59E0B, #D97706);
+		background: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
 		color: white;
-		box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+		box-shadow: 0 2px 8px rgba(7, 159, 208, 0.3);
 	}
 
 	.nav-item.quick-task-btn:hover .quick-icon,
 	.nav-item.quick-task-btn.active .quick-icon {
 		transform: scale(1.05);
-		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+		box-shadow: 0 4px 12px rgba(7, 159, 208, 0.4);
 	}
 
 	.nav-item.quick-task-btn .nav-label {
-		color: #F59E0B;
+		color: #0B3C68;
 		font-weight: 600;
 	}
 
 	/* Special styling for approval button */
 	.nav-item.approval-btn {
-		color: #6B7280;
+		color: #647A91;
 		text-decoration: none;
 	}
 
 	.nav-item.approval-btn:hover {
-		color: #10B981;
-		background: rgba(16, 185, 129, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.approval-btn.active {
-		color: #10B981;
+		color: #0B3C68;
 	}
 
 	.nav-item.approval-btn.active .nav-icon {
-		background: rgba(16, 185, 129, 0.1);
-		color: #10B981;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 	}
 
 	.nav-item.approval-btn .nav-label {
@@ -2164,22 +2436,22 @@
 
 	/* Special styling for PV button */
 	.nav-item.pv-btn {
-		color: #6B7280;
+		color: #647A91;
 		text-decoration: none;
 	}
 
 	.nav-item.pv-btn:hover {
-		color: #8B5CF6;
-		background: rgba(139, 92, 246, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.pv-btn.active {
-		color: #8B5CF6;
+		color: #0B3C68;
 	}
 
 	.nav-item.pv-btn.active .nav-icon {
-		background: rgba(139, 92, 246, 0.1);
-		color: #8B5CF6;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 	}
 
 	.nav-item.pv-btn .nav-label {
@@ -2232,21 +2504,21 @@
 		border: none;
 		background: none;
 		cursor: pointer;
-		color: #EC4899;
+		color: #0B3C68;
 	}
 
 	.nav-item.hr-menu-btn:hover {
-		color: #EC4899;
-		background: rgba(236, 72, 153, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.hr-menu-btn.active {
-		color: #EC4899;
+		color: #0B3C68;
 	}
 
 	.nav-item.hr-menu-btn.active .nav-icon {
-		background: rgba(236, 72, 153, 0.1);
-		color: #EC4899;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 	}
 
 	.nav-item.hr-menu-btn .nav-label {
@@ -2259,26 +2531,26 @@
 		background: none;
 		cursor: pointer;
 		position: relative;
-		color: #6366F1;
+		color: #0B3C68;
 	}
 
 	.nav-item.ai-chat-btn:hover {
-		color: #6366F1;
-		background: rgba(99, 102, 241, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.ai-chat-btn.active {
-		color: #6366F1;
+		color: #0B3C68;
 	}
 
 	.nav-item.ai-chat-btn.active .nav-icon {
-		background: rgba(99, 102, 241, 0.1);
-		color: #6366F1;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 	}
 
 	.nav-item.ai-chat-btn .nav-label {
 		font-weight: 600;
-		color: #6366F1;
+		color: #0B3C68;
 	}
 
 	.ai-chat-icon {
@@ -2357,7 +2629,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 12px 16px;
-		color: #374151;
+		color: #0B2B50;
 		text-decoration: none;
 		border: none;
 		background: none;
@@ -2365,7 +2637,7 @@
 		transition: all 0.2s ease;
 		width: 100%;
 		text-align: left;
-		border-bottom: 1px solid #E5E7EB;
+		border-bottom: 1px solid #E8F2F7;
 	}
 
 	.hr-submenu-item:last-child {
@@ -2373,13 +2645,13 @@
 	}
 
 	.hr-submenu-item:hover {
-		background: #F3F4F6;
-		color: #EC4899;
+		background: #E8FBFD;
+		color: #0B3C68;
 	}
 
 	.hr-submenu-item.active {
-		background: rgba(236, 72, 153, 0.1);
-		color: #EC4899;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 		font-weight: 600;
 	}
 
@@ -2423,7 +2695,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 12px 16px;
-		color: #374151;
+		color: #0B2B50;
 		text-decoration: none;
 		border: none;
 		background: none;
@@ -2431,7 +2703,7 @@
 		transition: all 0.2s ease;
 		width: 100%;
 		text-align: left;
-		border-bottom: 1px solid #E5E7EB;
+		border-bottom: 1px solid #E8F2F7;
 	}
 
 	.emergencies-submenu-item:last-child {
@@ -2484,13 +2756,13 @@
 		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
-		box-shadow: 0 -2px 16px rgba(59, 130, 246, 0.2);
+		box-shadow: 0 -2px 16px rgba(7, 159, 208, 0.2);
 		min-width: 180px;
 		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
-		border: 1px solid rgba(59, 130, 246, 0.2);
+		border: 1px solid rgba(7, 159, 208, 0.2);
 	}
 
 	:global([dir="rtl"]) .tasks-submenu {
@@ -2503,7 +2775,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 12px 16px;
-		color: #374151;
+		color: #0B2B50;
 		text-decoration: none;
 		border: none;
 		background: none;
@@ -2511,7 +2783,7 @@
 		transition: all 0.2s ease;
 		width: 100%;
 		text-align: left;
-		border-bottom: 1px solid #E5E7EB;
+		border-bottom: 1px solid #E8F2F7;
 	}
 
 	.tasks-submenu-item:last-child {
@@ -2519,19 +2791,19 @@
 	}
 
 	.tasks-submenu-item:hover {
-		background: rgba(59, 130, 246, 0.05);
-		color: #3B82F6;
+		background: rgba(7, 159, 208, 0.05);
+		color: #0B3C68;
 	}
 
 	.tasks-submenu-item.active {
-		background: rgba(59, 130, 246, 0.1);
-		color: #3B82F6;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 		font-weight: 600;
 	}
 
 	.tasks-submenu-item svg {
 		flex-shrink: 0;
-		color: #3B82F6;
+		color: #0B3C68;
 	}
 
 	.submenu-badge {
@@ -2550,35 +2822,35 @@
 	}
 
 	.nav-item.tasks-btn {
-		color: #3B82F6;
+		color: #0B3C68;
 	}
 
 	.nav-item.tasks-btn:hover {
-		color: #3B82F6;
-		background: rgba(59, 130, 246, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.tasks-btn.active {
-		color: #3B82F6;
+		color: #0B3C68;
 	}
 
 	.nav-item.tasks-btn.active .nav-icon {
-		color: #3B82F6;
+		color: #0B3C68;
 	}
 
 	/* Orders Button & Submenu Styles */
 	.nav-item.orders-btn {
-		color: #059669;
+		color: #0B3C68;
 	}
 	.nav-item.orders-btn:hover {
-		color: #059669;
-		background: rgba(5, 150, 105, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 	.nav-item.orders-btn.active {
-		color: #059669;
+		color: #0B3C68;
 	}
 	.nav-item.orders-btn.active .nav-icon {
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	.orders-submenu-overlay {
@@ -2597,13 +2869,13 @@
 		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
-		box-shadow: 0 -2px 16px rgba(5, 150, 105, 0.2);
+		box-shadow: 0 -2px 16px rgba(7, 159, 208, 0.2);
 		min-width: 180px;
 		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
-		border: 1px solid rgba(5, 150, 105, 0.2);
+		border: 1px solid rgba(7, 159, 208, 0.2);
 	}
 
 	:global([dir="rtl"]) .orders-submenu {
@@ -2616,7 +2888,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 12px 16px;
-		color: #374151;
+		color: #0B2B50;
 		text-decoration: none;
 		border: none;
 		background: none;
@@ -2624,7 +2896,7 @@
 		transition: all 0.2s ease;
 		width: 100%;
 		text-align: left;
-		border-bottom: 1px solid #E5E7EB;
+		border-bottom: 1px solid #E8F2F7;
 	}
 
 	.orders-submenu-item:last-child {
@@ -2632,19 +2904,19 @@
 	}
 
 	.orders-submenu-item:hover {
-		background: rgba(5, 150, 105, 0.05);
-		color: #059669;
+		background: rgba(7, 159, 208, 0.05);
+		color: #0B3C68;
 	}
 
 	.orders-submenu-item.active {
-		background: rgba(5, 150, 105, 0.1);
-		color: #059669;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 		font-weight: 600;
 	}
 
 	.orders-submenu-item svg {
 		flex-shrink: 0;
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	/* Stock Submenu Styles */
@@ -2664,13 +2936,13 @@
 		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
-		box-shadow: 0 -2px 16px rgba(245, 158, 11, 0.2);
+		box-shadow: 0 -2px 16px rgba(7, 159, 208, 0.2);
 		min-width: 180px;
 		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
-		border: 1px solid rgba(245, 158, 11, 0.2);
+		border: 1px solid rgba(7, 159, 208, 0.2);
 	}
 
 	:global([dir="rtl"]) .stock-submenu {
@@ -2683,7 +2955,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 12px 16px;
-		color: #374151;
+		color: #0B2B50;
 		text-decoration: none;
 		border: none;
 		background: none;
@@ -2691,7 +2963,7 @@
 		transition: all 0.2s ease;
 		width: 100%;
 		text-align: left;
-		border-bottom: 1px solid #E5E7EB;
+		border-bottom: 1px solid #E8F2F7;
 	}
 
 	.stock-submenu-item:last-child {
@@ -2699,36 +2971,36 @@
 	}
 
 	.stock-submenu-item:hover {
-		background: rgba(245, 158, 11, 0.05);
-		color: #F59E0B;
+		background: rgba(7, 159, 208, 0.05);
+		color: #0B3C68;
 	}
 
 	.stock-submenu-item.active {
-		background: rgba(245, 158, 11, 0.1);
-		color: #D97706;
+		background: rgba(7, 159, 208, 0.1);
+		color: #079FD0;
 		font-weight: 600;
 	}
 
 	.stock-submenu-item svg {
 		flex-shrink: 0;
-		color: #F59E0B;
+		color: #0B3C68;
 	}
 
 	.nav-item.stock-menu-btn {
-		color: #F59E0B;
+		color: #0B3C68;
 	}
 
 	.nav-item.stock-menu-btn:hover {
-		color: #F59E0B;
-		background: rgba(245, 158, 11, 0.05);
+		color: #0B3C68;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.stock-menu-btn.active {
-		color: #F59E0B;
+		color: #0B3C68;
 	}
 
 	.nav-item.stock-menu-btn.active .nav-icon {
-		color: #F59E0B;
+		color: #0B3C68;
 	}
 
 	/* Finance Menu Styles */
@@ -2736,30 +3008,30 @@
 		border: none;
 		background: none;
 		cursor: pointer;
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	.nav-item.finance-btn:hover {
-		color: #047857;
-		background: rgba(5, 150, 105, 0.05);
+		color: #079FD0;
+		background: rgba(7, 159, 208, 0.05);
 	}
 
 	.nav-item.finance-btn.active {
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	.nav-item.finance-btn.active .nav-icon {
-		background: rgba(5, 150, 105, 0.1);
-		color: #059669;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 	}
 
 	.nav-item.finance-btn .nav-icon {
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	.nav-item.finance-btn .nav-label {
 		font-weight: 600;
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	.finance-submenu-overlay {
@@ -2778,13 +3050,13 @@
 		transform: translateX(-50%);
 		background: white;
 		border-radius: 12px;
-		box-shadow: 0 -2px 16px rgba(5, 150, 105, 0.2);
+		box-shadow: 0 -2px 16px rgba(7, 159, 208, 0.2);
 		min-width: 180px;
 		max-width: calc(100vw - 32px);
 		z-index: 100;
 		overflow: hidden;
 		animation: slideUp 0.2s ease;
-		border: 1px solid rgba(5, 150, 105, 0.2);
+		border: 1px solid rgba(7, 159, 208, 0.2);
 	}
 
 	:global([dir="rtl"]) .finance-submenu {
@@ -2797,7 +3069,7 @@
 		align-items: center;
 		gap: 12px;
 		padding: 12px 16px;
-		color: #374151;
+		color: #0B2B50;
 		text-decoration: none;
 		border: none;
 		background: none;
@@ -2805,7 +3077,7 @@
 		transition: all 0.2s ease;
 		width: 100%;
 		text-align: left;
-		border-bottom: 1px solid #E5E7EB;
+		border-bottom: 1px solid #E8F2F7;
 	}
 
 	.finance-submenu-item:last-child {
@@ -2813,19 +3085,19 @@
 	}
 
 	.finance-submenu-item:hover {
-		background: rgba(5, 150, 105, 0.05);
-		color: #059669;
+		background: rgba(7, 159, 208, 0.05);
+		color: #0B3C68;
 	}
 
 	.finance-submenu-item.active {
-		background: rgba(5, 150, 105, 0.1);
-		color: #059669;
+		background: rgba(7, 159, 208, 0.1);
+		color: #0B3C68;
 		font-weight: 600;
 	}
 
 	.finance-submenu-item svg {
 		flex-shrink: 0;
-		color: #059669;
+		color: #0B3C68;
 	}
 
 	.mobile-error {
@@ -2841,10 +3113,10 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: #F8FAFC;
+		background: #F5FAFC;
 		padding: 2rem;
 		text-align: center;
-		color: #374151;
+		color: #0B2B50;
 		z-index: 10000;
 	}
 
@@ -2852,7 +3124,7 @@
 		font-size: 1.5rem;
 		font-weight: 600;
 		margin-bottom: 0.5rem;
-		color: #1F2937;
+		color: #0B2B50;
 	}
 
 	.mobile-error p {
@@ -2863,7 +3135,7 @@
 
 	.error-btn {
 		padding: 0.75rem 1.5rem;
-		background: #3B82F6;
+		background: linear-gradient(115deg, #10DCE5 0%, #079FD0 48%, #034C8C 100%);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -2875,7 +3147,7 @@
 	}
 
 	.error-btn:hover {
-		background: #2563EB;
+		background: linear-gradient(115deg, #3BE7ED 0%, #10DCE5 48%, #079FD0 100%);
 		transform: translateY(-1px);
 	}
 
@@ -3009,7 +3281,7 @@
 		height: 22px;
 	}
 	.header-scan-btn:active {
-		background: rgba(59, 130, 246, 0.5) !important;
+		background: rgba(16, 220, 229, 0.5) !important;
 	}
 
 	/* â”€â”€ FAB Scanner Overlay â”€â”€ */
@@ -3033,7 +3305,7 @@
 		aspect-ratio: 4 / 3;
 		border-radius: 16px;
 		overflow: hidden;
-		border: 3px solid rgba(59, 130, 246, 0.6);
+		border: 3px solid rgba(16, 220, 229, 0.6);
 	}
 
 	.fab-scanner-video {
@@ -3047,8 +3319,8 @@
 		left: 5%;
 		right: 5%;
 		height: 3px;
-		background: linear-gradient(90deg, transparent, #3B82F6, transparent);
-		box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+		background: linear-gradient(90deg, transparent, #10DCE5, transparent);
+		box-shadow: 0 0 8px rgba(16, 220, 229, 0.6);
 		animation: fabScanLine 2s ease-in-out infinite;
 	}
 
