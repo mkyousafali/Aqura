@@ -1230,13 +1230,13 @@
 	.welcome-meta-bar .version-badge {
 		background: #0B3C68;
 		color: #FFFFFF;
-		border-color: #0798AE;
+		border: none;
 	}
 
 	.welcome-meta-bar .version-badge:hover {
 		background: #034C8C;
 		color: #FFFFFF;
-		border-color: #10DCE5;
+		border: none;
 	}
 
 	@keyframes pulse-update {

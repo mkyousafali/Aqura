@@ -89,6 +89,9 @@ class WindowManager {
     config: Partial<WindowConfig> & { title: string; component: any },
   ): string {
     const windowId = config.id || `window-${++this.windowCounter}`;
+    const isCashierInterface =
+      typeof window !== "undefined" &&
+      window.location.pathname.startsWith("/cashier-interface");
 
     // Check if window already exists
     const existingWindows = get(this.windows);
@@ -115,7 +118,9 @@ class WindowManager {
       closable: config.closable !== false,
       modal: config.modal || false,
       zIndex: this.nextZIndex++,
-      state: "normal",
+      // Cashier workflows use the full workspace by default. Users can still
+      // restore to the configured size or minimize via the window controls.
+      state: config.state ?? (isCashierInterface ? "maximized" : "normal"),
       isActive: true,
       isDragging: false,
       isResizing: false,

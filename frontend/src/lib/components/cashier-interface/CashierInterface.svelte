@@ -111,13 +111,9 @@
 			<div class="welcome-screen">
 				<div class="app-branding">
 					{#if $updateAvailable}
-						<button class="cashier-update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
-							🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
+						<button class="cashier-update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث الآن' : 'Update Now'}>
+							🔄 {$currentLocale === 'ar' ? 'تحديث الآن' : 'Update Now'}
 						</button>
-					{:else}
-						<span class="cashier-update-badge up-to-date">
-							✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
-						</span>
 					{/if}
 					<div class="app-logo">
 						<img src={$iconUrlMap['aqura-logo'] || '/icons/Aqura logo.png'} alt="Aqura Logo" />
@@ -306,9 +302,9 @@
 		gap: 0.75rem;
 		position: fixed;
 		left: auto;
-		top: 20px;
-		right: 308px;
-		bottom: auto;
+		top: auto;
+		right: 20px;
+		bottom: 204px;
 		z-index: 100;
 		margin: 0;
 		height: 44px;
@@ -318,7 +314,7 @@
 		border: 6px solid #0798AE;
 		border-radius: 10px;
 		box-shadow: 0 0 8px rgba(7, 152, 174, .18), 0 4px 12px rgba(3, 76, 140, .08);
-		width: fit-content;
+		width: 200px;
 	}
 
 	.current-user-name {
@@ -463,9 +459,9 @@
 		height: 44px;
 		min-width: 132px;
 		box-sizing: border-box;
-		background: #F5FAFC;
-		color: #0B2B50;
-		border: 6px solid #0798AE;
+		background: #0B3C68;
+		color: #FFFFFF;
+		border: none;
 		border-radius: 8px;
 		padding: 0 14px;
 		font-size: 0.7rem;
@@ -508,13 +504,6 @@
 	.cashier-update-badge.update-available:hover {
 		background: rgba(34, 197, 94, 0.45);
 		transform: scale(1.05);
-	}
-
-	.cashier-update-badge.up-to-date {
-		background: #F5FAFC;
-		color: #0B2B50;
-		border: 6px solid #0798AE;
-		cursor: default;
 	}
 
 	.cashier-update-badge.update-available {
