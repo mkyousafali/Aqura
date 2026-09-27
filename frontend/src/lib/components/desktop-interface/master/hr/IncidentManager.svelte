@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { translateText as translateWithOpenAI } from '$lib/utils/translationService';
     import { _ as t } from '$lib/i18n';
     import { locale } from '$lib/i18n';
     import { onMount, onDestroy } from 'svelte';
@@ -134,11 +135,7 @@
         showWhatHappenedLangPicker = false;
         isTranslatingWhatHappened = true;
         try {
-            const resp = await fetch(
-                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(whatHappenedText)}`
-            );
-            const data = await resp.json();
-            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            const translated = await translateWithOpenAI({ text: whatHappenedText, targetLanguage: targetLang });
             if (translated) whatHappenedTranslated = translated;
         } catch (e) {
             console.error('Translation error:', e);

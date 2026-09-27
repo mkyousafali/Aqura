@@ -207,7 +207,7 @@
 				img.src = url;
 			});
 
-			// AQ-SEC-005: Vision/Gemini keys are no longer fetched into the browser — both
+			// AQ-SEC-005: Vision/OpenAI keys are no longer fetched into the browser — both
 			// calls now go through the server proxy, which looks up the right key itself.
 
 			// Google Vision OCR
@@ -228,24 +228,18 @@
 			const visionData = await visionRes.json();
 			const ocrText = visionData?.responses?.[0]?.fullTextAnnotation?.text || '';
 
-			// Gemini parse
-			const geminiRes = await fetch('/api/google-ai-proxy', {
+			// OpenAI parse
+			const aiRes = await fetch('/api/openai-text', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					service: 'gemini',
-					body: {
-						contents: [{
-							parts: [{
-								text: `Extract bill info from this receipt text. Return JSON: {"bill_number":"...","bill_amount":number,"bill_date":"YYYY-MM-DD"}. If not found use null. Text:\n${ocrText}`
-							}]
-						}],
-						generationConfig: { temperature: 0, responseMimeType: 'application/json' }
-					}
+					prompt: `Extract bill info from this receipt text. Return JSON: {"bill_number":"...","bill_amount":number,"bill_date":"YYYY-MM-DD"}. If not found use null. Text:\n${ocrText}`,
+					temperature: 0, maxTokens: 1000, jsonMode: true
 				})
 			});
-			const geminiData = await geminiRes.json();
-			const raw = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+			if (!aiRes.ok) throw new Error('Receipt analysis failed');
+			const aiData = await aiRes.json();
+			const raw = aiData?.text || '{}';
 			let parsed: any = {};
 			try { parsed = JSON.parse(raw); } catch { /* fallback below */ }
 

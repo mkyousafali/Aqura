@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { fetchGoogleMapsKey } from '$lib/utils/googleMapsKey';
 
   export let locations: Array<{ name: string; lat: number; lng: number; url: string }> = [];
   export let selectedIndex: number = 0;
@@ -14,10 +15,7 @@
   let isLoading = true;
   let error = '';
 
-  const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-
   console.log('🗺️ [LocationMapDisplay] Component initialized');
-  console.log('🗺️ API Key present:', !!GOOGLE_MAPS_API_KEY);
   console.log('🗺️ Locations:', locations);
   console.log('🗺️ Height:', height);
 
@@ -33,21 +31,19 @@
     noApiKey: 'Google Maps API key not found'
   };
 
-  function loadGoogleMapsScript(): Promise<void> {
+  async function loadGoogleMapsScript(): Promise<void> {
+    // Reuse an already-loaded Maps SDK, otherwise fetch the active table key.
+    if ((window as any).google?.maps) return;
+    let apiKey: string;
+    try {
+      apiKey = await fetchGoogleMapsKey();
+    } catch {
+      throw new Error(texts.noApiKey);
+    }
+
     return new Promise((resolve, reject) => {
-      // @ts-ignore
-      if (typeof google !== 'undefined' && google.maps) {
-        resolve();
-        return;
-      }
-
-      if (!GOOGLE_MAPS_API_KEY) {
-        reject(new Error(texts.noApiKey));
-        return;
-      }
-
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&language=${language}`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=${language}`;
       script.async = true;
       script.defer = true;
       script.onload = () => resolve();

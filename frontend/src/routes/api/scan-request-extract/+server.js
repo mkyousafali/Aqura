@@ -1,9 +1,9 @@
 import { json } from "@sveltejs/kit";
-import { env } from '$env/dynamic/private';
+import { generateOpenAIText } from '$lib/server/openaiText';
 
 // Endpoint for the mobile "Scan Request" flow (Bank Reconciliation card in
 // CloseBox.svelte). Takes a photo of a card-terminal (mada) reconciliation
-// slip and asks Gemini to extract exactly: Date, Time, Terminal ID, and
+// slip and asks OpenAI to extract exactly: Date, Time, Terminal ID, and
 // Statement/Batch match number — nothing else. The mobile UI shows these as
 // editable fields; nothing is written to the database here.
 //
@@ -12,36 +12,10 @@ import { env } from '$env/dynamic/private';
 // that network's closing/TOTALS section and only the final amount is
 // extracted, to auto-fill that one field.
 //
-// Reuses the same system_api_keys ('google_gemini') lookup and inlineData
-// image request shape as /api/check-original-bill.
-
-async function getGeminiKey() {
-  try {
-    const supabaseUrl = env.VITE_SUPABASE_URL || '';
-    const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in env');
-      return null;
-    }
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key&limit=1`,
-      { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
-    );
-    const rows = await res.json();
-    return rows?.[0]?.api_key || null;
-  } catch (e) {
-    console.error('Failed to fetch Gemini key:', e);
-    return null;
-  }
-}
+// Uses the shared OpenAI table key and image/PDF helper, like /api/check-original-bill.
 
 export async function POST({ request }) {
   try {
-    const GEMINI_KEY = await getGeminiKey();
-    if (!GEMINI_KEY) {
-      return json({ error: "Google AI API key not configured. Set it in API Keys Manager." }, { status: 500 });
-    }
-
     const body = await request.json();
     const { imageBase64, mimeType, mode } = body;
 
@@ -50,7 +24,7 @@ export async function POST({ request }) {
     }
 
     if (mode === 'amount') {
-      return await extractAmount(GEMINI_KEY, imageBase64, mimeType);
+      return await extractAmount(imageBase64, mimeType);
     }
 
     const prompt = `You are extracting information from a photo of a card payment terminal (mada/POS) reconciliation/settlement slip. These slips have a well-known layout near the top:
@@ -69,59 +43,29 @@ Extract exactly these fields:
 
 If a field cannot be found, return an empty string for that field. Do not guess or invent values.`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: mimeType || 'image/jpeg', data: imageBase64 } }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: 500,
-            thinkingConfig: { thinkingBudget: 0 },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'OBJECT',
-              properties: {
-                date: { type: 'STRING' },
-                date_iso: { type: 'STRING' },
-                time: { type: 'STRING' },
-                terminal_id: { type: 'STRING' },
-                statement_match_number: { type: 'STRING' }
-              },
-              required: ['date', 'date_iso', 'time', 'terminal_id', 'statement_match_number']
-            }
-          }
-        })
+    const rawText = await generateOpenAIText({
+      prompt,
+      attachments: [{ mimeType: mimeType || 'image/jpeg', data: imageBase64 }],
+      temperature: 0, maxTokens: 2000,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          date: { type: 'string' },
+          date_iso: { type: 'string' },
+          time: { type: 'string' },
+          terminal_id: { type: 'string' },
+          statement_match_number: { type: 'string' }
+        },
+        required: ['date', 'date_iso', 'time', 'terminal_id', 'statement_match_number']
       }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
-    }
-
-    const geminiData = await geminiRes.json();
-    const candidate = geminiData.candidates?.[0];
-    const rawText = candidate?.content?.parts?.[0]?.text || '';
-
-    if (!rawText.trim()) {
-      console.error('Empty Gemini response. finishReason:', candidate?.finishReason);
-      throw new Error(`AI returned an empty response (finishReason: ${candidate?.finishReason || 'unknown'})`);
-    }
+    });
 
     let extracted;
     try {
       extracted = JSON.parse(rawText);
     } catch (e) {
-      console.error('Failed to parse Gemini JSON response:', rawText);
+      console.error('Failed to parse OpenAI JSON response:', rawText);
       throw new Error('AI response was not valid JSON');
     }
 
@@ -141,57 +85,27 @@ If a field cannot be found, return an empty string for that field. Do not guess 
   }
 }
 
-async function extractAmount(GEMINI_KEY, imageBase64, mimeType) {
+async function extractAmount(imageBase64, mimeType) {
   try {
     const prompt = `You are extracting a single amount from a photo of a card payment terminal (mada/POS/GCCNET/etc.) closing/settlement slip section (e.g. a "TOTALS" row, or a "P/ON" purchase total row, shown in SAR). Find the final total amount for this payment network on the slip and return just the plain numeric value (e.g. "639.02"), with no currency symbol, no commas, no letters. If several totals are shown, use the one on the "TOTALS" row (or the "P/ON"/purchase row if there is no separate TOTALS row). If it cannot be found, return an empty string.`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: mimeType || 'image/jpeg', data: imageBase64 } }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: 200,
-            thinkingConfig: { thinkingBudget: 0 },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'OBJECT',
-              properties: { amount: { type: 'STRING' } },
-              required: ['amount']
-            }
-          }
-        })
+    const rawText = await generateOpenAIText({
+      prompt,
+      attachments: [{ mimeType: mimeType || 'image/jpeg', data: imageBase64 }],
+      temperature: 0, maxTokens: 2000,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { amount: { type: 'string' } },
+        required: ['amount']
       }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
-    }
-
-    const geminiData = await geminiRes.json();
-    const candidate = geminiData.candidates?.[0];
-    const rawText = candidate?.content?.parts?.[0]?.text || '';
-
-    if (!rawText.trim()) {
-      console.error('Empty Gemini response (amount mode). finishReason:', candidate?.finishReason);
-      throw new Error(`AI returned an empty response (finishReason: ${candidate?.finishReason || 'unknown'})`);
-    }
+    });
 
     let extracted;
     try {
       extracted = JSON.parse(rawText);
     } catch (e) {
-      console.error('Failed to parse Gemini JSON response (amount mode):', rawText);
+      console.error('Failed to parse OpenAI JSON response (amount mode):', rawText);
       throw new Error('AI response was not valid JSON');
     }
 

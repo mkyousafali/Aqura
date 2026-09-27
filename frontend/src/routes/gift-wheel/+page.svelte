@@ -298,7 +298,7 @@
 
 			const base64 = compressedBase64;
 
-			// AQ-SEC-005: Vision/Gemini keys are no longer fetched into the browser — both
+			// AQ-SEC-005: Vision/OpenAI keys are no longer fetched into the browser — both
 			// calls now go through the server proxy, which looks up the right key itself.
 
 			// Call Google Vision OCR
@@ -332,14 +332,12 @@
 			const fullText = annotations[0]?.description || '';
 			console.log('[GIFT WHEEL OCR] Text length:', fullText.length);
 
-			// Use Gemini to parse bill number and amount
-			const geminiRes = await fetch('/api/google-ai-proxy', {
+			// Use OpenAI to parse bill number and amount
+			const aiRes = await fetch('/api/openai-text', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					service: 'gemini',
-					body: {
-						contents: [{ role: 'user', parts: [{ text: `Extract from this bill:
+					prompt: `Extract from this bill:
 1. billNumber: Look for "Invoice Number", "Bill Number", or similar
 2. totalAmount: The FINAL amount to pay - look for:
    - Lines with "SAR" or "ر.س"
@@ -351,22 +349,22 @@ Return ONLY valid JSON (no markdown, no code blocks):
 {"billNumber":"289717","totalAmount":7.45}
 
 Bill text:
-${fullText.substring(0, 900)}` }] }],
-						generationConfig: { temperature: 0, maxOutputTokens: 1000 }
-					}
+${fullText.substring(0, 900)}`,
+					temperature: 0, maxTokens: 1000, jsonMode: true
 				})
 			});
-			const geminiData = await geminiRes.json();
-			console.log('[GIFT WHEEL OCR] Full Gemini response object:', JSON.stringify(geminiData).substring(0, 500));
-			const geminiText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-			console.log('[GIFT WHEEL OCR] Gemini text length:', geminiText.length);
-			console.log('[GIFT WHEEL OCR] Gemini raw response:', geminiText);
-			console.log('[GIFT WHEEL OCR] Gemini response (encoded):', JSON.stringify(geminiText));
+			if (!aiRes.ok) throw new Error('Receipt analysis failed');
+			const aiData = await aiRes.json();
+			console.log('[GIFT WHEEL OCR] Full OpenAI response object:', JSON.stringify(aiData).substring(0, 500));
+			const aiText = aiData?.text || '';
+			console.log('[GIFT WHEEL OCR] OpenAI text length:', aiText.length);
+			console.log('[GIFT WHEEL OCR] OpenAI raw response:', aiText);
+			console.log('[GIFT WHEEL OCR] OpenAI response (encoded):', JSON.stringify(aiText));
 
-			// Parse Gemini response - extract JSON from response
+			// Parse OpenAI response - extract JSON from response
 			try {
 				// Clean up code blocks and whitespace
-				let cleanedText = geminiText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+				let cleanedText = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 				
 				// Handle incomplete JSON responses
 				if (cleanedText.includes('{') && !cleanedText.includes('}')) {
@@ -415,7 +413,7 @@ ${fullText.substring(0, 900)}` }] }],
 					if (parsed.billDate) billDate = String(parsed.billDate);
 				}
 			} catch (parseErr) {
-				console.error('[GIFT WHEEL OCR] Failed to parse Gemini response:', geminiText, parseErr);
+				console.error('[GIFT WHEEL OCR] Failed to parse OpenAI response:', aiText, parseErr);
 				// Fallback: try regex extraction from OCR text directly
 				const numMatch = fullText.match(/(?:invoice|bill|receipt|voucher|فاتورة|رقم الفاتورة|رقم الإيصال)[^\d]*(\d+)/i);
 				if (numMatch) billNumber = numMatch[1];

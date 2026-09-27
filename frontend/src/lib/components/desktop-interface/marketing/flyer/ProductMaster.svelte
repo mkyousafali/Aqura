@@ -2,7 +2,6 @@
 	import * as XLSX from 'xlsx';
 	import { supabase } from '$lib/utils/supabase';
 	import { onMount } from 'svelte';
-	import { removeBackground } from '@imgly/background-removal';
 	
 	let products: any[] = [];
 	let filteredProducts: any[] = [];
@@ -71,17 +70,8 @@
 	let foundMissingImages: { barcode: string; productName: string; imageUrl: string }[] = [];
 	let isSavingFoundImages: boolean = false;
 	
-	// Web image search
-	let showImageSearchPopup: boolean = false;
-	let searchingBarcode: string = '';
-	let webImages: any[] = [];
-	let isSearchingWeb: boolean = false;
-	let selectedWebImage: string | null = null;
-	let downloadingImage: boolean = false;
-	let removingBackground: boolean = false;
-	let searchProvider: 'google' | 'openfoodfacts' | null = null;
-	
 	// Image preview popup
+	let downloadingImage: boolean = false;
 	let showImagePreview: boolean = false;
 	let previewImageUrl: string = '';
 	let previewImageBlob: Blob | null = null;
@@ -157,93 +147,6 @@
 				}
 			});
 		}, 100);
-	}
-	
-	// Quota tracking
-	interface QuotaData {
-		googleSearches: number;
-		googleResetDate: string;
-		removeBgUses: number;
-		removeBgResetDate: string;
-	}
-	
-	let quotaData: QuotaData = {
-		googleSearches: 0,
-		googleResetDate: new Date().toISOString().split('T')[0],
-		removeBgUses: 0,
-		removeBgResetDate: getMonthKey()
-	};
-	
-	const GOOGLE_DAILY_LIMIT = 100;
-	const REMOVE_BG_MONTHLY_LIMIT = 50;
-	
-	// Get current month key (YYYY-MM)
-	function getMonthKey(): string {
-		const now = new Date();
-		return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-	}
-	
-	// Load quota data from localStorage
-	function loadQuotaData() {
-		if (typeof window === 'undefined') return;
-		
-		try {
-			const saved = localStorage.getItem('apiQuotaData');
-			if (saved) {
-				const data = JSON.parse(saved);
-				const today = new Date().toISOString().split('T')[0];
-				const currentMonth = getMonthKey();
-				
-				// Reset Google quota if it's a new day
-				if (data.googleResetDate !== today) {
-					data.googleSearches = 0;
-					data.googleResetDate = today;
-				}
-				
-				// Reset Remove.bg quota if it's a new month
-				if (data.removeBgResetDate !== currentMonth) {
-					data.removeBgUses = 0;
-					data.removeBgResetDate = currentMonth;
-				}
-				
-				quotaData = data;
-			}
-		} catch (error) {
-			console.error('Error loading quota data:', error);
-		}
-	}
-	
-	// Save quota data to localStorage
-	function saveQuotaData() {
-		if (typeof window === 'undefined') return;
-		
-		try {
-			localStorage.setItem('apiQuotaData', JSON.stringify(quotaData));
-		} catch (error) {
-			console.error('Error saving quota data:', error);
-		}
-	}
-	
-	// Check if Google search is available
-	function isGoogleAvailable(): boolean {
-		return quotaData.googleSearches < GOOGLE_DAILY_LIMIT;
-	}
-	
-	// Check if Remove.bg is available
-	function isRemoveBgAvailable(): boolean {
-		return quotaData.removeBgUses < REMOVE_BG_MONTHLY_LIMIT;
-	}
-	
-	// Increment Google search count
-	function incrementGoogleSearch() {
-		quotaData.googleSearches++;
-		saveQuotaData();
-	}
-	
-	// Increment Remove.bg use count
-	function incrementRemoveBg() {
-		quotaData.removeBgUses++;
-		saveQuotaData();
 	}
 	
 	// No cache loading needed - check storage directly each time
@@ -906,228 +809,6 @@
 		successfullyLoadedImages = new Set();
 	}
 
-	// Search for product images on the web
-	async function searchWebForImages(barcode: string, provider: 'google' | 'openfoodfacts') {
-		searchingBarcode = barcode;
-		searchProvider = provider;
-		showImageSearchPopup = true;
-		isSearchingWeb = true;
-		webImages = [];
-		
-		try {
-			// Check quota for Google
-			if (provider === 'google' && !isGoogleAvailable()) {
-				alert(`Google search quota exceeded (${GOOGLE_DAILY_LIMIT}/day). Resets tomorrow.`);
-				isSearchingWeb = false;
-				return;
-			}
-			
-			// Find the product details
-			const product = noImageProducts.find(p => p.barcode === barcode) || 
-			                products.find(p => (p.Barcode || p.barcode) === barcode);
-			
-			const productNameEn = product?.product_name_en || product?.['Product name_en'] || '';
-			const productNameAr = product?.product_name_ar || product?.['Product name_ar'] || '';
-			
-			// Choose API endpoint based on provider
-			const endpoint = provider === 'google' ? '/api/google-search' : '/api/openfoodfacts-search';
-			
-			// Call the image search API endpoint with all search terms
-			const response = await fetch(endpoint, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({ 
-					barcode,
-					productNameEn,
-					productNameAr
-				})
-			});
-			
-			if (!response.ok) {
-				const errorData = await response.json();
-				console.error(`${provider} search error:`, errorData);
-				
-				if (errorData.quota_exceeded) {
-					alert(`${provider === 'google' ? 'Google' : 'Open Food Facts'} search quota exceeded. Please try again later.`);
-				} else {
-					const errorMsg = errorData.error || 'Failed to search for images';
-					const details = errorData.details ? `\n\nDetails: ${JSON.stringify(errorData.details, null, 2)}` : '';
-					alert(`${provider === 'google' ? 'Google' : 'Open Food Facts'} Search Error:\n${errorMsg}${details}`);
-				}
-				isSearchingWeb = false;
-				return;
-			}
-			
-			const data = await response.json();
-			webImages = data.images || [];
-			
-			// Increment Google quota if successful
-			if (provider === 'google' && webImages.length > 0) {
-				incrementGoogleSearch();
-			}
-		} catch (error) {
-			console.error('Error searching for images:', error);
-			alert('Error searching for images. Please try again.');
-		}
-		
-		isSearchingWeb = false;
-	}
-	
-	// Download and upload image from URL
-	async function downloadAndUploadImage(imageUrl: string, removeBackgroundType: 'none' | 'api' | 'client' = 'none') {
-		if (!searchingBarcode) return;
-		
-		// Check Remove.bg quota if using API
-		if (removeBackgroundType === 'api' && !isRemoveBgAvailable()) {
-			alert(`Background removal quota exceeded (${REMOVE_BG_MONTHLY_LIMIT}/month). Resets next month.`);
-			return;
-		}
-		
-		downloadingImage = true;
-		selectedWebImage = imageUrl;
-		if (removeBackgroundType !== 'none') {
-			removingBackground = true;
-		}
-		
-		try {
-			let blob: Blob;
-			
-			// Remove background using API (Remove.bg)
-			if (removeBackgroundType === 'api') {
-				const bgRemoveResponse = await fetch('/api/remove-background', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({ 
-						imageUrl: imageUrl 
-					})
-				});
-				
-				if (!bgRemoveResponse.ok) {
-					const errorData = await bgRemoveResponse.json();
-					throw new Error(errorData.error || 'Failed to remove background');
-				}
-				
-				const result = await bgRemoveResponse.json();
-				
-				// Convert base64 data URL to blob
-				const base64Response = await fetch(result.imageData);
-				blob = await base64Response.blob();
-				
-				// Increment Remove.bg quota
-				incrementRemoveBg();
-			} 
-			// Remove background using client-side AI (Free, unlimited)
-			else if (removeBackgroundType === 'client') {
-				// Fetch the image through our proxy
-				const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
-				const response = await fetch(proxyUrl);
-				
-				if (!response.ok) {
-					const errorText = await response.text();
-					throw new Error(`Failed to fetch image: ${errorText}`);
-				}
-				
-				const imageBlob = await response.blob();
-				
-				// Verify the blob is valid
-				if (imageBlob.size === 0) {
-					throw new Error('Downloaded image is empty');
-				}
-				
-				// Use client-side AI to remove background (this runs in the browser)
-				blob = await removeBackground(imageBlob);
-				
-				// Show preview popup instead of uploading directly
-				previewImageBlob = blob;
-				previewImageUrl = URL.createObjectURL(blob);
-				previewBarcode = searchingBarcode;
-				showImagePreview = true;
-				downloadingImage = false;
-				removingBackground = false;
-				return; // Don't upload yet, wait for user confirmation
-			} 
-			// No background removal
-			else {
-				// Fetch the image through our proxy to avoid CORS issues
-				const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(imageUrl)}`;
-				const response = await fetch(proxyUrl);
-				
-				if (!response.ok) {
-					const errorText = await response.text();
-					throw new Error(`Failed to fetch image: ${errorText}`);
-				}
-				
-				blob = await response.blob();
-			}
-			
-			// Convert to File object
-			const file = new File([blob], `${searchingBarcode}.png`, { type: 'image/png' });
-			
-			// Upload to Supabase Storage
-			const { data, error } = await supabase.storage
-				.from('flyer-product-images')
-				.upload(`${searchingBarcode}.png`, file, {
-					cacheControl: '3600',
-					upsert: true
-				});
-			
-			if (error) {
-				console.error(`Failed to upload image for ${searchingBarcode}:`, error);
-				alert(`Failed to upload image: ${error.message}`);
-			} else {
-				// Get the public URL
-				const { data: urlData } = supabase.storage
-					.from('flyer-product-images')
-					.getPublicUrl(`${searchingBarcode}.png`);
-				
-				// Update the product in database with image URL
-				const { error: updateError } = await supabase
-					.from('products')
-					.update({ 
-						image_url: urlData.publicUrl,
-						updated_at: new Date().toISOString()
-					})
-					.eq('barcode', searchingBarcode);
-				
-				if (updateError) {
-					console.error('Error updating product:', updateError);
-					alert('Error updating product');
-				} else {
-					// Add to cache
-					storageImageCache.add(searchingBarcode);
-					
-					// Reload the products without images
-					await loadNoImageProducts();
-					await loadDatabaseStats();
-					
-					alert('Image uploaded successfully!');
-					closeImageSearchPopup();
-				}
-			}
-		} catch (error) {
-			console.error('Error downloading/uploading image:', error);
-			const errorMessage = error instanceof Error ? error.message : 'Error processing image';
-			alert(errorMessage);
-		} finally {
-			downloadingImage = false;
-			removingBackground = false;
-			selectedWebImage = null;
-		}
-		selectedWebImage = null;
-		removingBackground = false;
-	}
-	
-	function closeImageSearchPopup() {
-		showImageSearchPopup = false;
-		searchingBarcode = '';
-		webImages = [];
-		selectedWebImage = null;
-	}
-	
 	// Upload image from preview
 	async function uploadPreviewImage() {
 		if (!previewImageBlob || !previewBarcode) return;
@@ -1172,7 +853,6 @@
 				
 				alert('Image uploaded successfully!');
 				closeImagePreview();
-				closeImageSearchPopup();
 			}
 		} catch (error) {
 			console.error('Error uploading image:', error);
@@ -2317,9 +1997,8 @@
 		console.log('✓ Unsubscribed from all realtime updates');
 	}
 	
-	// Load quota data on mount
+	// Initialize products on mount
 	onMount(() => {
-		loadQuotaData();
 		loadInitData();
 		subscribeToRealtimeChanges();
 
@@ -2919,138 +2598,6 @@
 		</div>
 	{/if}
 
-	<!-- Web Image Search Popup -->
-	{#if showImageSearchPopup}
-		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" on:click={closeImageSearchPopup}>
-			<div class="bg-white rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col" on:click|stopPropagation>
-				<!-- Header -->
-				<div class="bg-gradient-to-r {searchProvider === 'google' ? 'from-blue-600 to-blue-700' : 'from-green-600 to-emerald-700'} p-6 flex items-center justify-between">
-					<div>
-						<h3 class="text-2xl font-bold text-white">
-							{searchProvider === 'google' ? '🔍 Google Search' : '🍊 Open Food Facts'}
-						</h3>
-						<p class="text-white text-opacity-90 mt-1">
-							Barcode: {searchingBarcode}
-						</p>
-						<div class="flex gap-4 mt-2 text-xs text-white text-opacity-80">
-							<span>
-								Google: {quotaData.googleSearches}/{GOOGLE_DAILY_LIMIT} today
-							</span>
-							<span>
-								Remove.bg: {quotaData.removeBgUses}/{REMOVE_BG_MONTHLY_LIMIT} this month
-							</span>
-						</div>
-					</div>
-					<button 
-						on:click={closeImageSearchPopup}
-						class="px-4 py-2 bg-white text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
-					>
-						Close
-					</button>
-				</div>
-				
-				<!-- Content -->
-				<div class="flex-1 overflow-y-auto p-6">
-					{#if isSearchingWeb}
-						<div class="flex flex-col items-center justify-center py-12">
-							<svg class="animate-spin w-12 h-12 text-green-600 mb-4" fill="none" viewBox="0 0 24 24">
-								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-							</svg>
-							<p class="text-gray-600">Searching for images...</p>
-						</div>
-					{:else if webImages.length === 0}
-						<div class="flex flex-col items-center justify-center py-12">
-							<svg class="w-24 h-24 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-							</svg>
-							<h4 class="text-xl font-semibold text-gray-800 mb-2">No images found</h4>
-							<p class="text-gray-600">Try searching with a different barcode or upload manually.</p>
-						</div>
-					{:else}
-						<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-							{#each webImages as image, index (image.url || index)}
-								<div class="relative group">
-									<img 
-										src={`/api/proxy-image?url=${encodeURIComponent(image.url || image)}`}
-										alt="Product {index + 1}"
-										class="w-full h-48 object-cover rounded-lg border-2 border-gray-200 hover:border-green-500 transition-all"
-										loading="lazy"
-										on:error={(e) => {
-											const img = e.target;
-											img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23f3f4f6" width="100" height="100"/><text x="50" y="50" font-size="10" text-anchor="middle" alignment-baseline="middle" fill="%239ca3af">Image Unavailable</text></svg>';
-										}}
-									/>
-									<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-60 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 rounded-lg">
-										{#if downloadingImage && selectedWebImage === (image.url || image)}
-											<div class="bg-white rounded-lg px-4 py-3 flex items-center gap-2">
-												<svg class="animate-spin w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24">
-													<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-													<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-												</svg>
-												<span class="text-sm font-semibold text-gray-700">Uploading...</span>
-											</div>
-										{:else if removingBackground && selectedWebImage === (image.url || image)}
-											<div class="bg-white rounded-lg px-4 py-3 flex items-center gap-2">
-												<svg class="animate-spin w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24">
-													<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-													<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-												</svg>
-												<span class="text-sm font-semibold text-gray-700">Removing Background...</span>
-											</div>
-										{:else}
-											<div class="flex flex-col gap-2">
-												<!-- Use As-Is Button -->
-												<button
-													on:click={() => downloadAndUploadImage(image.url || image, 'none')}
-													disabled={downloadingImage || removingBackground}
-													class="bg-green-600 hover:bg-green-700 text-white rounded-lg px-3 py-2 flex items-center gap-2 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-												>
-													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-													</svg>
-													<span class="text-xs font-semibold">Use This</span>
-												</button>
-												
-												<!-- Free AI Background Removal Button (Client-side) -->
-												<button
-													on:click={() => downloadAndUploadImage(image.url || image, 'client')}
-													disabled={downloadingImage || removingBackground}
-													class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-2 flex items-center gap-2 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-xs font-semibold"
-													title="Free AI background removal (runs in browser, unlimited)"
-												>
-													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-													</svg>
-													<span>AI Remove (Free)</span>
-													<span class="text-[9px] opacity-75">(∞)</span>
-												</button>
-												
-												<!-- Remove.bg API Button -->
-												<button
-													on:click={() => downloadAndUploadImage(image.url || image, 'api')}
-													disabled={downloadingImage || removingBackground || !isRemoveBgAvailable()}
-													class="rounded-lg px-3 py-2 flex items-center gap-2 transition-colors text-white text-xs font-semibold {isRemoveBgAvailable() ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-400 cursor-not-allowed'}"
-													title={isRemoveBgAvailable() ? `Remove.bg API (${quotaData.removeBgUses}/${REMOVE_BG_MONTHLY_LIMIT} used this month)` : 'Monthly quota exceeded'}
-												>
-													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-													</svg>
-													<span>Remove.bg</span>
-													<span class="text-[9px] opacity-75">({quotaData.removeBgUses}/{REMOVE_BG_MONTHLY_LIMIT})</span>
-												</button>
-											</div>
-										{/if}
-									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
-
 	<!-- Find Missing Images Popup -->
 	{#if showFindMissingImagesPopup}
 		<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -3449,14 +2996,14 @@
 									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Product Name</th>
 									<th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Unit</th>
 									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Upload</th>
-									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Web Search</th>
+
 									<th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-orange-400">Action</th>
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-slate-200">
 								{#if filteredNoImageProducts.length === 0}
 									<tr>
-										<td colspan="7" class="px-6 py-12 text-center">
+										<td colspan="6" class="px-6 py-12 text-center">
 											<svg class="w-16 h-16 mx-auto text-slate-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
 											</svg>
@@ -3506,27 +3053,6 @@
 													{:else}
 														🖼️
 													{/if}
-												</button>
-											</div>
-										</td>
-										<td class="px-4 py-2 text-center">
-											<div class="flex items-center justify-center gap-1">
-												<!-- Google Search Button -->
-												<button
-													on:click={() => searchWebForImages(product.barcode, 'google')}
-													disabled={!isGoogleAvailable()}
-													class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white font-bold transition-all duration-200 transform hover:scale-110 {isGoogleAvailable() ? 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg' : 'bg-gray-400 cursor-not-allowed'}"
-													title={isGoogleAvailable() ? `Google (${quotaData.googleSearches}/${GOOGLE_DAILY_LIMIT} used today)` : 'Daily quota exceeded'}
-												>
-													🔍
-												</button>
-												<!-- Open Food Facts Button -->
-												<button
-													on:click={() => searchWebForImages(product.barcode, 'openfoodfacts')}
-													class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-green-600 text-white font-bold hover:bg-green-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-													title="Open Food Facts (Free & Unlimited)"
-												>
-													🍊
 												</button>
 											</div>
 										</td>

@@ -1,24 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { env } from '$env/dynamic/private';
-
-// Fetch Gemini API key from system_api_keys via Supabase REST
-let GEMINI_KEY = '';
-
-async function getGeminiKey() {
-  if (GEMINI_KEY) return GEMINI_KEY;
-  try {
-    const supabaseUrl = env.VITE_SUPABASE_URL || '';
-    const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
-    if (!supabaseUrl || !supabaseKey) return null;
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key`,
-      { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
-    );
-    const rows = await res.json();
-    if (rows?.[0]?.api_key) { GEMINI_KEY = rows[0].api_key; return GEMINI_KEY; }
-  } catch (e) { console.error('Failed to fetch Gemini key:', e); }
-  return null;
-}
+import { generateOpenAIText } from '$lib/server/openaiText';
 
 // Language name mapping
 const languageNames = {
@@ -79,17 +60,7 @@ export async function POST({ request }) {
   try {
     console.log("Generate Incident Warning API accessed...");
 
-    // Get Gemini key from DB
-    const geminiKey = await getGeminiKey();
-    if (!geminiKey) {
-      console.error("Failed to get Gemini API key");
-      return json(
-        {
-          error: "AI API key not configured. Please add a Google API key in API Keys Manager.",
-        },
-        { status: 500 }
-      );
-    }
+    // Get OpenAI key from DB
 
     const body = await request.json();
     
@@ -249,7 +220,7 @@ The ONLY languages you are allowed to use are: ${languageList}
 
 Keep the content professional, formal, and concise. Generate now:`;
 
-    console.log("Sending prompt to Gemini...");
+    console.log("Sending prompt to OpenAI...");
 
     const systemContent = `You are an expert HR professional specializing in employee relations and formal documentation. You write clear, professional, and legally appropriate warning letters. 
 
@@ -265,26 +236,10 @@ CRITICAL LANGUAGE RULES:
    - Urdu uses only اردو script
 5. Strictly follow the language requirements and use the correct script for each language`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemContent }] },
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
-        })
-      }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
-    }
-
-    const geminiData = await geminiRes.json();
-    const generatedText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const generatedText = await generateOpenAIText({
+      systemPrompt: systemContent, prompt,
+      temperature: 0.7, maxTokens: 2000
+    });
     
     console.log("Generated text length:", generatedText.length);
 

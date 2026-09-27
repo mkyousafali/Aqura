@@ -2,80 +2,49 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
+import { findApiService, RETIRED_API_SERVICES } from '$lib/config/apiServices';
 
-/**
- * system_api_keys admin CRUD (AQ-SEC-005 remediation).
- *
- * The ApiKeysManager settings screen used to read/write this table straight from the
- * browser with the public anon key. Since system_api_keys holds real, billable
- * third-party credentials (OpenAI, Google, ...) and its RLS policy allowed anyone to
- * read it directly via the public REST API (confirmed - not hypothetical), the table
- * is being locked down to server-only access. This is now the only thing that reads
- * or writes it; the browser only ever sees this endpoint's JSON.
- */
+const respond = (body: unknown, status = 200) => json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+const fail = (error: string, status = 400) => respond({ success: false, error }, status);
 function getSupabase() {
-	const supabaseUrl = env.VITE_SUPABASE_URL || '';
-	const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || '';
-	return createClient(supabaseUrl, supabaseKey);
+ return createClient(env.VITE_SUPABASE_URL || '', env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '');
 }
-
 export const GET: RequestHandler = async () => {
-	try {
-		const { data, error } = await getSupabase()
-			.from('system_api_keys')
-			.select('*')
-			.order('service_name');
-		if (error) return json({ success: false, error: error.message }, { status: 500 });
-		return json({ success: true, keys: data || [] });
-	} catch (error: any) {
-		return json({ success: false, error: error.message || 'Internal server error' }, { status: 500 });
-	}
+ try {
+  const { data, error } = await getSupabase().from('system_api_keys').select('*').order('service_name');
+  if (error) return fail('Unable to load API keys.', 500);
+  return respond({ success: true, keys: data || [] });
+ } catch { return fail('Unable to load API keys.', 500); }
 };
-
 export const POST: RequestHandler = async ({ request }) => {
-	try {
-		const { action, ...params } = await request.json();
-		const supabase = getSupabase();
-
-		if (action === 'update') {
-			const { id, api_key, description, is_active } = params;
-			if (!id) return json({ success: false, error: 'id is required' }, { status: 400 });
-			const { error } = await supabase
-				.from('system_api_keys')
-				.update({ api_key, description, is_active })
-				.eq('id', id);
-			if (error) return json({ success: false, error: error.message }, { status: 500 });
-			return json({ success: true });
-		}
-
-		if (action === 'toggle') {
-			const { id, is_active } = params;
-			if (!id) return json({ success: false, error: 'id is required' }, { status: 400 });
-			const { error } = await supabase.from('system_api_keys').update({ is_active }).eq('id', id);
-			if (error) return json({ success: false, error: error.message }, { status: 500 });
-			return json({ success: true });
-		}
-
-		if (action === 'insert') {
-			const { service_name, api_key, description } = params;
-			if (!service_name?.trim() || !api_key?.trim()) {
-				return json({ success: false, error: 'service_name and api_key are required' }, { status: 400 });
-			}
-			const { error } = await supabase.from('system_api_keys').insert({ service_name, api_key, description });
-			if (error) return json({ success: false, error: error.message }, { status: 500 });
-			return json({ success: true });
-		}
-
-		if (action === 'delete') {
-			const { id } = params;
-			if (!id) return json({ success: false, error: 'id is required' }, { status: 400 });
-			const { error } = await supabase.from('system_api_keys').delete().eq('id', id);
-			if (error) return json({ success: false, error: error.message }, { status: 500 });
-			return json({ success: true });
-		}
-
-		return json({ success: false, error: `Unknown action '${action}'` }, { status: 400 });
-	} catch (error: any) {
-		return json({ success: false, error: error.message || 'Internal server error' }, { status: 500 });
-	}
+ let params: any;
+ try { params = await request.json(); } catch { return fail('Invalid JSON.'); }
+ if (!params || typeof params !== 'object') return fail('Invalid request.');
+ const { action, id } = params;
+ if (!['insert', 'rotate', 'update', 'toggle', 'delete'].includes(action)) return fail('Unknown action.');
+ if (action !== 'insert' && (id === undefined || id === null || id === '')) return fail('id is required.');
+ if (['insert', 'rotate', 'update'].includes(action) && (typeof params.api_key !== 'string' || !params.api_key.trim())) return fail('A non-empty API key is required.');
+ if (action === 'toggle' && typeof params.is_active !== 'boolean') return fail('is_active must be true or false.');
+ const serviceName = typeof params.service_name === 'string' ? params.service_name.trim() : '';
+ if (action === 'insert' && (!serviceName || RETIRED_API_SERVICES.includes(serviceName))) return fail('Choose an active service.');
+ try {
+  const table = getSupabase().from('system_api_keys');
+  let query;
+  if (action === 'insert') {
+   query = table.insert({ service_name: serviceName, api_key: params.api_key.trim(), description: findApiService(serviceName)?.description || params.description || '', is_active: true });
+  } else if (action === 'delete') {
+   query = table.delete().eq('id', id);
+  } else {
+   const values: Record<string, unknown> = action === 'toggle' ? { is_active: params.is_active } : { api_key: params.api_key.trim() };
+   if (action === 'update') {
+    if (typeof params.description === 'string') values.description = params.description;
+    if (typeof params.is_active === 'boolean') values.is_active = params.is_active;
+   }
+   query = table.update(values).eq('id', id);
+  }
+  const { data, error } = await query.select('*').maybeSingle();
+  if (error) return error.code === '23505' ? fail('This service already has a key. Use Replace key.', 409) : fail('Unable to save API key changes.', 500);
+  if (!data) return fail('Key no longer exists. Refresh the list.', 404);
+  return respond({ success: true, ...(action === 'delete' ? {} : { key: data }) });
+ } catch { return fail('Unable to save API key changes.', 500); }
 };

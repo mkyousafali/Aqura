@@ -3,8 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import VariationSelectionModal from '$lib/components/desktop-interface/marketing/flyer/VariationSelectionModal.svelte';
 	import SearchableDropdown from '$lib/components/desktop-interface/marketing/flyer/SearchableDropdown.svelte';
-	// Same Gemini key (system_api_keys, service_name='google_gemini') the
-	// WhatsApp AI Reply bot uses — see supabase/functions/whatsapp-webhook.
+	// Product name correction and translation use the server-side OpenAI table key.
 	import { correctAndTranslateProductName as aiCorrectAndTranslateProductName } from '$lib/utils/translationService';
 
 	// When true, renders the compact layout (stacked header, hidden category
@@ -413,7 +412,7 @@
 
 	// Single-button AI action: fix spelling and reorder into natural product-
 	// name grammar (e.g. "apple amerca" -> "American Apple"), uppercase it,
-	// then translate that corrected name into Arabic — one Gemini call, via
+	// then translate that corrected name into Arabic — one OpenAI call, via
 	// the same key the WhatsApp AI Reply bot uses. Uses a dedicated product-
 	// name prompt (see translationService.correctAndTranslateProductName),
 	// not the shared correctSpelling() used elsewhere in the app (checklist

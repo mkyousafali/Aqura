@@ -1,34 +1,9 @@
 import { json } from "@sveltejs/kit";
-import { env } from '$env/dynamic/private';
-
-async function getGeminiKey() {
-  try {
-    const supabaseUrl = env.VITE_SUPABASE_URL || '';
-    const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
-    if (!supabaseUrl || !supabaseKey) return null;
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key&limit=1`,
-      { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
-    );
-    const rows = await res.json();
-    return rows?.[0]?.api_key || null;
-  } catch (e) {
-    console.error('Failed to fetch Gemini key:', e);
-    return null;
-  }
-}
+import { generateOpenAIText } from '$lib/server/openaiText';
 
 export async function POST({ request }) {
   try {
     console.log("API route accessed, checking environment...");
-
-    const GEMINI_KEY = await getGeminiKey();
-    if (!GEMINI_KEY) {
-      return json(
-        { error: "Google AI API key not configured. Set it in API Keys Manager." },
-        { status: 500 }
-      );
-    }
 
     const body = await request.json();
     console.log("Request body received:", JSON.stringify(body, null, 2));
@@ -476,29 +451,13 @@ ${fineType !== "no_fine" ? "- জরিমানা পরিমাণ এবং
     console.log("Using prompt for language:", mappedLanguage);
     console.log("Prompt preview:", systemPrompt.substring(0, 200) + "...");
 
-    // Call Gemini API
+    // Call OpenAI API
     const systemContent = `You are a professional HR assistant that generates SHORT and CONCISE formal warning letters (maximum 4-5 sentences). Always maintain a professional, firm but respectful tone. Respond ONLY in ${mappedLanguage}. Do not mix languages. CRITICAL: Never include placeholders like [Your Name], [HR Assistant], [Date], [Company Name] or any bracketed text. Never include signature lines or closing salutations. Generate only the warning content paragraph. KEEP IT SHORT - maximum 4-5 sentences.`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemContent }] },
-          contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
-        })
-      }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
-    }
-
-    const geminiData = await geminiRes.json();
-    const warning = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    const warning = await generateOpenAIText({
+      systemPrompt: systemContent, prompt: systemPrompt,
+      temperature: 0.7, maxTokens: 600
+    });
 
     if (!warning) {
       throw new Error("No warning content generated");

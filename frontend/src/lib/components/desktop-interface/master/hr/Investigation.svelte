@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { translateText as translateWithOpenAI } from '$lib/utils/translationService';
     import { t, locale } from '$lib/i18n';
     import { currentUser } from '$lib/utils/persistentAuth';
     import { onMount } from 'svelte';
@@ -82,11 +83,7 @@
 
         isTranslating = true;
         try {
-            const resp = await fetch(
-                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${translationLanguage}&dt=t&q=${encodeURIComponent(investigationReport)}`
-            );
-            const data = await resp.json();
-            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            const translated = await translateWithOpenAI({ text: investigationReport, targetLanguage: translationLanguage });
             if (translated) {
                 investigationReport = translated;
                 showTranslateModal = false;

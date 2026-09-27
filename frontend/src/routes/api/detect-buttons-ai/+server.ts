@@ -1,22 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
-
-async function getGeminiKeyFromDB(): Promise<string | null> {
-	try {
-		const supabaseUrl = env.VITE_SUPABASE_URL || '';
-		const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
-		if (!supabaseUrl || !supabaseKey) return null;
-		const res = await fetch(
-			`${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key&limit=1`,
-			{ headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
-		);
-		const rows: any[] = await res.json();
-		return rows?.[0]?.api_key || null;
-	} catch {
-		return null;
-	}
-}
+import { generateOpenAIText } from '$lib/server/openaiText';
 
 interface ButtonDetectionRequest {
 	sidebarStructure: string;
@@ -44,12 +28,6 @@ async function detectButtonsWithAI(
 	sidebarStructure: string,
 	task: string
 ): Promise<SectionData[]> {
-	const GEMINI_KEY = await getGeminiKeyFromDB();
-
-	if (!GEMINI_KEY) {
-		throw new Error('Google AI API key not configured. Add Google key in API Keys Manager.');
-	}
-
 	const systemPrompt = `You are an expert code analyzer. Your job is to analyze a sidebar/button structure and extract all buttons.
 
 IMPORTANT: You MUST respond with ONLY valid JSON, no other text before or after.
@@ -82,28 +60,11 @@ ${sidebarStructure}
 Return ONLY the JSON structure, nothing else.`;
 
 	try {
-		console.log('🚀 Calling Gemini API...');
+		console.log('🚀 Calling OpenAI API...');
 
-		let content: string = '';
-
-		const geminiBody = JSON.stringify({
-			systemInstruction: { parts: [{ text: systemPrompt }] },
-			contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-			generationConfig: { temperature: 0.3, maxOutputTokens: 4000 }
+		const content = await generateOpenAIText({
+			systemPrompt, prompt: userMessage, temperature: 0.3, maxTokens: 4000, jsonMode: true
 		});
-		const gr = await fetch(
-			`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-			{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: geminiBody }
-		);
-		if (gr.ok) {
-			const gd = await gr.json();
-			content = gd.candidates?.[0]?.content?.parts?.[0]?.text || '';
-		} else {
-			const errText = await gr.text();
-			throw new Error(`Gemini API error ${gr.status}: ${errText}`);
-		}
-
-		if (!content) throw new Error('No response from Gemini');
 		console.log('✅ AI Response received');
 		console.log('📝 Response content preview:', content.substring(0, 100));
 

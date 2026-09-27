@@ -15,7 +15,6 @@
 	let items: ProductItem[] = [];
 	let showModal = false;
 	let modalProductName = '';
-	let modalImageUrl: string | null = null;
 	let modalPhoto: string | null = null;
 	let fileInput: HTMLInputElement;
 	let cameraInput: HTMLInputElement;
@@ -25,12 +24,6 @@
 	let selectedManagerId: string | null = null;
 	let selectedManagerName: string = '';
 	let loadingManagers = true;
-
-	// Google Image Search
-	let searchQuery = '';
-	let searchResults: { url: string; thumbnail: string; title: string }[] = [];
-	let searching = false;
-	let searchError = '';
 
 	// Send state
 	let sending = false;
@@ -134,7 +127,6 @@
 
 	function openModal() {
 		modalProductName = '';
-		modalImageUrl = null;
 		modalPhoto = null;
 		showModal = true;
 	}
@@ -142,7 +134,6 @@
 	function closeModal() {
 		showModal = false;
 		modalProductName = '';
-		modalImageUrl = null;
 		modalPhoto = null;
 	}
 
@@ -150,7 +141,7 @@
 		if (!modalProductName.trim()) return;
 		items = [...items, {
 			product_name: modalProductName.trim(),
-			image_url: modalImageUrl,
+			image_url: null,
 			photo: modalPhoto
 		}];
 		closeModal();
@@ -210,46 +201,6 @@
 				reader.readAsDataURL(input.files[0]);
 			}
 		}
-	}
-
-	// Google Image Search
-	function openSearchPopup() {
-		if (!modalProductName.trim()) return;
-		searchQuery = modalProductName.trim();
-		searchResults = [];
-		searchError = '';
-		searchImages();
-	}
-
-	async function searchImages() {
-		if (!searchQuery.trim()) return;
-		searching = true;
-		searchError = '';
-		searchResults = [];
-		try {
-			const resp = await fetch('/api/google-search', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ query: searchQuery.trim() })
-			});
-			const data = await resp.json();
-			if (!resp.ok) throw new Error(data.error || 'Search failed');
-			if (data.images && data.images.length > 0) {
-				searchResults = data.images;
-			} else {
-				searchError = $currentLocale === 'ar' ? 'لا توجد نتائج' : 'No results found';
-			}
-		} catch (err: any) {
-			console.error('Search error:', err);
-			searchError = err.message || 'Search failed';
-		} finally {
-			searching = false;
-		}
-	}
-
-	function selectSearchImage(url: string) {
-		modalImageUrl = url;
-		searchResults = [];
 	}
 
 	// Upload photo to storage
@@ -376,7 +327,7 @@
 		}
 	});
 
-	$: canAdd = modalProductName.trim().length > 0 || !!modalPhoto || !!modalImageUrl;
+	$: canAdd = modalProductName.trim().length > 0 || !!modalPhoto;
 	$: canSend = items.length > 0 && selectedManagerId;
 </script>
 
@@ -497,10 +448,10 @@
 			</div>
 
 			<!-- Image Preview -->
-			{#if modalPhoto || modalImageUrl}
+			{#if modalPhoto}
 				<div class="image-preview">
-					<img src={modalPhoto || modalImageUrl} alt="Product" />
-					<button class="preview-remove" on:click={() => { modalPhoto = null; modalImageUrl = null; }}>✕</button>
+					<img src={modalPhoto} alt="Product" />
+					<button class="preview-remove" on:click={() => { modalPhoto = null; }}>✕</button>
 				</div>
 			{/if}
 
@@ -514,26 +465,8 @@
 					<span>📁</span>
 					{$currentLocale === 'ar' ? 'اختر ملف' : 'Choose File'}
 				</button>
-				<button class="img-btn search" on:click={openSearchPopup} disabled={!modalProductName.trim() || searching}>
-					<span>{searching ? '⏳' : '🔍'}</span>
-					{$currentLocale === 'ar' ? 'بحث صور' : 'Search'}
-				</button>
 			</div>
 			<input bind:this={fileInput} type="file" accept="image/*" on:change={handleFileSelect} style="display:none" />
-
-			<!-- Search Results (inline) -->
-			{#if searchError}
-				<div class="search-error">{searchError}</div>
-			{/if}
-			{#if searchResults.length > 0}
-				<div class="search-results">
-					{#each searchResults as result}
-						<button class="search-result-item" on:click={() => selectSearchImage(result.url)}>
-							<img src={result.thumbnail} alt={result.title} loading="lazy" />
-						</button>
-					{/each}
-				</div>
-			{/if}
 
 			<!-- Add Button -->
 			<button class="btn-add-item" on:click={addItem} disabled={!canAdd}>
@@ -553,8 +486,6 @@
 		</div>
 	</div>
 {/if}
-
-<!-- Google Image Search - removed separate popup, integrated into modal -->
 
 <style>
 	.page-container {
@@ -945,15 +876,6 @@
 		background: #eff6ff;
 	}
 
-	.img-btn.search {
-		color: #059669;
-		border-color: #a7f3d0;
-	}
-
-	.img-btn.search:hover {
-		background: #ecfdf5;
-	}
-
 	.btn-add-item {
 		width: 100%;
 		padding: 14px;
@@ -1018,73 +940,4 @@
 		cursor: pointer;
 	}
 
-	/* Search Popup */
-	.search-popup {
-		background: white;
-		border-radius: 24px;
-		padding: 20px;
-		width: 100%;
-		max-height: 80vh;
-		overflow-y: auto;
-		animation: slideUp 0.3s ease;
-	}
-
-	.search-bar {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 16px;
-	}
-
-	.search-bar .form-input {
-		flex: 1;
-	}
-
-	.btn-search {
-		padding: 12px 18px;
-		border: none;
-		background: #059669;
-		color: white;
-		border-radius: 12px;
-		font-size: 16px;
-		font-weight: 700;
-		cursor: pointer;
-	}
-
-	.btn-search:disabled {
-		opacity: 0.5;
-	}
-
-	.search-error {
-		text-align: center;
-		color: #dc2626;
-		font-size: 13px;
-		padding: 8px;
-	}
-
-	.search-results {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 8px;
-	}
-
-	.search-result-item {
-		border: 2px solid #e5e7eb;
-		border-radius: 10px;
-		overflow: hidden;
-		padding: 0;
-		background: white;
-		cursor: pointer;
-		aspect-ratio: 1;
-		transition: border-color 0.2s;
-	}
-
-	.search-result-item:hover {
-		border-color: #a855f7;
-	}
-
-	.search-result-item img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
 </style>

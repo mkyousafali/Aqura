@@ -1,4 +1,5 @@
 ﻿<script lang="ts">
+  import { translateText as translateWithOpenAI } from '$lib/utils/translationService';
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import { getEdgeFunctionUrl } from '$lib/utils/supabase';
@@ -1041,11 +1042,7 @@
         translateTargetMsgId = null;
         translatingMsgId = msgId;
         try {
-            const resp = await fetch(
-                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(msg.content)}`
-            );
-            const data = await resp.json();
-            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            const translated = await translateWithOpenAI({ text: msg.content, targetLanguage: targetLang });
             if (translated) {
                 translatedMessages = { ...translatedMessages, [msgId]: translated };
             }
@@ -1092,11 +1089,7 @@
         showInputTranslatePicker = false;
         isInputTranslating = true;
         try {
-            const resp = await fetch(
-                `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(messageInput)}`
-            );
-            const data = await resp.json();
-            const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+            const translated = await translateWithOpenAI({ text: messageInput, targetLanguage: targetLang });
             if (translated) messageInput = translated;
         } catch (e) {
             console.error('Input translation error:', e);

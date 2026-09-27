@@ -3,26 +3,9 @@ import type { RequestHandler } from './$types';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 
-/**
- * Google AI/Maps API Proxy (AQ-SEC-005 remediation).
- *
- * Several pages used to fetch a real Google API key (service_name='google' or
- * 'google_gemini' in system_api_keys) straight into the browser and call Google's
- * Vision/Gemini/Text-to-Speech/Routes APIs directly with it. That means every visitor's
- * browser could see - and reuse - a real, billable Google credential.
- *
- * This is the only place that now reads those keys. Callers send
- * { service: 'vision' | 'gemini' | 'tts' | 'routes', body, fieldMask? } and get back
- * exactly what Google returned - the request/response shape callers already handle is
- * unchanged, only the transport (and the key) moved server-side.
- */
-
+// Google Vision, Text-to-Speech and Routes proxy. AI text tools use /api/openai-text.
 const SERVICE_CONFIG: Record<string, { keyName: string; url: string }> = {
 	vision: { keyName: 'google', url: 'https://vision.googleapis.com/v1/images:annotate' },
-	gemini: {
-		keyName: 'google_gemini',
-		url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
-	},
 	tts: { keyName: 'google', url: 'https://texttospeech.googleapis.com/v1/text:synthesize' },
 	routes: { keyName: 'google', url: 'https://routes.googleapis.com/directions/v2:computeRoutes' }
 };

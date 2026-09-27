@@ -519,7 +519,7 @@
 				reader.readAsDataURL(file);
 			});
 
-			// AQ-SEC-005: Vision/Gemini keys are no longer fetched into the browser — both
+			// AQ-SEC-005: Vision/OpenAI keys are no longer fetched into the browser — both
 			// calls now go through the server proxy, which looks up the right key itself.
 
 			// Call Google Vision OCR
@@ -557,16 +557,14 @@
 			const fullText = annotations[0]?.description || '';
 			console.log('[BILL SCAN] OCR text length:', fullText.length, 'First 200 chars:', fullText.substring(0, 200));
 
-			// Now use Gemini to parse the bill text
+			// Now use OpenAI to parse the bill text
 
-			const geminiRes = await fetch('/api/google-ai-proxy', {
+			const aiRes = await fetch('/api/openai-text', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					service: 'gemini',
-					body: {
-						systemInstruction: { parts: [{ text: 'You are a bill/invoice data extractor. Extract structured data from OCR text of bills/invoices. Respond ONLY with valid JSON, no markdown, no explanation.' }] },
-						contents: [{ role: 'user', parts: [{ text: `Extract the following from this bill/invoice text. Return a JSON object with these fields:
+					systemPrompt: 'You are a bill/invoice data extractor. Extract structured data from OCR text of bills/invoices. Respond ONLY with valid JSON, no markdown, no explanation.',
+					prompt: `Extract the following from this bill/invoice text. Return a JSON object with these fields:
 - "companyName": the vendor/supplier company name (not the buyer)
 - "vatNumber": the VAT/tax registration number (usually 15 digits in Saudi Arabia, starts with 3)
 - "billDate": the invoice/bill date in YYYY-MM-DD format
@@ -575,15 +573,14 @@
 
 If a field is not found, use null. Here is the bill text:
 
-${fullText}` }] }],
-						generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
-					}
+${fullText}`,
+					temperature: 0, maxTokens: 1000, jsonMode: true
 				})
 			});
 
-			if (geminiRes.ok) {
-				const geminiData = await geminiRes.json();
-				let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+			if (aiRes.ok) {
+				const aiData = await aiRes.json();
+				let rawText = aiData.text || '';
 				// Strip markdown code fences if present
 				rawText = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 				try {
@@ -598,11 +595,11 @@ ${fullText}` }] }],
 						allText: fullText
 					};
 				} catch (parseErr) {
-					console.error('[BILL SCAN] Failed to parse Gemini JSON:', rawText);
+					console.error('[BILL SCAN] Failed to parse OpenAI JSON:', rawText);
 					billScanResults = { allText: fullText };
 				}
 			} else {
-				console.error('[BILL SCAN] Gemini API error:', geminiRes.status);
+				console.error('[BILL SCAN] OpenAI API error:', aiRes.status);
 				billScanResults = { allText: fullText };
 			}
 

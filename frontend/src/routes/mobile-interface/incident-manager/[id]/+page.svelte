@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { translateText as translateWithOpenAI } from '$lib/utils/translationService';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -56,11 +57,7 @@
 		langSearch = '';
 		translatingKey = key;
 		try {
-			const resp = await fetch(
-				`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`
-			);
-			const data = await resp.json();
-			const translated = (data[0] as any[])?.map((s: any) => s[0]).join('') || '';
+			const translated = await translateWithOpenAI({ text: text, targetLanguage: targetLang });
 			if (translated) translations = { ...translations, [key]: translated };
 		} catch (e) {
 			console.error('Translation error:', e);

@@ -1,8 +1,8 @@
 import { json } from "@sveltejs/kit";
-import { env } from '$env/dynamic/private';
+import { generateOpenAIText } from '$lib/server/openaiText';
 
 // Endpoint for the "Check" button on Receiving Records' Original Bill column.
-// Sends the bill document (PDF or image) to Gemini, which extracts Vendor Name,
+// Sends the bill document (PDF or image) to OpenAI, which extracts Vendor Name,
 // Vendor VAT Number, Bill Amount including VAT, and Bill Date, and also judges
 // whether each one matches the corresponding value already on file (passed in
 // by the caller) — the AI does the matching itself rather than a naive
@@ -32,26 +32,6 @@ import { env } from '$env/dynamic/private';
 // Nothing is written back to the database here — this only returns the AI's
 // read of the document plus its match verdicts for display.
 
-async function getGeminiKey() {
-  try {
-    const supabaseUrl = env.VITE_SUPABASE_URL || '';
-    const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in env');
-      return null;
-    }
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/system_api_keys?service_name=eq.google_gemini&is_active=eq.true&select=api_key&limit=1`,
-      { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
-    );
-    const rows = await res.json();
-    return rows?.[0]?.api_key || null;
-  } catch (e) {
-    console.error('Failed to fetch Gemini key:', e);
-    return null;
-  }
-}
-
 // The storage response's content-type is the most reliable source; the URL extension
 // is only a fallback for buckets that don't set it correctly.
 function guessMimeType(url, contentType) {
@@ -67,14 +47,6 @@ function guessMimeType(url, contentType) {
 export async function POST({ request }) {
   try {
     console.log("Check Original Bill API accessed...");
-
-    const GEMINI_KEY = await getGeminiKey();
-    if (!GEMINI_KEY) {
-      return json(
-        { error: "Google AI API key not configured. Set it in API Keys Manager." },
-        { status: 500 }
-      );
-    }
 
     const body = await request.json();
     const { url, localVendorName, localVendorVat, localBillAmount, localBillDate } = body;
@@ -115,73 +87,38 @@ For the vendor name, VAT number, and amount, judge for yourself whether the valu
 - Vendor VAT Number: unlike the name, this is an exact identifier — mark it as matching (true) only if the digits/code are the same once spaces, dashes, and label prefixes are ignored. Any actual digit difference means false.
 - Bill Amount: mark it as matching (true) if the numeric value is the same once currency symbols/formatting/thousands separators are ignored, allowing a negligible rounding difference (under 0.05). Otherwise false.` : ''}`;
 
-    console.log("Sending original bill document to Gemini...");
+    console.log("Sending original bill document to OpenAI...");
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: base64Data } }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: 2000,
-            // Gemini 2.5 Flash "thinks" before answering by default, and that
-            // thinking eats into maxOutputTokens — with a small budget it can
-            // burn the whole thing reasoning about the match judgment and
-            // leave nothing for the actual JSON, which then fails to parse.
-            // This is a plain extraction+judgment task, no need for it.
-            thinkingConfig: { thinkingBudget: 0 },
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'OBJECT',
-              properties: {
-                vendor_name: { type: 'STRING' },
-                vendor_vat_number: { type: 'STRING' },
-                bill_amount_including_vat: { type: 'STRING' },
-                bill_date: { type: 'STRING' },
-                bill_date_iso: { type: 'STRING' },
-                ...(hasLocalValues ? {
-                  vendor_name_matches: { type: 'BOOLEAN' },
-                  vendor_vat_matches: { type: 'BOOLEAN' },
-                  bill_amount_matches: { type: 'BOOLEAN' }
-                } : {})
-              },
-              required: hasLocalValues
-                ? ['vendor_name', 'vendor_vat_number', 'bill_amount_including_vat', 'bill_date', 'bill_date_iso', 'vendor_name_matches', 'vendor_vat_matches', 'bill_amount_matches']
-                : ['vendor_name', 'vendor_vat_number', 'bill_amount_including_vat', 'bill_date', 'bill_date_iso']
-            }
-          }
-        })
+    const rawText = await generateOpenAIText({
+      prompt,
+      attachments: [{ mimeType, data: base64Data }],
+      temperature: 0, maxTokens: 2000,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          vendor_name: { type: 'string' },
+          vendor_vat_number: { type: 'string' },
+          bill_amount_including_vat: { type: 'string' },
+          bill_date: { type: 'string' },
+          bill_date_iso: { type: 'string' },
+          ...(hasLocalValues ? {
+            vendor_name_matches: { type: 'boolean' },
+            vendor_vat_matches: { type: 'boolean' },
+            bill_amount_matches: { type: 'boolean' }
+          } : {})
+        },
+        required: hasLocalValues
+          ? ['vendor_name', 'vendor_vat_number', 'bill_amount_including_vat', 'bill_date', 'bill_date_iso', 'vendor_name_matches', 'vendor_vat_matches', 'bill_amount_matches']
+          : ['vendor_name', 'vendor_vat_number', 'bill_amount_including_vat', 'bill_date', 'bill_date_iso']
       }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      throw new Error(`Gemini API error ${geminiRes.status}: ${errText}`);
-    }
-
-    const geminiData = await geminiRes.json();
-    const candidate = geminiData.candidates?.[0];
-    const rawText = candidate?.content?.parts?.[0]?.text || '';
-
-    if (!rawText.trim()) {
-      console.error('Empty Gemini response. finishReason:', candidate?.finishReason, 'full response:', JSON.stringify(geminiData));
-      throw new Error(`AI returned an empty response (finishReason: ${candidate?.finishReason || 'unknown'})`);
-    }
+    });
 
     let extracted;
     try {
       extracted = JSON.parse(rawText);
     } catch (e) {
-      console.error('Failed to parse Gemini JSON response:', rawText);
+      console.error('Failed to parse OpenAI JSON response:', rawText);
       throw new Error('AI response was not valid JSON');
     }
 

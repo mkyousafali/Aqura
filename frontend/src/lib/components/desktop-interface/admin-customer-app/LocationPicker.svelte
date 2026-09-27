@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { fetchGoogleMapsKey } from '$lib/utils/googleMapsKey';
   import { supabase } from '$lib/utils/supabase';
 
   // Type declarations for Google Maps (loaded dynamically)
@@ -30,24 +31,8 @@
   let currentAccuracy: number | null = null;
   let locationInaccurate = false;
 
-  // Will be populated from DB or env fallback
-  let GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-
-  /** Fetch the Google Maps key via our server (AQ-SEC-005) instead of querying
-   *  system_api_keys directly from the browser, fallback to .env */
-  async function fetchApiKey(): Promise<string> {
-    try {
-      const res = await fetch('/api/maps-key');
-      const result = await res.json();
-      if (result.success && result.apiKey) {
-        console.log('🔑 [LocationPicker] Got Google API key from server');
-        return result.apiKey;
-      }
-    } catch (e) {
-      console.warn('⚠️ [LocationPicker] Could not fetch key from server, using env fallback');
-    }
-    return import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-  }
+  // Loaded from the active google row managed in API Keys Manager.
+  let GOOGLE_MAPS_API_KEY = '';
 
   const texts = language === 'ar' ? {
     searchPlaceholder: 'ابحث عن مدينتك أو حيك (مثل: جيزان، أبها)...',
@@ -336,7 +321,7 @@
 
     try {
       // Fetch API key from database first, fallback to .env
-      GOOGLE_MAPS_API_KEY = await fetchApiKey();
+      GOOGLE_MAPS_API_KEY = await fetchGoogleMapsKey();
       console.log('🔑 [LocationPicker] API Key:', GOOGLE_MAPS_API_KEY ? 'Present (length: ' + GOOGLE_MAPS_API_KEY.length + ')' : 'MISSING!');
 
       // Get user's current location first - try high accuracy, fallback to low  
