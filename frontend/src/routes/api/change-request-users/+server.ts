@@ -41,7 +41,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
     if (error || (receiverError && !safeBoxSchemaUnavailable(receiverError))) throw error || receiverError;
     const activeIds = new Set((activeUsers || []).map(item => item.id));
     const receiverIds = new Set((receivers || []).map(item => item.user_id));
-    const users = employees.filter(item => activeIds.has(item.user_id) &&
+    // The logged-in cashier cannot receive their own change request.
+    const users = employees.filter(item => item.user_id !== userId && activeIds.has(item.user_id) &&
       (safeBoxSchemaUnavailable(receiverError) || receiverIds.has(item.user_id)))
       .map(item => ({ id: item.user_id, name_en: item.name_en, name_ar: item.name_ar }))
       .sort((a, b) => (a.name_en || a.name_ar || '').localeCompare(b.name_en || b.name_ar || ''))

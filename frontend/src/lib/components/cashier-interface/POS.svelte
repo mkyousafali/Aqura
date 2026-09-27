@@ -48,6 +48,9 @@
 	let changeAmountCents = 0;
 	let changeAmountExceedsBalance = false;
 	let showChangeDenominations = false;
+	// Cash the cashier hands to the Safe Box; stored as received_counts so the Safe Box user only confirms it.
+	let changeHandedCounts: Record<string, number> = {};
+	let changeHandedCents = 0;
 	let changeBusy = false;
 	let changeMessage = '';
 	let changeSearchTimer: ReturnType<typeof setTimeout>;
@@ -174,6 +177,7 @@
 	$: changeAvailableCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeAvailable[key] || 0), 0);
 	$: changeAmountCents = /^\d+(?:\.\d{1,2})?$/.test(changeAmount.trim()) ? Math.round(Number(changeAmount) * 100) : 0;
 	$: changeAmountExceedsBalance = changeAvailabilityReady && changeAmountCents > changeAvailableCents;
+	$: changeHandedCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeHandedCounts[key] || 0), 0);
 	function changeUserName(candidate: ChangeUser): string {
 		return ($currentLocale === 'ar' ? candidate.name_ar || candidate.name_en : candidate.name_en || candidate.name_ar) || '';
 	}
@@ -189,6 +193,7 @@
 		changeCounts = Object.fromEntries(changeDenomKeys.map(key => [key, 0]));
 		changeAmount = '';
 		showChangeDenominations = false;
+		changeHandedCounts = Object.fromEntries(changeDenomKeys.map(key => [key, 0]));
 		changeMessage = '';
 		clearTimeout(changeSearchTimer);
 	}
@@ -284,6 +289,10 @@
 		changeCounts = { ...changeCounts, [key]: Math.min(changeAvailable[key] || 0, Math.max(0, (changeCounts[key] || 0) + delta)) };
 	}
 
+	function adjustHandedCount(key: string, delta: number) {
+		changeHandedCounts = { ...changeHandedCounts, [key]: Math.max(0, (changeHandedCounts[key] || 0) + delta) };
+	}
+
 	async function sendChangeRequest() {
 		const amountCents = changeAmountCents;
 		if (!selectedChangeUser || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
@@ -296,6 +305,10 @@
 		}
 		if (showChangeDenominations && changeTotalCents > amountCents) {
 			changeMessage = L('Selected denominations exceed the requested amount.', 'الفئات المختارة تتجاوز المبلغ المطلوب.');
+			return;
+		}
+		if (changeHandedCents !== amountCents) {
+			changeMessage = L('Cash handed over must exactly match the amount needed.', 'يجب أن يطابق النقد المسلَّم المبلغ المطلوب تماماً.');
 			return;
 		}
 		const sessionToken = get(cashierSessionToken);
@@ -322,7 +335,8 @@
 				body: JSON.stringify({
 					userId: user.id || user.user_id, sessionToken, branchId: branch.id,
 					requestedToUserId: selectedChangeUser.id, amount: amountCents / 100,
-					denominationCounts: showChangeDenominations ? changeCounts : {}
+					denominationCounts: showChangeDenominations ? changeCounts : {},
+					handedOverCounts: changeHandedCounts
 				})
 			});
 			const result = await response.json();
@@ -1777,6 +1791,20 @@
 						<label for="change-amount">{L('Amount needed (SAR)', 'المبلغ المطلوب (ريال)')}</label>
 						<input id="change-amount" type="text" inputmode="decimal" autocomplete="off" placeholder={L('Enter amount', 'أدخل المبلغ')} aria-invalid={changeAmountExceedsBalance} aria-describedby="change-balance-limit" bind:value={changeAmount} />
 						<p id="change-balance-limit" class:change-limit-error={changeAmountExceedsBalance} role="status">{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : L('Loading…', 'جارٍ التحميل…')} {L('SAR', 'ريال')}{changeAmountExceedsBalance ? ` — ${L('reduce the requested amount.', 'قلّل المبلغ المطلوب.')}` : ''}</p>
+						<h4>{L('Cash handed to Safe Box', 'النقد المسلَّم إلى الصندوق الآمن')}</h4>
+						<div class="change-denominations">
+							{#each changeDenomKeys as key}
+								<div class="change-denomination-row">
+									<div class="change-denomination-info"><strong>{denomLabels[key]} {L('SAR', 'ريال')}</strong></div>
+									<div class="change-quantity">
+										<button type="button" aria-label={L(`Remove one ${denomLabels[key]} SAR handed over`, `إزالة واحدة من فئة ${denomLabels[key]} ريال المسلَّمة`)} disabled={changeBusy || !changeHandedCounts[key]} on:click={() => adjustHandedCount(key, -1)}>−</button>
+										<span>{changeHandedCounts[key] || 0}</span>
+										<button type="button" aria-label={L(`Add one ${denomLabels[key]} SAR handed over`, `إضافة واحدة من فئة ${denomLabels[key]} ريال المسلَّمة`)} disabled={changeBusy} on:click={() => adjustHandedCount(key, 1)}>+</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+						<p class="change-total" class:change-limit-error={changeAmountCents > 0 && changeHandedCents !== changeAmountCents} role="status">{L('Cash handed over', 'النقد المسلَّم')}: {(changeHandedCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}{changeAmountCents > 0 && changeHandedCents !== changeAmountCents ? ` — ${L('must match the amount needed.', 'يجب أن يطابق المبلغ المطلوب.')}` : ''}</p>
 						<label class="change-optional-toggle"><input type="checkbox" bind:checked={showChangeDenominations} /> {L('Specify preferred denominations (optional)', 'حدد الفئات المفضلة (اختياري)')}</label>
 						{#if showChangeDenominations}
 						<h4>{L('Preferred denominations', 'الفئات المفضلة')}</h4>
@@ -1797,7 +1825,7 @@
 						{/if}
 						<p class="change-total">{L('Total Requested Amount', 'إجمالي المبلغ المطلوب')}: {(Number(changeAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 						<div class="change-actions">
-							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance} on:click={sendChangeRequest}>{L('Send Request', 'إرسال الطلب')}</button>
+							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance || changeAmountCents <= 0 || changeHandedCents !== changeAmountCents} on:click={sendChangeRequest}>{L('Send Request', 'إرسال الطلب')}</button>
 							<button type="button" disabled={changeBusy} on:click={resetChangeForm}>{L('Cancel', 'إلغاء')}</button>
 						</div>
 					</div>

@@ -4,6 +4,7 @@ import { databaseClient } from '$lib/server/breakRegisterAuth';
 import { changeDenominations as denominations, readSafeBoxAvailability } from '$lib/server/safeBoxAvailability';
 import { cashierInBranch } from '$lib/server/cashierChangeBranch';
 import { isSafeBoxReceiver } from '$lib/server/safeBoxControl';
+import { checkedCounts } from '$lib/server/changeRequestCounts';
 
 export const GET: RequestHandler = async ({ url, request }) => {
   const userId = request.headers.get('x-cashier-user-id');
@@ -36,6 +37,7 @@ export const POST: RequestHandler = async ({ request }) => {
         typeof denominationCounts !== 'object' || Array.isArray(denominationCounts)) {
       return json({ error: 'Invalid change request' }, { status: 400 });
     }
+    if (requestedToUserId === userId) return json({ error: 'You cannot send a change request to yourself' }, { status: 400 });
     const keys = Object.keys(denominationCounts);
     if (keys.some(key => !(key in denominations) || !Number.isSafeInteger(denominationCounts[key]) || denominationCounts[key] < 0 || denominationCounts[key] > 100000)) {
       return json({ error: 'Invalid denomination quantities' }, { status: 400 });
@@ -46,6 +48,15 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ error: 'Enter a valid amount greater than zero, with at most two decimal places' }, { status: 400 });
     }
     if (preferredCents > cents) return json({ error: 'Preferred denominations exceed the requested amount' }, { status: 400 });
+    // Cash the cashier hands over is saved as received_counts; the Safe Box user then only confirms it.
+    let handedOver: { counts: Record<string, number>; total: number } | null = null;
+    if (body.handedOverCounts != null) {
+      try { handedOver = checkedCounts(body.handedOverCounts); }
+      catch (error) { return json({ error: error instanceof Error ? error.message : 'Invalid handed-over denominations' }, { status: 400 }); }
+      if (Math.round(handedOver.total * 100) !== cents) {
+        return json({ error: 'Cash handed over must exactly match the amount needed' }, { status: 400 });
+      }
+    }
     const db = databaseClient();
     const { data: session, error: sessionError } = await db.rpc('heartbeat_cashier_session', {
       p_user_id: userId, p_session_token: sessionToken
@@ -78,6 +89,7 @@ export const POST: RequestHandler = async ({ request }) => {
       requested_to_user_id: recipient.id,
       denomination_counts: denominationCounts,
       total_amount: cents / 100,
+      ...(handedOver ? { received_counts: handedOver.counts, received_total: handedOver.total } : {}),
       status: 'Pending'
     }).select('id,request_number').single();
     if (error) throw error;

@@ -20,6 +20,10 @@ export const POST: RequestHandler = async ({ cookies, params, request }) => {
     if (body.action === 'received') {
       if (item.status !== 'Pending') return json({ error: 'Request is no longer pending.' }, { status: 409 });
       const { counts, total } = checkedCounts(body.counts);
+      // When the cashier already declared the handed-over cash, the Safe Box user confirms that exact breakdown.
+      if (item.received_counts && Object.keys(counts).some(key => counts[key] !== (item.received_counts[key] || 0))) {
+        return json({ error: 'Confirmed cash must match the denominations the cashier handed over.' }, { status: 409 });
+      }
       const { data, error: saveError } = await db.from('aqura_change_requests').update({
         received_counts: counts, received_total: total, received_at: new Date().toISOString(), status: 'Cash Received'
       }).eq('id', item.id).eq('status', 'Pending').select('id').maybeSingle();
