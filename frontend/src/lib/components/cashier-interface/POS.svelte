@@ -44,7 +44,6 @@
 	let changeAvailabilityReady = false;
 	let changeTotalCents = 0;
 	let changeAvailableCents = 0;
-	let changeAmount = '';
 	let changeAmountCents = 0;
 	let changeAmountExceedsBalance = false;
 	let showChangeDenominations = false;
@@ -175,9 +174,10 @@
 	}
 	$: changeTotalCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeCounts[key] || 0), 0);
 	$: changeAvailableCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeAvailable[key] || 0), 0);
-	$: changeAmountCents = /^\d+(?:\.\d{1,2})?$/.test(changeAmount.trim()) ? Math.round(Number(changeAmount) * 100) : 0;
-	$: changeAmountExceedsBalance = changeAvailabilityReady && changeAmountCents > changeAvailableCents;
 	$: changeHandedCents = changeDenomKeys.reduce((sum, key) => sum + Math.round(denomValues[key] * 100) * (changeHandedCounts[key] || 0), 0);
+	// The change needed is exactly the cash the cashier hands over, so there is no separate amount field.
+	$: changeAmountCents = changeHandedCents;
+	$: changeAmountExceedsBalance = changeAvailabilityReady && changeAmountCents > changeAvailableCents;
 	function changeUserName(candidate: ChangeUser): string {
 		return ($currentLocale === 'ar' ? candidate.name_ar || candidate.name_en : candidate.name_en || candidate.name_ar) || '';
 	}
@@ -191,7 +191,6 @@
 		changeSearchSequence++;
 		selectedChangeUser = null;
 		changeCounts = Object.fromEntries(changeDenomKeys.map(key => [key, 0]));
-		changeAmount = '';
 		showChangeDenominations = false;
 		changeHandedCounts = Object.fromEntries(changeDenomKeys.map(key => [key, 0]));
 		changeMessage = '';
@@ -296,7 +295,7 @@
 	async function sendChangeRequest() {
 		const amountCents = changeAmountCents;
 		if (!selectedChangeUser || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
-			changeMessage = L('Select a receiving user and enter a valid amount greater than zero.', 'اختر المستخدم المستلم وأدخل مبلغاً صحيحاً أكبر من صفر.');
+			changeMessage = L('Select a receiving user and add the cash handed over.', 'اختر المستخدم المستلم وأضف النقد المسلَّم.');
 			return;
 		}
 		if (changeAmountExceedsBalance) {
@@ -305,10 +304,6 @@
 		}
 		if (showChangeDenominations && changeTotalCents > amountCents) {
 			changeMessage = L('Selected denominations exceed the requested amount.', 'الفئات المختارة تتجاوز المبلغ المطلوب.');
-			return;
-		}
-		if (changeHandedCents !== amountCents) {
-			changeMessage = L('Cash handed over must exactly match the amount needed.', 'يجب أن يطابق النقد المسلَّم المبلغ المطلوب تماماً.');
 			return;
 		}
 		const sessionToken = get(cashierSessionToken);
@@ -1788,14 +1783,12 @@
 							{#if !changeUsers.length}<p>{L('No available users found.', 'لم يتم العثور على مستخدمين متاحين.')}</p>{/if}
 						</div>
 						{#if selectedChangeUser}<p class="change-selected">{L('Selected', 'المختار')}: <strong>{changeUserName(selectedChangeUser)}</strong></p>{/if}
-						<label for="change-amount">{L('Amount needed (SAR)', 'المبلغ المطلوب (ريال)')}</label>
-						<input id="change-amount" type="text" inputmode="decimal" autocomplete="off" placeholder={L('Enter amount', 'أدخل المبلغ')} aria-invalid={changeAmountExceedsBalance} aria-describedby="change-balance-limit" bind:value={changeAmount} />
-						<p id="change-balance-limit" class:change-limit-error={changeAmountExceedsBalance} role="status">{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : L('Loading…', 'جارٍ التحميل…')} {L('SAR', 'ريال')}{changeAmountExceedsBalance ? ` — ${L('reduce the requested amount.', 'قلّل المبلغ المطلوب.')}` : ''}</p>
+						<p id="change-balance-limit" class:change-limit-error={changeAmountExceedsBalance} role="status">{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : L('Loading…', 'جارٍ التحميل…')} {L('SAR', 'ريال')}{changeAmountExceedsBalance ? ` — ${L('reduce the cash handed over.', 'قلّل النقد المسلَّم.')}` : ''}</p>
 						<h4>{L('Cash handed to Safe Box', 'النقد المسلَّم إلى الصندوق الآمن')}</h4>
 						<div class="change-denominations">
 							{#each changeDenomKeys as key}
 								<div class="change-denomination-row">
-									<div class="change-denomination-info"><strong>{denomLabels[key]} {L('SAR', 'ريال')}</strong></div>
+									<div class="change-denomination-info"><strong>{denomLabels[key]}</strong></div>
 									<div class="change-quantity">
 										<button type="button" aria-label={L(`Remove one ${denomLabels[key]} SAR handed over`, `إزالة واحدة من فئة ${denomLabels[key]} ريال المسلَّمة`)} disabled={changeBusy || !changeHandedCounts[key]} on:click={() => adjustHandedCount(key, -1)}>−</button>
 										<span>{changeHandedCounts[key] || 0}</span>
@@ -1804,7 +1797,7 @@
 								</div>
 							{/each}
 						</div>
-						<p class="change-total" class:change-limit-error={changeAmountCents > 0 && changeHandedCents !== changeAmountCents} role="status">{L('Cash handed over', 'النقد المسلَّم')}: {(changeHandedCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}{changeAmountCents > 0 && changeHandedCents !== changeAmountCents ? ` — ${L('must match the amount needed.', 'يجب أن يطابق المبلغ المطلوب.')}` : ''}</p>
+						<p class="change-total">{L('Cash handed over', 'النقد المسلَّم')}: {(changeHandedCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 						<label class="change-optional-toggle"><input type="checkbox" bind:checked={showChangeDenominations} /> {L('Specify preferred denominations (optional)', 'حدد الفئات المفضلة (اختياري)')}</label>
 						{#if showChangeDenominations}
 						<h4>{L('Preferred denominations', 'الفئات المفضلة')}</h4>
@@ -1812,7 +1805,7 @@
 						<div class="change-denominations">
 							{#each changeDenomKeys as key}
 								<div class="change-denomination-row">
-									<div class="change-denomination-info"><strong>{denomLabels[key]} {L('SAR', 'ريال')}</strong><span>{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailable[key] || 0) : '…'}</span></div>
+									<div class="change-denomination-info"><strong>{denomLabels[key]}</strong><span>{L('Available in Safe Box', 'المتوفر في الصندوق الآمن')}: {changeAvailabilityReady ? (changeAvailable[key] || 0) : '…'}</span></div>
 									<div class="change-quantity">
 										<button type="button" aria-label={L(`Remove one ${denomLabels[key]} SAR`, `إزالة واحدة من فئة ${denomLabels[key]} ريال`)} disabled={changeBusy || !changeCounts[key]} on:click={() => adjustChangeCount(key, -1)}>−</button>
 										<span>{changeCounts[key] || 0}</span>
@@ -1823,9 +1816,9 @@
 						</div>
 						<p class="change-total">{L('Preferred denomination amount', 'مبلغ الفئات المفضلة')}: {(changeTotalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 						{/if}
-						<p class="change-total">{L('Total Requested Amount', 'إجمالي المبلغ المطلوب')}: {(Number(changeAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
+						<p class="change-total">{L('Total Requested Amount', 'إجمالي المبلغ المطلوب')}: {(changeAmountCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {L('SAR', 'ريال')}</p>
 						<div class="change-actions">
-							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance || changeAmountCents <= 0 || changeHandedCents !== changeAmountCents} on:click={sendChangeRequest}>{L('Send Request', 'إرسال الطلب')}</button>
+							<button type="button" class="change-primary" disabled={changeBusy || !changeAvailabilityReady || changeAmountExceedsBalance || changeAmountCents <= 0} on:click={sendChangeRequest}>{L('Send Request', 'إرسال الطلب')}</button>
 							<button type="button" disabled={changeBusy} on:click={resetChangeForm}>{L('Cancel', 'إلغاء')}</button>
 						</div>
 					</div>
@@ -2738,16 +2731,17 @@
 	.change-user-list p { margin: 0; padding: 0.25rem; color: #64748b; }
 	.change-actions button, .change-primary { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.4rem 0.65rem; background: white; cursor: pointer; }
 	.change-primary, .change-actions button.change-primary { background: #2563eb; border-color: #2563eb; color: white; }
-	.change-denominations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
-	.change-denomination-row { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; padding: 0.35rem; border: 1px solid #e5e7eb; border-radius: 0.375rem; font-size: 0.8rem; }
-	.change-denomination-info { display: flex; flex-direction: column; gap: 0.15rem; }
-	.change-denomination-info span { color: #64748b; font-size: 0.72rem; }
-	.change-quantity { display: flex; align-items: center; gap: 0.4rem; }
-	.change-quantity button { width: 1.5rem; height: 1.5rem; border: 0; border-radius: 0.25rem; color: white; font-weight: 700; cursor: pointer; }
+	/* Four per row with large touch targets so cashiers can tap quickly on small counter screens. */
+	.change-denominations { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; }
+	.change-denomination-row { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.85rem 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.6rem; font-size: 1.75rem; }
+	.change-denomination-info { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; min-width: 0; text-align: center; }
+	.change-denomination-info span { color: #64748b; font-size: 0.8rem; }
+	.change-quantity { display: flex; align-items: center; gap: 0.45rem; flex-shrink: 0; }
+	.change-quantity button { width: 3.5rem; height: 3.5rem; border: 0; border-radius: 0.6rem; color: white; font-size: 2rem; font-weight: 700; cursor: pointer; touch-action: manipulation; }
 	.change-quantity button:first-child { background: #dc2626; }
 	.change-quantity button:last-child { background: #16a34a; }
 	.change-quantity button:disabled, .change-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
-	.change-quantity span { min-width: 1.5rem; text-align: center; }
+	.change-quantity span { min-width: 2.5rem; text-align: center; font-size: 1.75rem; font-weight: 700; }
 	.change-total { font-weight: 700; color: #166534; }
 	.change-limit-error { color: #b91c1c; font-weight: 600; }
 	.change-actions { display: flex; gap: 0.5rem; }
@@ -2766,6 +2760,7 @@
 
 	@media (max-width: 760px) {
 		.pos-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		.change-denominations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	}
 
 	@media (max-width: 460px) {
