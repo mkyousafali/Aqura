@@ -682,13 +682,9 @@
 					<div class="welcome-card">
 						<div class="welcome-meta-bar">
 							{#if $updateAvailable}
-								<button class="update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث متاح - انقر للتحديث' : 'Update Available - Click to update'}>
-									🔄 {$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}
+								<button class="update-badge update-available" on:click={handleUpdateClick} title={$currentLocale === 'ar' ? 'تحديث الآن' : 'Update Now'}>
+									🔄 {$currentLocale === 'ar' ? 'تحديث الآن' : 'Update Now'}
 								</button>
-							{:else}
-								<span class="update-badge up-to-date">
-									✅ {$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}
-								</span>
 							{/if}
 							{#if $currentUser?.isMasterAdmin}
 								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ14.12.12.10</button>
@@ -1202,13 +1198,6 @@
 		transform: scale(1.05);
 	}
 
-	.update-badge.up-to-date {
-		background: rgba(255, 255, 255, 0.15);
-		color: rgba(255, 255, 255, 0.7);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		cursor: default;
-	}
-
 	/* Separate fixed-theme containers for update status and version. */
 	.welcome-meta-bar .update-badge,
 	.welcome-meta-bar .version-badge {
@@ -1236,6 +1225,18 @@
 		background: #E8FBFD;
 		color: #034C8C;
 		border-color: #0798AE;
+	}
+
+	.welcome-meta-bar .version-badge {
+		background: #0B3C68;
+		color: #FFFFFF;
+		border-color: #0798AE;
+	}
+
+	.welcome-meta-bar .version-badge:hover {
+		background: #034C8C;
+		color: #FFFFFF;
+		border-color: #10DCE5;
 	}
 
 	@keyframes pulse-update {

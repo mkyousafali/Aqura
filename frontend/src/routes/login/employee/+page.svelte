@@ -6,6 +6,8 @@
 	import { persistentAuthService, currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import { isMobileDevice } from '$lib/utils/deviceRouting';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 
 	let showChangeAccessCode = false;
 
@@ -51,6 +53,10 @@
 
 	onMount(async () => {
 		mounted = true;
+		if (isMobileDevice()) {
+			await goto('/login', { replaceState: true });
+			return;
+		}
 		hideMobile = window.matchMedia('(min-width: 769px)').matches;
 		setTimeout(() => {
 			showContent = true;
@@ -155,9 +161,13 @@
 		errorMessage = '';
 
 		try {
+			// The user explicitly selected desktop login. Clear any mobile-only
+			// routing state before auth listeners receive the new session.
+			interfacePreferenceService.forceDesktopInterface();
 			const result = await persistentAuthService.login(username, password);
 			
 			if (result.success) {
+				interfacePreferenceService.forceDesktopInterface(result.user?.id);
 				successMessage = 'Login successful! Redirecting...';
 				
 				setTimeout(() => {
@@ -184,9 +194,13 @@
 		errorMessage = '';
 
 		try {
+			// Set desktop intent before login to prevent an auth-state redirect
+			// from racing with the successful login response.
+			interfacePreferenceService.forceDesktopInterface();
 			const result = await persistentAuthService.loginWithQuickAccess(quickAccessCode, 'desktop');
 			
 			if (result.success) {
+				interfacePreferenceService.forceDesktopInterface(result.user?.id);
 				successMessage = 'Quick access successful! Redirecting...';
 				
 				setTimeout(() => {

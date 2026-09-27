@@ -83,15 +83,6 @@
 	// Mobile version - will be extracted from full version
 	let mobileVersion = 'AQ12';
 
-	// FAB QR Scanner State
-	let fabScanning = false;
-	let fabVideoEl: HTMLVideoElement;
-	let fabStream: MediaStream | null = null;
-	let fabScanInterval: any = null;
-	let fabBarcodeDetector: any = null;
-	let fabScanCanvas: HTMLCanvasElement | null = null;
-	let fabScanCtx: CanvasRenderingContext2D | null = null;
-
 	// Inactivity lock — same behaviour as the desktop and cashier interfaces
 	const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
 	let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,7 +102,6 @@
 
 	function lockForInactivity() {
 		clearInactivityTimer();
-		fabStopScan();
 		showInactivityPrompt = true;
 		showReauthentication = false;
 		reauthDigits = ['', '', '', '', '', ''];
@@ -663,17 +653,15 @@
 	}
 	
 	function logout() {
-		// Clear interface preference to allow user to choose again
-		interfacePreferenceService.clearPreference(currentUserData?.id);
+		// Preserve the mobile context while authentication changes propagate.
+		interfacePreferenceService.forceMobileInterface(currentUserData?.id);
 		
 		// Logout from persistent auth service
 		persistentAuthService.logout().then(() => {
-			// Redirect to login page to choose interface again
-			goto('/login');
+			goto('/mobile-interface/login', { replaceState: true });
 		}).catch((error) => {
 			console.error('Logout error:', error);
-			// Still redirect even if logout fails
-			goto('/login');
+			goto('/mobile-interface/login', { replaceState: true });
 		});
 	}
 	
@@ -940,86 +928,6 @@
 		};
 	}
 
-	// â”€â”€ FAB QR Scanner Functions â”€â”€
-	async function fabStartScan() {
-		fabScanning = true;
-		try {
-			fabStream = await navigator.mediaDevices.getUserMedia({
-				video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-			});
-			await new Promise(r => setTimeout(r, 100));
-			if (fabVideoEl) {
-				fabVideoEl.srcObject = fabStream;
-				await fabVideoEl.play();
-				await new Promise(r => setTimeout(r, 500));
-				await fabInitDetector();
-				fabDetectLoop();
-			}
-		} catch (err) {
-			console.error('FAB camera error:', err);
-			fabScanning = false;
-		}
-	}
-
-	async function fabInitDetector() {
-		// @ts-ignore
-		if ('BarcodeDetector' in window) {
-			try {
-				// @ts-ignore
-				fabBarcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
-				return;
-			} catch (_) { /* fallback */ }
-		}
-		try {
-			const { BarcodeDetector: Polyfill } = await import('barcode-detector');
-			fabBarcodeDetector = new Polyfill({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
-		} catch (e) {
-			console.error('Failed to load barcode detector:', e);
-		}
-	}
-
-	function fabDetectLoop() {
-		if (!fabBarcodeDetector) { fabStopScan(); return; }
-		fabScanCanvas = document.createElement('canvas');
-		fabScanCtx = fabScanCanvas.getContext('2d');
-
-		fabScanInterval = setInterval(async () => {
-			if (!fabVideoEl || fabVideoEl.readyState < 2 || !fabScanCanvas || !fabScanCtx) return;
-			try {
-				const vw = fabVideoEl.videoWidth;
-				const vh = fabVideoEl.videoHeight;
-				if (vw === 0 || vh === 0) return;
-				fabScanCanvas.width = vw;
-				fabScanCanvas.height = vh;
-				fabScanCtx.drawImage(fabVideoEl, 0, 0, vw, vh);
-
-				let barcodes: any[] = [];
-				try {
-					barcodes = await fabBarcodeDetector.detect(fabScanCanvas);
-				} catch (_) {
-					try {
-						const imageData = fabScanCtx.getImageData(0, 0, vw, vh);
-						barcodes = await fabBarcodeDetector.detect(imageData);
-					} catch (__) {}
-				}
-
-				if (barcodes.length > 0) {
-					const scannedValue = barcodes[0].rawValue;
-					fabStopScan();
-					// Navigate to quick-task with scanned employee code
-					goto(`/mobile-interface/quick-task?employee=${encodeURIComponent(scannedValue)}`);
-				}
-			} catch (_) {}
-		}, 400);
-	}
-
-	function fabStopScan() {
-		if (fabScanInterval) { clearInterval(fabScanInterval); fabScanInterval = null; }
-		if (fabStream) { fabStream.getTracks().forEach(t => t.stop()); fabStream = null; }
-		fabScanCanvas = null;
-		fabScanCtx = null;
-		fabScanning = false;
-	}
 </script>
 
 <svelte:head>
@@ -1086,12 +994,12 @@
 							</svg>
 						</button>
 					{/if}
-					<button class="header-nav-btn header-scan-btn" on:click={fabStartScan} aria-label="Quick Task" title="Quick Task">
+					<button class="header-nav-btn header-logout-btn" on:click={logout} aria-label={getTranslation('mobile.logout')} title={getTranslation('mobile.logout')}>
 						<div class="nav-icon-container">
 							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
-								<rect x="9" y="3" width="6" height="4" rx="1"/>
-								<path d="M9 14l2 2 4-4"/>
+								<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+								<polyline points="16 17 21 12 16 7"/>
+								<line x1="21" y1="12" x2="9" y2="12"/>
 							</svg>
 						</div>
 					</button>
@@ -1173,15 +1081,6 @@
 					<span class="menu-item-text" style="opacity: 0.6;">{$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}</span>
 				</div>
 			{/if}
-			<div class="menu-spacer"></div>
-			<button class="menu-item menu-logout" on:click={() => { logout(); showMenu = false; }} title={getTranslation('mobile.logout')}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-					<polyline points="16 17 21 12 16 7"/>
-					<line x1="21" y1="12" x2="9" y2="12"/>
-				</svg>
-				<span class="menu-item-text">{getTranslation('mobile.logout')}</span>
-			</button>
 		</div>
 	{/if}
 	
@@ -1552,20 +1451,6 @@
 
 		</nav>
 
-		<!-- FAB QR Scanner Overlay -->
-		{#if fabScanning}
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div class="fab-scanner-overlay" on:click={fabStopScan}>
-				<div class="fab-scanner-container" on:click|stopPropagation>
-					<!-- svelte-ignore a11y_media_has_caption -->
-					<video bind:this={fabVideoEl} playsinline autoplay muted class="fab-scanner-video"></video>
-					<div class="fab-scan-line"></div>
-					<button class="fab-scanner-close" on:click={fabStopScan}>&times;</button>
-				</div>
-			</div>
-		{/if}
-
 		<!-- Contact Info Overlay - mask over content, below header & bottom-nav -->
 		<ContactInfoOverlay mode="mobile" />
 	</div>
@@ -1808,22 +1693,6 @@
 	.menu-version-item:hover {
 		transform: none !important;
 		box-shadow: 0 4px 12px rgba(6, 31, 85, 0.25) !important;
-	}
-
-	.menu-spacer {
-		flex: 1;
-		min-height: 8px;
-	}
-
-	.menu-logout {
-		background: #EF4444 !important;
-		box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
-		border-color: rgba(255, 255, 255, 0.3) !important;
-	}
-
-	.menu-logout:hover {
-		background: #DC2626 !important;
-		box-shadow: 0 6px 20px rgba(220, 38, 38, 0.5) !important;
 	}
 
 	.user-info {
@@ -3271,81 +3140,47 @@
 	}
 
 	/* â”€â”€ Header Scan Button â”€â”€ */
-	.header-scan-btn {
+	.header-logout-btn {
 		width: 40px;
 		height: 40px;
 		border-radius: 8px;
 	}
-	.header-scan-btn :global(svg) {
+	.header-logout-btn :global(svg) {
 		width: 22px;
 		height: 22px;
 	}
-	.header-scan-btn:active {
-		background: rgba(16, 220, 229, 0.5) !important;
+	.header-logout-btn:hover,
+	.header-logout-btn:active {
+		background: #DC2626 !important;
+		border-color: #FECACA !important;
+	}
+
+	.header-home-btn,
+	.header-notif-btn,
+	.header-logout-btn {
+		width: 40px;
+		height: 40px;
+		min-width: 40px;
+		flex: 0 0 40px;
+		padding: 0;
+		box-sizing: border-box;
+		border-radius: 8px;
+	}
+
+	.header-home-btn:hover,
+	.header-home-btn.active,
+	.header-notif-btn:hover,
+	.header-notif-btn.active,
+	.header-logout-btn:hover,
+	.header-logout-btn:active {
+		transform: none;
+	}
+
+	.header-logout-btn {
+		background: #EF4444 !important;
+		border-color: #FCA5A5 !important;
+		color: white !important;
 	}
 
 	/* â”€â”€ FAB Scanner Overlay â”€â”€ */
-	.fab-scanner-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.85);
-		z-index: 10000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.fab-scanner-container {
-		position: relative;
-		width: 90vw;
-		max-width: 400px;
-		aspect-ratio: 4 / 3;
-		border-radius: 16px;
-		overflow: hidden;
-		border: 3px solid rgba(16, 220, 229, 0.6);
-	}
-
-	.fab-scanner-video {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.fab-scan-line {
-		position: absolute;
-		left: 5%;
-		right: 5%;
-		height: 3px;
-		background: linear-gradient(90deg, transparent, #10DCE5, transparent);
-		box-shadow: 0 0 8px rgba(16, 220, 229, 0.6);
-		animation: fabScanLine 2s ease-in-out infinite;
-	}
-
-	@keyframes fabScanLine {
-		0%, 100% { top: 10%; }
-		50% { top: 85%; }
-	}
-
-	.fab-scanner-close {
-		position: absolute;
-		top: 8px;
-		right: 8px;
-		width: 36px;
-		height: 36px;
-		border-radius: 50%;
-		background: rgba(0, 0, 0, 0.6);
-		color: white;
-		border: none;
-		font-size: 22px;
-		line-height: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-	}
 </style>
-
-

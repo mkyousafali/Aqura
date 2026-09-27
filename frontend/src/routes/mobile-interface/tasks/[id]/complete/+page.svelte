@@ -108,7 +108,7 @@
         taskId = $page.params.id;
         
         if (!$isAuthenticated || !currentUserData) {
-            goto('/login');
+            goto('/mobile-interface/login', { replaceState: true });
             return;
         }
 

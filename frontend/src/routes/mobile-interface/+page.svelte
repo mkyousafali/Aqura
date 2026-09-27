@@ -617,16 +617,13 @@
 		}
 	}
 	function logout() {
-		// Clear interface preference to allow user to choose again
-		interfacePreferenceService.clearPreference(currentUserData?.id);
+		interfacePreferenceService.forceMobileInterface(currentUserData?.id);
 		// Logout from persistent auth service
 		persistentAuthService.logout().then(() => {
-			// Redirect to login page to choose interface again
-			goto('/login');
+			goto('/mobile-interface/login', { replaceState: true });
 		}).catch((error) => {
 			console.error('Logout error:', error);
-			// Still redirect even if logout fails
-			goto('/login');
+			goto('/mobile-interface/login', { replaceState: true });
 		});
 	}
 	function openCreateNotification() {
@@ -1907,7 +1904,6 @@
 	}
 	.mobile-dashboard .followups-card .stat-info p { color: var(--aq-royal) !important; }
 </style>
-
 
 
 

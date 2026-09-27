@@ -77,6 +77,8 @@ export class InterfacePreferenceService {
    * Check if user has mobile preference
    */
   isMobilePreferred(userId?: string): boolean {
+    if (this.isDesktopForced()) return false;
+    if (this.isMobileForced()) return true;
     return this.getPreference(userId) === "mobile";
   }
 
@@ -84,6 +86,7 @@ export class InterfacePreferenceService {
    * Check if user has desktop preference
    */
   isDesktopPreferred(userId?: string): boolean {
+    if (this.isDesktopForced()) return true;
     return this.getPreference(userId) === "desktop";
   }
 
@@ -116,9 +119,34 @@ export class InterfacePreferenceService {
 
     // Set additional flags for extra persistence
     if (browser) {
+      sessionStorage.removeItem("aqura-force-desktop");
       sessionStorage.setItem("aqura-force-mobile", "true");
       localStorage.setItem("aqura-last-interface", "mobile");
     }
+  }
+
+  /**
+   * Force the desktop interface after an explicit desktop login choice.
+   * This clears the stronger mobile-only flags so an old mobile session cannot
+   * override a newly authenticated desktop session.
+   */
+  forceDesktopInterface(userId?: string): void {
+    this.setPreference("desktop", userId);
+
+    if (browser) {
+      sessionStorage.removeItem("aqura-force-mobile");
+      sessionStorage.setItem("aqura-force-desktop", "true");
+      localStorage.setItem("aqura-last-interface", "desktop");
+    }
+  }
+
+  isDesktopForced(): boolean {
+    if (!browser) return false;
+
+    return (
+      sessionStorage.getItem("aqura-force-desktop") === "true" ||
+      localStorage.getItem("aqura-last-interface") === "desktop"
+    );
   }
 
   /**
@@ -126,6 +154,8 @@ export class InterfacePreferenceService {
    */
   isMobileForced(): boolean {
     if (!browser) return false;
+
+    if (this.isDesktopForced()) return false;
 
     const isForced = sessionStorage.getItem("aqura-force-mobile") === "true";
     const lastInterface =
@@ -140,6 +170,8 @@ export class InterfacePreferenceService {
   getAppropriateRoute(userId?: string, defaultRoute: string = "/"): string {
     const preference = this.getPreference(userId);
 
+    if (this.isDesktopForced()) return defaultRoute;
+
     if (preference === "mobile" || this.isMobileForced()) {
       return "/mobile-interface";
     }
@@ -152,6 +184,8 @@ export class InterfacePreferenceService {
    */
   getAppropriateLoginRoute(userId?: string): string {
     const preference = this.getPreference(userId);
+
+    if (this.isDesktopForced()) return "/login";
 
     if (preference === "mobile" || this.isMobileForced()) {
       return "/mobile-interface/login";

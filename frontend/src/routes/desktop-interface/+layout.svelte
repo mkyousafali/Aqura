@@ -17,6 +17,7 @@
 	// Enhanced imports for persistent auth
 	import { persistentAuthService, currentUser, isAuthenticated as persistentAuthState } from '$lib/utils/persistentAuth';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
+	import { getDeviceLoginRoute } from '$lib/utils/deviceRouting';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { handleUserLogin } from '$lib/utils/mobileLoginHelper';
 	import { windowManager } from '$lib/stores/windowManager';
@@ -28,8 +29,6 @@
 	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	import { initPreload } from '$lib/utils/preload';
 
-	const DESKTOP_EMPLOYEE_LOGIN_ROUTE = '/login/employee?mode=desktop';
-	
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
 		import('$lib/utils/taskBadgeDebug');
@@ -793,7 +792,7 @@
 				const isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');
 				if (!authenticated && $page.url.pathname !== '/login' && !isCustomerRoute && !isCashierRoute && !isPopoutMode) {
 					console.log('🔐 Not authenticated, redirecting to login');
-					goto(DESKTOP_EMPLOYEE_LOGIN_ROUTE, { replaceState: true });
+					goto(getDeviceLoginRoute($page.url.pathname), { replaceState: true });
 				}
 				
 				// Redirect authenticated users away from login page (except cashier)
@@ -843,7 +842,7 @@
 					const isCashierRouteTimeout = $page.url.pathname.startsWith('/cashier-interface');
 					if (!isAuthenticated && $page.url.pathname !== '/login' && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
-						goto(DESKTOP_EMPLOYEE_LOGIN_ROUTE);
+						goto(getDeviceLoginRoute($page.url.pathname));
 					}
 				}
 			}, 5000); // 5 second timeout
@@ -870,7 +869,7 @@
 			const isCustomerRouteError = $page.url.pathname.startsWith('/customer-interface');
 			if ($page.url.pathname !== '/login' && !isCustomerRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
-				goto(DESKTOP_EMPLOYEE_LOGIN_ROUTE, { replaceState: true });
+				goto(getDeviceLoginRoute($page.url.pathname), { replaceState: true });
 			}
 		}
 		

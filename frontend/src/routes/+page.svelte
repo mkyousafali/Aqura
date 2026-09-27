@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import { isMobileDevice } from '$lib/utils/deviceRouting';
+	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 
 	const loadingMessages = [
 		{ en: 'Getting Ready... 😊', ar: 'جاري التحضير...' },
@@ -18,7 +20,7 @@
 
 		// Redirect to appropriate interface based on user type
 		if ($currentUser) {
-			goto('/desktop-interface');
+			goto(isMobileDevice() ? '/mobile-interface' : interfacePreferenceService.getAppropriateRoute($currentUser.id, '/desktop-interface'));
 		} else {
 			goto('/login');
 		}

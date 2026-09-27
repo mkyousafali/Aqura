@@ -27,13 +27,10 @@
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { loadIcons } from '$lib/stores/iconStore';
 	import { onNativeLogout } from '$lib/utils/nativeShell';
-
-	const DESKTOP_EMPLOYEE_LOGIN_ROUTE = '/login/employee?mode=desktop';
+	import { getDeviceLoginRoute, getMobileRouteGuardTarget } from '$lib/utils/deviceRouting';
 
 	function getUnauthenticatedLoginRoute(pathname: string): string {
-		return pathname.startsWith('/desktop-interface')
-			? DESKTOP_EMPLOYEE_LOGIN_ROUTE
-			: '/login';
+		return getDeviceLoginRoute(pathname);
 	}
 
 	// Import task badge debug utilities in development
@@ -601,6 +598,12 @@
 			currentUserData = currentUserState;
 			isLoading = false; // CRITICAL: Always set loading to false here
 
+			const deviceGuardRoute = getMobileRouteGuardTarget($page.url.pathname, currentAuthState);
+			if (deviceGuardRoute) {
+				await goto(deviceGuardRoute, { replaceState: true });
+				return;
+			}
+
 			// Load app icons from database (non-blocking)
 			loadIcons().catch(e => console.warn('Icon store init failed:', e));
 			
@@ -818,7 +821,8 @@
 			// Redirect authenticated users away from login page (except cashier)
 			if (authenticated && $page.url.pathname === '/login' && !isCashierRoute) {
 				console.log('🔐 Already authenticated, redirecting to dashboard');
-				goto('/', { replaceState: true });
+				const deviceRoute = getMobileRouteGuardTarget('/desktop-interface', true);
+				goto(deviceRoute ?? interfacePreferenceService.getAppropriateRoute(currentUserData?.id), { replaceState: true });
 			}
 		});			// Subscribe to current user changes
 			unsubscribeUser = currentUser.subscribe(user => {
