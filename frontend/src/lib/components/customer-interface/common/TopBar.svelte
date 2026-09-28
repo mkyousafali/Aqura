@@ -4,14 +4,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { cartCount } from '$lib/stores/cart.js';
   import { t } from '$lib/i18n';
-  import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
   import { supabase } from '$lib/utils/supabase';
   import { orderMaskEnabled } from '$lib/stores/orderMask';
-
-  async function handleUpdateClick() {
-    const fn = $triggerUpdate;
-    if (fn) await fn();
-  }
 
   let currentLanguage = 'ar';
   let notificationCount = 0;
@@ -163,6 +157,11 @@
     goto('/customer-interface');
   }
 
+  function handleLogout() {
+    localStorage.clear();
+    goto('/login/customer');
+  }
+
   onMount(() => {
     window.addEventListener('storage', handleStorageChange);
     return () => {
@@ -185,15 +184,11 @@
   <div class="top-bar-content">
     <!-- Left side -->
     <div class="left-section">
-      {#if $updateAvailable}
-        <button class="customer-update-btn update-available" on:click={handleUpdateClick} title={currentLanguage === 'ar' ? 'تحديث متاح' : 'Update Available'}>
-          🔄
-        </button>
-      {:else}
-        <span class="customer-update-btn up-to-date" title={currentLanguage === 'ar' ? 'محدّث' : 'Up to Date'}>
-          ✅
-        </span>
-      {/if}
+      <button class="customer-logout-btn" type="button" on:click={handleLogout} title={currentLanguage === 'ar' ? 'تسجيل الخروج' : 'Logout'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M10 17l5-5-5-5v3H3v4h7v3zm9-14H5a2 2 0 0 0-2 2v3h2V5h14v14H5v-3H3v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/>
+        </svg>
+      </button>
     </div>
     
     <!-- Right side actions -->
@@ -279,30 +274,28 @@
     gap: 0.5rem;
   }
   
-  .customer-update-btn {
-    border-radius: 6px;
-    padding: 0.2rem 0.4rem;
-    font-size: 0.75rem;
-    border: none;
-  }
-
-  .customer-update-btn.update-available {
-    background: #dcfce7;
-    border: 1px solid #86efac;
+  .customer-logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    padding: 0;
+    color: #fff;
+    background: #dc2626;
+    border: 1px solid #b91c1c;
     cursor: pointer;
-    animation: pulse-update 2s ease-in-out infinite;
   }
 
-  .customer-update-btn.up-to-date {
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    cursor: default;
-    opacity: 0.7;
+  .customer-logout-btn:hover {
+    background: #b91c1c;
   }
 
-  @keyframes pulse-update {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
-    50% { box-shadow: 0 0 6px 2px rgba(34, 197, 94, 0.3); }
+  .customer-logout-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
   }
   
   .top-actions {

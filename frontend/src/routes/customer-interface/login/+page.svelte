@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { localeData, _, switchLocale, currentLocale } from '$lib/i18n';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
+	import CustomerLogin from '$lib/components/customer-interface/common/CustomerOtpAuth.svelte';
 
 	function t(keyPath: string): string {
 		const keys = keyPath.split('.');
@@ -51,13 +51,13 @@
 
 	function handleCustomerSuccess(event) {
 		const { detail } = event;
-		if (detail.type === 'customer_login') {
+		if (detail.type === 'customer_login' || detail.type === 'customer_register') {
 			goto('/customer-interface');
 		}
 	}
 
 	function goBackToMain() {
-		goto('/login/customer');
+		goto('/login', { replaceState: true });
 	}
 </script>
 

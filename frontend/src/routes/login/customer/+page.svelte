@@ -6,7 +6,8 @@
 	import { currentLocale, switchLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { currentUser, isAuthenticated } from '$lib/utils/persistentAuth';
-	import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
+	import CustomerLogin from '$lib/components/customer-interface/common/CustomerOtpAuth.svelte';
+	import LegacyCustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
 
 	// Access-code / customer-login state (drives the CustomerLogin component embedded in the
 	// Hero section below, replacing the generic Home hero content on this page).
@@ -16,11 +17,15 @@
 
 	function handleCustomerSuccess(event: CustomEvent) {
 		const { detail } = event;
-		if (detail.type === 'customer_login') {
+		if (detail.type === 'customer_login' || detail.type === 'customer_register') {
 			// Use window.location.href instead of goto() to ensure a full page load,
 			// preventing redirect loops when navigating across route trees.
 			window.location.href = '/customer-interface';
 		}
+	}
+
+	function handleBrowserBack() {
+		window.location.replace('/login');
 	}
 
 
@@ -892,7 +897,7 @@
 
 </script>
 
-<svelte:window on:click={handleWindowClickForBranchDropdown} />
+<svelte:window on:click={handleWindowClickForBranchDropdown} on:popstate={handleBrowserBack} />
 
 <svelte:head>
 	<title>{companyName}</title>
@@ -947,14 +952,24 @@
 	<section class="hero" id="home">
 		<div class="hero-inner access-code-hero">
 			<div class="customer-login-card">
-				<CustomerLogin
-					initialView={initialViewParam}
-					bind:currentView={currentViewMode}
-					hideNavButtons={true}
-					showMask={false}
-					{autoLoginCode}
-					on:success={handleCustomerSuccess}
-				/>
+				{#if currentViewMode === 'loyalty'}
+					<LegacyCustomerLogin
+						initialView="loyalty"
+						bind:currentView={currentViewMode}
+						hideNavButtons={true}
+						showMask={false}
+						on:success={handleCustomerSuccess}
+					/>
+				{:else}
+					<CustomerLogin
+						initialView={initialViewParam}
+						bind:currentView={currentViewMode}
+						hideNavButtons={true}
+						showMask={false}
+						{autoLoginCode}
+						on:success={handleCustomerSuccess}
+					/>
+				{/if}
 			</div>
 		</div>
 	</section>

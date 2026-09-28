@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CustomerLogin from '$lib/components/customer-interface/common/CustomerLogin.svelte';
+  import CustomerLogin from '$lib/components/customer-interface/common/CustomerOtpAuth.svelte';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { isAuthenticated, currentUser } from '$lib/utils/persistentAuth';
