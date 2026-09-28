@@ -146,6 +146,22 @@ export class NotificationManagementService {
     // Using Supabase directly, no backend URL needed
   }
 
+  /** Load the user-scoped feed with one database round trip. */
+  private async getUserNotificationFeed(
+    userId: string,
+    page: number = 0,
+    pageSize: number = 30,
+  ): Promise<any[]> {
+    const { data, error } = await supabase.rpc("get_user_notification_feed", {
+      p_user_id: userId,
+      p_offset: page * pageSize,
+      p_limit: pageSize,
+    });
+
+    if (error) throw error;
+    return data || [];
+  }
+
   /**
    * Get all notifications (admin view) with pagination
    */
@@ -156,6 +172,12 @@ export class NotificationManagementService {
   ): Promise<NotificationItem[]> {
     try {
       if (userId) {
+        const rows = await this.getUserNotificationFeed(userId, page, pageSize);
+        return rows.map((row) => {
+          const resolved = resolveNotificationText(row);
+          return { ...row, title: resolved.title, message: resolved.message };
+        });
+
         // Query from notification_recipients with pagination
         const from = page * pageSize;
         const to = from + pageSize - 1;
@@ -260,6 +282,12 @@ export class NotificationManagementService {
     pageSize: number = 30
   ): Promise<UserNotificationItem[]> {
     try {
+      const rows = await this.getUserNotificationFeed(userId, page, pageSize);
+      return rows.map((row) => {
+        const resolved = resolveNotificationText(row);
+        return { ...row, title: resolved.title, message: resolved.message };
+      });
+
       // Query from notification_recipients with pagination
       const from = page * pageSize;
       const to = from + pageSize - 1;
