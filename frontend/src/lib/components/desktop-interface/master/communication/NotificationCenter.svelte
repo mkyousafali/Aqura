@@ -46,6 +46,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let loadingProgress = 0;
 	let loadingStep = 'Connecting...';
 	let errorMessage = '';
+	const NOTIFICATION_LOAD_TIMEOUT_MS = 15000;
+
+	function withNotificationTimeout<T>(promise: Promise<T>): Promise<T> {
+		return Promise.race([
+			promise,
+			new Promise<T>((_, reject) => window.setTimeout(
+				() => reject(new Error('Notification request timed out. Check the connection and try again.')),
+				NOTIFICATION_LOAD_TIMEOUT_MS
+			))
+		]);
+	}
 
 	// Image modal
 	let showImageModal = false;
@@ -343,7 +354,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			}
 		} catch (error) {
 			console.error('Error toggling push notifications:', error);
-			alert('Failed to toggle push notifications');
+			alert(error instanceof Error ? error.message : 'Failed to toggle push notifications');
 		} finally {
 			pushLoading = false;
 		}
@@ -375,7 +386,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			if (isAdminOrMaster) {
 				// Admin users can see all notifications with their read states
 				console.log('👑 [NotificationCenter] Loading as admin/master');
-				const apiNotifications = await notificationManagement.getAllNotifications(activeUser?.id || 'default-user');
+				const apiNotifications = await withNotificationTimeout(notificationManagement.getAllNotifications(activeUser?.id || 'default-user'));
 				console.log('📥 [Desktop NotificationCenter] Received', apiNotifications.length, 'notifications from API');
 				
 				// ⚡ PHASE 1: Show notifications INSTANTLY with basic data (no attachments)
@@ -426,7 +437,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			} else if (activeUser?.id) {
 				// Regular users see only their targeted notifications
 				console.log('👤 [NotificationCenter] Loading as regular user');
-				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
+				const userNotifications = await withNotificationTimeout(notificationManagement.getUserNotifications(activeUser.id));
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
 					title: notification.title,
@@ -478,7 +489,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			loadingStep = 'Done!';
 		} catch (error) {
 			console.error('Error loading notifications:', error);
-			errorMessage = 'Failed to load notifications. Please try again.';
+			errorMessage = error instanceof Error ? error.message : 'Failed to load notifications. Please try again.';
 		} finally {
 			isLoading = false;
 		}
@@ -509,7 +520,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			if (isAdminOrMaster) {
 				// Force fresh data by bypassing any cache
 				console.log('👑 [Desktop NotificationCenter] Loading as admin/master');
-				const apiNotifications = await notificationManagement.getAllNotifications(activeUser.id, 0, 30);
+				loadingProgress = 10;
+				loadingStep = 'Fetching notifications...';
+				const apiNotifications = await withNotificationTimeout(notificationManagement.getAllNotifications(activeUser.id, 0, 30));
 				console.log('📥 [Desktop NotificationCenter] Received', apiNotifications.length, 'notifications');
 				
 				// ⚡ PHASE 1: Show notifications INSTANTLY with basic data (no attachments)
@@ -559,7 +572,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				});
 			} else if (activeUser?.id) {
 				console.log('👤 [Desktop NotificationCenter] Loading as regular user');
-				const userNotifications = await notificationManagement.getUserNotifications(activeUser.id);
+				loadingProgress = 10;
+				loadingStep = 'Fetching notifications...';
+				const userNotifications = await withNotificationTimeout(notificationManagement.getUserNotifications(activeUser.id));
 				console.log('📥 [Desktop NotificationCenter] Received', userNotifications.length, 'notifications');
 				allNotifications = userNotifications.map(notification => ({
 					id: notification.notification_id,
@@ -582,7 +597,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			console.log('✅ [Desktop NotificationCenter] Force refresh completed. Total:', allNotifications.length);
 		} catch (error) {
 			console.error('❌ [Desktop NotificationCenter] Error force refreshing notifications:', error);
-			errorMessage = 'Failed to refresh notifications. Please try again.';
+			errorMessage = error instanceof Error ? error.message : 'Failed to refresh notifications. Please try again.';
 		} finally {
 			isLoading = false;
 		}
