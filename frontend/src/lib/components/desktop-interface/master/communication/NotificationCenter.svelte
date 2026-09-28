@@ -24,9 +24,11 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	$: userRole = activeUser?.role || 'Position-based';
 	$: isAdminOrMaster = userRole === 'Admin' || userRole === 'Master Admin';
 
-	// Auto-load notifications when activeUser becomes available (after initial mount)
-	let hasAttemptedInitialLoad = false;
-	$: if (activeUser?.id && allNotifications.length === 0 && !isLoading && hasAttemptedInitialLoad) {
+	// Load once for each signed-in user. An empty feed is a valid result and must
+	// not trigger another request, or the loading state loops forever.
+	let loadedUserId: string | null = null;
+	$: if (activeUser?.id && loadedUserId !== activeUser.id) {
+		loadedUserId = activeUser.id;
 		console.log('🔄 [Desktop NotificationCenter] Reactive: User available, auto-loading notifications');
 		forceRefreshNotifications();
 	}
@@ -334,9 +336,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 		// Fire notification loading immediately — don't await, let Phase 1 show instantly
 		console.log('🔔 [Desktop NotificationCenter] Force loading notifications from onMount');
-		forceRefreshNotifications().then(() => {
-			hasAttemptedInitialLoad = true;
-		});
 	});
 
 	// Toggle push notifications
