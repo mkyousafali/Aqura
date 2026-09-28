@@ -22,7 +22,7 @@ const DEVICE_ID_FALLBACK_KEY = 'aqura-cashier-device-id';
 
 export function isWindowsApp(): boolean {
 	if (typeof window === 'undefined') return false;
-	return window.aquraDevice?.appKind === 'windows';
+	return window.aquraDevice?.appKind === 'windows' || window.aquraDevice?.appKind === 'windows-desktop';
 }
 
 export function getDeviceId(): string {

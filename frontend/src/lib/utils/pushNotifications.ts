@@ -19,6 +19,67 @@ type AquraAndroidBridge = {
   requestPushToken(): void;
 };
 
+type AquraDesktopNotificationsBridge = {
+  show(payload: { title: string; body: string }): Promise<boolean>;
+};
+
+declare global {
+  interface Window {
+    aquraDesktopNotifications?: AquraDesktopNotificationsBridge;
+  }
+}
+
+let desktopNotificationChannel: ReturnType<typeof supabase.channel> | null = null;
+const shownDesktopNotificationIds = new Set<string>();
+
+function getDesktopNotificationsBridge(): AquraDesktopNotificationsBridge | null {
+  return window.aquraDesktopNotifications ?? null;
+}
+
+function desktopNotificationsEnabled(): boolean {
+  return getDesktopNotificationsBridge() !== null && localStorage.getItem(NATIVE_PUSH_ENABLED_KEY) === '1';
+}
+
+async function startDesktopNotificationListener(): Promise<void> {
+  const bridge = getDesktopNotificationsBridge();
+  const user = get(currentUser);
+  if (!bridge || !user?.id || !desktopNotificationsEnabled() || desktopNotificationChannel) return;
+
+  desktopNotificationChannel = supabase
+    .channel(`desktop-native-notifications:${user.id}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'notification_recipients',
+      filter: `user_id=eq.${user.id}`
+    }, async (payload) => {
+      const notificationId = String(payload.new?.notification_id || '');
+      if (!notificationId || shownDesktopNotificationIds.has(notificationId)) return;
+      shownDesktopNotificationIds.add(notificationId);
+      if (shownDesktopNotificationIds.size > 200) {
+        const oldest = shownDesktopNotificationIds.values().next().value;
+        if (oldest) shownDesktopNotificationIds.delete(oldest);
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('title, message')
+        .eq('id', notificationId)
+        .single();
+      if (!error && data && desktopNotificationsEnabled()) {
+        await bridge.show({ title: data.title || 'Aqura', body: data.message || '' });
+      }
+    })
+    .subscribe();
+}
+
+async function stopDesktopNotificationListener(): Promise<void> {
+  if (!desktopNotificationChannel) return;
+  const channel = desktopNotificationChannel;
+  desktopNotificationChannel = null;
+  await supabase.removeChannel(channel);
+}
+
 function getAndroidBridge(): AquraAndroidBridge | null {
   return (window as Window & { AquraAndroid?: AquraAndroidBridge }).AquraAndroid ?? null;
 }
@@ -74,14 +135,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
  * Check if push notifications are supported in this browser
  */
 export function isPushSupported(): boolean {
-  return getAndroidBridge() !== null || ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window);
+  return getAndroidBridge() !== null || getDesktopNotificationsBridge() !== null || ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window);
 }
 
 /**
  * Get current push notification permission status
  */
 export function getPermissionStatus(): NotificationPermission {
-  if (getAndroidBridge()) {
+  if (getAndroidBridge() || getDesktopNotificationsBridge()) {
     return localStorage.getItem(NATIVE_PUSH_ENABLED_KEY) === '1' ? 'granted' : 'default';
   }
   if (!isPushSupported()) {
@@ -98,6 +159,7 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
     await requestNativePushToken();
     return 'granted';
   }
+  if (getDesktopNotificationsBridge()) return 'granted';
   if (!isPushSupported()) {
     throw new Error('Push notifications are not supported in this browser');
   }
@@ -121,6 +183,13 @@ export async function subscribeToPushNotifications(): Promise<PushSubscription |
       localStorage.removeItem(PUSH_MANUALLY_DISABLED_KEY);
       localStorage.setItem(NATIVE_PUSH_ENABLED_KEY, '1');
       return { endpoint: `fcm:${token}` } as PushSubscription;
+    }
+
+    if (getDesktopNotificationsBridge()) {
+      localStorage.removeItem(PUSH_MANUALLY_DISABLED_KEY);
+      localStorage.setItem(NATIVE_PUSH_ENABLED_KEY, '1');
+      await startDesktopNotificationListener();
+      return { endpoint: `aqura-desktop:${window.aquraDevice?.id || 'native'}` } as PushSubscription;
     }
 
     // Check if supported
@@ -243,6 +312,12 @@ export async function unsubscribeFromPushNotifications(): Promise<boolean> {
       await disablePushSubscriptionForDevice(`fcm:${token}`);
       localStorage.setItem(PUSH_MANUALLY_DISABLED_KEY, '1');
       localStorage.removeItem(NATIVE_PUSH_ENABLED_KEY);
+      return true;
+    }
+    if (getDesktopNotificationsBridge()) {
+      localStorage.setItem(PUSH_MANUALLY_DISABLED_KEY, '1');
+      localStorage.removeItem(NATIVE_PUSH_ENABLED_KEY);
+      await stopDesktopNotificationListener();
       return true;
     }
     if (!isPushSupported()) {
@@ -386,7 +461,7 @@ async function removePushSubscription(endpoint: string): Promise<void> {
  */
 export async function hasActiveSubscription(): Promise<boolean> {
   try {
-    if (getAndroidBridge()) return localStorage.getItem(NATIVE_PUSH_ENABLED_KEY) === '1';
+    if (getAndroidBridge() || getDesktopNotificationsBridge()) return localStorage.getItem(NATIVE_PUSH_ENABLED_KEY) === '1';
     if (!isPushSupported()) {
       return false;
     }
@@ -423,6 +498,16 @@ export async function getCurrentSubscription(): Promise<PushSubscription | null>
  */
 export async function sendTestNotification(): Promise<void> {
   try {
+    const desktopBridge = getDesktopNotificationsBridge();
+    if (desktopBridge) {
+      const shown = await desktopBridge.show({
+        title: 'Test Notification',
+        body: 'Aqura Desktop notifications are working!'
+      });
+      if (!shown) throw new Error('Windows notifications are unavailable');
+      return;
+    }
+
     const permission = await requestNotificationPermission();
     if (permission !== 'granted') {
       throw new Error('Notification permission not granted');
@@ -464,6 +549,14 @@ export async function autoSubscribePush(): Promise<void> {
       await saveNativePushToken(token);
       localStorage.setItem(NATIVE_PUSH_ENABLED_KEY, '1');
       console.log('📬 [Push-Auto] Android FCM token registered');
+      return;
+    }
+
+    if (getDesktopNotificationsBridge()) {
+      if (localStorage.getItem(PUSH_MANUALLY_DISABLED_KEY) === '1') return;
+      localStorage.setItem(NATIVE_PUSH_ENABLED_KEY, '1');
+      await startDesktopNotificationListener();
+      console.log('[Push-Auto] Aqura Desktop native notifications started');
       return;
     }
 
@@ -542,6 +635,11 @@ export async function autoSubscribePush(): Promise<void> {
  */
 export async function autoUnsubscribePush(): Promise<void> {
   try {
+    if (getDesktopNotificationsBridge()) {
+      await stopDesktopNotificationListener();
+      localStorage.removeItem(NATIVE_PUSH_ENABLED_KEY);
+      return;
+    }
     if (!isPushSupported()) return;
     if (!import.meta.env.PROD) return;
 
