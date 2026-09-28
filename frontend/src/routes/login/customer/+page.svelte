@@ -938,13 +938,18 @@
 				{/if}
 				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'English' : 'العربية'}</button>
 			</nav>
-			<button
-				class="menu-toggle"
-				aria-label="Toggle menu"
-				on:click={() => (mobileMenuOpen = !mobileMenuOpen)}
-			>
-				{mobileMenuOpen ? 'Close' : 'Menu'}
-			</button>
+			<div class="mobile-header-actions">
+				<button class="lang-toggle-btn mobile-lang-toggle" on:click={toggleSiteLanguage}>
+					{isAr ? 'English' : 'العربية'}
+				</button>
+				<button
+					class="menu-toggle"
+					aria-label={isAr ? 'فتح القائمة' : 'Toggle menu'}
+					on:click={() => (mobileMenuOpen = !mobileMenuOpen)}
+				>
+					{mobileMenuOpen ? (isAr ? 'إغلاق' : 'Close') : (isAr ? 'القائمة' : 'Menu')}
+				</button>
+			</div>
 		</div>
 	</header>
 
@@ -1731,6 +1736,16 @@
 		font-weight: 600;
 		padding: 0.5rem 1rem;
 		cursor: pointer;
+	}
+
+	.mobile-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.mobile-lang-toggle {
+		display: none;
 	}
 
 	.btn-team-login {
@@ -2899,6 +2914,23 @@
 
 		.menu-toggle {
 			display: flex;
+			width: 82px;
+			height: 40px;
+			padding: 0;
+		}
+
+		.mobile-lang-toggle {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 82px;
+			height: 40px;
+			padding: 0;
+			border-radius: 8px;
+		}
+
+		.nav .lang-toggle-btn {
+			display: none;
 		}
 
 		.nav {
