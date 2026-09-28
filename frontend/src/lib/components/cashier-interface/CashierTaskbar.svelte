@@ -15,9 +15,6 @@
 	export let branch: any;
 	export let currentTime: string;
 
-	// Cashier interface version
-	let cashierVersion = 'AQ7';
-
 	// Loyalty program display name — pulled from the same login_layout data BrandingManager edits.
 	let loyaltyProgramName = '';
 	$: loyaltyProgramNameDisplay = loyaltyProgramName || $_('coupon.loyaltyProgramName');

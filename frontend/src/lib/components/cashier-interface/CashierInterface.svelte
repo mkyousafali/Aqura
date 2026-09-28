@@ -4,6 +4,7 @@
 	import { t, switchLocaleManually, currentLocale } from '$lib/i18n';
 	import WindowManager from '$lib/components/common/WindowManager.svelte';
 	import CashierTaskbar from '$lib/components/cashier-interface/CashierTaskbar.svelte';
+	import { cashierVersion } from '$lib/appVersion';
 	import DancingCharacter from '$lib/components/desktop-interface/common/DancingCharacter.svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -23,9 +24,6 @@
 	export let branch: any;
 
 	let currentTime = '';
-
-	// Cashier interface version
-	let cashierVersion = 'AQ12';
 
 	// name_en/name_ar are the raw hr_employee_master values (locale-independent) — pick between
 	// them reactively so the name follows language switches, rather than trusting user.full_name/

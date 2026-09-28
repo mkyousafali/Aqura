@@ -1,12 +1,13 @@
 <script lang="ts">
 export let onClose: () => void;
+import { appVersion, interfaceVersions } from '$lib/appVersion';
 </script>
 
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
-<p class="version-title">Version AQ14.12.12.10</p>
-<p class="version-details">Desktop: 14 | Mobile: 12 | Cashier: 12 | Customer: 10</p>
+<p class="version-title">Version {appVersion}</p>
+<p class="version-details">Desktop: {interfaceVersions.desktop} | Mobile: {interfaceVersions.mobile} | Cashier: {interfaceVersions.cashier} | Customer: {interfaceVersions.customer}</p>
 </div>
 
 <!-- App Value Summary -->

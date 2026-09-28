@@ -13,6 +13,7 @@
 	import WelcomeWindow from '$lib/components/common/WelcomeWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
+	import { appVersion } from '$lib/appVersion';
 
 	async function handleUpdateClick() {
 		const fn = $triggerUpdate;
@@ -687,7 +688,7 @@
 								</button>
 							{/if}
 							{#if $currentUser?.isMasterAdmin}
-								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">AQ14.12.12.10</button>
+								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">{appVersion}</button>
 							{/if}
 						</div>
 						<div class="logo-section">

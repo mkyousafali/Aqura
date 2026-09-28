@@ -7,6 +7,7 @@
   import { isCustomerPushSupported, subscribeCustomerToPush } from '$lib/utils/customerPushNotifications';
   import { orderMaskEnabled } from '$lib/stores/orderMask';
   import { supabase } from '$lib/utils/supabase';
+  import { customerVersion } from '$lib/appVersion';
 
   // Show top bar on all customer pages except auth pages
   $: showTopBar = !$page.url.pathname.includes('/auth/') && 
@@ -73,6 +74,7 @@
 
 <main class="customer-main" class:with-top={showTopBar} class:with-cart={showCartBar} class:home-page={isHomePage}>
   <slot />
+  <div class="customer-version" aria-label="Customer interface version">{customerVersion}</div>
 </main>
 
 {#if showCartBar}
@@ -106,5 +108,13 @@
   /* Add bottom padding when cart bar is visible */
   .customer-main.with-cart {
     padding-bottom: 80px;
+  }
+
+  .customer-version {
+    margin-top: auto;
+    padding: 0.35rem 0.75rem;
+    color: #94a3b8;
+    font-size: 0.7rem;
+    text-align: center;
   }
 </style>

@@ -8,4 +8,5 @@ app/build/
 captures/
 *.jks
 *.keystore
+keystore.properties
 google-services.json

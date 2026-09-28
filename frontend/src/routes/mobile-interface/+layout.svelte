@@ -80,8 +80,7 @@
 	// Orders count for badge
 	let newOrdersCount = 0;
 	
-	// Mobile version - will be extracted from full version
-	let mobileVersion = 'AQ12';
+	import { mobileVersion } from '$lib/appVersion';
 
 	// Inactivity lock — same behaviour as the desktop and cashier interfaces
 	const INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;

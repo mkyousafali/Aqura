@@ -164,6 +164,7 @@ Flyer Master/
 frontend/aqura-frontend-build.*
 
 # Deployment pipeline temp files
+.deployment-temp/
 aqura_dump.sql.gz
 aqura_build.tar.gz
 reset_sequences.sql

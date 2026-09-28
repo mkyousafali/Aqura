@@ -6,7 +6,7 @@ Standalone Android WebView shell for Aqura. It loads the hosted staff mobile int
 
 The default is:
 
-`https://aqura-frontend.vercel.app/mobile-interface`
+`https://urbanaqura.com/mobile-interface`
 
 This stable alias was confirmed against the linked Vercel project. If the production domain changes, either edit `aquraUrl` in `gradle.properties`, or build with:
 
