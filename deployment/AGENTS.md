@@ -34,7 +34,9 @@ Run this to build and package locally without pushing or changing the server:
 
 ## Secrets and access
 
-This folder contains no private credentials and must be committed to Git. The private SSH key remains outside the repository at `~/.ssh/id_ed25519_nopass`. The production runtime secrets remain on the server at `/opt/aqura-web/shared/.env`.
+This folder contains no private credentials and must be committed to Git. The private SSH key remains outside the repository at `~/.ssh/id_ed25519_nopass` or `~/.ssh/id_ed25519`; an explicit `-IdentityFile` overrides this selection. SSH access is checked before the version bump and build. The production runtime secrets remain on the server at `/opt/aqura-web/shared/.env`.
+
+Keep deployment shell scripts LF-only as enforced by `.gitattributes` so Windows checkouts can upload them directly to Linux.
 
 The version source is `frontend/src/lib/appVersion.ts`. Never edit separate interface version strings; all interfaces must import their value from that file. A dry run reports the current and next version but does not change or commit it.
 

@@ -25,10 +25,12 @@ This reports the next version and performs the production build and packaging ch
 - Windows PowerShell, Git, Node.js 20, pnpm, `tar`, `ssh`, and `scp`
 - A clean `master` working tree
 - GitHub push access for the configured `origin`
-- The authorized private key at `~/.ssh/id_ed25519_nopass`
+- The authorized private key at `~/.ssh/id_ed25519_nopass` or `~/.ssh/id_ed25519` (or pass `-IdentityFile`)
 - Network access to the production server
 
 The private key and production environment variables are deliberately not stored in this repository.
+
+SSH access is checked before changing the version or building. Git enforces LF line endings for deployment shell scripts so they run correctly on Linux after a Windows checkout.
 
 ## Files
 

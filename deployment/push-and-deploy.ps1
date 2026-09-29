@@ -4,7 +4,7 @@ param(
     [string]$Branch = "master",
     [string]$DeployHost = "8.213.42.21",
     [string]$DeployUser = "root",
-    [string]$IdentityFile = "$HOME/.ssh/id_ed25519_nopass",
+    [string]$IdentityFile = "",
     [switch]$SkipPush,
     [switch]$SkipDeploy,
     [switch]$AllowDirty,
@@ -30,6 +30,17 @@ if ($LASTEXITCODE -ne 0 -or $currentBranch -ne $Branch) {
 $workingTree = & git status --porcelain
 if ($LASTEXITCODE -ne 0) { throw "Unable to inspect the Git working tree." }
 if ($workingTree -and -not $AllowDirty) { throw "Working tree is not clean. Commit or stash changes before deployment." }
+
+if (-not $DryRun -and -not $SkipDeploy) {
+    if (-not $IdentityFile) {
+        $IdentityFile = "$HOME/.ssh/id_ed25519_nopass"
+        if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
+            $IdentityFile = "$HOME/.ssh/id_ed25519"
+        }
+    }
+    $IdentityFile = (Resolve-Path -LiteralPath $IdentityFile).Path
+    Invoke-Checked "ssh" @("-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "IdentitiesOnly=yes", "-i", $IdentityFile, "$DeployUser@$DeployHost", "true")
+}
 
 if (-not $DryRun) {
     Invoke-Checked "node" @((Join-Path $PSScriptRoot "bump-version.mjs"))
@@ -91,7 +102,7 @@ try {
     if (-not $SkipPush) { Invoke-Checked "git" @("push", $Remote, $Branch) }
 
     if (-not $SkipDeploy) {
-        $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=15")
+        $sshArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "IdentitiesOnly=yes")
         if ($IdentityFile) { $sshArgs += @("-i", (Resolve-Path $IdentityFile).Path) }
         $target = "$DeployUser@$DeployHost"
         $remoteArchive = "/opt/aqura-web/incoming/$releaseId.tar.gz"
