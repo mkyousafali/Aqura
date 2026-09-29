@@ -4978,6 +4978,16 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		flex-shrink: 0;
 	}
 
+	.denom-verify-checkbox:checked,
+	.voucher-verify-checkbox:checked,
+	.bank-verify-checkbox:checked,
+	.system-verify-checkbox:checked,
+	.recharge-verify-checkbox:checked,
+	.datetime-verify-checkbox:checked {
+		background-color: #059669;
+		border-color: #059669;
+	}
+
 	.denom-verify-checkbox:disabled {
 		cursor: not-allowed;
 		opacity: 0.5;

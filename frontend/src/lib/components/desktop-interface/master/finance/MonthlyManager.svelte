@@ -1697,6 +1697,11 @@
 		accent-color: var(--green-mid);
 	}
 
+	.payment-checkbox:checked {
+		background-color: var(--green-mid);
+		border-color: var(--green-mid);
+	}
+
 	.empty-payments-row {
 		text-align: center;
 		padding: 40px 20px !important;
