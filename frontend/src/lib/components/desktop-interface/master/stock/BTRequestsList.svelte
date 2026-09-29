@@ -88,11 +88,9 @@
 	let searchQuery = '';
 	let filterStatus = '';
 	let filterBranch = '';
+	let branchOptions: { id: number; label: string }[] = [];
 	let filterDateFrom = '';
 	let filterDateTo = '';
-
-	// Derived: unique branches for dropdown
-	$: branchOptions = [...new Set([...requests.map(r => r.from_branch_name), ...requests.map(r => r.to_branch_name)].filter(Boolean))] as string[];
 
 	$: filteredRequests = requests;
 
@@ -102,6 +100,7 @@
 		filterBranch = '';
 		filterDateFrom = '';
 		filterDateTo = '';
+		triggerReload();
 	}
 
 	$: hasActiveFilters = searchQuery || filterStatus || filterBranch || filterDateFrom || filterDateTo;
@@ -238,8 +237,29 @@
 	}
 
 	onMount(() => {
+		loadBranchOptions();
 		loadRequests();
 	});
+
+	async function loadBranchOptions() {
+		const { data, error: branchError } = await supabase
+			.from('branches')
+			.select('id, name_en, name_ar, location_en, location_ar')
+			.eq('is_active', true)
+			.order('name_en');
+
+		if (branchError) {
+			console.error('Error loading BT branch filter options:', branchError);
+			return;
+		}
+
+		const isAr = $locale === 'ar';
+		branchOptions = (data || []).map((branch: any) => {
+			const name = isAr ? (branch.name_ar || branch.name_en) : (branch.name_en || branch.name_ar);
+			const location = isAr ? (branch.location_ar || branch.location_en) : (branch.location_en || branch.location_ar);
+			return { id: branch.id, label: location ? `${name} — ${location}` : name };
+		});
+	}
 
 	function triggerReload() {
 		if (filterDebounce) clearTimeout(filterDebounce);
@@ -258,10 +278,11 @@
 		selectedRequestIds = new Set();
 		try {
 			// Single RPC call replaces 3 separate queries (requests + employees + branches)
-			const { data, error: err } = await supabase.rpc('get_bt_requests_with_details', {
+			const { data, error: err } = await supabase.rpc('get_bt_requests_with_details_filtered', {
 				p_limit: PAGE_SIZE,
 				p_offset: page * PAGE_SIZE,
 				p_status: filterStatus || null,
+				p_branch_id: filterBranch ? Number(filterBranch) : null,
 				p_search: searchQuery.trim() || null,
 				p_date_from: filterDateFrom || null,
 				p_date_to: filterDateTo || null
@@ -810,10 +831,10 @@
 						<option value="rejected">{$locale === 'ar' ? 'مرفوض' : 'Rejected'}</option>
 						<option value="completed">{$locale === 'ar' ? 'مكتمل' : 'Completed'}</option>
 					</select>
-					<select bind:value={filterBranch} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[120px]">
-						<option value="">{$locale === 'ar' ? 'كل الفروع' : 'All Branches'}</option>
+					<select bind:value={filterBranch} on:change={triggerReload} class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[120px]">
+						<option value="">{$locale === 'ar' ? 'كل فروع الوجهة' : 'All To Branches'}</option>
 						{#each branchOptions as branch}
-							<option value={branch}>{branch}</option>
+							<option value={branch.id}>{branch.label}</option>
 						{/each}
 					</select>
 					<div class="flex items-center gap-1">
