@@ -144,7 +144,7 @@
     let allEmployeesForDateWise: EmployeeForSelection[] = [];
     let dateWiseShifts: (EmployeeShift & {shift_date?: string})[] = [];
     let dayOffs: (EmployeeShift & {day_off_date?: string, approval_status?: string, reason_en?: string, reason_ar?: string, is_deductible_on_salary?: boolean, approval_requested_at?: string, day_off_reason_id?: string, _grouped?: boolean, _allIds?: string[], _allDates?: string[], _dateFrom?: string, _dateTo?: string, _dayCount?: number})[] = [];
-    let dayOffsWeekday: (EmployeeShift & {day_off_weekday?: number})[] = [];
+    let dayOffsWeekday: (EmployeeShift & {version_id?: number, weekdays?: number[], date_from?: string, date_to?: string | null})[] = [];
     let dayOffReasons: DayOffReason[] = [];
     let officialHolidays: OfficialHoliday[] = [];
     let showOfficialHolidayModal = false;
@@ -180,6 +180,8 @@
     let selectedEmployeeId: string | null = null;
     let selectedDeleteWeekday: number = 0;
     let selectedDayOffWeekday: number = 0;
+    let selectedDayOffWeekdays: number[] = [];
+    let selectedDayOffEffectiveDate: string = new Date().toISOString().split('T')[0];
     let isSaving = false;
     let employeeSearchQuery = '';
     let selectedDayOffDate: string = new Date().toISOString().split('T')[0];
@@ -560,7 +562,8 @@
                     await refreshCurrentTabData();
                 }
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday_versions' }, () => refreshCurrentTabData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday_version_days' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_reasons' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, () => refreshCurrentTabData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'nationalities' }, () => refreshCurrentTabData())
@@ -1105,9 +1108,9 @@
 
             // Get Leave weekday data
             const { data: dayOffWeekdayData, error: dayOffError } = await supabase
-                .from('day_off_weekday')
-                .select('*')
-                .order('weekday', { ascending: true });
+                .from('day_off_weekday_versions')
+                .select('id,employee_id,date_from,date_to,day_off_weekday_version_days(weekday)')
+                .order('date_from', { ascending: false });
 
             if (dayOffError && dayOffError.code !== 'PGRST116') throw dayOffError;
 
@@ -1118,7 +1121,8 @@
                 const nationality = emp ? nationalityMap.get(String(emp.nationality_id)) : null;
 
                 return {
-                    id: dayOff.id,
+                    id: String(dayOff.id),
+                    version_id: dayOff.id,
                     employee_id: dayOff.employee_id,
                     employee_name_en: emp?.name_en || 'N/A',
                     employee_name_ar: emp?.name_ar || 'N/A',
@@ -1132,7 +1136,9 @@
                     nationality_name_ar: nationality?.name_ar || 'N/A',
                     sponsorship_status: emp?.sponsorship_status,
                     employment_status: emp?.employment_status,
-                    day_off_weekday: dayOff.weekday
+                    weekdays: (dayOff.day_off_weekday_version_days || []).map((d: any) => d.weekday).sort(),
+                    date_from: dayOff.date_from,
+                    date_to: dayOff.date_to
                 };
             });
             
@@ -1160,7 +1166,10 @@
     function selectEmployeeForDayOffWeekday(employeeId: string) {
         selectedEmployeeId = employeeId;
         showDayOffWeekdayEmployeeSelectModal = false;
-        selectedDayOffWeekday = 0;
+        const today = new Date().toISOString().split('T')[0];
+        const current = dayOffsWeekday.find(v => v.employee_id === employeeId && (v.date_from || '') <= today && (!v.date_to || v.date_to >= today));
+        selectedDayOffWeekdays = [...(current?.weekdays || [])];
+        selectedDayOffEffectiveDate = today;
         showModal = true;
     }
 
@@ -1621,7 +1630,7 @@
     }
 
     async function saveDayOffWeekday() {
-        if (!selectedEmployeeId || selectedDayOffWeekday === null) {
+        if (!selectedEmployeeId || !selectedDayOffEffectiveDate) {
             alert($t('hr.shift.error_select_employee_weekday'));
             return;
         }
@@ -1629,47 +1638,22 @@
         isSaving = true;
         try {
             await initSupabase();
-            const dayOffId = `${selectedEmployeeId}-${selectedDayOffWeekday}`;
-
-            const { error } = await supabase
-                .from('day_off_weekday')
-                .upsert({
-                    id: dayOffId,
-                    employee_id: selectedEmployeeId,
-                    weekday: selectedDayOffWeekday,
-                    updated_at: new Date().toISOString()
-                }, {
-                    onConflict: 'id'
-                });
+            const { data: { session } } = await supabase.auth.getSession();
+            const { error } = await supabase.rpc('set_day_off_weekday_version', {
+                p_employee_id: selectedEmployeeId,
+                p_date_from: selectedDayOffEffectiveDate,
+                p_weekdays: selectedDayOffWeekdays,
+                p_created_by: session?.user?.id || null,
+                p_change_reason: 'Updated from Days Off window'
+            });
 
             if (error) throw error;
 
-            // Update local data
-            const dayOffIndex = dayOffsWeekday.findIndex(d => d.employee_id === selectedEmployeeId && d.day_off_weekday === selectedDayOffWeekday);
-            if (dayOffIndex === -1) {
-                // Add new Leave
-                const emp = allEmployeesForDateWise.find(e => e.id === selectedEmployeeId);
-                if (emp) {
-                    dayOffsWeekday = [{
-                        id: dayOffId,
-                        employee_id: selectedEmployeeId,
-                        employee_name_en: emp.employee_name_en,
-                        employee_name_ar: emp.employee_name_ar,
-                        branch_id: '',
-                        branch_name_en: emp.branch_name_en,
-                        branch_name_ar: emp.branch_name_ar,
-                        branch_location_en: '',
-                        branch_location_ar: '',
-                        nationality_id: '',
-                        nationality_name_en: 'N/A',
-                        nationality_name_ar: 'N/A',
-                        day_off_weekday: selectedDayOffWeekday
-                    }, ...dayOffsWeekday];
-                }
-            }
+            await recalculateDayOffDependents(selectedEmployeeId, selectedDayOffEffectiveDate);
 
             showModal = false;
             selectedEmployeeId = null;
+            await loadDayOffWeekdayData();
         } catch (err) {
             console.error('Error saving Leave weekday:', err);
             alert($t('hr.shift.error_failed_save_day_off') + (err instanceof Error ? err.message : $t('common.unknown_error')));
@@ -1678,20 +1662,34 @@
         }
     }
 
-    async function deleteDayOffWeekday(dayOffId: string, employeeId: string, weekday: number) {
+    async function recalculateDayOffDependents(employeeId: string, dateFrom: string) {
+        const today = new Date().toISOString().split('T')[0];
+        if (dateFrom > today) return;
+        const [attendance, breaks] = await Promise.all([
+            supabase.functions.invoke('analyze-attendance', { body: { employeeId, dateFrom, dateTo: today } }),
+            supabase.functions.invoke('analyze-breaks', { body: { employeeId, dateFrom, dateTo: today } })
+        ]);
+        if (attendance.error) throw attendance.error;
+        if (breaks.error) throw breaks.error;
+    }
+
+    async function deleteDayOffWeekday(versionId: number, employeeId: string, dateFrom: string) {
         if (!confirm($t('hr.shift.confirm_delete_day_off'))) return;
 
         try {
             await initSupabase();
-            const { error } = await supabase
-                .from('day_off_weekday')
-                .delete()
-                .eq('id', dayOffId);
+            const { data: { session } } = await supabase.auth.getSession();
+            const { error } = await supabase.rpc('delete_day_off_weekday_version', {
+                p_version_id: versionId,
+                p_deleted_by: session?.user?.id || null,
+                p_reason: 'Deleted mistaken version from Days Off window'
+            });
 
             if (error) throw error;
 
-            // Update local data
-            dayOffsWeekday = dayOffsWeekday.filter(d => !(d.employee_id === employeeId && d.day_off_weekday === weekday));
+            await recalculateDayOffDependents(employeeId, dateFrom);
+
+            await loadDayOffWeekdayData();
         } catch (err) {
             console.error('Error deleting Leave weekday:', err);
             alert($t('hr.shift.error_failed_delete') + (err instanceof Error ? err.message : $t('common.unknown_error')));
@@ -4351,6 +4349,7 @@
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.branch')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.nationality')}</th>
                                             <th class="px-4 py-3 {$locale === 'ar' ? 'text-right' : 'text-left'} text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('hr.shift.day_off_weekday')}</th>
+                                            <th class="px-4 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">Effective dates</th>
                                             <th class="px-4 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('common.action')}</th>
                                         </tr>
                                     </thead>
@@ -4371,11 +4370,12 @@
                                                     <div>{formatNationalityDisplay(dayOff)}</div>
                                                     <div class="text-xs text-slate-400">{getSponsorshipStatusDisplay(dayOff.sponsorship_status).text}</div>
                                                 </td>
-                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{weekdayNames[dayOff.day_off_weekday]}</td>
+                                                <td class="px-4 py-3 text-sm font-semibold text-slate-800">{(dayOff.weekdays || []).map((d: number) => weekdayNames[d]).join(', ') || 'No weekly day off'}</td>
+                                                <td class="px-4 py-3 text-sm text-slate-700">{dayOff.date_from} → {dayOff.date_to || 'Current'}</td>
                                                 <td class="px-4 py-3 text-sm text-center">
                                                     <button 
                                                         class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
-                                                        on:click={() => deleteDayOffWeekday(dayOff.id, dayOff.employee_id, dayOff.day_off_weekday)}
+                                                        on:click={() => deleteDayOffWeekday(dayOff.version_id!, dayOff.employee_id, dayOff.date_from!)}
                                                         title={$t('hr.shift.delete_day_off_tooltip')}
                                                     >
                                                         🗑️
@@ -4944,17 +4944,18 @@
                 {#if activeTab === 'Leave (weekday-wise)'}
                     <!-- Leave Weekday Selection -->
                     <div>
-                        <label for="dayoff-weekday-select" class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.day_off_weekday')}</label>
-                        <select 
-                            id="dayoff-weekday-select"
-                            bind:value={selectedDayOffWeekday}
-                            class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            style="color: #000000 !important; background-color: #ffffff !important;"
-                        >
+                        <label for="dayoff-effective-date" class="block text-sm font-bold text-slate-700 mb-2">Effective start date</label>
+                        <input id="dayoff-effective-date" type="date" bind:value={selectedDayOffEffectiveDate} class="w-full px-3 py-2 mb-4 border border-slate-300 rounded-lg" />
+                        <label class="block text-sm font-bold text-slate-700 mb-2">{$t('hr.shift.day_off_weekday')}</label>
+                        <div class="grid grid-cols-2 gap-2">
                             {#each weekdayNames as day, index}
-                                <option value={index} style="color: #000000 !important; background-color: #ffffff !important;">{day}</option>
+                                <label class="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg">
+                                    <input type="checkbox" value={index} bind:group={selectedDayOffWeekdays} />
+                                    <span>{day}</span>
+                                </label>
                             {/each}
-                        </select>
+                        </div>
+                        <p class="mt-2 text-xs text-slate-500">Saving creates a new complete version. Existing or future versions with conflicting dates must be deleted first.</p>
                     </div>
                 {/if}
 

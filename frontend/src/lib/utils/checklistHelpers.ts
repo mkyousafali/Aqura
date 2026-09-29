@@ -40,7 +40,7 @@ export function getSaudiDayOfWeek(): string {
  * Check if employee has a day off on a specific day
  * Checks both recurring weekly day offs and specific date day offs
  */
-export async function isEmployeeDayOff(employeeId: string, checkDate?: Date): boolean {
+export async function isEmployeeDayOff(employeeId: string, checkDate?: Date): Promise<boolean> {
   const date = checkDate || getSaudiArabiaTime();
   const dayOfWeekNumber = date.getDay(); // 0-6 (0=Sunday, 1=Monday, etc.)
   const dateString = date.toISOString().split('T')[0];
@@ -48,10 +48,12 @@ export async function isEmployeeDayOff(employeeId: string, checkDate?: Date): bo
   try {
     // Check for weekly recurring day off (one row per employee-weekday that's a day off)
     const { data: weekdayOff, error: weekError } = await supabase
-      .from('day_off_weekday')
-      .select('*')
+      .from('day_off_weekday_versions')
+      .select('id,day_off_weekday_version_days!inner(weekday)')
       .eq('employee_id', employeeId)
-      .eq('weekday', dayOfWeekNumber)
+      .lte('date_from', dateString)
+      .or(`date_to.is.null,date_to.gte.${dateString}`)
+      .eq('day_off_weekday_version_days.weekday', dayOfWeekNumber)
       .maybeSingle();
 
     if (!weekError && weekdayOff) {

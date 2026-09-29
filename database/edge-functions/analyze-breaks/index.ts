@@ -163,13 +163,13 @@ Deno.serve(async (req) => {
       loadSlots('hr_regular_shift_versions', 'hr_regular_shift_slots'),
       loadSlots('hr_special_shift_weekday_versions', 'hr_special_shift_weekday_slots'),
       loadSlots('hr_special_shift_date_wise_versions', 'hr_special_shift_date_wise_slots'),
-      supabase.from('day_off_weekday').select('employee_id,weekday').in('employee_id', employeeIds),
+      supabase.from('day_off_weekday_versions').select('employee_id,date_from,date_to,day_off_weekday_version_days(weekday)').in('employee_id', employeeIds),
       supabase.from('day_off').select('employee_id,day_off_date,approval_status').in('employee_id', employeeIds).eq('approval_status', 'approved'),
       supabase.from('employee_official_holidays').select('employee_id,official_holidays(holiday_date)').in('employee_id', employeeIds),
     ])
     for (const result of [weeklyOffs, specificOffs, holidays]) if (result.error) throw result.error
     const schedules: Schedules = { regular, weekday: weekdaySlots, dateWise }
-    const weeklyOffSet = new Set((weeklyOffs.data || []).map((r: any) => `${r.employee_id}__${r.weekday}`))
+    const weeklyOffVersions = weeklyOffs.data || []
     const specificOffSet = new Set((specificOffs.data || []).map((r: any) => `${r.employee_id}__${r.day_off_date}`))
     const holidaySet = new Set((holidays.data || [])
       .filter((r: any) => r.official_holidays?.holiday_date)
@@ -181,7 +181,9 @@ Deno.serve(async (req) => {
       let exception: string | null = null
       if (specificOffSet.has(key)) exception = 'approved_day_off'
       else if (holidaySet.has(key)) exception = 'official_holiday'
-      else if (weeklyOffSet.has(`${raw.employee_id}__${weekday(assigned.date)}`)) exception = 'weekly_day_off'
+      else if (weeklyOffVersions.some((v: any) => String(v.employee_id) === String(raw.employee_id)
+        && v.date_from <= assigned.date && (!v.date_to || v.date_to >= assigned.date)
+        && (v.day_off_weekday_version_days || []).some((d: any) => d.weekday === weekday(assigned.date)))) exception = 'weekly_day_off'
       else if (!assigned.slot) exception = 'no_matching_shift'
       const slot = assigned.slot
       return {

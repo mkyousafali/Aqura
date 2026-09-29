@@ -124,11 +124,12 @@ function getApplicableShift(
   return regMatch || null;
 }
 
-function isOfficialDayOff(empId: string, dateStr: string, employeeDayOffs: Map<string, any>): boolean {
-  const dayOffWD = employeeDayOffs.get(String(empId));
+function isOfficialDayOff(empId: string, dateStr: string, employeeDayOffs: Map<string, any[]>): boolean {
+  const versions = employeeDayOffs.get(String(empId)) || [];
+  const dayOffWD = versions.find(v => v.date_from <= dateStr && (!v.date_to || v.date_to >= dateStr));
   if (!dayOffWD) return false;
   const dayNum = getWeekdayInSaudi(dateStr);
-  return dayNum === dayOffWD.weekday;
+  return (dayOffWD.day_off_weekday_version_days || []).some((d: any) => dayNum === d.weekday);
 }
 
 function getSpecificDayOff(empId: string, dateStr: string, employeeSpecificDayOffs: Map<string, any[]>): any {
@@ -246,7 +247,7 @@ function analyzeEmployeeDays(
   datesInRange: string[],
   txnsByShiftDate: Map<string, any[]>,
   employeeShifts: Map<string, any>,
-  employeeDayOffs: Map<string, any>,
+  employeeDayOffs: Map<string, any[]>,
   employeeSpecificDayOffs: Map<string, any[]>,
   employeeSpecialShiftsDateWise: Map<string, any[]>,
   employeeSpecialShiftsWeekday: Map<string, any[]>,
@@ -599,12 +600,16 @@ Deno.serve(async (req) => {
     // Parse optional parameters (for manual trigger)
     let rollingDays = 45;
     let specificEmployeeId: string | null = null;
+    let requestedStartDate: string | null = null;
+    let requestedEndDate: string | null = null;
 
     if (req.method === 'POST') {
       try {
         const body = await req.json();
         if (body.rollingDays) rollingDays = body.rollingDays;
         if (body.employeeId) specificEmployeeId = body.employeeId;
+        if (typeof body.dateFrom === 'string') requestedStartDate = body.dateFrom;
+        if (typeof body.dateTo === 'string') requestedEndDate = body.dateTo;
       } catch (_) {
         // No body or invalid JSON - use defaults
       }
@@ -613,10 +618,11 @@ Deno.serve(async (req) => {
     console.log(`📊 [Analyze Attendance] Starting analysis. Rolling window: ${rollingDays} days`);
 
     // ---- Calculate date range (Saudi timezone) ----
-    const endDate = getSaudiDateStr(); // Today in Saudi Arabia
-    const startDateObj = new Date(endDate + 'T12:00:00Z');
-    startDateObj.setDate(startDateObj.getDate() - rollingDays);
-    const startDate = startDateObj.toISOString().split('T')[0];
+    const endDate = requestedEndDate || getSaudiDateStr();
+    const startDateObj = requestedStartDate ? new Date(requestedStartDate + 'T12:00:00Z') : new Date(endDate + 'T12:00:00Z');
+    if (!requestedStartDate) startDateObj.setDate(startDateObj.getDate() - rollingDays);
+    const startDate = requestedStartDate || startDateObj.toISOString().split('T')[0];
+    if (startDate > endDate) throw new Error('dateFrom must be on or before dateTo');
 
     // Generate dates in range
     const datesInRange: string[] = [];
@@ -704,7 +710,7 @@ Deno.serve(async (req) => {
       { data: overtimeData },
     ] = await Promise.all([
       supabase.from('processed_fingerprint_transactions').select('*').in('center_id', empIds).gte('punch_date', extStart).lte('punch_date', extEnd),
-      supabase.from('day_off_weekday').select('*').in('employee_id', empIds),
+      supabase.from('day_off_weekday_versions').select('id,employee_id,date_from,date_to,day_off_weekday_version_days(weekday)').in('employee_id', empIds),
       supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds),
       supabase.from('employee_official_holidays').select('employee_id, official_holidays(holiday_date)').in('employee_id', empIds),
       supabase.from('overtime_registrations').select('*').in('employee_id', empIds),
@@ -789,7 +795,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    const employeeDayOffs = new Map(dayOffWeekdays?.map((d: any) => [String(d.employee_id), d]));
+    const employeeDayOffs = new Map<string, any[]>();
+    dayOffWeekdays?.forEach((d: any) => {
+      const key = String(d.employee_id);
+      const list = employeeDayOffs.get(key) || [];
+      list.push(d);
+      employeeDayOffs.set(key, list);
+    });
 
     const employeeSpecificDayOffs = new Map<string, any[]>();
     specificDayOffs?.forEach((d: any) => {

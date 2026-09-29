@@ -2481,20 +2481,21 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				.subscribe();
 			subscriptions.push(shiftSub);
 
-			// Subscribe to day_off_weekday changes
+			// Subscribe to effective-dated day-off weekday changes
 			const dayOffWeekdaySub = supabase
 				.channel('day_off_weekday_changes')
 				.on('postgres_changes', {
 					event: '*',
 					schema: 'public',
-					table: 'day_off_weekday'
+					table: 'day_off_weekday_versions'
 				}, (payload) => {
 					console.log('📡 Day off weekday changed:', payload);
 					debouncedReload();
 				})
+				.on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday_version_days' }, () => debouncedReload())
 				.on('subscribe', (status) => {
 					if (status === 'SUBSCRIBED') {
-						console.log('✅ Subscribed to day_off_weekday');
+						console.log('✅ Subscribed to day-off weekday versions');
 					}
 				})
 				.subscribe();

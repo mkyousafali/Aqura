@@ -31,6 +31,7 @@
 	let regularShift: any = null;
 	let regularShiftVersions: any[] = []; // all versions with date_from/date_to, for per-date resolution
 	let dayOffWeekday: any = null;
+	let dayOffWeekdayVersions: any[] = [];
 	let dayOffDates: any[] = [];
 	let specialShiftDateWise: any[] = [];
 	let specialShiftWeekday: any[] = [];
@@ -168,8 +169,11 @@
 				?? null;
 
 			// Day off data (unchanged)
-			const { data: dayOffWData } = await supabase.from('day_off_weekday').select('*').eq('employee_id', employee.id);
-			dayOffWeekday = dayOffWData && dayOffWData.length > 0 ? dayOffWData[0] : null;
+			const { data: dayOffWData } = await supabase.from('day_off_weekday_versions')
+				.select('id,employee_id,date_from,date_to,day_off_weekday_version_days(weekday)')
+				.eq('employee_id', employee.id).order('date_from', { ascending: false });
+			dayOffWeekdayVersions = dayOffWData || [];
+			dayOffWeekday = dayOffWeekdayVersions.find(v => !v.date_to) || dayOffWeekdayVersions[0] || null;
 			const { data: dayOffDatesData } = await supabase.from('day_off').select('*, day_off_reasons(*)').eq('employee_id', employee.id);
 			dayOffDates = dayOffDatesData || [];
 
@@ -241,12 +245,15 @@
 				},
 				async () => { await loadEmployeeData(); await loadTransactions(); }
 			)
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'day_off_weekday_version_days' }, async () => {
+				await loadEmployeeData(); await loadTransactions();
+			})
 			.on(
 				'postgres_changes',
 				{
 					event: '*',
 					schema: 'public',
-					table: 'day_off_weekday',
+					table: 'day_off_weekday_versions',
 					filter: `employee_id=eq.${employee.id}`
 				},
 				async () => { await loadEmployeeData(); await loadTransactions(); }
@@ -802,10 +809,20 @@
 		return date.getDay(); // 0 = Sunday, 1 = Monday, etc.
 	}
 
+	function toIsoDate(dateStr: string): string {
+		if (!dateStr) return '';
+		const parts = dateStr.split('-');
+		if (parts.length !== 3) return dateStr;
+		// Employee Analysis display dates are DD-MM-YYYY; database ranges are YYYY-MM-DD.
+		return parts[0].length === 4 ? dateStr : `${parts[2]}-${parts[1]}-${parts[0]}`;
+	}
+
 	function isOfficialDayOff(dateStr: string): boolean {
-		if (!dayOffWeekday) return false;
+		const isoDate = toIsoDate(dateStr);
+		const version = dayOffWeekdayVersions.find(v => v.date_from <= isoDate && (!v.date_to || v.date_to >= isoDate));
+		if (!version) return false;
 		const dateWeekday = getDayNameFromDate(dateStr);
-		return dateWeekday === dayOffWeekday.weekday;
+		return (version.day_off_weekday_version_days || []).some((d: any) => dateWeekday === d.weekday);
 	}
 
 	function isOfficialHoliday(dateStr: string): boolean {
@@ -2619,7 +2636,7 @@
 					{#if dayOffWeekday}
 						<div class="bg-orange-50/50 px-3 py-1 flex flex-col items-center">
 							<span class="text-[8px] font-bold text-orange-500 ml-0.5">{$t('hr.shift.day_off')}</span>
-							<span class="text-[11px] font-bold text-orange-700 leading-none h-3">{dayOffWeekday.weekday !== undefined ? getDayName(dayOffWeekday.weekday) : '-'}</span>
+							<span class="text-[11px] font-bold text-orange-700 leading-none h-3">{(dayOffWeekday.day_off_weekday_version_days || []).map((d: any) => getDayName(d.weekday)).join(', ') || '-'}</span>
 						</div>
 					{/if}
 				</div>
