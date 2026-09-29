@@ -79,6 +79,13 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
     if (branchError || employeeError) throw branchError || employeeError;
     const allowedBranches = actor.isMasterAdmin ? (branches || []) : (branches || []).filter(b => Number(b.id) === ownBranch);
     const allowedEmployees = (employees || []).filter(e => actor.isMasterAdmin || Number(e.current_branch_id) === ownBranch);
+	if (mode === 'sync-status') {
+		const { data: statuses, error: statusError } = await db.rpc('get_sync_app_statuses');
+		if (statusError) throw statusError;
+		return json({
+			statuses: (statuses || []).filter((status: any) => actor.isMasterAdmin || Number(status.branch_id) === ownBranch)
+		}, { headers: { 'Cache-Control': 'no-store' } });
+	}
     if (mode === 'options') {
       return json({ branches: allowedBranches, users: allowedEmployees.map(e => ({ id: e.user_id,
         nameEn: e.name_en || '', nameAr: e.name_ar || '', branchId: Number(e.current_branch_id) })) },

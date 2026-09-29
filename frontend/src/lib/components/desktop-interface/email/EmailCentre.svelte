@@ -382,7 +382,7 @@
 					<span class="star-btn" on:click|stopPropagation={() => toggleStar(msg)} on:keydown|stopPropagation={() => {}} role="button" tabindex="0">{msg.is_starred ? '⭐' : '☆'}</span>
 						<div class="msg-content">
 							<div class="msg-top">
-								<span class="msg-from">{msg.direction === 'inbound' ? (msg.from_name || msg.from_address) : 'To: recipients'}</span>
+								<span class="msg-from">{msg.direction === 'inbound' ? (msg.from_name || msg.from_address) : `To: ${msg.to_address || 'Unknown recipient'}`}</span>
 								<span class="msg-date">{formatDate(msg.latest_at)}</span>
 							</div>
 							<div class="msg-subject">

@@ -26,6 +26,20 @@ body.desktop-mode :where(input, select, textarea):focus {
   outline: none;
 }
 
+/* Tailwind Forms renders native checkboxes with a near-black checked state.
+   Use the desktop action colour so selected boxes remain obvious at the
+   compact sizes used throughout desktop windows. */
+body.desktop-mode input[type="checkbox"]:checked,
+body.desktop-mode input[type="checkbox"]:indeterminate {
+  background-color: #079FD0;
+  border-color: #034C8C;
+}
+
+body.desktop-mode input[type="checkbox"]:focus-visible {
+  outline: 2px solid #10DCE5;
+  outline-offset: 2px;
+}
+
 body.desktop-mode :where(.modal-content, .dialog-content, .popup-content, .dropdown-menu, .popover-content) {
   background: #FFFFFF;
   color: #111827;

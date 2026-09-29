@@ -3,6 +3,7 @@
 	import { _ as t, currentLocale } from '$lib/i18n';
 
 	export let hideHeader = false;
+	export let lockedBranchId: number | null = null;
 
 	interface BranchOption {
 		branch_id: number;
@@ -769,9 +770,12 @@
 						tunnel_url: c.tunnel_url,
 						erp_branch_id: c.erp_branch_id
 					};
-				});
+				})
+				.filter((branch) => lockedBranchId == null || branch.branch_id === lockedBranchId);
 
-			if (branches.length > 0 && !selectedBranchId) {
+			if (lockedBranchId != null) {
+				selectedBranchId = branches.some((branch) => branch.branch_id === lockedBranchId) ? lockedBranchId : null;
+			} else if (branches.length > 0 && !selectedBranchId) {
 				selectedBranchId = branches[0].branch_id;
 			}
 		} catch (err: any) {
@@ -783,10 +787,10 @@
 	}
 
 	async function runQuery(sql: string, branchId: number): Promise<any[]> {
-		const response = await fetch('/api/erp-products', {
+		const response = await fetch('/api/drawer-erp-query', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ action: 'query', branchId, sql })
+			body: JSON.stringify({ branchId, sql })
 		});
 		const data = await response.json();
 		if (!data.success) throw new Error(data.error || $t('userActionReports.queryFailed'));
@@ -834,6 +838,9 @@
 
 	async function loadReport() {
 		if (!selectedBranchId) return;
+		if (lockedBranchId != null && selectedBranchId !== lockedBranchId) {
+			selectedBranchId = lockedBranchId;
+		}
 		if (!DATE_RE.test(dateFrom) || !DATE_RE.test(dateTo)) {
 			errorMessage = $t('userActionReports.invalidDateFormat');
 			return;
@@ -1154,7 +1161,7 @@
 	<div class="filters-panel">
 		<div class="filter-field">
 			<label for="branch-select">{$t('common.branch')}</label>
-			<select id="branch-select" bind:value={selectedBranchId} disabled={loadingBranches}>
+			<select id="branch-select" bind:value={selectedBranchId} disabled={loadingBranches || lockedBranchId != null}>
 				{#each branches as b}
 					<option value={b.branch_id}>{getBranchDisplayName(b)}</option>
 				{/each}

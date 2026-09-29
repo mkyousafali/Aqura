@@ -3,6 +3,7 @@
 
   export let kind: 'safeBox' | 'cashier';
   export let active = false;
+  export let lockedBranchId: number | null = null;
 
   type Branch = { id: number; name_en: string; name_ar: string };
   type User = { id: string; nameEn: string; nameAr: string; branchId: number };
@@ -55,6 +56,8 @@
       if (!response.ok) throw new Error(data.error || 'Could not load report filters.');
       branches = data.branches || [];
       users = data.users || [];
+      if (lockedBranchId != null) branchId = String(lockedBranchId);
+      else if (branches.length === 1) branchId = String(branches[0].id);
       await loadRows();
     } catch (cause) { error = cause instanceof Error ? cause.message : 'Could not load report filters.'; }
   }
@@ -92,7 +95,7 @@
   function applyFilters() { page = 0; void loadRows(); }
   function searchChanged() { clearTimeout(searchTimer); searchTimer = setTimeout(applyFilters, 350); }
   function resetFilters() {
-    from = ''; to = ''; branchId = ''; userId = ''; action = ''; status = ''; search = '';
+    from = ''; to = ''; branchId = lockedBranchId != null ? String(lockedBranchId) : ''; userId = ''; action = ''; status = ''; search = '';
     clearTimeout(searchTimer); applyFilters();
   }
   function branchChanged() { userId = ''; applyFilters(); }
@@ -130,8 +133,8 @@
   <div class="audit-filters">
     <label>From Date<input type="date" bind:value={from} on:change={applyFilters} /></label>
     <label>To Date<input type="date" bind:value={to} on:change={applyFilters} /></label>
-    <label>Branch<select bind:value={branchId} on:change={branchChanged} disabled={branches.length <= 1}>
-      <option value="">All permitted branches</option>
+    <label>Branch<select bind:value={branchId} on:change={branchChanged} disabled={lockedBranchId != null || branches.length <= 1}>
+      {#if lockedBranchId == null}<option value="">All permitted branches</option>{/if}
       {#each branches as item}<option value={item.id}>{branchLabel(item)}</option>{/each}
     </select></label>
     <label>User<select bind:value={userId} on:change={applyFilters}>

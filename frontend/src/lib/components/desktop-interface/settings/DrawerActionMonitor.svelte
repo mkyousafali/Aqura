@@ -40,6 +40,8 @@
 	}
 
 	let activeTab: 'useractions' | 'livecheck' | 'syncstatus' | 'erpcounters' | 'safebox' | 'cashiercounter' = 'useractions';
+	$: isMasterAdmin = Boolean($currentUser?.isMasterAdmin);
+	$: assignedBranchId = isMasterAdmin ? null : Number($currentUser?.branch_id || 0) || null;
 
 	let branches: BranchOption[] = [];
 	let loadingBranches = true;
@@ -178,7 +180,9 @@
 				.select('branch_id, tunnel_url, erp_branch_id')
 				.eq('is_active', true);
 			if (error) throw error;
-			erpConnections = (data || []).filter((c: any) => c.tunnel_url);
+			erpConnections = (data || []).filter((c: any) =>
+				c.tunnel_url && (isMasterAdmin || (assignedBranchId != null && Number(c.branch_id) === assignedBranchId))
+			);
 			if (erpConnections.length > 0 && !lcSelectedBranchId) {
 				lcSelectedBranchId = erpConnections[0].branch_id;
 			}
@@ -188,10 +192,10 @@
 	}
 
 	async function runLiveErpQuery(sql: string, branchId: number): Promise<any[]> {
-		const response = await fetch('/api/erp-products', {
+		const response = await fetch('/api/drawer-erp-query', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ action: 'query', branchId, sql })
+			body: JSON.stringify({ branchId, sql })
 		});
 		const data = await response.json();
 		if (!data.success) throw new Error(data.error || $t('drawerMonitor.liveErpQueryFailed'));
@@ -377,7 +381,9 @@
 				.eq('is_active', true)
 				.order('name_en');
 			if (error) throw error;
-			branches = data || [];
+			branches = (data || []).filter((branch: BranchOption) =>
+				isMasterAdmin || (assignedBranchId != null && Number(branch.id) === assignedBranchId)
+			);
 		} catch (err: any) {
 			console.error('Error loading branches:', err);
 			errorMessage = err.message || $t('drawerMonitor.failedToLoadBranches');
@@ -512,23 +518,26 @@
 	// ever offers branches that actually have a Sync App device reporting in.
 	$: syncStatusBranchOptions = Array.from(
 		syncStatuses
-			.filter((s) => s.branch_id != null)
+			.filter((s) => s.branch_id != null && (isMasterAdmin || s.branch_id === assignedBranchId))
 			.reduce((map, s) => map.set(s.branch_id as number, s.branch_name || $t('drawerMonitor.branchFallback', { id: s.branch_id })), new Map<number, string>())
 			.entries()
 	).sort((a, b) => a[1].localeCompare(b[1]));
 
 	$: filteredSyncStatuses = syncStatuses.filter(
-		(s) => !syncStatusSelectedBranchId || s.branch_id === syncStatusSelectedBranchId
+		(s) => (isMasterAdmin || s.branch_id === assignedBranchId) && (!syncStatusSelectedBranchId || s.branch_id === syncStatusSelectedBranchId)
 	);
 
 	async function loadSyncStatuses() {
 		syncStatusLoading = true;
 		syncStatusError = '';
 		try {
-			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase.rpc('get_sync_app_statuses');
-			if (error) throw error;
-			syncStatuses = data || [];
+			const response = await fetch('/api/drawer-action-audit?mode=sync-status', { cache: 'no-store' });
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.error || $t('drawerMonitor.failedToLoadSyncStatuses'));
+			syncStatuses = (result.statuses || []).filter((status: SyncAppStatus) =>
+				isMasterAdmin || status.branch_id === assignedBranchId
+			);
+			if (!isMasterAdmin) syncStatusSelectedBranchId = assignedBranchId;
 		} catch (err: any) {
 			syncStatusError = err.message || $t('drawerMonitor.failedToLoadSyncStatuses');
 		} finally {
@@ -620,7 +629,9 @@
 			console.error('Error loading erp_counters:', error);
 			return;
 		}
-		erpCounters = data || [];
+		erpCounters = (data || []).filter((counter: ErpCounterRow) =>
+			isMasterAdmin || counter.branch_id === assignedBranchId
+		);
 	}
 
 	async function syncErpCounters() {
@@ -705,14 +716,14 @@
 
 	<div class="tab-content">
 	<div class="embedded-user-actions" style:display={activeTab === 'safebox' ? 'block' : 'none'}>
-		<DrawerAuditActions kind="safeBox" active={activeTab === 'safebox'} />
+		<DrawerAuditActions kind="safeBox" active={activeTab === 'safebox'} lockedBranchId={assignedBranchId} />
 	</div>
 	<div class="embedded-user-actions" style:display={activeTab === 'cashiercounter' ? 'block' : 'none'}>
-		<DrawerAuditActions kind="cashier" active={activeTab === 'cashiercounter'} />
+		<DrawerAuditActions kind="cashier" active={activeTab === 'cashiercounter'} lockedBranchId={assignedBranchId} />
 	</div>
 	{#if activeTab === 'useractions'}
 	<div class="embedded-user-actions">
-		<UserActionReports hideHeader />
+		<UserActionReports hideHeader lockedBranchId={assignedBranchId} />
 	</div>
 	{/if}
 
@@ -721,7 +732,7 @@
 	<div class="filters-panel">
 		<div class="filter-field">
 			<label for="lc-branch-select">{$t('common.branch')}</label>
-			<select id="lc-branch-select" bind:value={lcSelectedBranchId}>
+			<select id="lc-branch-select" bind:value={lcSelectedBranchId} disabled={!isMasterAdmin}>
 				{#each branches.filter((b) => erpConnections.some((c) => c.branch_id === b.id)) as b}
 					<option value={b.id}>{branchDisplayName(b)}</option>
 				{/each}
@@ -845,8 +856,8 @@
 	<div class="filters-panel">
 		<div class="filter-field">
 			<label for="sync-status-branch-select">{$t('common.branch')}</label>
-			<select id="sync-status-branch-select" bind:value={syncStatusSelectedBranchId}>
-				<option value={null}>{$t('drawerMonitor.allBranches')}</option>
+			<select id="sync-status-branch-select" bind:value={syncStatusSelectedBranchId} disabled={!isMasterAdmin}>
+				{#if isMasterAdmin}<option value={null}>{$t('drawerMonitor.allBranches')}</option>{/if}
 				{#each syncStatusBranchOptions as [id, name]}
 					<option value={id}>{name}</option>
 				{/each}
