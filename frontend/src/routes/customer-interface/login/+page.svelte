@@ -30,7 +30,7 @@
 		checkExistingAuth();
 	});
 
-	function checkExistingAuth() {
+	async function checkExistingAuth() {
 		// Check employee auth
 		if ($isAuthenticated && $currentUser) {
 			goto('/customer-interface');
@@ -42,8 +42,15 @@
 			if (customerSession) {
 				const data = JSON.parse(customerSession);
 				if (data?.customer_id && data?.registration_status === 'approved') {
-					goto('/customer-interface');
-					return;
+					const response = await fetch('/api/auth/customer-session', {
+						method: 'GET',
+						cache: 'no-store'
+					}).catch(() => null);
+					if (response?.ok) {
+						goto('/customer-interface');
+						return;
+					}
+					localStorage.removeItem('customer_session');
 				}
 			}
 		} catch {}

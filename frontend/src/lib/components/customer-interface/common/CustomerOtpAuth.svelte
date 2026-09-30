@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte';
-  import { supabase, getEdgeFunctionUrl } from '$lib/utils/supabase';
+  import { getEdgeFunctionUrl } from '$lib/utils/supabase';
   import { currentLocale } from '$lib/i18n';
 
   export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
@@ -129,12 +129,16 @@
     loading = true;
     error = '';
     try {
-      const { data, error: rpcError } = await supabase.rpc('verify_customer_auth_otp', {
-        p_whatsapp_number: normalizedPhone,
-        p_otp: otp,
-        p_purpose: purpose
+      const response = await fetch('/api/auth/customer-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          whatsappNumber: normalizedPhone,
+          otp,
+          purpose
+        })
       });
-      if (rpcError) throw rpcError;
+      const data = await response.json().catch(() => ({}));
       if (!data?.success) {
         if (data?.error === 'locked') applyLockout(data.locked_until);
         const attempts = data?.attempts_remaining != null ? ` (${data.attempts_remaining} attempts remaining)` : '';

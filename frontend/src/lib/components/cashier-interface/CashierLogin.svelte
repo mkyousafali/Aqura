@@ -80,49 +80,26 @@
 			loading = true;
 			error = '';
 
-			// Authenticate with quick access code via RPC (bcrypt verification)
-			const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_quick_access_code', {
-				p_code: accessCode
+			// Authenticate on the server and establish the signed HttpOnly
+			// Cashier session before exposing any user information to the UI.
+			const response = await fetch('/api/auth/cashier-session', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ quickAccessCode: accessCode })
 			});
+			const result = await response.json().catch(() => ({}));
 
-			if (verifyError || !verifyResult || !verifyResult.success) {
-				error = 'Invalid access code';
+			if (!response.ok || !result?.success || !result?.user) {
+				error = result?.error || 'Invalid access code';
 				accessDigits = ['', '', '', '', '', ''];
 				accessCode = '';
 				return;
 			}
 
-			const userData = verifyResult.user;
-
-			// Check cashier permission
-			const { data: permissionData, error: permissionError } = await supabase
-				.from('interface_permissions')
-				.select('cashier_enabled')
-				.eq('user_id', userData.id)
-				.single();
-
-			if (permissionError || !permissionData || permissionData.cashier_enabled !== true) {
-				error = t('auth.cashierAccessDenied') || 'Access denied. Cashier permission is disabled for this user.';
-				accessDigits = ['', '', '', '', '', ''];
-				accessCode = '';
-				return;
-			}
-
-			// Employee master is linked directly to users through user_id.
-			let employeeNameEn = userData.username;
-			let employeeNameAr = userData.username;
-			let employeeBranchId = userData.branch_id;
-			const { data: employeeData } = await supabase
-				.from('hr_employee_master')
-				.select('name_en, name_ar, current_branch_id')
-				.eq('user_id', userData.id)
-				.maybeSingle();
-
-			if (employeeData) {
-				employeeNameEn = employeeData.name_en || employeeData.name_ar || userData.username;
-				employeeNameAr = employeeData.name_ar || employeeData.name_en || userData.username;
-				employeeBranchId = employeeData.current_branch_id ?? employeeBranchId;
-			}
+			const userData = result.user;
+			const employeeNameEn = userData.name_en || userData.name_ar || userData.username;
+			const employeeNameAr = userData.name_ar || userData.name_en || userData.username;
+			const employeeBranchId = userData.branch_id;
 
 			authenticatedUser = {
 				...userData,
@@ -178,7 +155,7 @@
 		if (isWindowsApp() && authenticatedUser?.id) {
 			try {
 				loading = true;
-				sessionToken = await claimWindowsCashierSession(authenticatedUser.id);
+				sessionToken = await claimWindowsCashierSession();
 				if (!sessionToken) {
 					error = 'Failed to register this device. Please try again.';
 					return;
@@ -206,6 +183,7 @@
 	}
 
 	function goBack() {
+		if (authenticatedUser) void releaseWindowsCashierSession();
 		step = 'accessCode';
 		error = '';
 		accessDigits = ['', '', '', '', '', ''];

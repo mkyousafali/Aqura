@@ -73,10 +73,9 @@
 		currentUser.set(null);
 		isAuthenticated.set(false);
 		
-		// Try to restore cashier session from sessionStorage
-		const session = initCashierSession();
-		
-		if (session) {
+		// Restore only after the signed server cookie confirms the stored user.
+		void initCashierSession().then(session => {
+			if (!session) return;
 			cashierUser = session.user;
 			selectedBranch = session.branch;
 			isLoggedIn = true;
@@ -84,7 +83,7 @@
 			// Restored a Windows session — re-arm the guard
 			startCashierSessionGuard(handleForcedLogout);
 			scheduleInactivityPrompt();
-		}
+		});
 
 		window.addEventListener('pointerdown', recordCashierActivity, true);
 		window.addEventListener('pointermove', recordCashierActivity, true);
@@ -134,6 +133,7 @@
 		clearInactivityTimer();
 		showInactivityPrompt = false;
 		kickedNotice = 'You have been signed out: this account was just used to log in on another Windows device.';
+		void releaseWindowsCashierSession();
 		clearCashierSession();
 		isLoggedIn = false;
 		cashierUser = null;
@@ -192,8 +192,12 @@
 		reauthLoading = true;
 		reauthError = '';
 		try {
-			const { data, error } = await supabase.rpc('verify_quick_access_code', { p_code: code });
-			if (error || !data?.success || String(data.user?.id) !== String(cashierUser?.id)) {
+			const response = await fetch('/api/auth/cashier-session', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ quickAccessCode: code })
+			});
+			if (!response.ok) {
 				throw new Error('invalid');
 			}
 			showInactivityPrompt = false;

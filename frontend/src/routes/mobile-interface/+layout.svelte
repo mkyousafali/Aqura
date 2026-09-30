@@ -150,8 +150,12 @@
 		reauthLoading = true;
 		reauthError = '';
 		try {
-			const { data, error } = await supabase.rpc('verify_quick_access_code', { p_code: code });
-			if (error || !data?.success || String(data.user?.id) !== String($currentUser.id)) throw new Error('invalid');
+			const response = await fetch('/api/auth/mobile-session', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ quickAccessCode: code, expectedUserId: String($currentUser.id) })
+			});
+			if (!response.ok) throw new Error('invalid');
 			showInactivityPrompt = false;
 			showReauthentication = false;
 			reauthDigits = ['', '', '', '', '', ''];

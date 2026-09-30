@@ -142,7 +142,24 @@ export class PersistentAuthService {
       // this to that interface's own current user, so Mobile and Desktop
       // sessions on the same device resolve independently instead of
       // fighting over one shared "current user" slot.
-      const activeUser = await this.getActiveUser(interfaceType);
+      let activeUser = await this.getActiveUser(interfaceType);
+      if (
+        activeUser &&
+        (interfaceType === "desktop" || interfaceType === "mobile")
+      ) {
+        const endpoint =
+          interfaceType === "mobile"
+            ? "/api/auth/mobile-session"
+            : "/api/auth/employee-session";
+        const response = await fetch(endpoint, {
+          method: "GET",
+          cache: "no-store",
+        }).catch(() => null);
+        if (!response?.ok) {
+          await this.removeUserSession(activeUser.id, interfaceType);
+          activeUser = null;
+        }
+      }
       if (activeUser) {
         console.log("🔐 Found active user session:", activeUser.username);
         await this.setCurrentUser(activeUser);
@@ -175,11 +192,9 @@ export class PersistentAuthService {
   /**
    * Validate quick access code and get user permissions (without full login)
    */
-  async validateQuickAccessCode(
-    quickAccessCode: string
-  ): Promise<{ 
-    success: boolean; 
-    error?: string; 
+  async validateQuickAccessCode(quickAccessCode: string): Promise<{
+    success: boolean;
+    error?: string;
     userId?: string;
     userType?: string;
     permissions?: UserPermissions;
@@ -194,27 +209,44 @@ export class PersistentAuthService {
 
       // Validate code format
       if (!/^[0-9]{6}$/.test(quickAccessCode)) {
-        console.error("❌ [PersistentAuth] Invalid access code format:", quickAccessCode);
+        console.error(
+          "❌ [PersistentAuth] Invalid access code format:",
+          quickAccessCode,
+        );
         return { success: false, error: "Invalid access code format" };
       }
 
       // Verify quick access code via RPC (bcrypt hash comparison)
-      const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_quick_access_code', {
-        p_code: quickAccessCode
-      });
+      const { data: verifyResult, error: verifyError } = await supabase.rpc(
+        "verify_quick_access_code",
+        {
+          p_code: quickAccessCode,
+        },
+      );
 
       if (verifyError) {
         console.error("❌ [PersistentAuth] Database error:", verifyError);
-        return { success: false, error: "Database connection error. Please try again." };
+        return {
+          success: false,
+          error: "Database connection error. Please try again.",
+        };
       }
 
       if (!verifyResult || !verifyResult.success) {
-        console.error("❌ [PersistentAuth] No user found with quick access code");
-        return { success: false, error: verifyResult?.error || "Invalid access code" };
+        console.error(
+          "❌ [PersistentAuth] No user found with quick access code",
+        );
+        return {
+          success: false,
+          error: verifyResult?.error || "Invalid access code",
+        };
       }
 
       const dbUser = verifyResult.user;
-      console.log("✅ [PersistentAuth] Quick access code validated for user:", dbUser.username);
+      console.log(
+        "✅ [PersistentAuth] Quick access code validated for user:",
+        dbUser.username,
+      );
 
       // Get user permissions
       const permissions = await this.getUserPermissions(dbUser.id);
@@ -223,20 +255,26 @@ export class PersistentAuthService {
       const interfacePermissions = {
         desktop: dbUser.is_master_admin || dbUser.is_admin || false,
         mobile: dbUser.is_master_admin || dbUser.is_admin || false,
-        cashier: dbUser.is_master_admin || dbUser.is_admin || false
+        cashier: dbUser.is_master_admin || dbUser.is_admin || false,
       };
 
-      console.log("✅ [PersistentAuth] Interface permissions determined:", interfacePermissions);
+      console.log(
+        "✅ [PersistentAuth] Interface permissions determined:",
+        interfacePermissions,
+      );
 
       return {
         success: true,
         userId: dbUser.id,
         userType: dbUser.user_type,
         permissions,
-        interfacePermissions
+        interfacePermissions,
       };
     } catch (error) {
-      console.error("❌ [PersistentAuth] Error validating quick access code:", error);
+      console.error(
+        "❌ [PersistentAuth] Error validating quick access code:",
+        error,
+      );
       return { success: false, error: "Validation failed. Please try again." };
     }
   }
@@ -246,48 +284,78 @@ export class PersistentAuthService {
    */
   async loginWithQuickAccess(
     quickAccessCode: string,
-    interfaceType: 'desktop' | 'mobile' | 'customer' = 'desktop'
+    interfaceType: "desktop" | "mobile" | "customer" = "desktop",
   ): Promise<{ success: boolean; error?: string; user?: UserSession }> {
     try {
       console.log("🔐 [PersistentAuth] Starting quick access login process");
 
       // Step 1: Validate code format
       if (!/^[0-9]{6}$/.test(quickAccessCode)) {
-        console.error("❌ [PersistentAuth] Invalid access code format:", quickAccessCode);
+        console.error(
+          "❌ [PersistentAuth] Invalid access code format:",
+          quickAccessCode,
+        );
         throw new Error("Invalid access code format");
       }
 
-      console.log("🔍 [PersistentAuth] Verifying quick access code via RPC");
+      console.log("🔍 [PersistentAuth] Verifying quick access code");
 
-      // Step 2: Verify quick access code via RPC (bcrypt hash comparison)
-      const { data: verifyResult, error: verifyError } = await supabase.rpc('verify_quick_access_code', {
-        p_code: quickAccessCode
-      });
-
-      if (verifyError) {
-        console.error("❌ [PersistentAuth] Database error:", verifyError);
-        throw new Error("Database connection error. Please try again.");
+      let dbUser: any;
+      let serverUserDetails: any = null;
+      if (interfaceType === "desktop" || interfaceType === "mobile") {
+        // Employee authentication is verified server-side. The access code no
+        // longer goes directly from the browser to the anonymous database RPC.
+        const endpoint =
+          interfaceType === "mobile"
+            ? "/api/auth/mobile-session"
+            : "/api/auth/employee-session";
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quickAccessCode }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result?.success || !result?.user) {
+          throw new Error(
+            result?.error || "Authentication failed. Please try again.",
+          );
+        }
+        dbUser = result.user;
+        serverUserDetails = result.userDetails;
+      } else {
+        // Customer keeps its existing authentication path.
+        const { data: verifyResult, error: verifyError } = await supabase.rpc(
+          "verify_quick_access_code",
+          {
+            p_code: quickAccessCode,
+          },
+        );
+        if (verifyError)
+          throw new Error("Database connection error. Please try again.");
+        if (!verifyResult || !verifyResult.success)
+          throw new Error(verifyResult?.error || "Invalid access code");
+        dbUser = verifyResult.user;
       }
-
-      if (!verifyResult || !verifyResult.success) {
-        console.error("❌ [PersistentAuth] No user found with quick access code");
-        throw new Error(verifyResult?.error || "Invalid access code");
-      }
-
-      const dbUser = verifyResult.user;
       console.log("✅ [PersistentAuth] Found user:", dbUser.username);
 
       // Step 3: Get user details from view
       console.log("🔍 [PersistentAuth] Getting user details from view");
-      const { data: userDetails, error: userDetailsError } = await supabase
-        .from("user_management_view")
-        .select("*")
-        .eq("id", dbUser.id)
-        .single();
+      const { data: userDetails, error: userDetailsError } = serverUserDetails
+        ? { data: serverUserDetails, error: null }
+        : await supabase
+            .from("user_management_view")
+            .select("*")
+            .eq("id", dbUser.id)
+            .single();
 
       if (userDetailsError || !userDetails) {
-        console.error("❌ [PersistentAuth] User details error:", userDetailsError);
-        throw new Error("User account configuration error. Please contact support.");
+        console.error(
+          "❌ [PersistentAuth] User details error:",
+          userDetailsError,
+        );
+        throw new Error(
+          "User account configuration error. Please contact support.",
+        );
       }
 
       console.log("✅ [PersistentAuth] User details retrieved successfully");
@@ -298,32 +366,54 @@ export class PersistentAuthService {
       console.log("✅ [PersistentAuth] User permissions retrieved");
 
       // Step 4.1: Check interface access permission based on interface type
-      console.log(`🔍 [PersistentAuth] Checking ${interfaceType} interface access permission`);
-      const { data: interfacePermissions, error: permissionError } = await supabase
-        .from("interface_permissions")
-        .select("desktop_enabled, mobile_enabled, customer_enabled")
-        .eq("user_id", dbUser.id)
-        .single();
+      console.log(
+        `🔍 [PersistentAuth] Checking ${interfaceType} interface access permission`,
+      );
+      if (interfaceType === "customer") {
+        const { data: interfacePermissions, error: permissionError } =
+          await supabase
+            .from("interface_permissions")
+            .select("desktop_enabled, mobile_enabled, customer_enabled")
+            .eq("user_id", dbUser.id)
+            .single();
 
-      if (permissionError) {
-        console.log("⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled");
-      } else if (interfacePermissions) {
-        const isEnabled = interfacePermissions[`${interfaceType}_enabled`];
-        if (!isEnabled) {
-          console.error(`❌ [PersistentAuth] ${interfaceType} interface access denied for user:`, dbUser.username);
-          throw new Error(`${interfaceType.charAt(0).toUpperCase() + interfaceType.slice(1)} interface access is disabled for your account. Please contact your administrator${interfaceType !== 'desktop' ? ' or use the desktop interface' : ''}.`);
+        if (permissionError) {
+          console.log(
+            "⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled",
+          );
+        } else if (interfacePermissions) {
+          const isEnabled = interfacePermissions[`${interfaceType}_enabled`];
+          if (!isEnabled) {
+            console.error(
+              `❌ [PersistentAuth] ${interfaceType} interface access denied for user:`,
+              dbUser.username,
+            );
+            throw new Error(
+              `${interfaceType.charAt(0).toUpperCase() + interfaceType.slice(1)} interface access is disabled for your account. Please contact your administrator or use the desktop interface.`,
+            );
+          }
         }
       }
 
-      console.log(`✅ [PersistentAuth] ${interfaceType} interface access confirmed`);
+      console.log(
+        `✅ [PersistentAuth] ${interfaceType} interface access confirmed`,
+      );
 
-      if (interfaceType !== 'customer') {
-        const breakSessionResponse = await fetch('/api/break-register/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quickAccessCode, interfaceType })
-        });
-        if (!breakSessionResponse.ok) throw new Error('Could not establish a secure data session');
+      if (
+        interfaceType !== "customer" &&
+        interfaceType !== "desktop" &&
+        interfaceType !== "mobile"
+      ) {
+        const breakSessionResponse = await fetch(
+          "/api/break-register/session",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ quickAccessCode, interfaceType }),
+          },
+        );
+        if (!breakSessionResponse.ok)
+          throw new Error("Could not establish a secure data session");
       }
 
       // Step 5: Update last login
@@ -335,16 +425,23 @@ export class PersistentAuthService {
       const token = this.generateSessionToken();
 
       // Step 6.5: Set user context in Postgres for RLS policies
-      console.log("🔐 [PersistentAuth] Setting user context for RLS policies...");
+      console.log(
+        "🔐 [PersistentAuth] Setting user context for RLS policies...",
+      );
       try {
-        await supabase.rpc('set_user_context', {
+        await supabase.rpc("set_user_context", {
           user_id: dbUser.id,
           is_master_admin: dbUser.is_master_admin || false,
-          is_admin: dbUser.is_admin || false
+          is_admin: dbUser.is_admin || false,
         });
-        console.log("✅ [PersistentAuth] User context set successfully for RLS");
+        console.log(
+          "✅ [PersistentAuth] User context set successfully for RLS",
+        );
       } catch (contextError) {
-        console.warn("⚠️ [PersistentAuth] Failed to set user context:", contextError);
+        console.warn(
+          "⚠️ [PersistentAuth] Failed to set user context:",
+          contextError,
+        );
         // Don't fail login if context setting fails, just log warning
       }
 
@@ -422,7 +519,8 @@ export class PersistentAuthService {
         if (error.message.includes("fetch")) {
           return {
             success: false,
-            error: "Network connection error. Please check your internet connection.",
+            error:
+              "Network connection error. Please check your internet connection.",
           };
         } else if (error.message.includes("Database")) {
           return {
@@ -463,7 +561,9 @@ export class PersistentAuthService {
         throw new Error("Access code must be 6 digits");
       }
 
-      console.log("🔍 [PersistentAuth] Calling customer authentication function");
+      console.log(
+        "🔍 [PersistentAuth] Calling customer authentication function",
+      );
 
       // Step 2: Authenticate using database function
       const { data: authResult, error: authError } = await supabase.rpc(
@@ -475,14 +575,17 @@ export class PersistentAuthService {
       );
 
       if (authError) {
-        console.error("❌ [PersistentAuth] Database authentication error:", authError);
+        console.error(
+          "❌ [PersistentAuth] Database authentication error:",
+          authError,
+        );
         throw new Error("Authentication service error. Please try again.");
       }
 
       if (!authResult || !authResult.success) {
         const errorMsg = authResult?.error || "Invalid credentials";
         console.error("❌ [PersistentAuth] Authentication failed:", errorMsg);
-        
+
         if (errorMsg.includes("not found")) {
           throw new Error("Invalid username or access code");
         } else if (errorMsg.includes("not approved")) {
@@ -508,8 +611,13 @@ export class PersistentAuthService {
         .single();
 
       if (userDetailsError || !userDetails) {
-        console.error("❌ [PersistentAuth] User details error:", userDetailsError);
-        throw new Error("User account configuration error. Please contact support.");
+        console.error(
+          "❌ [PersistentAuth] User details error:",
+          userDetailsError,
+        );
+        throw new Error(
+          "User account configuration error. Please contact support.",
+        );
       }
 
       // Get customer details
@@ -520,7 +628,10 @@ export class PersistentAuthService {
         .single();
 
       if (customerError || !customerDetails) {
-        console.error("❌ [PersistentAuth] Customer details error:", customerError);
+        console.error(
+          "❌ [PersistentAuth] Customer details error:",
+          customerError,
+        );
         throw new Error("Customer account error. Please contact support.");
       }
 
@@ -528,18 +639,31 @@ export class PersistentAuthService {
       const permissions = await this.getUserPermissions(userId);
 
       // Step 4.1: Check customer interface access permission
-      console.log("🔍 [PersistentAuth] Checking customer interface access permission");
-      const { data: interfacePermissions, error: permissionError } = await supabase
-        .from("interface_permissions")
-        .select("customer_enabled")
-        .eq("user_id", userId)
-        .single();
+      console.log(
+        "🔍 [PersistentAuth] Checking customer interface access permission",
+      );
+      const { data: interfacePermissions, error: permissionError } =
+        await supabase
+          .from("interface_permissions")
+          .select("customer_enabled")
+          .eq("user_id", userId)
+          .single();
 
       if (permissionError) {
-        console.log("⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled");
-      } else if (interfacePermissions && !interfacePermissions.customer_enabled) {
-        console.error("❌ [PersistentAuth] Customer interface access denied for user:", userDetails.username);
-        throw new Error("Customer interface access is disabled for your account. Please contact your administrator.");
+        console.log(
+          "⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled",
+        );
+      } else if (
+        interfacePermissions &&
+        !interfacePermissions.customer_enabled
+      ) {
+        console.error(
+          "❌ [PersistentAuth] Customer interface access denied for user:",
+          userDetails.username,
+        );
+        throw new Error(
+          "Customer interface access is disabled for your account. Please contact your administrator.",
+        );
       }
 
       console.log("✅ [PersistentAuth] Customer interface access confirmed");
@@ -598,7 +722,8 @@ export class PersistentAuthService {
         if (error.message.includes("fetch")) {
           return {
             success: false,
-            error: "Network connection error. Please check your internet connection.",
+            error:
+              "Network connection error. Please check your internet connection.",
           };
         } else if (error.message.includes("Database")) {
           return {
@@ -642,12 +767,19 @@ export class PersistentAuthService {
         };
       }
 
-      const breakSessionResponse = await fetch('/api/break-register/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: authData.session?.access_token, interfaceType: 'desktop' })
+      const breakSessionResponse = await fetch("/api/break-register/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accessToken: authData.session?.access_token,
+          interfaceType: "desktop",
+        }),
       });
-      if (!breakSessionResponse.ok) return { success: false, error: 'Could not establish a secure data session' };
+      if (!breakSessionResponse.ok)
+        return {
+          success: false,
+          error: "Could not establish a secure data session",
+        };
 
       // Get user details from users table
       const { data: userData, error: userError } = await supabase
@@ -675,33 +807,50 @@ export class PersistentAuthService {
       }
 
       // Set user context in Postgres for RLS policies
-      console.log("🔐 [PersistentAuth] Setting user context for RLS policies...");
+      console.log(
+        "🔐 [PersistentAuth] Setting user context for RLS policies...",
+      );
       try {
-        await supabase.rpc('set_user_context', {
+        await supabase.rpc("set_user_context", {
           user_id: userData.id,
           is_master_admin: userData.is_master_admin || false,
-          is_admin: userData.is_admin || false
+          is_admin: userData.is_admin || false,
         });
-        console.log("✅ [PersistentAuth] User context set successfully for RLS");
+        console.log(
+          "✅ [PersistentAuth] User context set successfully for RLS",
+        );
       } catch (contextError) {
-        console.warn("⚠️ [PersistentAuth] Failed to set user context:", contextError);
+        console.warn(
+          "⚠️ [PersistentAuth] Failed to set user context:",
+          contextError,
+        );
         // Don't fail login if context setting fails, just log warning
       }
 
       // Check desktop interface access permission
-      const { data: interfacePermissions, error: permissionError } = await supabase
-        .from("interface_permissions")
-        .select("desktop_enabled")
-        .eq("user_id", userData.id)
-        .single();
+      const { data: interfacePermissions, error: permissionError } =
+        await supabase
+          .from("interface_permissions")
+          .select("desktop_enabled")
+          .eq("user_id", userData.id)
+          .single();
 
       if (permissionError) {
-        console.log("⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled");
-      } else if (interfacePermissions && !interfacePermissions.desktop_enabled) {
-        console.error("❌ [PersistentAuth] Desktop interface access denied for user:", userData.username);
-        return { 
-          success: false, 
-          error: "Desktop interface access is disabled for your account. Please contact your administrator or use the mobile interface." 
+        console.log(
+          "⚠️ [PersistentAuth] No interface permissions found, defaulting to enabled",
+        );
+      } else if (
+        interfacePermissions &&
+        !interfacePermissions.desktop_enabled
+      ) {
+        console.error(
+          "❌ [PersistentAuth] Desktop interface access denied for user:",
+          userData.username,
+        );
+        return {
+          success: false,
+          error:
+            "Desktop interface access is disabled for your account. Please contact your administrator or use the mobile interface.",
         };
       }
 
@@ -751,7 +900,13 @@ export class PersistentAuthService {
     try {
       const current = await this.getCurrentUser();
       if (current) {
-        await fetch('/api/break-register/session', { method: 'DELETE', headers: { 'x-aqura-interface': current.interfaceType === 'mobile' ? 'mobile' : 'desktop' } }).catch(() => {});
+        await fetch("/api/break-register/session", {
+          method: "DELETE",
+          headers: {
+            "x-aqura-interface":
+              current.interfaceType === "mobile" ? "mobile" : "desktop",
+          },
+        }).catch(() => {});
         // Log logout activity (but don't let it block logout)
         this.logUserActivity("logout", current.id).catch((err) =>
           console.warn("Failed to log logout activity:", err),
@@ -761,8 +916,13 @@ export class PersistentAuthService {
         autoUnsubscribePush().catch(() => {});
 
         // Release this interface's single-session binding (non-blocking)
-        if (current.interfaceType === "mobile" || current.interfaceType === "desktop") {
-          releaseInterfaceSession(current.id, current.interfaceType).catch(() => {});
+        if (
+          current.interfaceType === "mobile" ||
+          current.interfaceType === "desktop"
+        ) {
+          releaseInterfaceSession(current.id, current.interfaceType).catch(
+            () => {},
+          );
         }
         stopInterfaceSessionGuard();
 
@@ -823,15 +983,21 @@ export class PersistentAuthService {
         await this.logout();
         return {
           success: false,
-          error: "Your account has been locked or deactivated. Please contact your administrator.",
+          error:
+            "Your account has been locked or deactivated. Please contact your administrator.",
         };
       }
 
-      const breakSessionResponse = await fetch('/api/break-register/session', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+      const breakSessionResponse = await fetch("/api/break-register/session", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
       });
-      if (!breakSessionResponse.ok) return { success: false, error: 'A fresh login is required for this user' };
+      if (!breakSessionResponse.ok)
+        return {
+          success: false,
+          error: "A fresh login is required for this user",
+        };
 
       // Switch to target user
       await this.setCurrentUser(targetUser);
@@ -861,7 +1027,8 @@ export class PersistentAuthService {
     const deviceSession = await this.getDeviceSession();
     return (
       deviceSession?.users.filter(
-        (u) => u.isActive && (!interfaceType || u.interfaceType === interfaceType),
+        (u) =>
+          u.isActive && (!interfaceType || u.interfaceType === interfaceType),
       ) || []
     );
   }
@@ -887,20 +1054,27 @@ export class PersistentAuthService {
         .single();
 
       if (error || !dbUser) {
-        console.warn("⚠️ [PersistentAuth] Could not verify user status, keeping session valid");
+        console.warn(
+          "⚠️ [PersistentAuth] Could not verify user status, keeping session valid",
+        );
         return true;
       }
 
       // Logout if user is locked or inactive
       if (dbUser.status === "locked" || dbUser.status === "inactive") {
-        console.log(`⚠️ [PersistentAuth] User account is ${dbUser.status}, session invalid`);
+        console.log(
+          `⚠️ [PersistentAuth] User account is ${dbUser.status}, session invalid`,
+        );
         return false;
       }
 
       // User is active, session remains valid (no time-based expiration)
       return true;
     } catch (error) {
-      console.warn("⚠️ [PersistentAuth] Error checking session validity:", error);
+      console.warn(
+        "⚠️ [PersistentAuth] Error checking session validity:",
+        error,
+      );
       // Keep session valid if we can't check (network issue)
       return true;
     }
@@ -1005,7 +1179,9 @@ export class PersistentAuthService {
     await this.saveDeviceSession(deviceSession);
   }
 
-  private async getActiveUser(interfaceType?: InterfaceType): Promise<UserSession | null> {
+  private async getActiveUser(
+    interfaceType?: InterfaceType,
+  ): Promise<UserSession | null> {
     const deviceSession = await this.getDeviceSession();
     if (!deviceSession) return null;
 
@@ -1031,32 +1207,41 @@ export class PersistentAuthService {
     // Refresh admin flags from database to ensure they're current
     try {
       const { data: freshUserData, error } = await supabase
-        .from('users')
-        .select('is_admin, is_master_admin')
-        .eq('id', user.id)
+        .from("users")
+        .select("is_admin, is_master_admin")
+        .eq("id", user.id)
         .single();
 
       if (!error && freshUserData) {
         // Update the user session with fresh admin flags
         user.isAdmin = freshUserData.is_admin;
         user.isMasterAdmin = freshUserData.is_master_admin;
-        
+
         // Update the session in storage
         if (deviceSession) {
-          const userIndex = deviceSession.users.findIndex(u => u.id === user.id);
+          const userIndex = deviceSession.users.findIndex(
+            (u) => u.id === user.id,
+          );
           if (userIndex !== -1) {
             deviceSession.users[userIndex] = user;
             await this.saveDeviceSession(deviceSession);
           }
         }
-        
-        console.log('🔄 [PersistentAuth] Refreshed admin flags for user:', user.username, {
-          isAdmin: user.isAdmin,
-          isMasterAdmin: user.isMasterAdmin
-        });
+
+        console.log(
+          "🔄 [PersistentAuth] Refreshed admin flags for user:",
+          user.username,
+          {
+            isAdmin: user.isAdmin,
+            isMasterAdmin: user.isMasterAdmin,
+          },
+        );
       }
     } catch (refreshError) {
-      console.warn('⚠️ [PersistentAuth] Failed to refresh admin flags:', refreshError);
+      console.warn(
+        "⚠️ [PersistentAuth] Failed to refresh admin flags:",
+        refreshError,
+      );
       // Continue with cached data if refresh fails
     }
 
@@ -1125,7 +1310,9 @@ export class PersistentAuthService {
       if (current) {
         const isValid = await this.isSessionValid(current.id);
         if (!isValid) {
-          console.log("🔐 [PersistentAuth] User account no longer active, logging out");
+          console.log(
+            "🔐 [PersistentAuth] User account no longer active, logging out",
+          );
           await this.logout();
         } else {
           console.log("✅ [PersistentAuth] Session valid - user still active");
