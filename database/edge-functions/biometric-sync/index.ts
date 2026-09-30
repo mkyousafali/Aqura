@@ -10,6 +10,7 @@ const response = (status:number, body:R) => new Response(JSON.stringify(body), {
 const d = (v:any) => String(v || '').slice(0,10);
 const t = (v:any) => String(v || '').match(/T(\d{2}:\d{2}:\d{2})/)?.[1] || String(v || '').slice(11,19);
 const key = (r:R) => `${r.employee_id}-${r.date}-${r.time}-${r.status}-${r.branch_id}`;
+const delay = (ms:number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function postBridge(base:string, secret:string, path:string, body:R) {
   const controller = new AbortController();
@@ -46,7 +47,7 @@ async function processBranch(sb:any, config:R, options:R, actor:string|null) {
     if(logError) throw new Error(`LOG_ERROR: ${logError.message}`);
     logId=log.id;
 
-    let fetched=0, inserted=0, updated=0, skipped=0, duplicates=0;
+    let fetched=0, inserted=0, updated=0, skipped=0, duplicates=0, punchInserted=0;
     const details:R={};
     const now=new Date();
     const maxDays=Math.max(1,Math.min(Number(options.windowDays || 3),30));
@@ -108,8 +109,23 @@ async function processBranch(sb:any, config:R, options:R, actor:string|null) {
       skipped+=filtered.length-fresh.length;
       details.punches={fetched:source.length,valid:transformed.length,duplicatesFiltered:duplicates,alreadyExisting:filtered.length-fresh.length,wouldInsert:fresh.length,from:from.toISOString(),to:to.toISOString(),bridgeFrom:bridgeFrom.toISOString(),bridgeTo:bridgeTo.toISOString()};
       if(!dryRun){
-        for(let i=0;i<fresh.length;i+=100){const batch=fresh.slice(i,i+100);const {error:e}=await sb.from('hr_fingerprint_transactions').upsert(batch,{onConflict:'employee_id,date,time,status,branch_id',ignoreDuplicates:true});if(e)throw new Error(`PUNCH_INSERT_ERROR: ${e.message}`);inserted+=batch.length;}
+        for(let i=0;i<fresh.length;i+=100){const batch=fresh.slice(i,i+100);const {error:e}=await sb.from('hr_fingerprint_transactions').upsert(batch,{onConflict:'employee_id,date,time,status,branch_id',ignoreDuplicates:true});if(e)throw new Error(`PUNCH_INSERT_ERROR: ${e.message}`);inserted+=batch.length;punchInserted+=batch.length;}
         const {error:e}=await sb.from('biometric_connections').update({last_sync_at:new Date().toISOString()}).eq('branch_id',branchId).eq('is_active',true);if(e)throw new Error(`CURSOR_UPDATE_ERROR: ${e.message}`);
+
+        if(punchInserted>0){
+          await delay(3000);
+          try{
+            const {data:analysis,error:analysisError}=await sb.functions.invoke('analyze-attendance',{body:{dateFrom:min,dateTo:max,triggerType:'biometric-sync',branchId}});
+            if(analysisError)throw analysisError;
+            details.attendanceAnalysis={status:'success',delayMs:3000,dateFrom:min,dateTo:max,response:analysis};
+          }catch(analysisError){
+            const message=analysisError instanceof Error?analysisError.message:String(analysisError);
+            details.attendanceAnalysis={status:'failed',delayMs:3000,dateFrom:min,dateTo:max,error:message};
+            console.error(JSON.stringify({event:'attendance_analysis_trigger_failed',branchId,branchName,dateFrom:min,dateTo:max,error:message}));
+          }
+        }else{
+          details.attendanceAnalysis={status:'skipped',reason:'No new punches were inserted'};
+        }
       }
     }
 
