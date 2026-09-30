@@ -10,7 +10,7 @@
 
 	// Collapsible sections — all collapsed by default
 	let open: Record<string, boolean> = {
-		sales: false, receivedBills: false, paidBills: false,
+		receivedBills: false, paidBills: false,
 		expenses: false, cashier: false, tasks: false,
 		attendance: false, incidents: false,
 	};
@@ -62,7 +62,6 @@
 	}
 	function diffSign(n: number) { return n > 0 ? `+${fmt(n)}` : fmt(n); }
 
-	$: salesTotal      = report?.sales?.reduce((a: number, s: any) => a + (s.net_amount || 0), 0) ?? 0;
 	$: receivedTotal   = report?.receivedBills?.reduce((a: number, g: any) => a + (g.subtotal || 0), 0) ?? 0;
 	$: paidTotal       = report?.paidBills?.reduce((a: number, b: any) => a + (b.amount || 0), 0) ?? 0;
 	$: expensesTotal   = report?.paidExpenses?.filter((e: any) => (e.amount || 0) > 0).reduce((a: number, e: any) => a + (e.amount || 0), 0) ?? 0;
@@ -101,42 +100,6 @@
 		{:else if error}
 			<div class="glass-section cp-error-card">⚠️ {error}</div>
 		{:else if report}
-
-			<!-- ══ SALES ══ -->
-			{@const salesBranches = report.sales?.length ?? 0}
-			<div class="glass-section" class:expanded={open.sales}>
-				<button class="section-header" on:click={() => toggle('sales')}>
-					<div class="sh-left">
-						<span class="sh-icon green">💰</span>
-						<span class="sh-label">{isArabic ? 'المبيعات' : 'Sales'}</span>
-						<span class="sh-chip green">{salesBranches} {isArabic ? 'فرع' : 'branches'}</span>
-					</div>
-					<div class="sh-right">
-						<span class="sh-value">{fmt(salesTotal)} {cur}</span>
-						<span class="sh-arrow" class:rotated={open.sales}>›</span>
-					</div>
-				</button>
-				{#if open.sales}
-					<div class="section-body">
-						<div class="card-grid">
-							{#each (report.sales || []) as s}
-								<div class="data-card green-card">
-									<div class="dc-label">{isArabic ? s.branch_name_ar : s.branch_name_en}</div>
-									<div class="dc-value">{fmt(s.net_amount)}<span class="dc-cur"> {cur}</span></div>
-									<div class="dc-sub">{s.net_bills} {isArabic ? 'فاتورة' : 'bills'} · {isArabic ? 'مرتجع' : 'ret.'} {fmt(s.return_amount)}</div>
-								</div>
-							{/each}
-							{#if salesBranches > 1}
-								<div class="data-card total-card">
-									<div class="dc-label">{isArabic ? 'الإجمالي' : 'Grand Total'}</div>
-									<div class="dc-value">{fmt(salesTotal)}<span class="dc-cur"> {cur}</span></div>
-									<div class="dc-sub">{report.sales.reduce((a: number, s: any) => a + (s.net_bills || 0), 0)} {isArabic ? 'فاتورة' : 'bills'}</div>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/if}
-			</div>
 
 			<!-- ══ RECEIVED BILLS ══ -->
 			{@const rbCount = report.receivedBills?.reduce((a: number, g: any) => a + (g.count || 0), 0) ?? 0}

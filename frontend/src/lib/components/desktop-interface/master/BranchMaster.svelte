@@ -25,6 +25,9 @@
 	let isLoading = false;
 	let errorMessage = '';
 	let cacheHit = false; // Track if data came from cache
+	let biometricStatus = new Map<number, any>();
+	let biometricActionBranch: number | null = null;
+	let biometricModes: Record<number, string> = {};
 
 	// Approvers state
 	let approvers: any[] = [];
@@ -68,6 +71,7 @@
 				console.error('Failed to load branches:', error);
 			} else if (data) {
 				branches = data;
+				await loadBiometricStatus();
 				cacheHit = loadTime < 50; // If loaded in under 50ms, likely from cache
 				console.log(`✅ Loaded ${data.length} branches in ${loadTime}ms ${cacheHit ? '(cached)' : ''}`);
 			}
@@ -76,6 +80,78 @@
 			console.error('Error loading branches:', error);
 		} finally {
 			isLoading = false;
+		}
+	}
+
+	async function loadBiometricStatus() {
+		const response = await fetch('/api/biometric-sync', { credentials: 'same-origin' });
+		const result = await response.json().catch(() => ({}));
+		if (!response.ok) {
+			console.error('Failed to load biometric sync readiness:', result.error);
+			return;
+		}
+		biometricStatus = new Map((result.branches || []).map((row: any) => [Number(row.branch_id), row]));
+		// Attach the status to each row as well as keeping the lookup map. Replacing
+		// the array guarantees a Svelte update after the asynchronous status request.
+		branches = branches.map((branch: any) => ({
+			...branch,
+			_biometric_status: biometricStatus.get(Number(branch.id)) || null
+		}));
+	}
+
+	function biometricInfo(branch: Branch) {
+		return (branch as any)._biometric_status || biometricStatus.get(Number(branch.id));
+	}
+
+	function biometricMissing(branch: Branch): string {
+		const info = biometricInfo(branch);
+		return info?.missing_requirements?.length ? info.missing_requirements.join('\n') : '';
+	}
+
+	async function toggleBiometricSync(branch: Branch) {
+		const info = biometricInfo(branch);
+		const enable = !info?.sync_enabled;
+		if (enable && !info?.ready) {
+			alert(`Biometric synchronization cannot be enabled:\n\n${biometricMissing(branch)}`);
+			return;
+		}
+		if (!confirm(`${enable ? 'Enable' : 'Disable'} automatic biometric synchronization for ${branch.name_en}?`)) return;
+		biometricActionBranch = Number(branch.id);
+		try {
+			const response = await fetch('/api/biometric-sync', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'toggle', branchId: Number(branch.id), enabled: enable }) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok || !data?.success) throw new Error((data?.missing || []).join(', ') || data?.error || 'Configuration is incomplete');
+			await loadBranches();
+		} catch (error: any) {
+			alert(`Unable to change biometric synchronization: ${error.message}`);
+		} finally {
+			biometricActionBranch = null;
+		}
+	}
+
+	async function runBiometricSync(branch: Branch) {
+		const info = biometricInfo(branch);
+		if (!info?.ready) {
+			alert(`Biometric synchronization cannot run:\n\n${biometricMissing(branch)}`);
+			return;
+		}
+		const mode = biometricModes[Number(branch.id)] || 'both';
+		const dryRun = mode === 'dry-run';
+		const syncType = dryRun ? 'both' : mode;
+		if (!confirm(`Run ${dryRun ? 'a dry-run check' : syncType + ' synchronization'} for ${branch.name_en} now?`)) return;
+		biometricActionBranch = Number(branch.id);
+		try {
+			const response = await fetch('/api/biometric-sync', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sync', branchId: Number(branch.id), syncType, dryRun }) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(data?.error || 'Synchronization request failed');
+			const result = data?.results?.[0];
+			if (!result || result.status === 'failed') throw new Error(result?.error || 'Synchronization failed');
+			alert(`${dryRun ? 'Dry run' : 'Synchronization'} completed.\nFetched: ${result.fetched || 0}\nInserted: ${result.inserted || 0}\nUpdated: ${result.updated || 0}\nSkipped: ${result.skipped || 0}`);
+			await loadBiometricStatus();
+		} catch (error: any) {
+			alert(`Biometric synchronization failed: ${error.message}`);
+		} finally {
+			biometricActionBranch = null;
 		}
 	}
 
@@ -705,11 +781,13 @@
 									<th class="px-6 py-4 text-left font-bold text-slate-700">VAT</th>
 									<th class="px-6 py-4 text-left font-bold text-slate-700">Status</th>
 									<th class="px-6 py-4 text-left font-bold text-slate-700">Main</th>
+									<th class="px-6 py-4 text-center font-bold text-slate-700">Biometric Sync</th>
 									<th class="px-6 py-4 text-center font-bold text-slate-700">Actions</th>
 								</tr>
 							</thead>
 							<tbody>
 								{#each branches as branch (branch.id)}
+									{@const bio = biometricInfo(branch)}
 									<tr class="border-b border-slate-200 hover:bg-blue-50/50 transition">
 										<td class="px-6 py-4 text-slate-700 font-mono text-xs">{branch.id}</td>
 										<td class="px-6 py-4 text-slate-700 font-medium">{branch.name_en}</td>
@@ -722,6 +800,26 @@
 											{:else}
 												<span class="text-slate-400">—</span>
 											{/if}
+										</td>
+										<td class="px-6 py-4 min-w-[260px]">
+											<div class="flex flex-col items-center gap-2" title={bio?.ready ? '' : biometricMissing(branch)}>
+												<button
+													class="relative w-12 h-6 rounded-full transition-colors {bio?.sync_enabled ? 'bg-emerald-500' : 'bg-slate-300'} disabled:opacity-40 disabled:cursor-not-allowed"
+													on:click={() => toggleBiometricSync(branch)}
+													disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}
+													title={!bio?.ready ? biometricMissing(branch) : (bio?.sync_enabled ? 'Disable automatic sync' : 'Enable automatic sync')}
+												>
+													<span class="absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all {bio?.sync_enabled ? 'left-7' : 'left-1'}"></span>
+												</button>
+												<span class="text-[10px] font-bold {bio?.ready ? 'text-slate-600' : 'text-red-600'}">{bio?.ready ? (bio?.sync_enabled ? 'Automatic enabled' : 'Ready — disabled') : 'Configuration incomplete'}</span>
+												<div class="flex gap-1">
+													<select class="px-2 py-1 border border-slate-200 rounded text-[10px]" bind:value={biometricModes[Number(branch.id)]} disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}>
+														<option value="both">Sync both</option><option value="punches">Punches</option><option value="employees">Employees</option><option value="dry-run">Dry run</option>
+													</select>
+													<button class="px-2 py-1 rounded text-[10px] font-bold bg-cyan-100 text-cyan-700 hover:bg-cyan-200 disabled:opacity-40" on:click={() => runBiometricSync(branch)} disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}>Sync Now</button>
+												</div>
+												{#if !bio?.ready && bio?.missing_requirements?.length}<button class="text-[10px] text-red-600 underline" on:click={() => alert(biometricMissing(branch))}>Show missing details</button>{/if}
+											</div>
 										</td>
 										<td class="px-6 py-4">
 											<span class="inline-block px-3 py-1 rounded-full text-xs font-bold
@@ -767,7 +865,7 @@
 								{/each}
 								{#if branches.length === 0 && !isLoading}
 									<tr>
-										<td colspan="9" class="px-6 py-12 text-center">
+										<td colspan="10" class="px-6 py-12 text-center">
 											<div class="text-slate-400 font-semibold text-lg">📭 No branches found</div>
 										</td>
 									</tr>

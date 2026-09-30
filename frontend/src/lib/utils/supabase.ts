@@ -145,6 +145,10 @@ export interface Branch {
   location_ar: string;
   is_active: boolean;
   is_main_branch: boolean;
+  biometric_edge_sync_enabled?: boolean;
+  biometric_edge_sync_enabled_at?: string | null;
+  biometric_edge_sync_enabled_by?: string | null;
+  vat_number?: string | null;
   created_at: string;
   updated_at: string;
 }

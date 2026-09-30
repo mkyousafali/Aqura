@@ -18,31 +18,12 @@
 		updated_at?: string;
 	}
 
-	interface SalesData {
-		branch_name: string;
-		date: string;
-		gross_sales: number;
-		gross_bills: number;
-		gross_tax: number;
-		returns: number;
-		return_bills: number;
-		return_tax: number;
-		net_sales: number;
-		net_bills: number;
-		net_tax: number;
-		discount: number;
-	}
-
 	let erpConfigs: ERPConfig[] = [];
 	let branches: any[] = [];
 	let loading = false;
 	let saving = false;
 	let testingConnection = false;
-	let fetchingSales = false;
 	let showConfigForm = false;
-	let selectedBranch = 0;
-	let salesData: SalesData | null = null;
-	let selectedDate = new Date().toISOString().split('T')[0]; // Today's date
 
 	// Form state
 	let formData: ERPConfig = {
@@ -241,82 +222,6 @@
 		}
 	}
 
-	async function fetchSales() {
-		if (!selectedBranch) {
-			notifications.add({
-				message: 'Please select a branch',
-				type: 'error'
-			});
-			return;
-		}
-
-		const config = erpConfigs.find(c => c.branch_id === selectedBranch);
-		if (!config) {
-			notifications.add({
-				message: 'No ERP configuration found for this branch',
-				type: 'error'
-			});
-			return;
-		}
-
-		try {
-			fetchingSales = true;
-			
-			// Fetch from Supabase erp_daily_sales table (synced by desktop app)
-			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase
-				.from('erp_daily_sales')
-				.select('*')
-				.eq('branch_id', selectedBranch)
-				.eq('sale_date', selectedDate)
-				.single();
-
-			if (error && error.code !== 'PGRST116') {
-				// PGRST116 is "no rows found" error
-				throw new Error(error.message);
-			}
-
-			if (data) {
-				// Transform Supabase data to match expected format
-				salesData = {
-					branch_name: config.branch_name,
-					date: data.sale_date,
-					gross_sales: data.gross_amount,
-					gross_bills: data.total_bills,
-					gross_tax: data.tax_amount,
-					returns: data.return_amount,
-					return_bills: data.total_returns,
-					return_tax: data.return_tax,
-					net_sales: data.net_amount,
-					net_bills: data.net_bills,
-					net_tax: data.net_tax,
-					discount: data.discount_amount
-				};
-				
-				notifications.add({
-					message: '✅ Sales data loaded from synced database',
-					type: 'success'
-				});
-			} else {
-				salesData = null;
-				notifications.add({
-					message: '⚠️ No sales data available for this date. Make sure the desktop sync app is running.',
-					type: 'warning'
-				});
-			}
-
-		} catch (error: any) {
-			console.error('Error fetching sales:', error);
-			salesData = null;
-			notifications.add({
-				message: `❌ Error loading sales data: ${error.message}`,
-				type: 'error'
-			});
-		} finally {
-			fetchingSales = false;
-		}
-	}
-
 	function editConfig(config: ERPConfig) {
 		formData = { ...config };
 		showConfigForm = true;
@@ -365,13 +270,6 @@
 		showConfigForm = false;
 	}
 
-	function formatCurrency(amount: number): string {
-		return new Intl.NumberFormat('en-IN', {
-			style: 'currency',
-			currency: 'SAR',
-			minimumFractionDigits: 2
-		}).format(amount);
-	}
 </script>
 
 <div class="erp-connections">
@@ -542,90 +440,6 @@
 		{/if}
 	</div>
 
-	<!-- Sales Fetcher -->
-	<div class="sales-section">
-		<h3>📊 {t('erp.salesData') || 'Get Sales Data'}</h3>
-		
-		<div class="sales-controls">
-			<div class="form-group">
-				<label for="sales-branch">{t('erp.selectBranch') || 'Select Branch'}</label>
-				<select id="sales-branch" bind:value={selectedBranch}>
-					<option value={0}>Choose a branch...</option>
-					{#each erpConfigs.filter(c => c.is_active) as config}
-						<option value={config.branch_id}>{config.branch_name}</option>
-					{/each}
-				</select>
-			</div>
-
-			<div class="form-group">
-				<label for="sales-date">{t('erp.selectDate') || 'Select Date'}</label>
-				<input 
-					id="sales-date"
-					type="date" 
-					bind:value={selectedDate}
-				/>
-			</div>
-
-			<button 
-				class="btn-fetch" 
-				on:click={fetchSales}
-				disabled={fetchingSales || !selectedBranch}
-			>
-				{fetchingSales ? `⏳ ${t('erp.fetching') || 'Fetching...'}` : `📥 ${t('erp.fetchSales') || 'Get Sales'}`}
-			</button>
-		</div>
-
-		<!-- Sales Data Display -->
-		{#if salesData}
-			<div class="sales-results">
-				<h4>📈 Sales Summary - {salesData.branch_name}</h4>
-				<p class="sales-date">Date: {new Date(salesData.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-				
-				<div class="sales-grid">
-					<div class="sales-card gross">
-						<h5>💰 {t('erp.grossSales') || 'Gross Sales'}</h5>
-						<div class="amount">{formatCurrency(salesData.gross_sales)}</div>
-						<div class="details">
-							<span>{t('erp.grossBills') || 'Bills'}: {salesData.gross_bills}</span>
-							<span>{t('erp.grossTax') || 'Tax'}: {formatCurrency(salesData.gross_tax)}</span>
-							{#if salesData.discount > 0}
-								<span>{t('erp.discount') || 'Discount'}: {formatCurrency(salesData.discount)}</span>
-							{/if}
-						</div>
-					</div>
-
-					<div class="sales-card returns">
-						<h5>🔄 {t('erp.returns') || 'Returns'}</h5>
-						<div class="amount">{formatCurrency(salesData.returns)}</div>
-						<div class="details">
-							<span>{t('erp.returnBills') || 'Bills'}: {salesData.return_bills}</span>
-							<span>{t('erp.returnTax') || 'Tax'}: {formatCurrency(salesData.return_tax)}</span>
-						</div>
-					</div>
-
-					<div class="sales-card net">
-						<h5>✅ {t('erp.netSales') || 'Net Sales'}</h5>
-						<div class="amount">{formatCurrency(salesData.net_sales)}</div>
-						<div class="details">
-							<span>{t('erp.netBills') || 'Net Bills'}: {salesData.net_bills}</span>
-							<span>{t('erp.netTax') || 'Net Tax'}: {formatCurrency(salesData.net_tax)}</span>
-						</div>
-					</div>
-				</div>
-
-				<div class="sales-summary">
-					<div class="summary-row">
-						<span>Return Rate:</span>
-						<span>{((salesData.return_bills / salesData.gross_bills) * 100).toFixed(2)}%</span>
-					</div>
-					<div class="summary-row">
-						<span>Average Bill Value:</span>
-						<span>{formatCurrency(salesData.net_sales / salesData.net_bills)}</span>
-					</div>
-				</div>
-			</div>
-		{/if}
-	</div>
 </div>
 
 <style>
@@ -851,141 +665,6 @@
 
 	.btn-delete:hover {
 		background: #d32f2f;
-	}
-
-	.sales-section {
-		background: white;
-		border-radius: 8px;
-		padding: 2rem;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-	}
-
-	.sales-section h3 {
-		margin-top: 0;
-		margin-bottom: 1.5rem;
-		color: #333;
-	}
-
-	.sales-controls {
-		display: grid;
-		grid-template-columns: 1fr 1fr auto;
-		gap: 1rem;
-		margin-bottom: 2rem;
-		align-items: end;
-	}
-
-	.btn-fetch {
-		background: #9C27B0;
-		color: white;
-		border: none;
-		padding: 0.75rem 2rem;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 1rem;
-		transition: all 0.3s ease;
-	}
-
-	.btn-fetch:hover:not(:disabled) {
-		background: #7B1FA2;
-	}
-
-	.btn-fetch:disabled {
-		background: #ccc;
-		cursor: not-allowed;
-	}
-
-	.sales-results {
-		margin-top: 2rem;
-		padding: 2rem;
-		background: #f9f9f9;
-		border-radius: 8px;
-	}
-
-	.sales-results h4 {
-		margin-top: 0;
-		color: #1a1a1a;
-	}
-
-	.sales-date {
-		color: #666;
-		margin-bottom: 1.5rem;
-		font-style: italic;
-	}
-
-	.sales-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		gap: 1.5rem;
-		margin-bottom: 1.5rem;
-	}
-
-	.sales-card {
-		background: white;
-		border-radius: 8px;
-		padding: 1.5rem;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-	}
-
-	.sales-card.gross {
-		border-left: 4px solid #4CAF50;
-	}
-
-	.sales-card.returns {
-		border-left: 4px solid #FF9800;
-	}
-
-	.sales-card.net {
-		border-left: 4px solid #2196F3;
-	}
-
-	.sales-card h5 {
-		margin: 0 0 1rem 0;
-		color: #666;
-		font-size: 0.9rem;
-		text-transform: uppercase;
-	}
-
-	.sales-card .amount {
-		font-size: 2rem;
-		font-weight: bold;
-		color: #1a1a1a;
-		margin-bottom: 0.5rem;
-	}
-
-	.sales-card .details {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		color: #666;
-		font-size: 0.9rem;
-	}
-
-	.sales-summary {
-		background: white;
-		border-radius: 8px;
-		padding: 1rem;
-		margin-top: 1rem;
-	}
-
-	.summary-row {
-		display: flex;
-		justify-content: space-between;
-		padding: 0.75rem 0;
-		border-bottom: 1px solid #f0f0f0;
-	}
-
-	.summary-row:last-child {
-		border-bottom: none;
-	}
-
-	.summary-row span:first-child {
-		font-weight: 500;
-		color: #666;
-	}
-
-	.summary-row span:last-child {
-		color: #1a1a1a;
-		font-weight: 600;
 	}
 
 	.btn-primary,

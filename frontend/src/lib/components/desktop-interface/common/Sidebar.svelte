@@ -82,7 +82,7 @@
 	import NormalPaperManager from '$lib/components/desktop-interface/marketing/flyer/NormalPaperManager.svelte';
 	import OneDayOfferManager from '$lib/components/desktop-interface/marketing/flyer/OneDayOfferManager.svelte';
 	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
-	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
+	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/LiveSalesReport.svelte';
 	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
 	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
 	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';

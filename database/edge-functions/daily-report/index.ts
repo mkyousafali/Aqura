@@ -33,7 +33,6 @@ serve(async (req) => {
     const dayEnd   = `${targetDate}T23:59:59`
 
     const [
-      salesResult,
       receivedBillsResult,
       paidBillsResult,
       paidExpensesResult,
@@ -41,12 +40,7 @@ serve(async (req) => {
       attendanceResult,
       incidentsResult,
     ] = await Promise.all([
-      // 1. Sales
-      supabase.from('erp_daily_sales')
-        .select('net_amount, net_bills, return_amount, branch_id')
-        .eq('sale_date', targetDate),
-
-      // 2. Received bills
+      // 1. Received bills
       supabase.from('receiving_records')
         .select('vendor_id, branch_id, bill_amount, bill_number')
         .gte('created_at', dayStart)
@@ -132,7 +126,7 @@ serve(async (req) => {
 
     // ── Resolve branch names ──────────────────────────────────────────
     const allBranchIds = new Set<number>()
-    ;[salesResult, receivedBillsResult, boxOpsResult, attendanceResult, incidentsResult].forEach(res => {
+    ;[receivedBillsResult, boxOpsResult, attendanceResult, incidentsResult].forEach(res => {
       res.data?.forEach((r: any) => { if (r.branch_id) allBranchIds.add(Number(r.branch_id)) })
     })
     ;(taskPerfResult.data?.branch_stats || []).forEach((b: any) => { if (b.branch_id) allBranchIds.add(Number(b.branch_id)) })
@@ -150,17 +144,7 @@ serve(async (req) => {
 
     const bName = (id: any, lang = 'en') => branchMap[Number(id)]?.[lang as 'en' | 'ar'] || (lang === 'ar' ? `فرع ${id}` : `Branch ${id}`)
 
-    // ── Section 1: Sales ─────────────────────────────────────────────
-    const salesByBranch: Record<number, any> = {}
-    ;(salesResult.data || []).forEach((s: any) => {
-      const id = Number(s.branch_id)
-      if (!salesByBranch[id]) salesByBranch[id] = { branch_id: id, branch_name_en: bName(id, 'en'), branch_name_ar: bName(id, 'ar'), net_amount: 0, net_bills: 0, return_amount: 0 }
-      salesByBranch[id].net_amount    += s.net_amount    || 0
-      salesByBranch[id].net_bills     += s.net_bills     || 0
-      salesByBranch[id].return_amount += s.return_amount || 0
-    })
-
-    // ── Section 2: Received bills grouped by branch ───────────────────
+    // ── Section 1: Received bills grouped by branch ───────────────────
     const receivedByBranch: Record<string, any> = {}
     receivedBills.forEach((b: any) => {
       const key = String(b.branch_id || 'unknown')
@@ -312,7 +296,6 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       date:            targetDate,
-      sales:           Object.values(salesByBranch),
       receivedBills:   receivedBillsOut,
       paidBills:       paidBillsOut,
       paidExpenses:    paidExpensesOut,

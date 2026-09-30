@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	// Reuses the full desktop Sales Report (Quick / Detailed / Month Summary +
 	// Excel export). The wrapper below adapts it to the mobile viewport.
-	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/SalesReport.svelte';
+	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/LiveSalesReport.svelte';
 	import { localeData } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';

@@ -151,6 +151,33 @@
 	let edgeFuncsError = '';
 	let copiedEdgeFunc = '';
 	let showEdgeCodePopup = false;
+	let biometricLogs: any[] = [];
+	let biometricLogsLoading = false;
+	let runningBiometricSync = false;
+
+	async function loadBiometricLogs() {
+		biometricLogsLoading = true;
+		const response = await fetch('/api/biometric-sync?view=logs', { credentials: 'same-origin' });
+		const result = await response.json().catch(() => ({}));
+		if (!response.ok) edgeFuncsError = result.error || 'Failed to load biometric logs';
+		else biometricLogs = result.logs || [];
+		biometricLogsLoading = false;
+	}
+
+	async function runEnabledBiometricBranches() {
+		if (!confirm('Run biometric punch synchronization now for all enabled branches?')) return;
+		runningBiometricSync = true;
+		try {
+			const response = await fetch('/api/biometric-sync', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sync', syncType: 'punches', dryRun: false }) });
+			const data = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(data.error || 'Synchronization request failed');
+			const failed = (data?.results || []).filter((row: any) => row.status === 'failed');
+			alert(failed.length ? `Completed with ${failed.length} failed branch(es). Check the logs below.` : `Completed ${(data?.results || []).length} enabled branch(es).`);
+			await loadBiometricLogs();
+		} catch (error: any) {
+			alert(`Biometric synchronization failed: ${error.message}`);
+		} finally { runningBiometricSync = false; }
+	}
 
 	// Server disk usage
 	interface DiskUsage {
@@ -279,6 +306,7 @@
 			edgeFuncsError = e.message;
 		}
 		edgeFuncsLoading = false;
+		await loadBiometricLogs();
 	}
 
 	async function copyEdgeCode(funcName: string, code: string) {
@@ -1219,6 +1247,13 @@
 						</div>
 					</div>
 					<button
+						class="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg disabled:opacity-50"
+						on:click={runEnabledBiometricBranches}
+						disabled={runningBiometricSync}
+					>
+						{runningBiometricSync ? 'Running...' : 'Run Enabled Branches Now'}
+					</button>
+					<button
 						class="px-5 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-cyan-200 hover:scale-[1.02] disabled:opacity-50"
 						on:click={loadEdgeFunctions}
 						disabled={edgeFuncsLoading}
@@ -1310,6 +1345,24 @@
 						</div>
 					</div>
 				{/if}
+
+				<div class="mt-5 bg-white/80 backdrop-blur-xl rounded-2xl border border-white shadow-lg overflow-hidden">
+					<div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+						<div><h3 class="font-black text-slate-800">Biometric Sync Logs</h3><p class="text-xs text-slate-500">Latest 50 scheduled and manual branch runs</p></div>
+						<button class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold" on:click={loadBiometricLogs} disabled={biometricLogsLoading}>Refresh Logs</button>
+					</div>
+					<div class="overflow-x-auto max-h-72 overflow-y-auto">
+						<table class="w-full text-xs">
+							<thead class="sticky top-0 bg-slate-50"><tr><th class="p-3 text-left">Time</th><th class="p-3 text-left">Branch</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Trigger</th><th class="p-3 text-left">Status</th><th class="p-3 text-right">Fetched</th><th class="p-3 text-right">Inserted</th><th class="p-3 text-right">Skipped</th><th class="p-3 text-left">Result</th></tr></thead>
+							<tbody>
+								{#each biometricLogs as log}
+									<tr class="border-t border-slate-100"><td class="p-3 whitespace-nowrap">{formatEdgeDate(log.created_at)}</td><td class="p-3 font-bold">{log.branch_name || `Branch ${log.branch_id}`}</td><td class="p-3">{log.sync_type}</td><td class="p-3">{log.trigger_type}</td><td class="p-3"><span class="px-2 py-1 rounded-full font-bold {log.status === 'success' ? 'bg-emerald-100 text-emerald-700' : log.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">{log.status}</span></td><td class="p-3 text-right">{log.records_fetched}</td><td class="p-3 text-right">{log.records_inserted}</td><td class="p-3 text-right">{log.records_skipped}</td><td class="p-3 text-red-600 max-w-[260px] truncate" title={log.error_message || ''}>{log.error_message || 'Completed'}</td></tr>
+								{/each}
+								{#if biometricLogs.length === 0}<tr><td colspan="9" class="p-6 text-center text-slate-400">No biometric synchronization runs yet.</td></tr>{/if}
+							</tbody>
+						</table>
+					</div>
+				</div>
 			{/if}
 
 		</div>
