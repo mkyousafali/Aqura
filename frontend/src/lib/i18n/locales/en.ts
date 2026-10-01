@@ -3257,6 +3257,10 @@ export const englishLocale: LocaleData = {
         mudadDescription: "Upload your Mudad Excel template. The system will match employees by Legal Id and fill in: Other Allowances (Amount), Leave of Absence (Amount), and Other Deductions (Amount).",
         savedSuccessfully: "Saved successfully",
         updatedSuccessfully: "Updated successfully",
+        updateChangedRows: "Update changed rows ({count})",
+        updateChangedRowsTooltip: "Save only the edited employees to the saved statement — all other employees stay as saved",
+        updateRowTooltip: "Save this employee's changes to the saved statement",
+        closeWithUnsavedConfirm: "{count} changed row(s) are not updated in the saved statement. Close anyway?",
         loadedNamed: "Loaded \"{name}\"",
         statementNameRequiredError: "Statement name is required",
         dateRangeRequired: "Date range is required"

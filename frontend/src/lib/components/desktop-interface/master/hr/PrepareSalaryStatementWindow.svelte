@@ -160,6 +160,7 @@
 		LOAD_OPEN:      'LOAD_MODAL_OPEN',
 		LOAD_SELECT:    'LOAD_STATEMENT',
 		UPDATE:         'UPDATE_STATEMENT',
+		ROW_UPDATE:     'UPDATE_STATEMENT_ROW',
 		RESET:          'RESET_STATEMENT',
 		EMP_EDIT_OPEN:  'EMP_EDIT_MODAL_OPEN',
 		EMP_EDIT_APPLY: 'EMP_EDIT_APPLY',
@@ -804,7 +805,6 @@
 	let currentSavedStatementId: string | null = null;
 	let isLoadedFromSaved = false;
 	let isModified = false;
-	let originalLoadedSnapshotJson = '';
 
 	let showSaveModal = false;
 	let showLoadModal = false;
@@ -1526,8 +1526,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			if (!data?.success) throw new Error(data?.error || 'Save failed');
 			currentSavedStatementId = data.id;
 			isLoadedFromSaved = true;
-			isModified = false;
-			originalLoadedSnapshotJson = JSON.stringify(buildStatementSnapshot());
+			captureRowBaseline();
 			showSaveModal = false;
 			saveNotice = $t('hr.salaryStatement.savedSuccessfully');
 			recordLog({ action_type: LOG.SAVE_CONFIRM, action_description: `Saved new salary statement: ${saveStatementName.trim()}`, statement_id: data.id, statement_name: saveStatementName.trim(), related_ui: 'SaveModal', metadata: { startDate, endDate, employeeCount: analysisData.length } });
@@ -1567,6 +1566,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			if (error) throw error;
 			if (!data?.success) throw new Error(data?.error || 'Load failed');
 			const item = data.item;
+			rowBaseline = new Map();
 			restoreStatementSnapshot(item.data_json);
 			await refreshGosiPercentagesFromDatabase();
 			await refreshLegalIdsFromDatabase();
@@ -1574,9 +1574,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			saveStatementName = item.statement_name;
 			isLoadedFromSaved = true;
 			isModified = false;
-			setTimeout(() => {
-				originalLoadedSnapshotJson = JSON.stringify(buildStatementSnapshot());
-			}, 60);
+			// Let reactive recalculations settle before taking the baseline
+			setTimeout(() => { captureRowBaseline(); }, 60);
 			showLoadModal = false;
 			saveNotice = $t('hr.salaryStatement.loadedNamed').replace('{name}', item.statement_name);
 			recordLog({ action_type: LOG.LOAD_SELECT, action_description: `Loaded salary statement: ${item.statement_name}`, statement_id: item.id, statement_name: item.statement_name, related_ui: 'LoadModal', metadata: { savedAt: item.created_at } });
@@ -1589,64 +1588,139 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		}
 	}
 
-	async function confirmUpdate() {
-		if (!currentSavedStatementId || saveBusy) return;
+	// ------------------------------------------------------------------
+	// Per-employee updates for a saved statement.
+	// Only the changed employees are written back (update_salary_statement_rows);
+	// every other employee in the saved statement — any branch — stays untouched.
+	// ------------------------------------------------------------------
+	// Must match v_map_keys in update_salary_statement_rows
+	const EMP_MAP_KEYS = [
+		'editableWorkedDays', 'basicSalaries', 'paymentModes',
+		'otherAllowances', 'otherAllowancePaymentModes',
+		'accommodationAllowances', 'accommodationPaymentModes',
+		'travelAllowances', 'travelPaymentModes',
+		'gosiDeductions', 'gosiIsPercentages', 'gosiPercentages',
+		'foodAllowances', 'foodPaymentModes', 'foodDeductionActives',
+		'posShortageDeductions', 'posDeductionsList', 'empEditOverrides',
+		'autoFineDeductions', 'lateMinutesOverrides', 'underWorkedMinutesOverrides',
+		'lateDeductionOverrides', 'underWorkedDeductionOverrides',
+		'unapprovedLeaveDeductionOverrides', 'incompleteDayDeductionOverrides',
+	] as const;
+
+	function getEmployeeMaps(): Record<string, any> {
+		return {
+			editableWorkedDays, basicSalaries, paymentModes,
+			otherAllowances, otherAllowancePaymentModes,
+			accommodationAllowances, accommodationPaymentModes,
+			travelAllowances, travelPaymentModes,
+			gosiDeductions, gosiIsPercentages, gosiPercentages,
+			foodAllowances, foodPaymentModes, foodDeductionActives,
+			posShortageDeductions, posDeductionsList, empEditOverrides,
+			autoFineDeductions, lateMinutesOverrides, underWorkedMinutesOverrides,
+			lateDeductionOverrides, underWorkedDeductionOverrides,
+			unapprovedLeaveDeductionOverrides, incompleteDayDeductionOverrides,
+		};
+	}
+
+	function buildEmployeeSlice(row: any, maps = getEmployeeMaps()) {
+		const id = String(row.employeeId);
+		const values: Record<string, any> = {};
+		for (const k of EMP_MAP_KEYS) values[k] = maps[k]?.[id] ?? null;
+		return { employeeId: id, row, values, shift: employeeShifts.get(id) ?? null };
+	}
+
+	// employeeId -> JSON of that employee's slice as it is in the saved statement
+	let rowBaseline: Map<string, string> = new Map();
+	let dirtyRowIds: Set<string> = new Set();
+
+	function captureRowBaseline() {
+		const maps = getEmployeeMaps();
+		rowBaseline = new Map(analysisData.map(r => [String(r.employeeId), JSON.stringify(buildEmployeeSlice(r, maps))]));
+		dirtyRowIds = new Set();
+		isModified = false;
+	}
+
+	function computeDirtyRows() {
+		const maps = getEmployeeMaps();
+		const next = new Set<string>();
+		for (const r of analysisData) {
+			const id = String(r.employeeId);
+			if (rowBaseline.get(id) !== JSON.stringify(buildEmployeeSlice(r, maps))) next.add(id);
+		}
+		dirtyRowIds = next;
+		isModified = next.size > 0;
+	}
+
+	async function updateSavedRows(ids: string[]) {
+		if (!currentSavedStatementId || !ids.length || saveBusy) return;
 		saveBusy = true;
 		saveError = '';
+		const idSet = new Set(ids.map(String));
+		const maps = getEmployeeMaps();
+		const slices = analysisData.filter(r => idSet.has(String(r.employeeId))).map(r => buildEmployeeSlice(r, maps));
+		const relatedUi = ids.length === 1 ? 'TableRow' : 'SaveBar';
 		try {
-			const snap = buildStatementSnapshot();
-			const { data, error } = await supabase.rpc('update_salary_statement', {
+			const { data, error } = await supabase.rpc('update_salary_statement_rows', {
 				p_id: currentSavedStatementId,
-				p_statement_name: (saveStatementName?.trim() || `Salary ${startDate} to ${endDate}`),
-				p_start_date: startDate,
-				p_end_date: endDate,
-				p_data_json: snap,
+				p_rows: slices,
 			});
 			if (error) throw error;
 			if (!data?.success) throw new Error(data?.error || 'Update failed');
-			isModified = false;
-			originalLoadedSnapshotJson = JSON.stringify(snap);
+			// Baseline = exactly what was written, so edits made during the request stay marked as changed
+			for (const s of slices) rowBaseline.set(s.employeeId, JSON.stringify(s));
+			computeDirtyRows();
+			const beforeById = new Map<string, any>((data.before || []).map((b: any) => [String(b.employeeId), b]));
+			for (const s of slices) {
+				recordLog({
+					action_type: LOG.ROW_UPDATE,
+					action_description: `Updated employee ${s.employeeId} in salary statement: ${saveStatementName?.trim()}`,
+					employee_id: s.employeeId,
+					employee_name: s.row?.employeeName || null,
+					before_value: beforeById.get(s.employeeId)?.values ?? null,
+					after_value: s.values,
+					related_ui: relatedUi,
+					metadata: { startDate, endDate, batchSize: slices.length },
+				});
+			}
 			saveNotice = $t('hr.salaryStatement.updatedSuccessfully');
-			recordLog({ action_type: LOG.UPDATE, action_description: `Updated salary statement: ${saveStatementName?.trim()}`, related_ui: 'SaveModal', metadata: { startDate, endDate, employeeCount: analysisData.length } });
 			setTimeout(() => { saveNotice = ''; }, 3000);
 		} catch (e: any) {
 			saveError = e?.message || String(e);
-			recordLog({ action_type: LOG.UPDATE, action_description: `Failed to update statement: ${saveStatementName}`, related_ui: 'SaveModal', status: 'failed', metadata: { error: saveError } });
+			recordLog({ action_type: LOG.ROW_UPDATE, action_description: `Failed to update ${slices.length} employee(s) in statement: ${saveStatementName}`, related_ui: relatedUi, status: 'failed', metadata: { error: saveError, employeeIds: slices.map(s => s.employeeId) } });
 		} finally {
 			saveBusy = false;
 		}
 	}
 
 	function resetSavedStatementContext() {
+		if (dirtyRowIds.size > 0 && !confirm($t('hr.salaryStatement.closeWithUnsavedConfirm').replace('{count}', String(dirtyRowIds.size)))) return;
 		recordLog({ action_type: LOG.RESET, action_description: `Reset saved statement context (was: ${saveStatementName || 'unnamed'})`, related_ui: 'SaveBar' });
 		currentSavedStatementId = null;
 		isLoadedFromSaved = false;
 		isModified = false;
-		originalLoadedSnapshotJson = '';
+		rowBaseline = new Map();
+		dirtyRowIds = new Set();
+		saveError = '';
 		saveStatementName = '';
 	}
 
 	// Lightweight change-detection (debounced) for loaded statements
 	let _modCheckTimer: any = null;
 	function _scheduleModCheck() {
-		if (!isLoadedFromSaved || !originalLoadedSnapshotJson) { isModified = false; return; }
+		if (!isLoadedFromSaved || !currentSavedStatementId || rowBaseline.size === 0) { isModified = false; dirtyRowIds = new Set(); return; }
 		if (_modCheckTimer) clearTimeout(_modCheckTimer);
 		_modCheckTimer = setTimeout(() => {
-			try {
-				const cur = JSON.stringify(buildStatementSnapshot());
-				isModified = cur !== originalLoadedSnapshotJson;
-			} catch { /* ignore */ }
+			try { computeDirtyRows(); } catch { /* ignore */ }
 		}, 300);
 	}
 	$: void [
 		basicSalaries, paymentModes, otherAllowances, otherAllowancePaymentModes,
 		accommodationAllowances, accommodationPaymentModes, travelAllowances, travelPaymentModes,
 		gosiDeductions, gosiIsPercentages, gosiPercentages, foodAllowances, foodPaymentModes, foodDeductionActives,
-		posShortageDeductions, posDeductionsList, empEditOverrides,
+		posShortageDeductions, posDeductionsList, empEditOverrides, autoFineDeductions,
 		lateMinutesOverrides, underWorkedMinutesOverrides, lateDeductionOverrides,
 		underWorkedDeductionOverrides, unapprovedLeaveDeductionOverrides,
-		incompleteDayDeductionOverrides, editableWorkedDays, colVis, analysisData,
-		startDate, endDate
+		incompleteDayDeductionOverrides, editableWorkedDays, analysisData
 	], _scheduleModCheck();
 
 
@@ -1945,7 +2019,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	}
 
 	async function handleRefresh() {
-		if (loading || analysisData.length === 0) return;
+		if (loading || analysisData.length === 0 || isLoadedFromSaved) return;
 		recordLog({ action_type: LOG.REFRESH, action_description: 'Manual refresh triggered', related_ui: 'TopBar', metadata: { startDate, endDate, employeeCount: analysisData.length } });
 		loading = true;
 		
@@ -1999,7 +2073,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		
 		// Set timeout and reload in background without blocking UI
 		reloadTimeout = setTimeout(() => {
-			if (startDate && endDate && analysisData.length > 0) {
+			if (startDate && endDate && analysisData.length > 0 && !isLoadedFromSaved) {
 				console.log('🔄 Background update starting...');
 				
 				// Flag that this is a realtime reload
@@ -2147,6 +2221,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	}
 
 	async function loadAnalysis() {
+		// A saved statement is never rebuilt from live data — close it first
+		if (isLoadedFromSaved) return;
 		if (!startDate || !endDate) {
 			alert('Please select date range');
 			recordLog({ action_type: LOG.LOAD_ANALYSIS, action_description: 'Load analysis failed: no date range', related_ui: 'TopBar', status: 'validation_error' });
@@ -3213,33 +3289,36 @@ return n;
 
 			<div class="w-40">
 				<label for="start-date" class="block text-xs font-bold text-slate-500 uppercase mb-1">{$t('hr.startDate')}</label>
-				<input id="start-date" type="date" bind:value={startDate} class="w-full px-3 py-2 border rounded-lg text-sm" />
+				<input id="start-date" type="date" bind:value={startDate} disabled={isLoadedFromSaved} class="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-slate-100 disabled:text-slate-500" />
 			</div>
 
 			<div class="w-40">
 				<label for="end-date" class="block text-xs font-bold text-slate-500 uppercase mb-1">{$t('hr.endDate')}</label>
-				<input id="end-date" type="date" bind:value={endDate} class="w-full px-3 py-2 border rounded-lg text-sm" />
+				<input id="end-date" type="date" bind:value={endDate} disabled={isLoadedFromSaved} class="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-slate-100 disabled:text-slate-500" />
 			</div>
 
-			<button 
-				on:click={loadAnalysis}
-				disabled={loading}
-				class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-slate-300 h-[38px]"
-			>
-				{loading ? $t('hr.processFingerprint.processing') : $t('hr.processFingerprint.load_analysis')}
-			</button>
+			<!-- A saved statement must only change through edits — reloading would rebuild it from live data -->
+			{#if !isLoadedFromSaved}
+				<button
+					on:click={loadAnalysis}
+					disabled={loading}
+					class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:bg-slate-300 h-[38px]"
+				>
+					{loading ? $t('hr.processFingerprint.processing') : $t('hr.processFingerprint.load_analysis')}
+				</button>
 
-			<button 
-				on:click={handleRefresh}
-				disabled={loading || analysisData.length === 0}
-				class="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
-				title="{$t('hr.salaryStatement.refreshTooltip')}"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-				</svg>
-				{$t('hr.salaryStatement.refresh')}
-			</button>
+				<button
+					on:click={handleRefresh}
+					disabled={loading || analysisData.length === 0}
+					class="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:bg-slate-300 h-[38px] flex items-center gap-2"
+					title="{$t('hr.salaryStatement.refreshTooltip')}"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+					</svg>
+					{$t('hr.salaryStatement.refresh')}
+				</button>
+			{/if}
 
 			<button
 				on:click={handleExportExcel}
@@ -3451,6 +3530,19 @@ title="Export salary data to Mudad Excel template"
 											<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+											</svg>
+										</button>
+									{/if}
+									{#if isLoadedFromSaved && dirtyRowIds.has(String(row.employeeId))}
+										<button
+											type="button"
+											class="p-1 hover:bg-amber-100 rounded-full transition-colors text-amber-600 disabled:opacity-50"
+											disabled={saveBusy}
+											on:click={() => updateSavedRows([String(row.employeeId)])}
+											title="{$t('hr.salaryStatement.updateRowTooltip')}"
+										>
+											<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+												<path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/>
 											</svg>
 										</button>
 									{/if}
@@ -4007,31 +4099,36 @@ title="Export salary data to Mudad Excel template"
 						{#if saveNotice}
 							<span class="px-2 py-0.5 bg-emerald-100 border border-emerald-300 rounded text-emerald-800 text-[11px] font-bold">{saveNotice}</span>
 						{/if}
+						{#if saveError && !showSaveModal && !showLoadModal}
+							<span class="px-2 py-0.5 bg-red-50 border border-red-300 rounded text-red-700 text-[11px] font-bold">{saveError}</span>
+						{/if}
 						{#if isLoadedFromSaved && currentSavedStatementId}
 							<span class="px-2 py-0.5 bg-indigo-50 border border-indigo-300 rounded text-indigo-800 text-[10px] font-semibold" title="{$t('hr.salaryStatement.loadedSavedTooltip')}">{$t('hr.salaryStatement.savedBadge')}</span>
 						{/if}
-						{#if isLoadedFromSaved && isModified}
-							<button type="button" on:click={confirmUpdate} disabled={saveBusy}
+						<!-- Saved statement open: only Update (when edited) and Close. Save/Load come back after Close. -->
+						{#if isLoadedFromSaved}
+							{#if isModified}
+							<button type="button" on:click={() => updateSavedRows([...dirtyRowIds])} disabled={saveBusy}
+								title={$t('hr.salaryStatement.updateChangedRowsTooltip')}
 								class="px-3 py-1 rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold shadow-sm">
-								{#if saveBusy}{$t('hr.salaryStatement.updating')}{:else}<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>{$t('hr.salaryStatement.update')}</span>{/if}
+								{#if saveBusy}{$t('hr.salaryStatement.updating')}{:else}<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>{$t('hr.salaryStatement.updateChangedRows').replace('{count}', String(dirtyRowIds.size))}</span>{/if}
+							</button>
+							{/if}
+							<button type="button" on:click={resetSavedStatementContext} disabled={saveBusy}
+								title="{$t('hr.salaryStatement.detachTooltip')}"
+								class="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-[11px] font-semibold">
+								✕
 							</button>
 						{:else}
 							<button type="button" on:click={openSaveModal}
-								disabled={saveBusy || !analysisData?.length || isLoadedFromSaved}
-								title={isLoadedFromSaved ? $t('hr.salaryStatement.saveDisabledLoadedTooltip') : $t('hr.salaryStatement.saveTooltip')}
+								disabled={saveBusy || !analysisData?.length}
+								title={$t('hr.salaryStatement.saveTooltip')}
 								class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold shadow-sm">
 								<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a2 2 0 012-2h8.586A2 2 0 0115 2.586L17.414 5A2 2 0 0118 6.414V16a2 2 0 01-2 2H5a2 2 0 01-2-2V4zm9-1H5a1 1 0 00-1 1v3h7V3zm0 4H4v9a1 1 0 001 1h11a1 1 0 001-1V6.414L13.586 3H13v3a1 1 0 01-1 1z"/></svg>{$t('hr.salaryStatement.save')}</span>
 							</button>
-						{/if}
-						<button type="button" on:click={openLoadModal} disabled={saveBusy}
-							class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[11px] font-bold shadow-sm">
-							<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>{$t('hr.salaryStatement.load')}</span>
-						</button>
-						{#if isLoadedFromSaved}
-							<button type="button" on:click={resetSavedStatementContext}
-								title="{$t('hr.salaryStatement.detachTooltip')}"
-								class="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 text-[11px] font-semibold">
-								✕
+							<button type="button" on:click={openLoadModal} disabled={saveBusy}
+								class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[11px] font-bold shadow-sm">
+								<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>{$t('hr.salaryStatement.load')}</span>
 							</button>
 						{/if}
 					</div>
@@ -4179,6 +4276,7 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<option value="LOAD_MODAL_OPEN">Load Modal Open</option>
 					<option value="LOAD_STATEMENT">Load Statement</option>
 					<option value="UPDATE_STATEMENT">Update Statement</option>
+					<option value="UPDATE_STATEMENT_ROW">Update Employee Row</option>
 					<option value="RESET_STATEMENT">Reset Statement</option>
 					<option value="EMP_EDIT_MODAL_OPEN">Employee Edit Open</option>
 					<option value="EMP_EDIT_APPLY">Employee Edit Applied</option>

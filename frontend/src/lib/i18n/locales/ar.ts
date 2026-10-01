@@ -3270,6 +3270,10 @@ export const arabicLocale: LocaleData = {
         mudadDescription: "قم برفع نموذج إكسل مدد. سيقوم النظام بمطابقة الموظفين بواسطة الهوية القانونية وملء: البدلات الأخرى وغياب الإجازة والخصومات الأخرى.",
         savedSuccessfully: "تم الحفظ بنجاح",
         updatedSuccessfully: "تم التحديث بنجاح",
+        updateChangedRows: "تحديث الصفوف المعدلة ({count})",
+        updateChangedRowsTooltip: "حفظ الموظفين المعدلين فقط في البيان المحفوظ — يبقى باقي الموظفين كما تم حفظهم",
+        updateRowTooltip: "حفظ تعديلات هذا الموظف في البيان المحفوظ",
+        closeWithUnsavedConfirm: "يوجد {count} صف/صفوف معدلة لم يتم تحديثها في البيان المحفوظ. هل تريد الإغلاق على أي حال؟",
         loadedNamed: "تم تحميل \"{name}\"",
         statementNameRequiredError: "اسم البيان مطلوب",
         dateRangeRequired: "يُرجى تحديد نطاق التواريخ"
