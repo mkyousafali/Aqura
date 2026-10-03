@@ -88,9 +88,9 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
         if (verification.error) throw verification.error;
         try {
           const safeName = escapeHtml(employee.data.name);
-          const emailPromise = queueEmail(db, email, employee.data.name || '', 'Aqura - User Verification Code',
-            `Your Aqura user creation verification code is: ${emailOtp}\nThis code expires in 5 minutes.`,
-            `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:30px"><h2>Aqura</h2><p>User creation verification code for ${safeName}:</p><div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb">${emailOtp}</div><p>This code expires in 5 minutes. Do not share it.</p></div>`);
+          const emailPromise = queueEmail(db, email, employee.data.name || '', 'Aqura - User Verification Code | رمز التحقق لإنشاء المستخدم',
+            `Aqura user creation verification code: ${emailOtp}\nThis code expires in 5 minutes. Do not share it.\n\nرمز التحقق لإنشاء مستخدم في أكورا: ${emailOtp}\nتنتهي صلاحية هذا الرمز خلال 5 دقائق. لا تشاركه مع أي شخص.`,
+            `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:30px;color:#0f172a"><div dir="ltr"><h2 style="margin-bottom:8px">Aqura</h2><p>User creation verification code for ${safeName}:</p><div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;margin:18px 0">${emailOtp}</div><p>This code expires in 5 minutes. Do not share it.</p></div><hr style="border:0;border-top:1px solid #e2e8f0;margin:28px 0"><div dir="rtl" style="text-align:right"><h2 style="margin-bottom:8px">أكورا</h2><p>رمز التحقق لإنشاء مستخدم باسم ${safeName}:</p><div dir="ltr" style="text-align:right;font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;margin:18px 0">${emailOtp}</div><p>تنتهي صلاحية هذا الرمز خلال 5 دقائق. لا تشاركه مع أي شخص.</p></div></div>`);
           const whatsappPromise = db.functions.invoke('send-whatsapp', { body: {
             action: 'send_user_creation_otp', phone_number: `+${phone}`,
             access_code: whatsappOtp, customer_name: employee.data.name, language: 'en'
@@ -162,9 +162,9 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
           const username = escapeHtml(u.username);
           const password = escapeHtml(u.password);
           const accessCode = escapeHtml(result.data.quick_access_code);
-          await queueEmail(db, result.data.email, '', 'Welcome to Aqura - Your Login Credentials',
-            `Your Aqura account has been created.\nUsername: ${u.username}\nPassword: ${u.password}\nAccess Code: ${result.data.quick_access_code}\nYou must change your password after your first login.`,
-            `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:30px"><h2>Welcome to Aqura</h2><p>Your account has been created.</p><p><b>Username:</b> ${username}<br><b>Temporary password:</b> ${password}<br><b>Access code:</b> ${accessCode}</p><p>Change your password after your first login and do not share these credentials.</p></div>`,
+          await queueEmail(db, result.data.email, '', 'Welcome to Aqura | مرحباً بك في أكورا',
+            `Your Aqura account has been created.\nUsername: ${u.username}\nTemporary password: ${u.password}\nAccess code: ${result.data.quick_access_code}\nChange your password after your first login and do not share these credentials.\n\nتم إنشاء حسابك في أكورا.\nاسم المستخدم: ${u.username}\nكلمة المرور المؤقتة: ${u.password}\nرمز الدخول: ${result.data.quick_access_code}\nيجب تغيير كلمة المرور بعد تسجيل الدخول لأول مرة، ولا تشارك بيانات الدخول مع أي شخص.`,
+            `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:30px;color:#0f172a"><div dir="ltr"><h2>Welcome to Aqura</h2><p>Your account has been created.</p><p><b>Username:</b> ${username}<br><b>Temporary password:</b> ${password}<br><b>Access code:</b> ${accessCode}</p><p>Change your password after your first login and do not share these credentials.</p></div><hr style="border:0;border-top:1px solid #e2e8f0;margin:28px 0"><div dir="rtl" style="text-align:right"><h2>مرحباً بك في أكورا</h2><p>تم إنشاء حسابك.</p><p><b>اسم المستخدم:</b> <span dir="ltr">${username}</span><br><b>كلمة المرور المؤقتة:</b> <span dir="ltr">${password}</span><br><b>رمز الدخول:</b> <span dir="ltr">${accessCode}</span></p><p>يجب تغيير كلمة المرور بعد تسجيل الدخول لأول مرة، ولا تشارك بيانات الدخول مع أي شخص.</p></div></div>`,
             'transactional', true);
         } catch (error) {
           deliveryWarning = error instanceof Error ? error.message : 'Credential email could not be delivered';
