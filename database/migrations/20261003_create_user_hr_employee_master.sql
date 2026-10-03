@@ -2,6 +2,10 @@ begin;
 
 -- Extend verified user creation so the selected attendance employee is also
 -- represented in hr_employee_master in the same transaction.
+alter function public.create_verified_user(
+  uuid, varchar, varchar, boolean, boolean, varchar, bigint, uuid, varchar, text, uuid
+) rename to create_verified_user_core;
+
 create or replace function public.create_verified_user(
   p_verification_id uuid,
   p_username varchar,
@@ -85,7 +89,7 @@ begin
 
   -- Call the existing verified-user implementation explicitly. Any failure in
   -- the HR insert below rolls this work back because both run in one function call.
-  v_result := public.create_verified_user(
+  v_result := public.create_verified_user_core(
     p_verification_id,
     p_username,
     p_password,

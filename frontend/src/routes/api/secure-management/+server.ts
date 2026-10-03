@@ -56,17 +56,25 @@ async function queueEmail(db: ReturnType<typeof databaseClient>, recipient: stri
 export const POST: RequestHandler = async ({ cookies, request }) => {
   try {
     const actor = await requireBreakUser(cookies, 'desktop');
-    if (!actor.isAdmin && !actor.isMasterAdmin) return json({ error: 'Manager access denied' }, { status: 403 });
     const body = await request.json();
     const db = databaseClient();
+    const userCreationActions = new Set([
+      'startUserCreationVerification',
+      'verifyUserCreationOtp',
+      'createVerifiedUser'
+    ]);
+    if (userCreationActions.has(body.action)) {
+      if (!actor.isAdmin && !actor.isMasterAdmin) {
+        const permission = await db.from('button_permissions').select('is_enabled')
+          .eq('user_id', actor.id).eq('button_code', 'CREATE_USER').eq('is_enabled', true).maybeSingle();
+        if (permission.error || !permission.data) return json({ error: 'Create User permission required' }, { status: 403 });
+      }
+    } else if (!actor.isAdmin && !actor.isMasterAdmin) {
+      return json({ error: 'Manager access denied' }, { status: 403 });
+    }
     let result: { data: any; error: any };
     switch (body.action) {
       case 'startUserCreationVerification': {
-        if (!actor.isMasterAdmin) {
-          const permission = await db.from('button_permissions').select('is_enabled')
-            .eq('user_id', actor.id).eq('button_code', 'CREATE_USER').eq('is_enabled', true).maybeSingle();
-          if (permission.error || !permission.data) return json({ error: 'Create User permission required' }, { status: 403 });
-        }
         const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
         const phone = normalizePhone(body.whatsappNumber);
         const employeeId = typeof body.employeeId === 'string' ? body.employeeId : '';
@@ -286,6 +294,12 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
     if (result.error) throw result.error;
     return json({ data: result.data, success: true });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Management update failed' }, { status: 403 });
+    const message = error instanceof Error
+      ? error.message
+      : error && typeof error === 'object' && 'message' in error
+        ? String(error.message)
+        : 'Management update failed';
+    console.error('Secure management request failed:', error);
+    return json({ error: message }, { status: 403 });
   }
 };

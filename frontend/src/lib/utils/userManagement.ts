@@ -4,7 +4,11 @@ async function secureManagement(action: string, fields: Record<string, unknown> 
   const response = await fetch('/api/secure-management', { method: 'POST', credentials: 'include',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...fields }) });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || 'Management update failed');
+  if (!response.ok) {
+    const detail = payload.error || payload.message || payload.statusText;
+    console.error('Secure management request failed:', response.status, payload);
+    throw new Error(detail || `Management update failed (${response.status})`);
+  }
   return payload;
 }
 
