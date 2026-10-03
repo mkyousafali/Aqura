@@ -20,12 +20,13 @@ async function getWaCredentials(supabase: any): Promise<{ token: string; phoneId
 }
 
 interface SendWhatsAppRequest {
-  action: "send_access_code" | "send_loyalty_otp" | "send_customer_auth_otp" | "send_user_creation_otp";
+  action: "send_access_code" | "send_loyalty_otp" | "send_customer_auth_otp" | "send_user_creation_otp" | "send_user_credentials";
   phone_number: string; // E.164 format e.g. +966567334726
   access_code?: string;
   customer_name?: string;
   purpose?: "registration" | "login";
   language?: string;
+  username?: string;
 }
 
 serve(async (req: Request) => {
@@ -51,11 +52,11 @@ serve(async (req: Request) => {
     const { token: WHATSAPP_TOKEN, phoneId: WHATSAPP_PHONE_ID } = await getWaCredentials(supabase);
 
     const body: SendWhatsAppRequest = await req.json();
-    const { action, phone_number, customer_name, purpose, language } = body;
+    const { action, phone_number, customer_name, purpose, language, username } = body;
     let access_code = body.access_code;
     let customerOtpExpirySeconds: number | undefined;
 
-    if (action !== "send_access_code" && action !== "send_loyalty_otp" && action !== "send_customer_auth_otp" && action !== "send_user_creation_otp") {
+    if (action !== "send_access_code" && action !== "send_loyalty_otp" && action !== "send_customer_auth_otp" && action !== "send_user_creation_otp" && action !== "send_user_credentials") {
       return new Response(
         JSON.stringify({ error: "Invalid action" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -146,6 +147,83 @@ serve(async (req: Request) => {
         ],
       },
     });
+
+    if (action === "send_user_credentials") {
+      if (!username || !access_code) {
+        return new Response(JSON.stringify({ success: false, error: "Missing user account details" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const sendTemplate = async (
+        templateName: "aqura_account_ready" | "aqura_access_code",
+        lang: "en" | "ar",
+        value: string,
+        messageType: "user_account_ready" | "user_access_code",
+        includeCopyButton = false,
+      ) => {
+        const components: Array<Record<string, unknown>> = [{
+          type: "body",
+          parameters: [{ type: "text", text: value }],
+        }];
+        if (includeCopyButton) {
+          components.push({
+            type: "button",
+            sub_type: "url",
+            index: "0",
+            parameters: [{ type: "text", text: value }],
+          });
+        }
+        const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${WHATSAPP_PHONE_ID}/messages`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: formattedPhone,
+            type: "template",
+            template: {
+              name: templateName,
+              language: { code: lang },
+              components,
+            },
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          console.error(`WhatsApp ${messageType} delivery failed (${lang}):`, JSON.stringify(result));
+          throw new Error(`WhatsApp ${messageType} delivery failed (${lang})`);
+        }
+        await supabase.from("whatsapp_message_log").insert({
+          phone_number: cleanPhone,
+          message_type: messageType,
+          template_name: templateName,
+          template_language: lang,
+          whatsapp_message_id: result.messages?.[0]?.id || null,
+          status: "sent",
+          customer_name: customer_name || null,
+        });
+      };
+      try {
+        const warnings: string[] = [];
+        for (const lang of ["ar", "en"] as const) {
+          try {
+            await sendTemplate("aqura_account_ready", lang, username, "user_account_ready");
+          } catch (error) {
+            warnings.push(error instanceof Error ? error.message : `WhatsApp account confirmation failed (${lang})`);
+          }
+        }
+        for (const lang of ["en", "ar"] as const) {
+          await sendTemplate("aqura_access_code", lang, access_code, "user_access_code", true);
+        }
+        return new Response(JSON.stringify({ success: true, phone: cleanPhone, warnings }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ success: false, error: error instanceof Error ? error.message : "WhatsApp account delivery failed" }), {
+          status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // Loyalty OTP — uses Authentication template "loyalty_redemption_otp" (Copy code, Arabic)
     if (action === "send_loyalty_otp" || action === "send_customer_auth_otp" || action === "send_user_creation_otp") {

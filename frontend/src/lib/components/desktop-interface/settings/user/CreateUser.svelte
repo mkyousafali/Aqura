@@ -21,8 +21,15 @@
 	const avatarInputId = `avatar-input-${componentId}`;
 	const whatsappNumberId = `whatsappNumber-${componentId}`;
 	const emailFieldId = `email-${componentId}`;
+	const nameEnId = `name-en-${componentId}`;
+	const nameArId = `name-ar-${componentId}`;
 	const emailOtpId = `emailOtp-${componentId}`;
 	const whatsappOtpId = `whatsappOtp-${componentId}`;
+	const linkErpId = `link-erp-${componentId}`;
+	const erpUserId = `erp-user-${componentId}`;
+	const erpLoginPasswordId = `erp-login-password-${componentId}`;
+	const erpAuthorizationPasswordId = `erp-authorization-password-${componentId}`;
+	const erpBulkRotationId = `erp-bulk-rotation-${componentId}`;
 	
 	// Props from parent component
 	export let onDataChanged: (() => Promise<void>) | null = null;
@@ -40,6 +47,15 @@
 		isMasterAdmin: false,
 		isAdmin: false,
 		positionId: '',
+		nameEn: '',
+		nameAr: '',
+		linkErpCredentials: false,
+		erpBranchId: null as number | null,
+		erpUserId: '',
+		erpUsername: '',
+		erpLoginPassword: '',
+		erpAuthorizationPassword: '',
+		erpBulkRotationEnabled: false,
 		avatar: null,
 		whatsappNumber: '',
 		email: ''
@@ -61,28 +77,43 @@
 	let whatsappOtp = '';
 	let emailVerified = false;
 	let whatsappVerified = false;
+	let verifyByEmail = true;
+	let verifyByWhatsapp = true;
 	let verificationExpiresAt = 0;
 	let isSendingVerification = false;
 	let isVerifyingEmail = false;
 	let isVerifyingWhatsapp = false;
+	let erpUsers: Array<{ userId: string; username: string }> = [];
+	let erpUsersLoading = false;
+	let erpUsersError = '';
 	let currentStep = 1;
 	const wizardSteps = [
 		{ number: 1, label: 'Assignment' },
 		{ number: 2, label: 'Credentials' },
 		{ number: 3, label: 'User Details' },
-		{ number: 4, label: 'Verification' },
-		{ number: 5, label: 'Review & Create' }
+		{ number: 4, label: 'ERP Access' },
+		{ number: 5, label: 'Verification' },
+		{ number: 6, label: 'Review & Create' }
 	];
+	$: verificationSelectionValid = verifyByEmail || verifyByWhatsapp;
+	$: verificationComplete = verificationSelectionValid
+		&& (!verifyByEmail || emailVerified)
+		&& (!verifyByWhatsapp || whatsappVerified)
+		&& verificationExpiresAt > Date.now();
+	$: contactDetailsValid = (!verifyByEmail || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
+		&& (!verifyByWhatsapp || /^\+?[0-9]{7,15}$/.test(formData.whatsappNumber.replace(/[\s-]/g, '')));
 
 	$: canContinue = currentStep === 1
 		? Boolean(formData.userType && formData.employeeId && (formData.userType === 'global' || formData.branchId))
 		: currentStep === 2
 			? Boolean(formData.username && isPasswordValid && isQuickAccessValid)
 			: currentStep === 3
-				? /^\+?[0-9]{7,15}$/.test(formData.whatsappNumber.replace(/[\s-]/g, '')) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)
+				? Boolean(formData.nameEn.trim() && formData.nameAr.trim()) && contactDetailsValid
 				: currentStep === 4
-					? emailVerified && whatsappVerified && verificationExpiresAt > Date.now()
-					: true;
+					? !formData.linkErpCredentials || Boolean(formData.erpUserId && formData.erpLoginPassword && formData.erpAuthorizationPassword)
+					: currentStep === 5
+						? verificationComplete
+						: true;
 
 	function nextStep() {
 		if (canContinue && currentStep < wizardSteps.length) currentStep += 1;
@@ -183,7 +214,11 @@
 		console.log('👤 [CreateUser] Selecting employee:', employee);
 		selectedEmployee = employee;
 		formData.employeeId = employee.id;
-		formData.username = generateUsername(employee.name || employee.employee_id || 'user');
+		formData.nameEn = formatEmployeeName(employee.name || employee.employee_id || 'User');
+		formData.nameAr = '';
+		formData.username = generateUsername(formData.nameEn);
+		resetErpCredentials();
+		void loadErpUsersForEmployee(employee);
 		generatePassword();
 		generateQuickAccessCode();
 		resetVerification();
@@ -200,6 +235,7 @@
 			selectedEmployee = null;
 			formData.employeeId = '';
 			employeeSearchTerm = '';
+			resetErpCredentials();
 			resetVerification();
 			console.log('🔄 [CreateUser] Cleared employee selection due to branch change');
 		}
@@ -230,9 +266,43 @@
 	}
 
 	function generateUsername(name: string) {
-		const base = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-			.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'user';
-		return `${base}.${secureRandomInt(1000).toString().padStart(3, '0')}`.slice(0, 50);
+		return (name.trim().replace(/\s+/g, ' ') || 'User').slice(0, 50);
+	}
+
+	function formatEmployeeName(name: string) {
+		return name.trim().replace(/\s+/g, ' ').toLowerCase()
+			.replace(/(^|\s)\p{L}/gu, letter => letter.toUpperCase());
+	}
+
+	function resetErpCredentials() {
+		formData.linkErpCredentials = false;
+		formData.erpBranchId = null;
+		formData.erpUserId = '';
+		formData.erpUsername = '';
+		formData.erpLoginPassword = '';
+		formData.erpAuthorizationPassword = '';
+		formData.erpBulkRotationEnabled = false;
+		erpUsers = [];
+		erpUsersError = '';
+	}
+
+	async function loadErpUsersForEmployee(employee: any) {
+		if (!employee?.branch_id) return;
+		erpUsersLoading = true;
+		erpUsersError = '';
+		try {
+			const result = await userManagement.getErpUsersForBranch(Number(employee.branch_id));
+			formData.erpBranchId = result.erpBranchId;
+			erpUsers = result.users;
+		} catch (error) {
+			erpUsersError = error instanceof Error ? error.message : 'Unable to load ERP users';
+		} finally {
+			erpUsersLoading = false;
+		}
+	}
+
+	function selectErpUser() {
+		formData.erpUsername = erpUsers.find(user => user.userId === formData.erpUserId)?.username || '';
 	}
 
 	function generatePassword() {
@@ -266,19 +336,27 @@
 		verificationExpiresAt = 0;
 	}
 
+	function changeVerificationChannel() {
+		resetVerification();
+		errors.verify = '';
+	}
+
 	async function sendVerificationCodes() {
-		if (!formData.employeeId || !formData.email.trim() || !formData.whatsappNumber.trim()) {
-			errors.verify = 'Select an employee and enter both contact details first';
+		if (!formData.employeeId || !verificationSelectionValid || !contactDetailsValid) {
+			errors.verify = 'Select at least one channel and enter its valid contact details';
 			return;
 		}
 		isSendingVerification = true;
 		errors.verify = '';
 		try {
-			const result = await userManagement.startUserCreationVerification(formData.employeeId, formData.email, formData.whatsappNumber);
+			const channels: Array<'email' | 'whatsapp'> = [];
+			if (verifyByEmail) channels.push('email');
+			if (verifyByWhatsapp) channels.push('whatsapp');
+			const result = await userManagement.startUserCreationVerification(formData.employeeId, formData.email, formData.whatsappNumber, channels);
 			verificationId = result.verificationId;
 			verificationExpiresAt = new Date(result.expiresAt).getTime();
-			emailVerified = false;
-			whatsappVerified = false;
+			emailVerified = !verifyByEmail;
+			whatsappVerified = !verifyByWhatsapp;
 			emailOtp = '';
 			whatsappOtp = '';
 		} catch (error) {
@@ -380,20 +458,29 @@
 			errors.employeeId = 'Employee selection is required';
 		}
 
-		if (!formData.whatsappNumber.trim()) {
+		if (!formData.nameEn.trim()) errors.nameEn = 'English employee name is required';
+		if (!formData.nameAr.trim()) errors.nameAr = 'Arabic employee name is required';
+
+		if (formData.linkErpCredentials) {
+			if (!formData.erpUserId) errors.erpUser = 'ERP user is required';
+			if (!formData.erpLoginPassword) errors.erpLoginPassword = 'ERP login password is required';
+			if (!formData.erpAuthorizationPassword) errors.erpAuthorizationPassword = 'ERP authorization password is required';
+		}
+
+		if (verifyByWhatsapp && !formData.whatsappNumber.trim()) {
 			errors.whatsappNumber = 'WhatsApp number is required';
-		} else if (!/^\+?[0-9]{7,15}$/.test(formData.whatsappNumber.replace(/[\s-]/g, ''))) {
+		} else if (verifyByWhatsapp && !/^\+?[0-9]{7,15}$/.test(formData.whatsappNumber.replace(/[\s-]/g, ''))) {
 			errors.whatsappNumber = 'Enter a valid phone number (e.g. +966501234567)';
 		}
 
-		if (!formData.email.trim()) {
+		if (verifyByEmail && !formData.email.trim()) {
 			errors.email = 'Email is required';
-		} else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+		} else if (verifyByEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
 			errors.email = 'Enter a valid email address';
 		}
 
-		if (!verificationId || !emailVerified || !whatsappVerified || verificationExpiresAt <= Date.now()) {
-			errors.verify = 'Verify both email and WhatsApp before creating the user';
+		if (!verificationId || !verificationComplete) {
+			errors.verify = 'Verify every selected channel before creating the user';
 		}
 
 		return Object.keys(errors).length === 0;
@@ -432,6 +519,9 @@
 			}
 
 			// Prepare user data for creation
+			const verificationChannels: Array<'email' | 'whatsapp'> = [];
+			if (verifyByEmail) verificationChannels.push('email');
+			if (verifyByWhatsapp) verificationChannels.push('whatsapp');
 			const userData = {
 				username: formData.username,
 				password: formData.password,
@@ -441,9 +531,18 @@
 				branchId: formData.branchId ? parseInt(formData.branchId) : null,
 				employeeId: formData.employeeId || null,
 				positionId: formData.positionId || null,
+				nameEn: formData.nameEn.trim(),
+				nameAr: formData.nameAr.trim(),
+				erpBranchId: formData.linkErpCredentials ? formData.erpBranchId : null,
+				erpUserId: formData.linkErpCredentials ? formData.erpUserId : null,
+				erpUsername: formData.linkErpCredentials ? formData.erpUsername : null,
+				erpLoginPassword: formData.linkErpCredentials ? formData.erpLoginPassword : null,
+				erpAuthorizationPassword: formData.linkErpCredentials ? formData.erpAuthorizationPassword : null,
+				erpBulkRotationEnabled: formData.linkErpCredentials && formData.erpBulkRotationEnabled,
 				quickAccessCode: formData.quickAccessCode || null,
 				requestingUserId: $currentUser?.id || null,
 				verificationId,
+				verificationChannels,
 				avatarDataUrl: avatarPreview || null
 			};
 
@@ -451,7 +550,7 @@
 			const result = await userManagement.createUser(userData);
 
 			if (result.success) {
-				successMessage = `User created successfully! Quick Access Code: ${result.quickAccessCode}${result.deliveryWarning ? ` (Credential email warning: ${result.deliveryWarning})` : ''}`;
+				successMessage = `User created successfully! Quick Access Code: ${result.quickAccessCode}${result.deliveryWarning ? ` (Credential delivery warning: ${result.deliveryWarning})` : ''}`;
 				
 				// Notify parent component to refresh data
 				if (onDataChanged) {
@@ -475,6 +574,8 @@
 	}
 
 	function resetForm() {
+		verifyByEmail = true;
+		verifyByWhatsapp = true;
 		formData = {
 			username: '',
 			password: '',
@@ -487,6 +588,15 @@
 			isMasterAdmin: false,
 			isAdmin: false,
 			positionId: '',
+			nameEn: '',
+			nameAr: '',
+			linkErpCredentials: false,
+			erpBranchId: null,
+			erpUserId: '',
+			erpUsername: '',
+			erpLoginPassword: '',
+			erpAuthorizationPassword: '',
+			erpBulkRotationEnabled: false,
 			avatar: null,
 			whatsappNumber: '',
 			email: ''
@@ -560,11 +670,16 @@
                             <span class="inline-block w-1.5 h-5 bg-blue-600 rounded-full"></span>
                             Contact Details
                         </h2>
+						<div class="mb-4 grid grid-cols-2 gap-3">
+							<label class="flex cursor-pointer items-center gap-3 rounded-xl border border-green-100 bg-green-50/70 p-3 text-sm font-bold text-slate-700"><input type="checkbox" bind:checked={verifyByWhatsapp} on:change={changeVerificationChannel} class="h-4 w-4 accent-green-600"> Verify by WhatsApp</label>
+							<label class="flex cursor-pointer items-center gap-3 rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-sm font-bold text-slate-700"><input type="checkbox" bind:checked={verifyByEmail} on:change={changeVerificationChannel} class="h-4 w-4 accent-blue-600"> Verify by Email</label>
+						</div>
+						{#if !verificationSelectionValid}<p class="mb-4 text-xs font-medium text-red-500">Select at least one verification channel.</p>{/if}
 
                         <!-- WhatsApp Number and Email -->
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label for={whatsappNumberId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">📱 WhatsApp Number *</label>
+                                <label for={whatsappNumberId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">📱 WhatsApp Number {verifyByWhatsapp ? '*' : '(optional)'}</label>
                                 <input
                                     type="tel"
                                     id={whatsappNumberId}
@@ -572,7 +687,7 @@
                                     on:input={resetVerification}
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all {errors.whatsappNumber ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="+966501234567"
-                                    required
+									required={verifyByWhatsapp}
                                 >
                                 {#if errors.whatsappNumber}
                                     <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.whatsappNumber}</p>
@@ -580,7 +695,7 @@
                             </div>
 
                             <div>
-                                <label for={emailFieldId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">📧 Email *</label>
+                                <label for={emailFieldId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">📧 Email {verifyByEmail ? '*' : '(optional)'}</label>
                                 <input
                                     type="email"
                                     id={emailFieldId}
@@ -588,7 +703,7 @@
                                     on:input={resetVerification}
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all {errors.email ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="user@example.com"
-                                    required
+									required={verifyByEmail}
                                 >
                                 {#if errors.email}
                                     <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.email}</p>
@@ -852,6 +967,10 @@
 
 					<div class:hidden={currentStep !== 3} class="order-4 bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
 						<h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2"><span class="inline-block w-1.5 h-5 bg-indigo-500 rounded-full"></span>Access & Position</h2>
+						<div class="grid grid-cols-2 gap-4 mb-4">
+							<div><label for={nameEnId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Employee Name — English *</label><input id={nameEnId} type="text" bind:value={formData.nameEn} class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 {errors.nameEn ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}" required>{#if errors.nameEn}<p class="text-red-500 text-xs mt-1.5 font-medium">{errors.nameEn}</p>{/if}</div>
+							<div><label for={nameArId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Employee Name — Arabic *</label><input id={nameArId} type="text" dir="rtl" bind:value={formData.nameAr} class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm text-right focus:outline-none focus:ring-2 focus:ring-indigo-500 {errors.nameAr ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}" required>{#if errors.nameAr}<p class="text-red-500 text-xs mt-1.5 font-medium">{errors.nameAr}</p>{/if}</div>
+						</div>
 						{#if $currentUser?.isMasterAdmin}
 							<div class="grid grid-cols-2 gap-4 mb-4">
 								<div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3"><input type="checkbox" id={isAdminId} bind:checked={formData.isAdmin} disabled={formData.isMasterAdmin} class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer disabled:opacity-50"><div><label for={isAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Admin</label><p class="text-xs text-slate-400 mt-0.5">Manage users and approve workflows</p></div></div>
@@ -905,35 +1024,60 @@
                         {/if}
                     </div>
 
-					<div class:hidden={currentStep !== 4} class="order-6 rounded-[2rem] border border-blue-100 bg-blue-50/70 p-6 mb-6 shadow-sm">
-						<div class="flex items-center justify-between gap-3">
-							<div><h2 class="text-sm font-black uppercase tracking-wider text-slate-700">Contact Verification</h2><p class="mt-1 text-xs text-slate-500">Send separate six-digit codes to the verified email address and WhatsApp number.</p></div>
-							<button type="button" class="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" on:click={sendVerificationCodes} disabled={isSendingVerification || !formData.employeeId || !formData.email || !formData.whatsappNumber}>{isSendingVerification ? 'Sending…' : verificationId ? 'Resend Codes' : 'Verify'}</button>
+					<div class:hidden={currentStep !== 4} class="order-6 rounded-[2rem] border border-violet-100 bg-violet-50/70 p-6 mb-6 shadow-sm">
+						<div class="flex items-start justify-between gap-4">
+							<div><h2 class="text-sm font-black uppercase tracking-wider text-slate-700">ERP Access</h2><p class="mt-1 text-xs text-slate-500">Optionally link this user to the selected employee branch's ERP login and authorization credentials.</p></div>
+							<label for={linkErpId} class="flex items-center gap-2 text-sm font-bold text-slate-700"><input id={linkErpId} type="checkbox" bind:checked={formData.linkErpCredentials} class="h-4 w-4 accent-violet-600"> Link ERP credentials</label>
 						</div>
+						{#if formData.linkErpCredentials}
+							<div class="mt-5 space-y-4">
+								<div><label for={erpUserId} class="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-600">ERP User *</label><select id={erpUserId} bind:value={formData.erpUserId} on:change={selectErpUser} disabled={erpUsersLoading || erpUsers.length === 0} class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:bg-slate-100"><option value="">{erpUsersLoading ? 'Loading ERP users…' : 'Select ERP user'}</option>{#each erpUsers as erpUser}<option value={erpUser.userId}>{erpUser.userId} — {erpUser.username}</option>{/each}</select>{#if errors.erpUser}<p class="mt-1.5 text-xs font-medium text-red-500">{errors.erpUser}</p>{/if}{#if erpUsersError}<p class="mt-1.5 text-xs font-medium text-red-500">{erpUsersError}</p>{/if}</div>
+								<div class="grid grid-cols-2 gap-4">
+									<div><label for={erpLoginPasswordId} class="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-600">ERP Login Password *</label><input id={erpLoginPasswordId} type="password" bind:value={formData.erpLoginPassword} class="w-full rounded-xl border bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 {errors.erpLoginPassword ? 'border-red-400' : 'border-slate-200'}">{#if errors.erpLoginPassword}<p class="mt-1.5 text-xs font-medium text-red-500">{errors.erpLoginPassword}</p>{/if}</div>
+									<div><label for={erpAuthorizationPasswordId} class="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-600">ERP Authorization Password *</label><input id={erpAuthorizationPasswordId} type="password" bind:value={formData.erpAuthorizationPassword} class="w-full rounded-xl border bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 {errors.erpAuthorizationPassword ? 'border-red-400' : 'border-slate-200'}">{#if errors.erpAuthorizationPassword}<p class="mt-1.5 text-xs font-medium text-red-500">{errors.erpAuthorizationPassword}</p>{/if}</div>
+								</div>
+								<label for={erpBulkRotationId} class="flex items-center gap-2 text-sm text-slate-700"><input id={erpBulkRotationId} type="checkbox" bind:checked={formData.erpBulkRotationEnabled} class="h-4 w-4 accent-violet-600"> Include this user in ERP bulk password rotation</label>
+							</div>
+						{/if}
+					</div>
+
+					<div class:hidden={currentStep !== 5} class="order-7 rounded-[2rem] border border-blue-100 bg-blue-50/70 p-6 mb-6 shadow-sm">
+						<div class="flex items-center justify-between gap-3">
+							<div><h2 class="text-sm font-black uppercase tracking-wider text-slate-700">Contact Verification</h2><p class="mt-1 text-xs text-slate-500">Choose one or both channels. Every selected channel must be verified.</p></div>
+							<button type="button" class="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" on:click={sendVerificationCodes} disabled={isSendingVerification || !formData.employeeId || !verificationSelectionValid || !contactDetailsValid}>{isSendingVerification ? 'Sending…' : verificationId ? 'Resend Codes' : 'Send OTP'}</button>
+						</div>
+						<div class="mt-4 grid grid-cols-2 gap-3">
+							<label class="flex cursor-pointer items-center gap-3 rounded-xl border bg-white/80 p-3 text-sm font-bold text-slate-700"><input type="checkbox" bind:checked={verifyByWhatsapp} on:change={changeVerificationChannel} class="h-4 w-4 accent-green-600"> WhatsApp</label>
+							<label class="flex cursor-pointer items-center gap-3 rounded-xl border bg-white/80 p-3 text-sm font-bold text-slate-700"><input type="checkbox" bind:checked={verifyByEmail} on:change={changeVerificationChannel} class="h-4 w-4 accent-blue-600"> Email</label>
+						</div>
+						{#if !verificationSelectionValid}<p class="mt-2 text-xs font-medium text-red-500">Select at least one verification channel.</p>{/if}
 						{#if verificationId}
 							<div class="mt-4 grid grid-cols-2 gap-4">
-								<div class="rounded-xl border border-white bg-white/80 p-3"><label for={emailOtpId} class="mb-2 block text-xs font-bold text-slate-600">Email OTP</label><div class="flex gap-2"><input id={emailOtpId} bind:value={emailOtp} on:input={() => emailOtp = emailOtp.replace(/\D/g, '').slice(0, 6)} inputmode="numeric" maxlength="6" placeholder="000000" disabled={emailVerified} class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-emerald-50"><button type="button" on:click={() => verifyChannel('email')} disabled={emailVerified || isVerifyingEmail || emailOtp.length !== 6} class="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{emailVerified ? 'Verified ✓' : isVerifyingEmail ? '…' : 'Confirm'}</button></div></div>
-								<div class="rounded-xl border border-white bg-white/80 p-3"><label for={whatsappOtpId} class="mb-2 block text-xs font-bold text-slate-600">WhatsApp OTP</label><div class="flex gap-2"><input id={whatsappOtpId} bind:value={whatsappOtp} on:input={() => whatsappOtp = whatsappOtp.replace(/\D/g, '').slice(0, 6)} inputmode="numeric" maxlength="6" placeholder="000000" disabled={whatsappVerified} class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-emerald-50"><button type="button" on:click={() => verifyChannel('whatsapp')} disabled={whatsappVerified || isVerifyingWhatsapp || whatsappOtp.length !== 6} class="rounded-xl bg-green-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{whatsappVerified ? 'Verified ✓' : isVerifyingWhatsapp ? '…' : 'Confirm'}</button></div></div>
+								{#if verifyByEmail}<div class="rounded-xl border border-white bg-white/80 p-3"><label for={emailOtpId} class="mb-2 block text-xs font-bold text-slate-600">Email OTP</label><div class="flex gap-2"><input id={emailOtpId} bind:value={emailOtp} on:input={() => emailOtp = emailOtp.replace(/\D/g, '').slice(0, 6)} inputmode="numeric" maxlength="6" placeholder="000000" disabled={emailVerified} class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-emerald-50"><button type="button" on:click={() => verifyChannel('email')} disabled={emailVerified || isVerifyingEmail || emailOtp.length !== 6} class="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{emailVerified ? 'Verified ✓' : isVerifyingEmail ? '…' : 'Confirm'}</button></div></div>{/if}
+								{#if verifyByWhatsapp}<div class="rounded-xl border border-white bg-white/80 p-3"><label for={whatsappOtpId} class="mb-2 block text-xs font-bold text-slate-600">WhatsApp OTP</label><div class="flex gap-2"><input id={whatsappOtpId} bind:value={whatsappOtp} on:input={() => whatsappOtp = whatsappOtp.replace(/\D/g, '').slice(0, 6)} inputmode="numeric" maxlength="6" placeholder="000000" disabled={whatsappVerified} class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-emerald-50"><button type="button" on:click={() => verifyChannel('whatsapp')} disabled={whatsappVerified || isVerifyingWhatsapp || whatsappOtp.length !== 6} class="rounded-xl bg-green-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{whatsappVerified ? 'Verified ✓' : isVerifyingWhatsapp ? '…' : 'Confirm'}</button></div></div>{/if}
 							</div>
 						{/if}
 						{#if errors.verify}<p class="mt-2 text-xs font-medium text-red-500">{errors.verify}</p>{/if}
 					</div>
 
-					<div class:hidden={currentStep !== 5} class="order-7 rounded-[2rem] border border-white bg-white/60 p-6 mb-6 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] backdrop-blur-xl">
+					<div class:hidden={currentStep !== 6} class="order-8 rounded-[2rem] border border-white bg-white/60 p-6 mb-6 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] backdrop-blur-xl">
 						<h2 class="mb-5 flex items-center gap-2 text-sm font-black uppercase tracking-wider text-slate-700"><span class="inline-block h-5 w-1.5 rounded-full bg-emerald-500"></span>Review User Details</h2>
 						<div class="grid grid-cols-2 gap-3 text-sm">
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">User Type</p><p class="mt-1 font-semibold text-slate-800">{formData.userType === 'global' ? 'Global Access' : 'Branch Specific'}</p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Branch</p><p class="mt-1 font-semibold text-slate-800">{formData.userType === 'global' ? 'All Branches' : branches.find(branch => String(branch.id) === String(formData.branchId))?.name_en || 'Not selected'}</p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Employee</p><p class="mt-1 font-semibold text-slate-800">{selectedEmployee?.name || 'Not selected'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Employee Name (English)</p><p class="mt-1 font-semibold text-slate-800">{formData.nameEn || 'Not entered'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Employee Name (Arabic)</p><p dir="rtl" class="mt-1 text-right font-semibold text-slate-800">{formData.nameAr || 'لم يتم الإدخال'}</p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Position</p><p class="mt-1 font-semibold text-slate-800">{positions.find(position => position.id === formData.positionId)?.position_title_en || 'Not assigned'}</p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Username</p><p class="mt-1 font-mono font-semibold text-slate-800">{formData.username}</p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Access Code</p><p class="mt-1 font-mono font-semibold tracking-widest text-slate-800">{formData.quickAccessCode}</p></div>
-							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">WhatsApp</p><p class="mt-1 font-semibold text-slate-800">{formData.whatsappNumber} <span class="text-emerald-600">✓ Verified</span></p></div>
-							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Email</p><p class="mt-1 font-semibold text-slate-800">{formData.email} <span class="text-emerald-600">✓ Verified</span></p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">ERP Access</p><p class="mt-1 font-semibold text-slate-800">{formData.linkErpCredentials ? `${formData.erpUsername} (${formData.erpUserId})` : 'Not linked'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">WhatsApp</p><p class="mt-1 font-semibold text-slate-800">{formData.whatsappNumber || 'Not entered'} <span class={verifyByWhatsapp ? 'text-emerald-600' : 'text-slate-400'}>{verifyByWhatsapp ? '✓ Verified' : 'Not selected'}</span></p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Email</p><p class="mt-1 font-semibold text-slate-800">{formData.email || 'Not entered'} <span class={verifyByEmail ? 'text-emerald-600' : 'text-slate-400'}>{verifyByEmail ? '✓ Verified' : 'Not selected'}</span></p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Privileges</p><p class="mt-1 font-semibold text-slate-800">{formData.isMasterAdmin ? 'Master Admin' : formData.isAdmin ? 'Admin' : 'Standard User'}</p></div>
 							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Avatar</p><p class="mt-1 font-semibold text-slate-800">{avatarPreview ? 'Uploaded' : 'No avatar'}</p></div>
 						</div>
-						<div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The temporary password and access code will be sent to the verified email address after creation.</div>
+						<div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The username, temporary password, and one-time access code will be sent through each selected verified channel. WhatsApp sends separate English and Arabic messages.</div>
 					</div>
 
                     <!-- Messages -->
@@ -956,10 +1100,10 @@
                         </button>
 						<div class="flex gap-3">
 							{#if currentStep > 1}<button type="button" class="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all" on:click={previousStep} disabled={isLoading}>Back</button>{/if}
-							{#if currentStep < 5}
+							{#if currentStep < 6}
 								<button type="button" class="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all disabled:cursor-not-allowed disabled:opacity-50" on:click={nextStep} disabled={!canContinue}>Next</button>
 							{:else}
-								<button type="submit" class="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 hover:shadow-lg transition-all disabled:opacity-50" disabled={isLoading || !emailVerified || !whatsappVerified || verificationExpiresAt <= Date.now()}>{isLoading ? 'Creating User…' : 'Create User'}</button>
+								<button type="submit" class="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 hover:shadow-lg transition-all disabled:opacity-50" disabled={isLoading || !verificationComplete}>{isLoading ? 'Creating User…' : 'Create User'}</button>
 							{/if}
 						</div>
                     </div>

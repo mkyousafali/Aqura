@@ -70,8 +70,14 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
         const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
         const phone = normalizePhone(body.whatsappNumber);
         const employeeId = typeof body.employeeId === 'string' ? body.employeeId : '';
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Invalid email address' }, { status: 400 });
-        if (!/^9665\d{8}$/.test(phone)) return json({ error: 'Enter a valid Saudi WhatsApp number' }, { status: 400 });
+        const channels = Array.isArray(body.channels)
+          ? [...new Set(body.channels.filter((channel: unknown) => channel === 'email' || channel === 'whatsapp'))]
+          : [];
+        const emailRequired = channels.includes('email');
+        const whatsappRequired = channels.includes('whatsapp');
+        if (!emailRequired && !whatsappRequired) return json({ error: 'Select at least one verification channel' }, { status: 400 });
+        if (emailRequired && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Invalid email address' }, { status: 400 });
+        if (whatsappRequired && !/^9665\d{8}$/.test(phone)) return json({ error: 'Enter a valid Saudi WhatsApp number' }, { status: 400 });
         const employee = await db.from('hr_employees').select('id,name').eq('id', employeeId).maybeSingle();
         if (employee.error || !employee.data) return json({ error: 'Employee not found' }, { status: 404 });
         const recent = await db.from('user_creation_verifications').select('created_at')
@@ -83,27 +89,32 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
         const verification = await db.from('user_creation_verifications').insert({
           requested_by: actor.id, employee_id: employeeId, email, whatsapp_number: phone,
           email_otp_hash: otpHash(emailOtp), whatsapp_otp_hash: otpHash(whatsappOtp),
+          email_required: emailRequired, whatsapp_required: whatsappRequired,
+          email_verified_at: emailRequired ? null : new Date().toISOString(),
+          whatsapp_verified_at: whatsappRequired ? null : new Date().toISOString(),
           expires_at: new Date(Date.now() + 5 * 60_000).toISOString()
         }).select('id,expires_at').single();
         if (verification.error) throw verification.error;
         try {
           const safeName = escapeHtml(employee.data.name);
-          const emailPromise = queueEmail(db, email, employee.data.name || '', 'Aqura - User Verification Code | رمز التحقق لإنشاء المستخدم',
+          const deliveries: Array<Promise<any>> = [];
+          if (emailRequired) deliveries.push(queueEmail(db, email, employee.data.name || '', 'Aqura - User Verification Code | رمز التحقق لإنشاء المستخدم',
             `Aqura user creation verification code: ${emailOtp}\nThis code expires in 5 minutes. Do not share it.\n\nرمز التحقق لإنشاء مستخدم في أكورا: ${emailOtp}\nتنتهي صلاحية هذا الرمز خلال 5 دقائق. لا تشاركه مع أي شخص.`,
-            `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:30px;color:#0f172a"><div dir="ltr"><h2 style="margin-bottom:8px">Aqura</h2><p>User creation verification code for ${safeName}:</p><div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;margin:18px 0">${emailOtp}</div><p>This code expires in 5 minutes. Do not share it.</p></div><hr style="border:0;border-top:1px solid #e2e8f0;margin:28px 0"><div dir="rtl" style="text-align:right"><h2 style="margin-bottom:8px">أكورا</h2><p>رمز التحقق لإنشاء مستخدم باسم ${safeName}:</p><div dir="ltr" style="text-align:right;font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;margin:18px 0">${emailOtp}</div><p>تنتهي صلاحية هذا الرمز خلال 5 دقائق. لا تشاركه مع أي شخص.</p></div></div>`);
-          const whatsappPromise = db.functions.invoke('send-whatsapp', { body: {
+            `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:30px;color:#0f172a"><div dir="ltr"><h2 style="margin-bottom:8px">Aqura</h2><p>User creation verification code for ${safeName}:</p><div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;margin:18px 0">${emailOtp}</div><p>This code expires in 5 minutes. Do not share it.</p></div><hr style="border:0;border-top:1px solid #e2e8f0;margin:28px 0"><div dir="rtl" style="text-align:right"><h2 style="margin-bottom:8px">أكورا</h2><p>رمز التحقق لإنشاء مستخدم باسم ${safeName}:</p><div dir="ltr" style="text-align:right;font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;margin:18px 0">${emailOtp}</div><p>تنتهي صلاحية هذا الرمز خلال 5 دقائق. لا تشاركه مع أي شخص.</p></div></div>`));
+          if (whatsappRequired) deliveries.push(db.functions.invoke('send-whatsapp', { body: {
             action: 'send_user_creation_otp', phone_number: `+${phone}`,
             access_code: whatsappOtp, customer_name: employee.data.name, language: 'en'
-          }});
-          const [emailDelivery, whatsappDelivery] = await Promise.allSettled([emailPromise, whatsappPromise]);
-          const whatsappFailed = whatsappDelivery.status === 'rejected' || whatsappDelivery.value.error || whatsappDelivery.value.data?.success === false;
-          if (emailDelivery.status === 'rejected' || whatsappFailed) {
+          }}));
+          const deliveryResults = await Promise.allSettled(deliveries);
+          const failedDelivery = deliveryResults.find((delivery) => delivery.status === 'rejected' || delivery.value?.error || delivery.value?.data?.success === false);
+          if (failedDelivery) {
             await db.from('user_creation_verifications').delete().eq('id', verification.data.id);
-            const emailError = emailDelivery.status === 'rejected' ? emailDelivery.reason?.message : '';
-            const whatsappError = whatsappDelivery.status === 'rejected' ? whatsappDelivery.reason?.message : whatsappDelivery.value.error?.message || whatsappDelivery.value.data?.error;
-            throw new Error([emailError, whatsappError].filter(Boolean).join('; ') || 'Could not send verification codes');
+            const reason = failedDelivery.status === 'rejected'
+              ? failedDelivery.reason?.message
+              : failedDelivery.value?.error?.message || failedDelivery.value?.data?.error;
+            throw new Error(reason || 'Could not send verification codes');
           }
-          return json({ success: true, verificationId: verification.data.id, expiresAt: verification.data.expires_at });
+          return json({ success: true, verificationId: verification.data.id, expiresAt: verification.data.expires_at, channels });
         } catch (error) {
           return json({ error: error instanceof Error ? error.message : 'Could not send verification codes' }, { status: 502 });
         }
@@ -135,6 +146,9 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
         const u = body.user || {};
         if (typeof u.verificationId !== 'string' || typeof u.password !== 'string' || typeof u.username !== 'string')
           return json({ error: 'Invalid user creation request' }, { status: 400 });
+        const verification = await db.from('user_creation_verifications').select('email,whatsapp_number,email_required,whatsapp_required,email_verified_at,whatsapp_verified_at')
+          .eq('id', u.verificationId).eq('requested_by', actor.id).maybeSingle();
+        if (verification.error || !verification.data) return json({ error: 'Verification session not found' }, { status: 404 });
         let avatarUrl: string | null = null;
         if (typeof u.avatarDataUrl === 'string' && u.avatarDataUrl) {
           const match = u.avatarDataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/);
@@ -152,13 +166,18 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
           p_is_master_admin: actor.isMasterAdmin && u.isMasterAdmin === true,
           p_is_admin: u.isAdmin === true, p_user_type: u.userType,
           p_branch_id: u.branchId || null, p_position_id: u.positionId || null,
+          p_name_en: u.nameEn, p_name_ar: u.nameAr,
+          p_erp_branch_id: u.erpBranchId || null, p_erp_user_id: u.erpUserId || null,
+          p_erp_username: u.erpUsername || null, p_erp_login_password: u.erpLoginPassword || null,
+          p_erp_authorization_password: u.erpAuthorizationPassword || null,
+          p_erp_bulk_rotation_enabled: u.erpBulkRotationEnabled === true,
           p_quick_access_code: u.quickAccessCode || null, p_avatar: avatarUrl,
           p_requesting_user_id: actor.id
         });
         if (result.error) throw result.error;
         if (!result.data?.success) return json({ error: result.data?.message || 'User creation failed' }, { status: 400 });
-        let deliveryWarning = '';
-        try {
+        const deliveryWarnings: string[] = [];
+        if (verification.data.email_required) try {
           const username = escapeHtml(u.username);
           const password = escapeHtml(u.password);
           const accessCode = escapeHtml(result.data.quick_access_code);
@@ -167,9 +186,18 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
             `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:30px;color:#0f172a"><div dir="ltr"><h2>Welcome to Aqura</h2><p>Your account has been created.</p><p><b>Username:</b> ${username}<br><b>Temporary password:</b> ${password}<br><b>Access code:</b> ${accessCode}</p><p>Change your password after your first login and do not share these credentials.</p></div><hr style="border:0;border-top:1px solid #e2e8f0;margin:28px 0"><div dir="rtl" style="text-align:right"><h2>مرحباً بك في أكورا</h2><p>تم إنشاء حسابك.</p><p><b>اسم المستخدم:</b> <span dir="ltr">${username}</span><br><b>كلمة المرور المؤقتة:</b> <span dir="ltr">${password}</span><br><b>رمز الدخول:</b> <span dir="ltr">${accessCode}</span></p><p>يجب تغيير كلمة المرور بعد تسجيل الدخول لأول مرة، ولا تشارك بيانات الدخول مع أي شخص.</p></div></div>`,
             'transactional', true);
         } catch (error) {
-          deliveryWarning = error instanceof Error ? error.message : 'Credential email could not be delivered';
+          deliveryWarnings.push(`Email: ${error instanceof Error ? error.message : 'credentials could not be delivered'}`);
         }
-        return json({ data: result.data, success: true, deliveryWarning });
+        if (verification.data.whatsapp_required) try {
+          const delivery = await db.functions.invoke('send-whatsapp', { body: {
+            action: 'send_user_credentials', phone_number: `+${verification.data.whatsapp_number}`,
+            username: u.username, access_code: result.data.quick_access_code
+          }});
+          if (delivery.error || delivery.data?.success === false) throw new Error(delivery.error?.message || delivery.data?.error || 'credentials could not be delivered');
+        } catch (error) {
+          deliveryWarnings.push(`WhatsApp: ${error instanceof Error ? error.message : 'credentials could not be delivered'}`);
+        }
+        return json({ data: result.data, success: true, deliveryWarning: deliveryWarnings.join('; ') });
       }
       case 'createUser': {
         const u = body.user || {};

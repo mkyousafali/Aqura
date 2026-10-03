@@ -18,9 +18,18 @@ interface CreateUserRequest {
   branchId?: number;
   employeeId?: string;
   positionId?: string;
+  nameEn: string;
+  nameAr: string;
+  erpBranchId?: number | null;
+  erpUserId?: string | null;
+  erpUsername?: string | null;
+  erpLoginPassword?: string | null;
+  erpAuthorizationPassword?: string | null;
+  erpBulkRotationEnabled?: boolean;
   quickAccessCode?: string; // Optional - will generate if not provided
   requestingUserId?: string | null;
   verificationId?: string;
+  verificationChannels?: Array<"email" | "whatsapp">;
   avatarDataUrl?: string | null;
 }
 
@@ -56,6 +65,35 @@ interface UserListItem {
 }
 
 export class UserManagementService {
+  async getErpUsersForBranch(branchId: number): Promise<{
+    erpBranchId: number;
+    users: Array<{ userId: string; username: string }>;
+  }> {
+    const { data: connection, error } = await supabase
+      .from("erp_connections")
+      .select("erp_branch_id")
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .single();
+    if (error || !connection) throw new Error("No active ERP connection is configured for this branch");
+
+    const response = await fetch("/api/erp-products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "query",
+        branchId,
+        sql: `SELECT UserID, UserName FROM Users WHERE BranchID=${Number(connection.erp_branch_id)} ORDER BY UserID`,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to load ERP users");
+    return {
+      erpBranchId: Number(connection.erp_branch_id),
+      users: (payload.recordset || []).map((row: any) => ({ userId: String(row.UserID), username: String(row.UserName || "") })),
+    };
+  }
+
   /**
    * Get all users with their details
    */
@@ -139,8 +177,13 @@ export class UserManagementService {
     }
   }
 
-  async startUserCreationVerification(employeeId: string, email: string, whatsappNumber: string) {
-    return secureManagement('startUserCreationVerification', { employeeId, email, whatsappNumber });
+  async startUserCreationVerification(
+    employeeId: string,
+    email: string,
+    whatsappNumber: string,
+    channels: Array<'email' | 'whatsapp'>,
+  ) {
+    return secureManagement('startUserCreationVerification', { employeeId, email, whatsappNumber, channels });
   }
 
   async verifyUserCreationOtp(verificationId: string, channel: 'email' | 'whatsapp', otp: string) {
