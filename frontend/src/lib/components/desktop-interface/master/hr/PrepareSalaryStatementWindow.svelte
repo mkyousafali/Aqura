@@ -161,6 +161,8 @@
 		LOAD_SELECT:    'LOAD_STATEMENT',
 		UPDATE:         'UPDATE_STATEMENT',
 		ROW_UPDATE:     'UPDATE_STATEMENT_ROW',
+		ROW_ADD:        'ADD_STATEMENT_ROW',
+		ROW_REMOVE:     'REMOVE_STATEMENT_ROW',
 		RESET:          'RESET_STATEMENT',
 		EMP_EDIT_OPEN:  'EMP_EDIT_MODAL_OPEN',
 		EMP_EDIT_APPLY: 'EMP_EDIT_APPLY',
@@ -1692,6 +1694,154 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		}
 	}
 
+	// ------------------------------------------------------------------
+	// Add / remove employees in a saved statement.
+	// Both write straight to the saved statement (no pending "dirty" state):
+	// add → computes the employee's row for the statement period from live data
+	// and appends it via update_salary_statement_rows; remove → remove_salary_statement_rows.
+	// ------------------------------------------------------------------
+	let showAddEmpModal = false;
+	let addEmpLoading = false;
+	let addEmpCandidates: any[] = [];
+	let addEmpSearch = '';
+	let addingEmployeeId: string | null = null;
+	let removingEmployeeId: string | null = null;
+
+	$: addEmpFiltered = addEmpCandidates.filter(e => {
+		const q = addEmpSearch.trim().toLowerCase();
+		if (!q) return true;
+		return String(e.id).toLowerCase().includes(q) ||
+			(e.name_en || '').toLowerCase().includes(q) ||
+			(e.name_ar && e.name_ar.includes(addEmpSearch.trim())) ||
+			(e.id_number && String(e.id_number).toLowerCase().includes(q));
+	});
+
+	async function openAddEmployeeModal() {
+		if (!isLoadedFromSaved || !currentSavedStatementId) return;
+		showAddEmpModal = true;
+		addEmpSearch = '';
+		addEmpCandidates = [];
+		addEmpLoading = true;
+		saveError = '';
+		try {
+			// Same eligibility as Load Analysis for this period, minus who is already in the statement
+			const inStatement = new Set(analysisData.map(r => String(r.employeeId)));
+			const periodEmployees = await fetchPeriodEmployees(startDate, endDate);
+			addEmpCandidates = periodEmployees
+				.filter(e => !inStatement.has(String(e.id)))
+				.sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+		} catch (e: any) {
+			saveError = e?.message || String(e);
+		} finally {
+			addEmpLoading = false;
+		}
+	}
+
+	/** Drop an employee from local statement state only (rows, per-employee maps, shift, baseline) */
+	function dropEmployeeLocally(empId: string) {
+		const maps = getEmployeeMaps();
+		for (const k of EMP_MAP_KEYS) if (maps[k]) delete maps[k][empId];
+		employeeShifts.delete(empId);
+		employeeShifts = employeeShifts;
+		rowBaseline.delete(empId);
+		analysisData = analysisData.filter(r => String(r.employeeId) !== empId);
+	}
+
+	async function addEmployeeToStatement(emp: any) {
+		if (!currentSavedStatementId || saveBusy || addingEmployeeId) return;
+		const empId = String(emp.id);
+		if (analysisData.some(r => String(r.employeeId) === empId)) return;
+		addingEmployeeId = empId;
+		saveBusy = true;
+		saveError = '';
+		let addedLocally = false;
+		try {
+			const [built, { data: salaryRow, error: salaryErr }] = await Promise.all([
+				buildAnalysisForEmployees([emp], startDate, endDate, datesInRange),
+				supabase.from('hr_basic_salary').select(BASIC_SALARY_COLUMNS).eq('employee_id', emp.id).maybeSingle(),
+			]);
+			if (salaryErr) throw salaryErr;
+			const row = built.results[0];
+			if (!row) throw new Error('Could not build a statement row for this employee');
+
+			if (salaryRow) applyBasicSalaryRow(salaryRow);
+			if (built.autoFineDeductions[empId] !== undefined) autoFineDeductions[empId] = built.autoFineDeductions[empId];
+			if (built.posShortageDeductions[empId] !== undefined) posShortageDeductions[empId] = built.posShortageDeductions[empId];
+			if (built.posDeductionsList[empId] !== undefined) posDeductionsList[empId] = built.posDeductionsList[empId];
+			const shift = built.employeeShifts.get(empId);
+			if (shift) { employeeShifts.set(empId, shift); employeeShifts = employeeShifts; }
+			analysisData = [...analysisData, row];
+			addedLocally = true;
+
+			const slice = buildEmployeeSlice(row);
+			const { data, error } = await supabase.rpc('update_salary_statement_rows', {
+				p_id: currentSavedStatementId,
+				p_rows: [slice],
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Add failed');
+
+			rowBaseline.set(empId, JSON.stringify(slice));
+			computeDirtyRows();
+			addEmpCandidates = addEmpCandidates.filter(e => String(e.id) !== empId);
+			recordLog({
+				action_type: LOG.ROW_ADD,
+				action_description: `Added employee ${empId} to salary statement: ${saveStatementName?.trim()}`,
+				employee_id: empId,
+				employee_name: row.employeeName || null,
+				after_value: slice,
+				related_ui: 'AddEmployeeModal',
+				metadata: { startDate, endDate },
+			});
+			saveNotice = $t('hr.salaryStatement.employeeAdded').replace('{name}', row.employeeName || empId);
+			setTimeout(() => { saveNotice = ''; }, 3000);
+		} catch (e: any) {
+			if (addedLocally) dropEmployeeLocally(empId);
+			saveError = e?.message || String(e);
+			recordLog({ action_type: LOG.ROW_ADD, action_description: `Failed to add employee ${empId} to statement: ${saveStatementName}`, employee_id: empId, related_ui: 'AddEmployeeModal', status: 'failed', metadata: { error: saveError } });
+		} finally {
+			saveBusy = false;
+			addingEmployeeId = null;
+		}
+	}
+
+	async function removeEmployeeFromStatement(row: any) {
+		if (!currentSavedStatementId || saveBusy || removingEmployeeId) return;
+		const empId = String(row.employeeId);
+		const name = row.employeeName || empId;
+		if (!confirm($t('hr.salaryStatement.removeEmployeeConfirm').replace('{name}', `${name} (${empId})`))) return;
+		removingEmployeeId = empId;
+		saveBusy = true;
+		saveError = '';
+		try {
+			const { data, error } = await supabase.rpc('remove_salary_statement_rows', {
+				p_id: currentSavedStatementId,
+				p_employee_ids: [empId],
+			});
+			if (error) throw error;
+			if (!data?.success) throw new Error(data?.error || 'Remove failed');
+			dropEmployeeLocally(empId);
+			computeDirtyRows();
+			recordLog({
+				action_type: LOG.ROW_REMOVE,
+				action_description: `Removed employee ${empId} from salary statement: ${saveStatementName?.trim()}`,
+				employee_id: empId,
+				employee_name: name,
+				deleted_record: (data.removed || [])[0] ?? null,
+				related_ui: 'TableRow',
+				metadata: { startDate, endDate },
+			});
+			saveNotice = $t('hr.salaryStatement.employeeRemoved').replace('{name}', name);
+			setTimeout(() => { saveNotice = ''; }, 3000);
+		} catch (e: any) {
+			saveError = e?.message || String(e);
+			recordLog({ action_type: LOG.ROW_REMOVE, action_description: `Failed to remove employee ${empId} from statement: ${saveStatementName}`, employee_id: empId, related_ui: 'TableRow', status: 'failed', metadata: { error: saveError } });
+		} finally {
+			saveBusy = false;
+			removingEmployeeId = null;
+		}
+	}
+
 	function resetSavedStatementContext() {
 		if (dirtyRowIds.size > 0 && !confirm($t('hr.salaryStatement.closeWithUnsavedConfirm').replace('{count}', String(dirtyRowIds.size)))) return;
 		recordLog({ action_type: LOG.RESET, action_description: `Reset saved statement context (was: ${saveStatementName || 'unnamed'})`, related_ui: 'SaveBar' });
@@ -2159,6 +2309,26 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		subscriptions = [];
 	});
 
+	const BASIC_SALARY_COLUMNS = 'employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction, gosi_is_percentage, gosi_percentage, food_allowance, food_payment_mode, food_deduction_active';
+
+	function applyBasicSalaryRow(item: any) {
+		basicSalaries[item.employee_id] = item.basic_salary || 0;
+		paymentModes[item.employee_id] = item.payment_mode || 'Bank';
+		otherAllowances[item.employee_id] = item.other_allowance || 0;
+		otherAllowancePaymentModes[item.employee_id] = item.other_allowance_payment_mode || 'Bank';
+		accommodationAllowances[item.employee_id] = item.accommodation_allowance || 0;
+		accommodationPaymentModes[item.employee_id] = item.accommodation_payment_mode || 'Bank';
+		travelAllowances[item.employee_id] = item.travel_allowance || 0;
+		travelPaymentModes[item.employee_id] = item.travel_payment_mode || 'Bank';
+		gosiDeductions[item.employee_id] = item.gosi_deduction || 0;
+		gosiIsPercentages[item.employee_id] = item.gosi_is_percentage ?? true;
+		gosiPercentages[item.employee_id] = item.gosi_percentage || 0;
+
+		foodAllowances[item.employee_id] = item.food_allowance || 0;
+		foodPaymentModes[item.employee_id] = item.food_payment_mode || 'Bank';
+		foodDeductionActives[item.employee_id] = item.food_deduction_active ?? false;
+	}
+
 	async function loadInitialData() {
 		loading = true;
 		try {
@@ -2192,32 +2362,244 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			// Load basic salaries
 			const { data: salaryData } = await supabase
 				.from('hr_basic_salary')
-				.select('employee_id, basic_salary, payment_mode, other_allowance, other_allowance_payment_mode, accommodation_allowance, accommodation_payment_mode, travel_allowance, travel_payment_mode, gosi_deduction, gosi_is_percentage, gosi_percentage, food_allowance, food_payment_mode, food_deduction_active');
-			
-			if (salaryData) {
-				salaryData.forEach(item => {
-					basicSalaries[item.employee_id] = item.basic_salary || 0;
-					paymentModes[item.employee_id] = item.payment_mode || 'Bank';
-					otherAllowances[item.employee_id] = item.other_allowance || 0;
-					otherAllowancePaymentModes[item.employee_id] = item.other_allowance_payment_mode || 'Bank';
-					accommodationAllowances[item.employee_id] = item.accommodation_allowance || 0;
-					accommodationPaymentModes[item.employee_id] = item.accommodation_payment_mode || 'Bank';
-					travelAllowances[item.employee_id] = item.travel_allowance || 0;
-					travelPaymentModes[item.employee_id] = item.travel_payment_mode || 'Bank';
-					gosiDeductions[item.employee_id] = item.gosi_deduction || 0;
-					gosiIsPercentages[item.employee_id] = item.gosi_is_percentage ?? true;
-					gosiPercentages[item.employee_id] = item.gosi_percentage || 0;
+				.select(BASIC_SALARY_COLUMNS);
 
-					foodAllowances[item.employee_id] = item.food_allowance || 0;
-					foodPaymentModes[item.employee_id] = item.food_payment_mode || 'Bank';
-					foodDeductionActives[item.employee_id] = item.food_deduction_active ?? false;
-				});
+			if (salaryData) {
+				salaryData.forEach(applyBasicSalaryRow);
 			}
 		} catch (error) {
 			console.error('Error loading initial data:', error);
 		} finally {
 			loading = false;
 		}
+	}
+
+	/** Active roster plus Resigned employees who worked (status history) inside the range */
+	async function fetchPeriodEmployees(rangeStart: string, rangeEnd: string): Promise<any[]> {
+		// Resigned employees who actually worked during this period still get a
+		// prorated statement (payment for the days actually worked) -- pull
+		// anyone with a Job (With Finger)/Remote Job status_history period
+		// overlapping the selected range, on top of the currently-active
+		// roster, but only if their CURRENT status is Resigned. Vacation stays
+		// fully excluded, unchanged.
+		const { data: workedPeriods } = await supabase
+			.from('hr_employee_status_history')
+			.select('employee_id')
+			.in('status', ['Job (With Finger)', 'Remote Job'])
+			.or(`effective_to.is.null,effective_to.gte.${rangeStart}`)
+			.or(`effective_from.is.null,effective_from.lte.${rangeEnd}`);
+
+		const activeIds = new Set(employees.map(e => String(e.id)));
+		const resignedCandidateIds = [...new Set((workedPeriods || []).map((p: any) => String(p.employee_id)))]
+			.filter(id => !activeIds.has(id));
+
+		let periodEmployees: any[] = employees;
+		if (resignedCandidateIds.length > 0) {
+			const { data: resignedEmps } = await supabase
+				.from('hr_employee_master_with_status')
+				.select(`id, name_en, name_ar, current_branch_id, employment_status, id_number, whatsapp_number, nationality_id, nationalities(name_en)`)
+				.in('id', resignedCandidateIds)
+				.eq('employment_status', 'Resigned');
+			periodEmployees = [
+				...employees,
+				...(resignedEmps || []).map(e => ({ ...e, nationality_name_en: (e as any).nationalities?.name_en }))
+			];
+		}
+		return periodEmployees;
+	}
+
+	/**
+	 * Build statement rows (attendance totals, day-by-day, shifts, POS + incident fine
+	 * deductions) for the given employees over a date range. Pure: returns everything,
+	 * touches no component state — used by Load Analysis and by adding one employee
+	 * to a saved statement.
+	 */
+	async function buildAnalysisForEmployees(emps: any[], rangeStart: string, rangeEnd: string, dates: string[]) {
+		const empIds = emps.map(e => e.id);
+
+		// Fetch pre-computed attendance data + POS deductions + this employee
+		// set's status history overlapping the period (used below to exclude
+		// Resigned days from the deduction math and the expected-days
+		// denominator -- their pay is prorated to days actually worked).
+		const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }, { data: statusPeriodRows }] = await Promise.all([
+			supabase
+				.from('hr_analysed_attendance_data')
+				.select('*')
+				.in('employee_id', empIds)
+				.gte('shift_date', rangeStart)
+				.lte('shift_date', rangeEnd),
+			supabase
+				.from('pos_deduction_transfers')
+				.select('*')
+				.in('id', empIds)
+				.eq('status', 'Proposed')
+				.gte('date_closed_box', rangeStart)
+				.lte('date_closed_box', rangeEnd),
+			supabase
+				.from('incident_actions')
+				.select('fine_amount, incidents!inner(employee_id)')
+				.eq('has_fine', true)
+				.eq('is_paid', false)
+				.gt('fine_amount', 0),
+			supabase
+				.from('hr_employee_status_history')
+				.select('employee_id, status, effective_from, effective_to')
+				.in('employee_id', empIds)
+				.eq('status', 'Resigned')
+				.or(`effective_to.is.null,effective_to.gte.${rangeStart}`)
+				.or(`effective_from.is.null,effective_from.lte.${rangeEnd}`)
+		]);
+
+		if (error) throw error;
+
+		const resignedPeriodsByEmp = new Map<string, any[]>();
+		for (const p of statusPeriodRows || []) {
+			const id = String(p.employee_id);
+			if (!resignedPeriodsByEmp.has(id)) resignedPeriodsByEmp.set(id, []);
+			resignedPeriodsByEmp.get(id)!.push(p);
+		}
+		function isResignedOn(empId: string, dateYmd: string): boolean {
+			const periods = resignedPeriodsByEmp.get(empId);
+			if (!periods) return false;
+			return periods.some(p => (p.effective_from == null || p.effective_from <= dateYmd) && (p.effective_to == null || p.effective_to >= dateYmd));
+		}
+
+		// Process unpaid incident fines per employee
+		const autoFineDeductions: Record<string, number> = {};
+		const empIdSet = new Set(empIds.map(String));
+		(incidentFineRows || []).forEach((action: any) => {
+			const empId = String(action.incidents?.employee_id);
+			if (empId && empIdSet.has(empId)) {
+				autoFineDeductions[empId] = (autoFineDeductions[empId] || 0) + (action.fine_amount || 0);
+			}
+		});
+
+		// Process POS shortage deductions
+		const posShortageDeductions: Record<string, number> = {};
+		const posDeductionsList: Record<string, any[]> = {};
+		posDeductions?.forEach(deduction => {
+			const empId = String(deduction.id);
+			if (!posDeductionsList[empId]) posDeductionsList[empId] = [];
+			posDeductionsList[empId].push(deduction);
+			if (!posShortageDeductions[empId]) posShortageDeductions[empId] = 0;
+			posShortageDeductions[empId] += deduction.short_amount || 0;
+		});
+
+		// Group attendance rows by employee
+		const rowsByEmp = new Map<string, any[]>();
+		for (const row of (rows || [])) {
+			const empId = String(row.employee_id);
+			if (!rowsByEmp.has(empId)) rowsByEmp.set(empId, []);
+			rowsByEmp.get(empId)!.push(row);
+		}
+
+		// Build employeeShifts map from attendance data (used by salary hourly-rate calculations)
+		const employeeShifts: Map<string, any> = new Map();
+		for (const [empId, empRows] of rowsByEmp) {
+			const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
+			if (shiftRow) {
+				employeeShifts.set(empId, {
+					id: empId,
+					shift_start_time: shiftRow.shift_start_time,
+					shift_end_time: shiftRow.shift_end_time
+				});
+			}
+		}
+
+		// Aggregate per-employee totals from pre-computed rows
+		const results: any[] = [];
+		for (const emp of emps) {
+			const empId = String(emp.id);
+			const empRows = rowsByEmp.get(empId) || [];
+
+			let totalWorkedMinutes = 0;
+			let totalLateMinutes = 0;
+			let totalUnderWorkedMinutes = 0;
+			let totalIncompleteDays = 0;
+			let totalApprovedDaysOff = 0;   // Official weekly day offs (e.g. Friday)
+			let totalOfficialLeaveDays = 0; // Specific approved leaves
+			let totalUnapprovedDaysOff = 0;
+			let totalWorkedDays = 0;
+			let totalResignedDays = 0; // days after resignation -- excluded from expected days, no deduction
+			const dayByDay: Record<string, any> = {};
+
+			for (const row of empRows) {
+				const dateStr = typeof row.shift_date === 'string'
+					? row.shift_date.split('T')[0]
+					: new Date(row.shift_date).toISOString().split('T')[0];
+
+				if (isResignedOn(empId, dateStr)) {
+					dayByDay[dateStr] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
+					totalResignedDays++;
+					continue;
+				}
+
+				const status = row.status || 'Absent';
+				const workedMins = row.worked_minutes || 0;
+				const lateMins = row.late_minutes || 0;
+				const underMins = row.under_minutes || 0;
+
+				dayByDay[dateStr] = { workedMins, status, lateMins, underMins };
+
+				if (status === 'Official Day Off' || status === 'Official Holiday') {
+					totalApprovedDaysOff++;
+				} else if (status === 'Approved Leave (No Deduction)') {
+					totalOfficialLeaveDays++;
+				} else if (status === 'Absent' || status === 'Pending Approval' || status === 'Approved Leave (Deductible)' || status === 'Rejected-Deducted' || status === 'Rejected-Not Deducted') {
+					totalUnapprovedDaysOff++;
+				} else if (status === 'Check-Out Missing' || status === 'Check-In Missing') {
+					totalIncompleteDays++;
+				}
+
+				totalWorkedMinutes += workedMins;
+				totalLateMinutes += lateMins;
+				totalUnderWorkedMinutes += underMins;
+				if (workedMins > 0) totalWorkedDays++;
+			}
+
+			// Fill missing dates: Resigned (no deduction, excluded from expected
+			// days) for days after resignation, Absent otherwise
+			for (const date of dates) {
+				if (!dayByDay[date]) {
+					if (isResignedOn(empId, date)) {
+						dayByDay[date] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
+						totalResignedDays++;
+					} else {
+						dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
+						totalUnapprovedDaysOff++;
+					}
+				}
+			}
+
+			const totalExpectedWorkDays = dates.length - totalApprovedDaysOff - totalResignedDays;
+			const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
+			const shiftInfo = shiftRow
+				? `${shiftRow.shift_start_time} - ${shiftRow.shift_end_time}`
+				: '';
+
+			results.push({
+				employeeId: emp.id,
+				employeeName: $locale === 'ar' ? emp.name_ar || emp.name_en : emp.name_en,
+				currentBranchId: emp.current_branch_id,
+				nationality: emp.nationality_name_en,
+				employmentStatus: emp.employment_status,
+				idNumber: emp.id_number ?? null,
+				whatsappNumber: emp.whatsapp_number ?? null,
+				shiftInfo,
+				dayByDay,
+				totalWorkedMinutes,
+				totalUnderWorkedMinutes,
+				totalLateMinutes,
+				totalIncompleteDays,
+				totalUnapprovedDaysOff,
+				totalOfficialLeaveDays,
+				totalApprovedDaysOff,
+				totalExpectedWorkDays,
+				totalWorkedDays
+			});
+		}
+
+		return { results, employeeShifts, autoFineDeductions, posShortageDeductions, posDeductionsList };
 	}
 
 	async function loadAnalysis() {
@@ -2242,35 +2624,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		}
 
 		try {
-			// Resigned employees who actually worked during this period still get a
-			// prorated statement (payment for the days actually worked) -- pull
-			// anyone with a Job (With Finger)/Remote Job status_history period
-			// overlapping the selected range, on top of the currently-active
-			// roster, but only if their CURRENT status is Resigned. Vacation stays
-			// fully excluded, unchanged.
-			const { data: workedPeriods } = await supabase
-				.from('hr_employee_status_history')
-				.select('employee_id')
-				.in('status', ['Job (With Finger)', 'Remote Job'])
-				.or(`effective_to.is.null,effective_to.gte.${startDate}`)
-				.or(`effective_from.is.null,effective_from.lte.${endDate}`);
-
-			const activeIds = new Set(employees.map(e => String(e.id)));
-			const resignedCandidateIds = [...new Set((workedPeriods || []).map((p: any) => String(p.employee_id)))]
-				.filter(id => !activeIds.has(id));
-
-			let periodEmployees = employees;
-			if (resignedCandidateIds.length > 0) {
-				const { data: resignedEmps } = await supabase
-					.from('hr_employee_master_with_status')
-					.select(`id, name_en, name_ar, current_branch_id, employment_status, id_number, whatsapp_number, nationality_id, nationalities(name_en)`)
-					.in('id', resignedCandidateIds)
-					.eq('employment_status', 'Resigned');
-				periodEmployees = [
-					...employees,
-					...(resignedEmps || []).map(e => ({ ...e, nationality_name_en: (e as any).nationalities?.name_en }))
-				];
-			}
+			const periodEmployees = await fetchPeriodEmployees(startDate, endDate);
 
 			// Build filtered employee list (same branch/search filter as before)
 			const filteredEmps = periodEmployees.filter(e => {
@@ -2288,191 +2642,12 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				return;
 			}
 
-			const empIds = filteredEmps.map(e => e.id);
-
-			// Fetch pre-computed attendance data + POS deductions + this employee
-			// set's status history overlapping the period (used below to exclude
-			// Resigned days from the deduction math and the expected-days
-			// denominator -- their pay is prorated to days actually worked).
-			const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }, { data: statusPeriodRows }] = await Promise.all([
-				supabase
-					.from('hr_analysed_attendance_data')
-					.select('*')
-					.in('employee_id', empIds)
-					.gte('shift_date', startDate)
-					.lte('shift_date', endDate),
-				supabase
-					.from('pos_deduction_transfers')
-					.select('*')
-					.in('id', empIds)
-					.eq('status', 'Proposed')
-					.gte('date_closed_box', startDate)
-					.lte('date_closed_box', endDate),
-				supabase
-					.from('incident_actions')
-					.select('fine_amount, incidents!inner(employee_id)')
-					.eq('has_fine', true)
-					.eq('is_paid', false)
-					.gt('fine_amount', 0),
-				supabase
-					.from('hr_employee_status_history')
-					.select('employee_id, status, effective_from, effective_to')
-					.in('employee_id', empIds)
-					.eq('status', 'Resigned')
-					.or(`effective_to.is.null,effective_to.gte.${startDate}`)
-					.or(`effective_from.is.null,effective_from.lte.${endDate}`)
-			]);
-
-			if (error) throw error;
-
-			const resignedPeriodsByEmp = new Map<string, any[]>();
-			for (const p of statusPeriodRows || []) {
-				const id = String(p.employee_id);
-				if (!resignedPeriodsByEmp.has(id)) resignedPeriodsByEmp.set(id, []);
-				resignedPeriodsByEmp.get(id)!.push(p);
-			}
-			function isResignedOn(empId: string, dateYmd: string): boolean {
-				const periods = resignedPeriodsByEmp.get(empId);
-				if (!periods) return false;
-				return periods.some(p => (p.effective_from == null || p.effective_from <= dateYmd) && (p.effective_to == null || p.effective_to >= dateYmd));
-			}
-
-			// Process unpaid incident fines per employee
-			autoFineDeductions = {};
-			const empIdSet = new Set(empIds.map(String));
-			(incidentFineRows || []).forEach((action: any) => {
-				const empId = String(action.incidents?.employee_id);
-				if (empId && empIdSet.has(empId)) {
-					autoFineDeductions[empId] = (autoFineDeductions[empId] || 0) + (action.fine_amount || 0);
-				}
-			});
-
-			// Process POS shortage deductions
-			posShortageDeductions = {};
-			posDeductionsList = {};
-			posDeductions?.forEach(deduction => {
-				const empId = String(deduction.id);
-				if (!posDeductionsList[empId]) posDeductionsList[empId] = [];
-				posDeductionsList[empId].push(deduction);
-				if (!posShortageDeductions[empId]) posShortageDeductions[empId] = 0;
-				posShortageDeductions[empId] += deduction.short_amount || 0;
-			});
-
-			// Group attendance rows by employee
-			const rowsByEmp = new Map<string, any[]>();
-			for (const row of (rows || [])) {
-				const empId = String(row.employee_id);
-				if (!rowsByEmp.has(empId)) rowsByEmp.set(empId, []);
-				rowsByEmp.get(empId)!.push(row);
-			}
-
-			// Build employeeShifts map from attendance data (used by salary hourly-rate calculations)
-			employeeShifts = new Map();
-			for (const [empId, empRows] of rowsByEmp) {
-				const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
-				if (shiftRow) {
-					employeeShifts.set(empId, {
-						id: empId,
-						shift_start_time: shiftRow.shift_start_time,
-						shift_end_time: shiftRow.shift_end_time
-					});
-				}
-			}
-
-			// Aggregate per-employee totals from pre-computed rows
-			const results: any[] = [];
-			for (const emp of filteredEmps) {
-				const empId = String(emp.id);
-				const empRows = rowsByEmp.get(empId) || [];
-
-				let totalWorkedMinutes = 0;
-				let totalLateMinutes = 0;
-				let totalUnderWorkedMinutes = 0;
-				let totalIncompleteDays = 0;
-				let totalApprovedDaysOff = 0;   // Official weekly day offs (e.g. Friday)
-				let totalOfficialLeaveDays = 0; // Specific approved leaves
-				let totalUnapprovedDaysOff = 0;
-				let totalWorkedDays = 0;
-				let totalResignedDays = 0; // days after resignation -- excluded from expected days, no deduction
-				const dayByDay: Record<string, any> = {};
-
-				for (const row of empRows) {
-					const dateStr = typeof row.shift_date === 'string'
-						? row.shift_date.split('T')[0]
-						: new Date(row.shift_date).toISOString().split('T')[0];
-
-					if (isResignedOn(empId, dateStr)) {
-						dayByDay[dateStr] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
-						totalResignedDays++;
-						continue;
-					}
-
-					const status = row.status || 'Absent';
-					const workedMins = row.worked_minutes || 0;
-					const lateMins = row.late_minutes || 0;
-					const underMins = row.under_minutes || 0;
-
-					dayByDay[dateStr] = { workedMins, status, lateMins, underMins };
-
-					if (status === 'Official Day Off' || status === 'Official Holiday') {
-						totalApprovedDaysOff++;
-					} else if (status === 'Approved Leave (No Deduction)') {
-						totalOfficialLeaveDays++;
-					} else if (status === 'Absent' || status === 'Pending Approval' || status === 'Approved Leave (Deductible)' || status === 'Rejected-Deducted' || status === 'Rejected-Not Deducted') {
-						totalUnapprovedDaysOff++;
-					} else if (status === 'Check-Out Missing' || status === 'Check-In Missing') {
-						totalIncompleteDays++;
-					}
-
-					totalWorkedMinutes += workedMins;
-					totalLateMinutes += lateMins;
-					totalUnderWorkedMinutes += underMins;
-					if (workedMins > 0) totalWorkedDays++;
-				}
-
-				// Fill missing dates: Resigned (no deduction, excluded from expected
-				// days) for days after resignation, Absent otherwise
-				for (const date of datesInRange) {
-					if (!dayByDay[date]) {
-						if (isResignedOn(empId, date)) {
-							dayByDay[date] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
-							totalResignedDays++;
-						} else {
-							dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
-							totalUnapprovedDaysOff++;
-						}
-					}
-				}
-
-				const totalExpectedWorkDays = datesInRange.length - totalApprovedDaysOff - totalResignedDays;
-				const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
-				const shiftInfo = shiftRow
-					? `${shiftRow.shift_start_time} - ${shiftRow.shift_end_time}`
-					: '';
-
-				results.push({
-					employeeId: emp.id,
-					employeeName: $locale === 'ar' ? emp.name_ar || emp.name_en : emp.name_en,
-					currentBranchId: emp.current_branch_id,
-					nationality: emp.nationality_name_en,
-					employmentStatus: emp.employment_status,
-					idNumber: emp.id_number ?? null,
-					whatsappNumber: emp.whatsapp_number ?? null,
-					shiftInfo,
-					dayByDay,
-					totalWorkedMinutes,
-					totalUnderWorkedMinutes,
-					totalLateMinutes,
-					totalIncompleteDays,
-					totalUnapprovedDaysOff,
-					totalOfficialLeaveDays,
-					totalApprovedDaysOff,
-					totalExpectedWorkDays,
-					totalWorkedDays
-				});
-			}
-
-			analysisData = results;
+			const built = await buildAnalysisForEmployees(filteredEmps, startDate, endDate, datesInRange);
+			autoFineDeductions = built.autoFineDeductions;
+			posShortageDeductions = built.posShortageDeductions;
+			posDeductionsList = built.posDeductionsList;
+			employeeShifts = built.employeeShifts;
+			analysisData = built.results;
 
 		} catch (error) {
 			console.error('Error during analysis:', error);
@@ -3546,6 +3721,23 @@ title="Export salary data to Mudad Excel template"
 											</svg>
 										</button>
 									{/if}
+									{#if isLoadedFromSaved && currentSavedStatementId && canEditSalaryStatement}
+										<button
+											type="button"
+											class="p-1 hover:bg-red-100 rounded-full transition-colors text-red-500 disabled:opacity-50"
+											disabled={saveBusy}
+											on:click={() => removeEmployeeFromStatement(row)}
+											title="{$t('hr.salaryStatement.removeEmployeeTooltip')}"
+										>
+											{#if removingEmployeeId === String(row.employeeId)}
+												<div class="h-4 w-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+											{:else}
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+												</svg>
+											{/if}
+										</button>
+									{/if}
 								</td>
 								<!-- Notes button alongside employee ID -->
 								<td class="px-4 py-3 font-mono font-medium text-slate-600 border-r sticky z-20 group-hover:bg-emerald-100 {$locale === 'ar' ? 'right-[40px]' : 'left-[40px]'} {row.employmentStatus === 'Remote Job' ? (rowIdx % 2 === 1 ? 'bg-orange-100' : 'bg-orange-50') : (rowIdx % 2 === 1 ? 'bg-slate-100' : 'bg-white')}">
@@ -4099,7 +4291,7 @@ title="Export salary data to Mudad Excel template"
 						{#if saveNotice}
 							<span class="px-2 py-0.5 bg-emerald-100 border border-emerald-300 rounded text-emerald-800 text-[11px] font-bold">{saveNotice}</span>
 						{/if}
-						{#if saveError && !showSaveModal && !showLoadModal}
+						{#if saveError && !showSaveModal && !showLoadModal && !showAddEmpModal}
 							<span class="px-2 py-0.5 bg-red-50 border border-red-300 rounded text-red-700 text-[11px] font-bold">{saveError}</span>
 						{/if}
 						{#if isLoadedFromSaved && currentSavedStatementId}
@@ -4107,6 +4299,13 @@ title="Export salary data to Mudad Excel template"
 						{/if}
 						<!-- Saved statement open: only Update (when edited) and Close. Save/Load come back after Close. -->
 						{#if isLoadedFromSaved}
+							{#if currentSavedStatementId && canEditSalaryStatement}
+							<button type="button" on:click={openAddEmployeeModal} disabled={saveBusy}
+								title={$t('hr.salaryStatement.addEmployeeTooltip')}
+								class="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold shadow-sm">
+								<span class="inline-flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>{$t('hr.salaryStatement.addEmployee')}</span>
+							</button>
+							{/if}
 							{#if isModified}
 							<button type="button" on:click={() => updateSavedRows([...dirtyRowIds])} disabled={saveBusy}
 								title={$t('hr.salaryStatement.updateChangedRowsTooltip')}
@@ -4277,6 +4476,8 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<option value="LOAD_STATEMENT">Load Statement</option>
 					<option value="UPDATE_STATEMENT">Update Statement</option>
 					<option value="UPDATE_STATEMENT_ROW">Update Employee Row</option>
+					<option value="ADD_STATEMENT_ROW">Add Employee Row</option>
+					<option value="REMOVE_STATEMENT_ROW">Remove Employee Row</option>
 					<option value="RESET_STATEMENT">Reset Statement</option>
 					<option value="EMP_EDIT_MODAL_OPEN">Employee Edit Open</option>
 					<option value="EMP_EDIT_APPLY">Employee Edit Applied</option>
@@ -4617,6 +4818,71 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 			<div class="mt-4 flex justify-end">
 				<button type="button" on:click={() => (showLoadModal = false)}
 					class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold">{$t('hr.salaryStatement.close')}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Add Employee to Saved Statement Modal -->
+{#if showAddEmpModal}
+	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" on:click|self={() => { if (!addingEmployeeId) showAddEmpModal = false; }}>
+		<div class="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col p-5 border-2 border-indigo-500" role="dialog">
+			<div class="flex items-center justify-between mb-1">
+				<h3 class="text-lg font-bold text-slate-900">{$t('hr.salaryStatement.addEmployeeModalTitle')}</h3>
+				<button type="button" class="text-slate-400 hover:text-slate-700 text-xl leading-none" disabled={!!addingEmployeeId} on:click={() => (showAddEmpModal = false)}>×</button>
+			</div>
+			<p class="text-xs text-slate-500 mb-3">{$t('hr.salaryStatement.addEmployeeModalHint').replace('{start}', startDate).replace('{end}', endDate)}</p>
+			<input type="text" bind:value={addEmpSearch}
+				placeholder="{$t('hr.salaryStatement.searchPlaceholder')}"
+				class="w-full px-3 py-2 mb-3 border border-slate-300 rounded text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+			<div class="flex-1 overflow-auto">
+				{#if addEmpLoading}
+					<div class="flex items-center justify-center py-12 text-slate-500">
+						<div class="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+						{$t('hr.salaryStatement.loading')}
+					</div>
+				{:else if addEmpFiltered.length === 0}
+					<div class="text-center py-12 text-slate-400">
+						<p>{$t('hr.salaryStatement.noEmployeesToAdd')}</p>
+					</div>
+				{:else}
+					<table class="w-full text-sm">
+						<thead class="bg-slate-100 sticky top-0">
+							<tr>
+								<th class="px-3 py-2 text-start text-xs font-bold text-slate-700">ID</th>
+								<th class="px-3 py-2 text-start text-xs font-bold text-slate-700">{$t('hr.salaryStatement.name')}</th>
+								<th class="px-3 py-2 text-start text-xs font-bold text-slate-700">{$t('hr.salaryStatement.branch')}</th>
+								<th class="px-3 py-2 text-start text-xs font-bold text-slate-700">{$t('hr.salaryStatement.status')}</th>
+								<th class="px-3 py-2"></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each addEmpFiltered as emp (emp.id)}
+								{@const br = branches.find(b => String(b.id) === String(emp.current_branch_id))}
+								<tr class="border-b border-slate-100 hover:bg-indigo-50">
+									<td class="px-3 py-2 font-mono text-slate-600">{emp.id}</td>
+									<td class="px-3 py-2 font-semibold text-slate-900">{$locale === 'ar' ? emp.name_ar || emp.name_en : emp.name_en}</td>
+									<td class="px-3 py-2 text-slate-700 text-xs">{br ? ($locale === 'ar' ? br.name_ar || br.name_en : br.name_en) : '-'}</td>
+									<td class="px-3 py-2 text-slate-700 text-xs">{emp.employment_status}</td>
+									<td class="px-3 py-2 text-end">
+										<button type="button" on:click={() => addEmployeeToStatement(emp)}
+											disabled={saveBusy || !!addingEmployeeId}
+											class="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold whitespace-nowrap">
+											{addingEmployeeId === String(emp.id) ? $t('hr.salaryStatement.adding') : $t('hr.salaryStatement.add')}
+										</button>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+				{#if saveError}
+					<div class="mt-3 px-3 py-2 bg-red-50 border border-red-300 rounded text-red-700 text-xs">{saveError}</div>
+				{/if}
+			</div>
+			<div class="mt-4 flex justify-end">
+				<button type="button" on:click={() => (showAddEmpModal = false)} disabled={!!addingEmployeeId}
+					class="px-4 py-2 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 text-sm font-semibold">{$t('hr.salaryStatement.close')}</button>
 			</div>
 		</div>
 	</div>
