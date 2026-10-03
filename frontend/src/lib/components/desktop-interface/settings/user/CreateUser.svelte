@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { userManagement } from '$lib/utils/userManagement';
-	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	const dispatch = createEventDispatcher();
@@ -22,6 +21,8 @@
 	const avatarInputId = `avatar-input-${componentId}`;
 	const whatsappNumberId = `whatsappNumber-${componentId}`;
 	const emailFieldId = `email-${componentId}`;
+	const emailOtpId = `emailOtp-${componentId}`;
+	const whatsappOtpId = `whatsappOtp-${componentId}`;
 	
 	// Props from parent component
 	export let onDataChanged: (() => Promise<void>) | null = null;
@@ -55,6 +56,41 @@
 	let errors: Record<string, string> = {};
 	let successMessage = '';
 	let dataError = '';
+	let verificationId = '';
+	let emailOtp = '';
+	let whatsappOtp = '';
+	let emailVerified = false;
+	let whatsappVerified = false;
+	let verificationExpiresAt = 0;
+	let isSendingVerification = false;
+	let isVerifyingEmail = false;
+	let isVerifyingWhatsapp = false;
+	let currentStep = 1;
+	const wizardSteps = [
+		{ number: 1, label: 'Assignment' },
+		{ number: 2, label: 'Credentials' },
+		{ number: 3, label: 'User Details' },
+		{ number: 4, label: 'Verification' },
+		{ number: 5, label: 'Review & Create' }
+	];
+
+	$: canContinue = currentStep === 1
+		? Boolean(formData.userType && formData.employeeId && (formData.userType === 'global' || formData.branchId))
+		: currentStep === 2
+			? Boolean(formData.username && isPasswordValid && isQuickAccessValid)
+			: currentStep === 3
+				? /^\+?[0-9]{7,15}$/.test(formData.whatsappNumber.replace(/[\s-]/g, '')) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)
+				: currentStep === 4
+					? emailVerified && whatsappVerified && verificationExpiresAt > Date.now()
+					: true;
+
+	function nextStep() {
+		if (canContinue && currentStep < wizardSteps.length) currentStep += 1;
+	}
+
+	function previousStep() {
+		if (currentStep > 1) currentStep -= 1;
+	}
 
 	// Load data on mount
 	onMount(async () => {
@@ -147,6 +183,10 @@
 		console.log('👤 [CreateUser] Selecting employee:', employee);
 		selectedEmployee = employee;
 		formData.employeeId = employee.id;
+		formData.username = generateUsername(employee.name || employee.employee_id || 'user');
+		generatePassword();
+		generateQuickAccessCode();
+		resetVerification();
 		errors.employeeId = '';
 		console.log('👤 [CreateUser] Employee selected - formData.employeeId:', formData.employeeId);
 		console.log('👤 [CreateUser] Selected employee object:', selectedEmployee);
@@ -160,6 +200,7 @@
 			selectedEmployee = null;
 			formData.employeeId = '';
 			employeeSearchTerm = '';
+			resetVerification();
 			console.log('🔄 [CreateUser] Cleared employee selection due to branch change');
 		}
 		previousBranchId = formData.branchId;
@@ -182,10 +223,87 @@
 	$: isPasswordValid = Object.values(passwordChecks).every(check => check);
 	$: isQuickAccessValid = formData.quickAccessCode.length === 6 && /^[0-9]{6}$/.test(formData.quickAccessCode);
 
+	function secureRandomInt(max: number) {
+		const values = new Uint32Array(1);
+		crypto.getRandomValues(values);
+		return values[0] % max;
+	}
+
+	function generateUsername(name: string) {
+		const base = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+			.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'user';
+		return `${base}.${secureRandomInt(1000).toString().padStart(3, '0')}`.slice(0, 50);
+	}
+
+	function generatePassword() {
+		const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+		const lower = 'abcdefghijkmnopqrstuvwxyz';
+		const digits = '23456789';
+		const special = '!@#$%&*?';
+		const all = upper + lower + digits + special;
+		const chars = [upper[secureRandomInt(upper.length)], lower[secureRandomInt(lower.length)], digits[secureRandomInt(digits.length)], special[secureRandomInt(special.length)]];
+		while (chars.length < 14) chars.push(all[secureRandomInt(all.length)]);
+		for (let i = chars.length - 1; i > 0; i--) {
+			const j = secureRandomInt(i + 1);
+			[chars[i], chars[j]] = [chars[j], chars[i]];
+		}
+		formData.password = chars.join('');
+		formData.confirmPassword = formData.password;
+	}
+
 	function generateQuickAccessCode() {
-		const code = Math.floor(100000 + Math.random() * 900000).toString();
+		const code = (100000 + secureRandomInt(900000)).toString();
 		formData.quickAccessCode = code;
 		formData.confirmQuickAccessCode = code;
+	}
+
+	function resetVerification() {
+		verificationId = '';
+		emailOtp = '';
+		whatsappOtp = '';
+		emailVerified = false;
+		whatsappVerified = false;
+		verificationExpiresAt = 0;
+	}
+
+	async function sendVerificationCodes() {
+		if (!formData.employeeId || !formData.email.trim() || !formData.whatsappNumber.trim()) {
+			errors.verify = 'Select an employee and enter both contact details first';
+			return;
+		}
+		isSendingVerification = true;
+		errors.verify = '';
+		try {
+			const result = await userManagement.startUserCreationVerification(formData.employeeId, formData.email, formData.whatsappNumber);
+			verificationId = result.verificationId;
+			verificationExpiresAt = new Date(result.expiresAt).getTime();
+			emailVerified = false;
+			whatsappVerified = false;
+			emailOtp = '';
+			whatsappOtp = '';
+		} catch (error) {
+			errors.verify = error instanceof Error ? error.message : 'Could not send verification codes';
+		} finally {
+			isSendingVerification = false;
+		}
+	}
+
+	async function verifyChannel(channel: 'email' | 'whatsapp') {
+		const otp = channel === 'email' ? emailOtp : whatsappOtp;
+		if (!verificationId || !/^\d{6}$/.test(otp)) return;
+		if (channel === 'email') isVerifyingEmail = true;
+		else isVerifyingWhatsapp = true;
+		errors.verify = '';
+		try {
+			await userManagement.verifyUserCreationOtp(verificationId, channel, otp);
+			if (channel === 'email') emailVerified = true;
+			else whatsappVerified = true;
+		} catch (error) {
+			errors.verify = error instanceof Error ? error.message : 'Incorrect verification code';
+		} finally {
+			if (channel === 'email') isVerifyingEmail = false;
+			else isVerifyingWhatsapp = false;
+		}
 	}
 
 	function handleAvatarChange(event) {
@@ -274,6 +392,10 @@
 			errors.email = 'Enter a valid email address';
 		}
 
+		if (!verificationId || !emailVerified || !whatsappVerified || verificationExpiresAt <= Date.now()) {
+			errors.verify = 'Verify both email and WhatsApp before creating the user';
+		}
+
 		return Object.keys(errors).length === 0;
 	}
 
@@ -320,28 +442,16 @@
 				employeeId: formData.employeeId || null,
 				positionId: formData.positionId || null,
 				quickAccessCode: formData.quickAccessCode || null,
-				requestingUserId: $currentUser?.id || null
+				requestingUserId: $currentUser?.id || null,
+				verificationId,
+				avatarDataUrl: avatarPreview || null
 			};
 
 			// Create the user
 			const result = await userManagement.createUser(userData);
 
 			if (result.success) {
-				// Save whatsapp_number and email to hr_employee_master
-				if (formData.employeeId) {
-					const { error: empUpdateError } = await supabase
-						.from('hr_employee_master')
-						.update({
-							whatsapp_number: formData.whatsappNumber.trim(),
-							email: formData.email.trim()
-						})
-						.eq('id', formData.employeeId);
-					if (empUpdateError) {
-						console.warn('⚠️ Could not update hr_employee_master with WhatsApp/email:', empUpdateError);
-					}
-				}
-
-				successMessage = `User created successfully! Quick Access Code: ${result.quick_access_code}`;
+				successMessage = `User created successfully! Quick Access Code: ${result.quickAccessCode}${result.deliveryWarning ? ` (Credential email warning: ${result.deliveryWarning})` : ''}`;
 				
 				// Notify parent component to refresh data
 				if (onDataChanged) {
@@ -385,6 +495,8 @@
 		successMessage = '';
 		avatarFile = null;
 		avatarPreview = '';
+		resetVerification();
+		currentStep = 1;
 	}
 
 	function handleClose() {
@@ -428,43 +540,26 @@
                     </button>
                 </div>
             {:else}
-                <form on:submit|preventDefault={handleSubmit}>
+                <form class="flex flex-col" on:submit|preventDefault={handleSubmit}>
+					<div class="order-0 mb-6 rounded-[2rem] border border-white bg-white/60 p-5 shadow-sm backdrop-blur-xl">
+						<div class="flex items-center justify-between">
+							{#each wizardSteps as step, index}
+								<div class="flex min-w-0 flex-1 items-center last:flex-none">
+									<div class="flex min-w-0 flex-col items-center gap-2">
+										<div class="flex h-9 w-9 items-center justify-center rounded-full text-sm font-black transition-all {currentStep > step.number ? 'bg-emerald-500 text-white' : currentStep === step.number ? 'bg-blue-600 text-white ring-4 ring-blue-100' : 'bg-slate-100 text-slate-400'}">{currentStep > step.number ? '✓' : step.number}</div>
+										<span class="hidden text-center text-[10px] font-bold uppercase tracking-wide sm:block {currentStep === step.number ? 'text-blue-700' : 'text-slate-400'}">{step.label}</span>
+									</div>
+									{#if index < wizardSteps.length - 1}<div class="mx-2 mb-5 h-1 flex-1 rounded-full transition-colors {currentStep > step.number ? 'bg-emerald-400' : 'bg-slate-200'}"></div>{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
                     <!-- Basic Information Section -->
-                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                    <div class:hidden={currentStep !== 3} class="order-3 bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
                         <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
                             <span class="inline-block w-1.5 h-5 bg-blue-600 rounded-full"></span>
-                            Basic Information
+                            Contact Details
                         </h2>
-                        
-                        <div class="grid grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label for={usernameId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Username *</label>
-                                <input
-                                    type="text"
-                                    id={usernameId}
-                                    bind:value={formData.username}
-                                    class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all {errors.username ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
-                                    placeholder="Enter username"
-                                    required
-                                >
-                                {#if errors.username}
-                                    <p class="text-red-500 text-xs mt-1.5 font-medium">{errors.username}</p>
-                                {/if}
-                            </div>
-
-                            <div>
-                                <label for={userTypeId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">User Type *</label>
-                                <select
-                                    id={userTypeId}
-                                    bind:value={formData.userType}
-                                    class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                    style="color: #000000 !important; background-color: #ffffff !important;"
-                                >
-                                    <option value="global" style="color: #000000 !important; background-color: #ffffff !important;">Global Access</option>
-                                    <option value="branch_specific" style="color: #000000 !important; background-color: #ffffff !important;">Branch Specific</option>
-                                </select>
-                            </div>
-                        </div>
 
                         <!-- WhatsApp Number and Email -->
                         <div class="grid grid-cols-2 gap-4">
@@ -474,6 +569,7 @@
                                     type="tel"
                                     id={whatsappNumberId}
                                     bind:value={formData.whatsappNumber}
+                                    on:input={resetVerification}
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all {errors.whatsappNumber ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="+966501234567"
                                     required
@@ -489,6 +585,7 @@
                                     type="email"
                                     id={emailFieldId}
                                     bind:value={formData.email}
+                                    on:input={resetVerification}
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all {errors.email ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="user@example.com"
                                     required
@@ -498,14 +595,21 @@
                                 {/if}
                             </div>
                         </div>
+
                     </div>
 
                     <!-- Security Section -->
-                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                    <div class:hidden={currentStep !== 2} class="order-2 bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
                         <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
                             <span class="inline-block w-1.5 h-5 bg-amber-500 rounded-full"></span>
-                            Security
+                            Generated Login Credentials
                         </h2>
+
+						<div class="mb-4">
+							<label for={usernameId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Username *</label>
+							<input type="text" id={usernameId} bind:value={formData.username} readonly class="w-full px-4 py-2.5 bg-slate-50 border rounded-xl text-sm font-mono focus:outline-none {errors.username ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}" placeholder="Generated after employee selection" required>
+							{#if errors.username}<p class="text-red-500 text-xs mt-1.5 font-medium">{errors.username}</p>{/if}
+						</div>
                         
                         <div class="grid grid-cols-2 gap-4 mb-4">
                             <div>
@@ -514,6 +618,7 @@
                                     type="password"
                                     id={passwordId}
                                     bind:value={formData.password}
+                                    readonly
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all {errors.password ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="Enter password"
                                     required
@@ -529,6 +634,7 @@
                                     type="password"
                                     id={confirmPasswordId}
                                     bind:value={formData.confirmPassword}
+                                    readonly
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all {errors.confirmPassword ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="Confirm password"
                                     required
@@ -575,6 +681,7 @@
                                         type="text"
                                         id={quickAccessCodeId}
                                         bind:value={formData.quickAccessCode}
+                                        readonly
                                         class="flex-1 px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all font-mono {errors.quickAccessCode ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                         placeholder="123456"
                                         maxlength="6"
@@ -600,6 +707,7 @@
                                     type="text"
                                     id={confirmQuickAccessCodeId}
                                     bind:value={formData.confirmQuickAccessCode}
+                                    readonly
                                     class="w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all font-mono {errors.confirmQuickAccessCode ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}"
                                     placeholder="123456"
                                     maxlength="6"
@@ -613,11 +721,19 @@
                     </div>
 
                     <!-- Assignment Section -->
-                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                    <div class:hidden={currentStep !== 1} class="order-1 bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
                         <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
                             <span class="inline-block w-1.5 h-5 bg-emerald-600 rounded-full"></span>
-                            Assignment
+                            User Assignment
                         </h2>
+
+						<div class="mb-4">
+							<label for={userTypeId} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">User Type *</label>
+							<select id={userTypeId} bind:value={formData.userType} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all" style="color: #000000 !important; background-color: #ffffff !important;">
+								<option value="branch_specific" style="color: #000000 !important; background-color: #ffffff !important;">Branch Specific</option>
+								<option value="global" style="color: #000000 !important; background-color: #ffffff !important;">Global Access</option>
+							</select>
+						</div>
                         
                         <!-- Branch Selection -->
                         {#if formData.userType === 'branch_specific'}
@@ -653,7 +769,7 @@
                                             {#if selectedEmployee.position_title_en}
                                                 <span class="text-emerald-600 text-xs">- {selectedEmployee.position_title_en}</span>
                                             {/if}
-                                            <button type="button" class="ml-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600 transition" on:click={() => { selectedEmployee = null; formData.employeeId = ''; }}>
+                                            <button type="button" class="ml-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600 transition" on:click={() => { selectedEmployee = null; formData.employeeId = ''; resetVerification(); }}>
                                                 ×
                                             </button>
                                         </div>
@@ -732,57 +848,25 @@
                             {/if}
                         {/if}
 
-                        {#if $currentUser?.isMasterAdmin}
-                        <!-- Admin Privileges Section (Master Admin only) -->
-                        <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200/50">
-                            <div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3">
-                                <input
-                                    type="checkbox"
-                                    id={isMasterAdminId}
-                                    bind:checked={formData.isMasterAdmin}
-                                    class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer"
-                                />
-                                <div>
-                                    <label for={isMasterAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Master Admin</label>
-                                    <p class="text-xs text-slate-400 mt-0.5">Full system access</p>
-                                </div>
-                            </div>
-
-                            <div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3">
-                                <input
-                                    type="checkbox"
-                                    id={isAdminId}
-                                    bind:checked={formData.isAdmin}
-                                    disabled={formData.isMasterAdmin}
-                                    class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer disabled:opacity-50"
-                                />
-                                <div>
-                                    <label for={isAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Admin</label>
-                                    <p class="text-xs text-slate-400 mt-0.5">Manage users & approve workflows</p>
-                                </div>
-                            </div>
-                        </div>
-                        {/if}
-
-                        <!-- Position Selection -->
-                        <div class="mt-4">
-                            <label for={positionIdField} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Position</label>
-                            <select
-                                id={positionIdField}
-                                bind:value={formData.positionId}
-                                class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                                style="color: #000000 !important; background-color: #ffffff !important;"
-                            >
-                                <option value="" style="color: #000000 !important; background-color: #ffffff !important;">Select Position (Optional)</option>
-                                {#each positions as position}
-                                    <option value={position.id} style="color: #000000 !important; background-color: #ffffff !important;">{position.position_title_en}</option>
-                                {/each}
-                            </select>
-                        </div>
                     </div>
 
+					<div class:hidden={currentStep !== 3} class="order-4 bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+						<h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2"><span class="inline-block w-1.5 h-5 bg-indigo-500 rounded-full"></span>Access & Position</h2>
+						{#if $currentUser?.isMasterAdmin}
+							<div class="grid grid-cols-2 gap-4 mb-4">
+								<div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3"><input type="checkbox" id={isAdminId} bind:checked={formData.isAdmin} disabled={formData.isMasterAdmin} class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer disabled:opacity-50"><div><label for={isAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Admin</label><p class="text-xs text-slate-400 mt-0.5">Manage users and approve workflows</p></div></div>
+								<div class="flex items-start gap-3 bg-slate-50/60 rounded-xl p-3"><input type="checkbox" id={isMasterAdminId} bind:checked={formData.isMasterAdmin} class="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer"><div><label for={isMasterAdminId} class="text-sm font-semibold text-slate-700 cursor-pointer">Make Master Admin</label><p class="text-xs text-slate-400 mt-0.5">Full system access</p></div></div>
+							</div>
+						{/if}
+						<label for={positionIdField} class="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Position</label>
+						<select id={positionIdField} bind:value={formData.positionId} class="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all" style="color: #000000 !important; background-color: #ffffff !important;">
+							<option value="" style="color: #000000 !important; background-color: #ffffff !important;">Select Position (Optional)</option>
+							{#each positions as position}<option value={position.id} style="color: #000000 !important; background-color: #ffffff !important;">{position.position_title_en}</option>{/each}
+						</select>
+					</div>
+
                     <!-- Avatar Section -->
-                    <div class="bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
+                    <div class:hidden={currentStep !== 3} class="order-5 bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] p-6 mb-6">
                         <h2 class="text-sm font-black text-slate-700 uppercase tracking-wider mb-5 flex items-center gap-2">
                             <span class="inline-block w-1.5 h-5 bg-purple-500 rounded-full"></span>
                             Avatar (Optional)
@@ -821,36 +905,63 @@
                         {/if}
                     </div>
 
+					<div class:hidden={currentStep !== 4} class="order-6 rounded-[2rem] border border-blue-100 bg-blue-50/70 p-6 mb-6 shadow-sm">
+						<div class="flex items-center justify-between gap-3">
+							<div><h2 class="text-sm font-black uppercase tracking-wider text-slate-700">Contact Verification</h2><p class="mt-1 text-xs text-slate-500">Send separate six-digit codes to the verified email address and WhatsApp number.</p></div>
+							<button type="button" class="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" on:click={sendVerificationCodes} disabled={isSendingVerification || !formData.employeeId || !formData.email || !formData.whatsappNumber}>{isSendingVerification ? 'Sending…' : verificationId ? 'Resend Codes' : 'Verify'}</button>
+						</div>
+						{#if verificationId}
+							<div class="mt-4 grid grid-cols-2 gap-4">
+								<div class="rounded-xl border border-white bg-white/80 p-3"><label for={emailOtpId} class="mb-2 block text-xs font-bold text-slate-600">Email OTP</label><div class="flex gap-2"><input id={emailOtpId} bind:value={emailOtp} on:input={() => emailOtp = emailOtp.replace(/\D/g, '').slice(0, 6)} inputmode="numeric" maxlength="6" placeholder="000000" disabled={emailVerified} class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-emerald-50"><button type="button" on:click={() => verifyChannel('email')} disabled={emailVerified || isVerifyingEmail || emailOtp.length !== 6} class="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{emailVerified ? 'Verified ✓' : isVerifyingEmail ? '…' : 'Confirm'}</button></div></div>
+								<div class="rounded-xl border border-white bg-white/80 p-3"><label for={whatsappOtpId} class="mb-2 block text-xs font-bold text-slate-600">WhatsApp OTP</label><div class="flex gap-2"><input id={whatsappOtpId} bind:value={whatsappOtp} on:input={() => whatsappOtp = whatsappOtp.replace(/\D/g, '').slice(0, 6)} inputmode="numeric" maxlength="6" placeholder="000000" disabled={whatsappVerified} class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-emerald-50"><button type="button" on:click={() => verifyChannel('whatsapp')} disabled={whatsappVerified || isVerifyingWhatsapp || whatsappOtp.length !== 6} class="rounded-xl bg-green-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{whatsappVerified ? 'Verified ✓' : isVerifyingWhatsapp ? '…' : 'Confirm'}</button></div></div>
+							</div>
+						{/if}
+						{#if errors.verify}<p class="mt-2 text-xs font-medium text-red-500">{errors.verify}</p>{/if}
+					</div>
+
+					<div class:hidden={currentStep !== 5} class="order-7 rounded-[2rem] border border-white bg-white/60 p-6 mb-6 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] backdrop-blur-xl">
+						<h2 class="mb-5 flex items-center gap-2 text-sm font-black uppercase tracking-wider text-slate-700"><span class="inline-block h-5 w-1.5 rounded-full bg-emerald-500"></span>Review User Details</h2>
+						<div class="grid grid-cols-2 gap-3 text-sm">
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">User Type</p><p class="mt-1 font-semibold text-slate-800">{formData.userType === 'global' ? 'Global Access' : 'Branch Specific'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Branch</p><p class="mt-1 font-semibold text-slate-800">{formData.userType === 'global' ? 'All Branches' : branches.find(branch => String(branch.id) === String(formData.branchId))?.name_en || 'Not selected'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Employee</p><p class="mt-1 font-semibold text-slate-800">{selectedEmployee?.name || 'Not selected'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Position</p><p class="mt-1 font-semibold text-slate-800">{positions.find(position => position.id === formData.positionId)?.position_title_en || 'Not assigned'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Username</p><p class="mt-1 font-mono font-semibold text-slate-800">{formData.username}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Access Code</p><p class="mt-1 font-mono font-semibold tracking-widest text-slate-800">{formData.quickAccessCode}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">WhatsApp</p><p class="mt-1 font-semibold text-slate-800">{formData.whatsappNumber} <span class="text-emerald-600">✓ Verified</span></p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Email</p><p class="mt-1 font-semibold text-slate-800">{formData.email} <span class="text-emerald-600">✓ Verified</span></p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Privileges</p><p class="mt-1 font-semibold text-slate-800">{formData.isMasterAdmin ? 'Master Admin' : formData.isAdmin ? 'Admin' : 'Standard User'}</p></div>
+							<div class="rounded-xl bg-slate-50 p-3"><p class="text-[10px] font-bold uppercase text-slate-400">Avatar</p><p class="mt-1 font-semibold text-slate-800">{avatarPreview ? 'Uploaded' : 'No avatar'}</p></div>
+						</div>
+						<div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">The temporary password and access code will be sent to the verified email address after creation.</div>
+					</div>
+
                     <!-- Messages -->
                     {#if errors.submit}
-                        <div class="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 text-sm text-red-800 font-semibold">
+                        <div class="order-8 bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 text-sm text-red-800 font-semibold">
                             <strong>Error:</strong> {errors.submit}
                         </div>
                     {/if}
 
                     {#if successMessage}
-                        <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6 text-sm text-emerald-800 font-semibold">
+                        <div class="order-8 bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-6 text-sm text-emerald-800 font-semibold">
                             <strong>Success:</strong> {successMessage}
                         </div>
                     {/if}
 
                     <!-- Form Actions -->
-                    <div class="flex gap-3 justify-end pt-2 pb-4">
+                    <div class="order-9 flex items-center justify-between gap-3 pt-2 pb-4">
                         <button type="button" class="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 hover:shadow-md transition-all duration-200" on:click={handleClose} disabled={isLoading}>
                             Cancel
                         </button>
-                        <button 
-                            type="submit" 
-                            class="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                            disabled={isLoading || !isPasswordValid || !isQuickAccessValid}
-                        >
-                            {#if isLoading}
-                                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                Creating User...
-                            {:else}
-                                👤 Create User
-                            {/if}
-                        </button>
+						<div class="flex gap-3">
+							{#if currentStep > 1}<button type="button" class="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all" on:click={previousStep} disabled={isLoading}>Back</button>{/if}
+							{#if currentStep < 5}
+								<button type="button" class="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all disabled:cursor-not-allowed disabled:opacity-50" on:click={nextStep} disabled={!canContinue}>Next</button>
+							{:else}
+								<button type="submit" class="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 hover:shadow-lg transition-all disabled:opacity-50" disabled={isLoading || !emailVerified || !whatsappVerified || verificationExpiresAt <= Date.now()}>{isLoading ? 'Creating User…' : 'Create User'}</button>
+							{/if}
+						</div>
                     </div>
                 </form>
             {/if}

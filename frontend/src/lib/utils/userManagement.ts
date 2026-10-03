@@ -20,6 +20,8 @@ interface CreateUserRequest {
   positionId?: string;
   quickAccessCode?: string; // Optional - will generate if not provided
   requestingUserId?: string | null;
+  verificationId?: string;
+  avatarDataUrl?: string | null;
 }
 
 interface UpdateUserRequest {
@@ -112,10 +114,11 @@ export class UserManagementService {
    */
   async createUser(
     userData: CreateUserRequest,
-  ): Promise<{ success: boolean; user?: any; quickAccessCode?: string }> {
+  ): Promise<{ success: boolean; user?: any; quickAccessCode?: string; deliveryWarning?: string; message?: string }> {
     try {
       // Call the database function to create user
-      const { data } = await secureManagement('createUser', { user: userData });
+      const response = await secureManagement(userData.verificationId ? 'createVerifiedUser' : 'createUser', { user: userData });
+      const data = response.data;
 
       console.log("Create user response:", data);
       
@@ -124,6 +127,7 @@ export class UserManagementService {
           success: true,
           user: data,
           quickAccessCode: data.quick_access_code,
+          deliveryWarning: response.deliveryWarning,
         };
       } else {
         const errorMessage = data?.message || "User creation failed";
@@ -133,6 +137,14 @@ export class UserManagementService {
       console.error("Create user error:", error);
       throw error;
     }
+  }
+
+  async startUserCreationVerification(employeeId: string, email: string, whatsappNumber: string) {
+    return secureManagement('startUserCreationVerification', { employeeId, email, whatsappNumber });
+  }
+
+  async verifyUserCreationOtp(verificationId: string, channel: 'email' | 'whatsapp', otp: string) {
+    return secureManagement('verifyUserCreationOtp', { verificationId, channel, otp });
   }
 
   /**
@@ -308,6 +320,21 @@ export class UserManagementService {
     console.log("🔍 [UserManagement] Fetching employees...");
 
     try {
+      // Do not offer employees that are already linked to a user account.
+      const { data: linkedUsers, error: linkedUsersError } = await supabase
+        .from("users")
+        .select("employee_id")
+        .not("employee_id", "is", null);
+
+      if (linkedUsersError) {
+        console.error("Error fetching linked employee accounts:", linkedUsersError);
+        throw new Error("Unable to determine linked employees");
+      }
+
+      const linkedEmployeeIds = new Set(
+        (linkedUsers || []).map((user: any) => String(user.employee_id)),
+      );
+
       // First try with position information using left join
       const { data, error } = await supabase
         .from("hr_employees")
@@ -356,7 +383,7 @@ export class UserManagementService {
           simpleData?.length || 0,
         );
         return (
-          simpleData?.map((emp: any) => ({
+          simpleData?.filter((emp: any) => !linkedEmployeeIds.has(String(emp.id))).map((emp: any) => ({
             id: emp.id,
             employee_id: emp.employee_id,
             name: emp.name,
@@ -371,7 +398,7 @@ export class UserManagementService {
         data?.length || 0,
       );
       return (
-        data?.map((emp: any) => ({
+        data?.filter((emp: any) => !linkedEmployeeIds.has(String(emp.id))).map((emp: any) => ({
           id: emp.id,
           employee_id: emp.employee_id,
           name: emp.name,
