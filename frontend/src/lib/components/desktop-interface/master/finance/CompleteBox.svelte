@@ -1,7 +1,8 @@
-﻿<script lang="ts">
+<script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import { createClient } from '@supabase/supabase-js';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { iconUrlMap } from '$lib/stores/iconStore';
@@ -22,12 +23,6 @@
 	
 	console.log('📦 CloseBox received operation:', operation);
 	
-	// Initialize Supabase client
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
-
 	// Check if completed operation exists and load from there
 	async function checkAndLoadCompletedOperation() {
 		if (!operation?.id || hasCheckedForCompleted) return;
@@ -258,7 +253,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					  AND CAST(cs.TransactionDate AS date) = '${dateStr}'
 					ORDER BY cs.OpenTime
 				`;
-				const shiftsResp = await fetch(`/api/erp-bridge-proxy`, {
+				const shiftsResp = await authenticatedFetch(`/api/erp-bridge-proxy`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ branchId: branch?.id, sql: shiftsSql })
@@ -339,12 +334,12 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			`;
 
 			const [salesResp, statusResp] = await Promise.all([
-				fetch(`/api/erp-bridge-proxy`, {
+				authenticatedFetch(`/api/erp-bridge-proxy`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ branchId: branch?.id, sql: salesSql })
 				}),
-				fetch(`/api/erp-bridge-proxy`, {
+				authenticatedFetch(`/api/erp-bridge-proxy`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ branchId: branch?.id, sql: statusSql })

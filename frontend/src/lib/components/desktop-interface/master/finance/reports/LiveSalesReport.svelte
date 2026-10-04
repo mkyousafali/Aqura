@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
@@ -62,7 +63,7 @@
 			ORDER BY CAST(TransactionDate AS date);
 		`;
 
-		const response = await fetch('/api/erp-bridge-proxy', {
+		const response = await authenticatedFetch('/api/erp-bridge-proxy', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ branchId: branch.branch_id, sql })

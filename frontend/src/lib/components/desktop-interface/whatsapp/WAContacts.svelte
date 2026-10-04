@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import { currentUser } from '$lib/utils/persistentAuth';
@@ -656,7 +657,7 @@
 
         try {
             const phoneNumbers = targetContacts.map(c => c.whatsapp_number?.replace(/\.$/, '') || '');
-            const response = await fetch('/api/batch-erp-check', {
+            const response = await authenticatedFetch('/api/batch-erp-check', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phoneNumbers })
@@ -705,7 +706,7 @@
             console.log(`📊 Sending batch request for ${phoneNumbers.length} contacts`);
 
             // ONE single API call for ALL contacts × ALL branches
-            const response = await fetch('/api/batch-bill-counts', {
+            const response = await authenticatedFetch('/api/batch-bill-counts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phoneNumbers })
@@ -768,7 +769,7 @@
         }
 
         try {
-            const response = await fetch('/api/contact-bill-details', {
+            const response = await authenticatedFetch('/api/contact-bill-details', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phoneNumber: contact.whatsapp_number })

@@ -81,7 +81,7 @@ export class UserManagementService {
       .single();
     if (error || !connection) throw new Error("No active ERP connection is configured for this branch");
 
-    const response = await fetch("/api/erp-products", {
+    const response = await authenticatedFetch("/api/erp-products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -502,3 +502,4 @@ export class UserManagementService {
 
 // Export singleton instance
 export const userManagement = new UserManagementService();
+import { authenticatedFetch } from '$lib/utils/authenticatedFetch';

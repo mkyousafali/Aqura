@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createClient } from '@supabase/supabase-js';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { iconUrlMap } from '$lib/stores/iconStore';
@@ -19,12 +19,6 @@
 	
 	console.log('📦 CloseBox received operation:', operation);
 	
-	// Initialize Supabase client
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
-
 	// Check if completed operation exists and load from there
 	async function checkAndLoadCompletedOperation() {
 		if (!operation?.id || hasCheckedForCompleted) return;

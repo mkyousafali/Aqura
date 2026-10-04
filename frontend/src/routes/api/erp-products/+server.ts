@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createClient } from '@supabase/supabase-js';
-import { env } from '$env/dynamic/private';
+import { createAuthenticatedSupabase } from '$lib/server/authenticatedSupabase';
 
 /**
  * ERP Products API — HTTP Bridge Proxy
@@ -29,9 +28,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: 'branchId is required' }, { status: 400 });
 		}
 
-		const supabaseUrl = env.VITE_SUPABASE_URL || '';
-		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
-		const supabase = createClient(supabaseUrl, supabaseKey);
+		const supabase = createAuthenticatedSupabase(request);
 
 		const { data: conn, error: connError } = await supabase
 			.from('erp_connections')

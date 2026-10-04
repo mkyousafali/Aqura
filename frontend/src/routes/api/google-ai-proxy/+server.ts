@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const supabaseUrl = env.VITE_SUPABASE_URL || '';
-		const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
+		const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '';
 		const supabase = createClient(supabaseUrl, supabaseKey);
 
 		const { data, error } = await supabase

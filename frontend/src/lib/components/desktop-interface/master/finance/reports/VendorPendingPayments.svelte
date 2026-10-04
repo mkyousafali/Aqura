@@ -1,4 +1,5 @@
-﻿<script lang="ts">
+<script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount, tick } from 'svelte';
 	import { _ as t, currentLocale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
@@ -138,7 +139,7 @@
 					const erpBranchId = conn.erp_branch_id ? parseInt(conn.erp_branch_id) : null;
 					const branchFilter = erpBranchId ? `AND p.BranchID = ${erpBranchId}` : '';
 					const sql = `SELECT p.PartyCode, SUM(d.Debit) as TotalDebit, SUM(d.Credit) as TotalCredit, SUM(d.Debit-d.Credit) as NetBalance FROM Parties p JOIN AccLedgers l ON l.LedgerCode=p.PartyCode AND l.BranchID=p.BranchID JOIN AccTransactionMaster m ON m.BranchID=l.BranchID JOIN AccTransactionDetails d ON d.AccTransactionMasterID=m.AccTransactionMasterID AND d.BranchID=m.BranchID AND d.LedgerID=l.LedgerID WHERE p.PartyType='Supp' ${branchFilter} AND m.IsActive='True' GROUP BY p.PartyCode`;
-					const resp = await fetch('/api/erp-products', {
+					const resp = await authenticatedFetch('/api/erp-products', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ action: 'query', branchId: conn.branch_id, sql })

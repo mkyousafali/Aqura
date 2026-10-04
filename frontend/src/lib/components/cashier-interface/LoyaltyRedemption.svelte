@@ -296,13 +296,14 @@
 	async function sendWhatsAppOtp(phone: string, otp: string, name: string) {
 		try {
 			const { getEdgeFunctionUrl } = await import('$lib/utils/supabase');
-			const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+			const { data: { session }, error } = await supabase.auth.getSession();
+			if (error || !session?.access_token) throw error || new Error('Authenticated session is required');
 			const formattedPhone = phone.startsWith('+') ? phone : '+' + phone;
 			await fetch(getEdgeFunctionUrl('send-whatsapp'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					Authorization: `Bearer ${supabaseAnonKey}`
+					Authorization: `Bearer ${session.access_token}`
 				},
 				body: JSON.stringify({
 					action: 'send_loyalty_otp',

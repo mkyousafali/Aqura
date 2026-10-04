@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { _ as t, currentLocale } from '$lib/i18n';
@@ -177,7 +178,7 @@
 	}
 
 	async function queryBridge(sql: string): Promise<any> {
-		const res = await fetch('/api/erp-bridge-proxy', {
+		const res = await authenticatedFetch('/api/erp-bridge-proxy', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ branchId: selectedBranchId, sql })

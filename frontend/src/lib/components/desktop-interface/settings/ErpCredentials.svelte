@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	// Both tabs share the same live ERP Users table (User ID + User Name) pulled
 	// via each branch's tunnel. Login's action column links a row to an Aqura
 	// user; Authorization's sets that same (user, branch) row's password.
@@ -59,7 +60,7 @@
 
 	async function queryBranchUsers(conn: ErpConnection): Promise<ErpUserRow[]> {
 		const sql = `SELECT UserID, UserName FROM Users WHERE BranchID=${conn.erp_branch_id} ORDER BY UserID`;
-		const response = await fetch('/api/erp-products', {
+		const response = await authenticatedFetch('/api/erp-products', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ action: 'query', branchId: conn.branch_id, sql })

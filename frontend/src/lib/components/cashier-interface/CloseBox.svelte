@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount, onDestroy } from 'svelte';
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
@@ -555,7 +556,7 @@
 			// AQ-SEC-003: routed through our own server instead of calling the bridge tunnel
 			// directly — the tunnel URL and secret are looked up server-side from
 			// erp_connections, never hardcoded and never sent to the browser.
-			const response = await fetch(`/api/erp-bridge-proxy`, {
+			const response = await authenticatedFetch(`/api/erp-bridge-proxy`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ branchId: branch?.id, sql })
@@ -645,7 +646,7 @@
 		`;
 
 		try {
-			const response = await fetch(`/api/erp-bridge-proxy`, {
+			const response = await authenticatedFetch(`/api/erp-bridge-proxy`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ branchId: branch?.id, sql })
@@ -749,12 +750,12 @@
 			`;
 
 			const [salesResp, statusResp] = await Promise.all([
-				fetch(`/api/erp-bridge-proxy`, {
+				authenticatedFetch(`/api/erp-bridge-proxy`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ branchId: branch?.id, sql: salesSql })
 				}),
-				fetch(`/api/erp-bridge-proxy`, {
+				authenticatedFetch(`/api/erp-bridge-proxy`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ branchId: branch?.id, sql: statusSql })

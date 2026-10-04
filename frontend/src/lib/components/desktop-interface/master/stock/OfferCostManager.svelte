@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { _ as t, locale } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -270,7 +271,7 @@
 					const batch = barcodes.slice(i, i + batchSize);
 					const batchPromises = batch.map(async (bc) => {
 						try {
-							const response = await fetch('/api/erp-products', {
+							const response = await authenticatedFetch('/api/erp-products', {
 								method: 'POST',
 								headers: { 'Content-Type': 'application/json' },
 								body: JSON.stringify({
@@ -368,7 +369,7 @@
 				`;
 
 				try {
-					const costResponse = await fetch('/api/erp-products', {
+					const costResponse = await authenticatedFetch('/api/erp-products', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ action: 'query', branchId: branch.branch_id, sql: costSql })

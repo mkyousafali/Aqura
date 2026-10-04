@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
 
@@ -1024,7 +1025,7 @@
         analyticsResult = null;
 
         try {
-            const resp = await fetch('/api/broadcast-analytics', {
+            const resp = await authenticatedFetch('/api/broadcast-analytics', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

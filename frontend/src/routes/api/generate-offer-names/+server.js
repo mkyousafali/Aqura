@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/private';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = env.VITE_SUPABASE_URL || '';
-const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '';
 
 // NOTE: same text-only model used for the "suggest color themes" step
 // (see /api/generate-flyer-theme-options) — kept in sync deliberately.

@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/private';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = env.VITE_SUPABASE_URL || '';
-const supabaseKey = env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '';
 
 // NOTE: text-only model for this quick "suggest color themes" step (separate from the
 // gpt-image-2.5-sunburst model used for the actual background image). Not yet confirmed against the

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { currentLocale } from '$lib/i18n';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
@@ -125,7 +126,7 @@
 		connectionStatus = 'testing';
 		connectionMessage = '';
 		try {
-			const response = await fetch('/api/erp-products', {
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -287,7 +288,7 @@
 			// 2. Get price from ERP bridge server directly
 			if (!selectedConfig) throw new Error(isRtl ? 'لم يتم اختيار الفرع' : 'No branch selected');
 
-			const priceResponse = await fetch('/api/erp-products', {
+			const priceResponse = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({

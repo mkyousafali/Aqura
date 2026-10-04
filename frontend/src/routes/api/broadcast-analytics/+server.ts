@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createClient } from '@supabase/supabase-js';
-import { env } from '$env/dynamic/private';
+import { createAuthenticatedSupabase } from '$lib/server/authenticatedSupabase';
 
 /**
  * Broadcast Analytics API
@@ -30,9 +29,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: '"Up to date" must be on or after the broadcast date' }, { status: 400 });
 		}
 
-		const supabaseUrl = env.VITE_SUPABASE_URL || '';
-		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
-		const supabase = createClient(supabaseUrl, supabaseKey);
+		const supabase = createAuthenticatedSupabase(request);
 
 		// Load active ERP branch connections — filter to the broadcast's branch if provided
 		let erpQuery = supabase

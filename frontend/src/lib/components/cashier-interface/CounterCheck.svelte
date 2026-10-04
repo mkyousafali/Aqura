@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { t } from '$lib/i18n';
@@ -547,7 +548,7 @@
 
 			// AQ-SEC-003: routed through our own server instead of calling the bridge tunnel
 			// directly, so the bridge secret is never sent to the browser.
-			const response = await fetch(`/api/erp-bridge-proxy`, {
+			const response = await authenticatedFetch(`/api/erp-bridge-proxy`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'

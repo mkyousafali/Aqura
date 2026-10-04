@@ -1,5 +1,6 @@
 
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
   import StepIndicator from './StepIndicator.svelte';
   import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
   import { currentUser } from '$lib/utils/persistentAuth';
@@ -196,7 +197,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       const branchFilter = erpBranchId ? `AND p.BranchID = ${erpBranchId}` : '';
       const sql = `SELECT SUM(d.Debit) as TotalDebit, SUM(d.Credit) as TotalCredit, SUM(d.Debit-d.Credit) as NetBalance FROM Parties p JOIN AccLedgers l ON l.LedgerCode=p.PartyCode AND l.BranchID=p.BranchID JOIN AccTransactionMaster m ON m.BranchID=l.BranchID JOIN AccTransactionDetails d ON d.AccTransactionMasterID=m.AccTransactionMasterID AND d.BranchID=m.BranchID AND d.LedgerID=l.LedgerID WHERE p.PartyCode='${parseInt(vendor.erp_vendor_id)}' ${branchFilter} AND m.IsActive='True'`;
 
-      const resp = await fetch('/api/erp-products', {
+      const resp = await authenticatedFetch('/api/erp-products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'query', branchId: vendor.branch_id, sql })

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -191,7 +192,7 @@
 		connectionStatus = null;
 
 		try {
-			const response = await fetch('/api/erp-products', {
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -233,7 +234,7 @@
 				syncStatus = { success: true, message: `📦 Fetching batch ${batchNumber} (offset: ${totalFetched})...` };
 
 				// Step 1: Fetch products from bridge in chunks
-				const response = await fetch('/api/erp-products', {
+				const response = await authenticatedFetch('/api/erp-products', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
@@ -377,7 +378,7 @@
 		branchTestStatus = branchTestStatus; // trigger reactivity
 
 		try {
-			const response = await fetch('/api/erp-products', {
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({

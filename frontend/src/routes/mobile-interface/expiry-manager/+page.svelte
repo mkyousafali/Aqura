@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { getTranslation } from '$lib/i18n';
 	import { currentLocale } from '$lib/i18n';
 	import { onMount, onDestroy, tick } from 'svelte';
@@ -233,9 +234,16 @@
 		connectionStatus = 'testing';
 		connectionMessage = '';
 		try {
-			const response = await fetch('/api/erp-products', {
+			const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+			if (sessionError || !session?.access_token) {
+				throw sessionError || new Error('Authenticated session is required');
+			}
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${session.access_token}`
+				},
 				body: JSON.stringify({
 					action: 'test',
 					branchId: selectedConfig.branch_id

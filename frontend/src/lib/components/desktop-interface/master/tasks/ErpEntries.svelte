@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import { currentLocale } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -215,7 +216,7 @@
 				LEFT JOIN AccGroups g ON g.AccGroupID = l.AccGroupID AND g.BranchID = l.BranchID
 				WHERE m.BranchID = ${erpBranchId} AND m.VoucherType = '${expectedType}' AND m.VoucherNumber = '${voucherNo}' AND m.IsActive = 1
 			`;
-			const response = await fetch('/api/erp-products', {
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ action: 'query', branchId: row.branch_id, sql })

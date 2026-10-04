@@ -1,4 +1,5 @@
 <script>
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import { _ as t, t as tFn, currentLocale } from '$lib/i18n';
 	import { compressImage } from '$lib/utils/imageCompression';
@@ -520,7 +521,7 @@
 		try {
 			const safeRef = ref.replace(/'/g, "''");
 			const sql = `SELECT m.InvTransactionMasterID, m.GrandTotal, m.PartyName, m.TransactionDate, m.VoucherForm, l.LedgerCode AS VendorId FROM InvTransactionMaster m LEFT JOIN AccLedgers l ON l.LedgerID = m.LedgerID AND l.BranchID = m.BranchID WHERE m.VoucherType='PI' AND CAST(m.VoucherNumber AS VARCHAR(50))='${safeRef}' AND m.BranchID=${conn.erp_branch_id} AND m.IsActive=1`;
-			const response = await fetch('/api/erp-products', {
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ action: 'query', branchId: conn.branch_id, sql })

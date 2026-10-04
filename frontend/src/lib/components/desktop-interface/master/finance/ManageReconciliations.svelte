@@ -1,15 +1,10 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { createClient } from '@supabase/supabase-js';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	export let windowId: string;
-
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
 
 	interface Reconciliation {
 		id: number;

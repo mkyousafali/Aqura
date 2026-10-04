@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import { _ as t, currentLocale } from '$lib/i18n';
 	import { currentUser } from '$lib/utils/persistentAuth';
@@ -190,7 +191,7 @@
 	}
 
 	async function runQuery(sql: string, branchId: number): Promise<any[]> {
-		const response = await fetch('/api/erp-products', {
+		const response = await authenticatedFetch('/api/erp-products', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ action: 'query', branchId, sql })

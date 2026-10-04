@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createClient } from '@supabase/supabase-js';
-import { env } from '$env/dynamic/private';
+import { createAuthenticatedSupabase } from '$lib/server/authenticatedSupabase';
 
 /**
  * Contact Bill Details API
@@ -25,10 +24,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, error: 'phoneNumber is required' }, { status: 400 });
 		}
 
-		// Create Supabase client
-		const supabaseUrl = env.VITE_SUPABASE_URL || '';
-		const supabaseKey = env.VITE_SUPABASE_ANON_KEY || '';
-		const supabase = createClient(supabaseUrl, supabaseKey);
+		const supabase = createAuthenticatedSupabase(request);
 
 		// Get all active ERP connections
 		const { data: erpConfigs, error: configError } = await supabase

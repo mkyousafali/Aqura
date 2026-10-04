@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import ExcelJS from 'exceljs';
 	import JSZip from 'jszip';
 	import { onMount } from 'svelte';
@@ -217,7 +218,7 @@
 				const batch = barcodes.slice(i, i + batchSize);
 				const batchPromises = batch.map(async (bc) => {
 					try {
-						const response = await fetch('/api/erp-products', {
+						const response = await authenticatedFetch('/api/erp-products', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({
@@ -333,7 +334,7 @@
 			`;
 
 			try {
-				const costResponse = await fetch('/api/erp-products', {
+				const costResponse = await authenticatedFetch('/api/erp-products', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ action: 'query', branchId: branch.branch_id, sql: costSql })
@@ -411,7 +412,7 @@
 					`;
 
 					try {
-						const detailResp = await fetch('/api/erp-products', {
+						const detailResp = await authenticatedFetch('/api/erp-products', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({ action: 'query', branchId: branch.branch_id, sql: detailSql })

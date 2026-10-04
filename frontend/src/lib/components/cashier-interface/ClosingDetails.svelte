@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createClient } from '@supabase/supabase-js';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { getEmployeeDisplayName } from '$lib/utils/employeeDisplayName';
@@ -288,11 +288,6 @@
 	
 	let closingSaved: boolean = false;
 	let showPrintTemplate = false;
-
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
 
 	async function verifySupervisorCode() {
 		supervisorCodeError = '';

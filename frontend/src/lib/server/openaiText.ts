@@ -18,7 +18,7 @@ export async function generateOpenAIText(options: TextGenerationOptions): Promis
 	const { prompt, systemPrompt, attachments = [], schema, jsonMode = false } = options;
 	if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('A text prompt is required.');
 	const supabaseUrl = env.VITE_SUPABASE_URL || '';
-	const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || env.VITE_SUPABASE_ANON_KEY || '';
+	const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '';
 	if (!supabaseUrl || !supabaseKey) throw new Error('Database connection is not configured.');
 	const db = createClient(supabaseUrl, supabaseKey);
 	const { data, error } = await db.from('system_api_keys').select('api_key')

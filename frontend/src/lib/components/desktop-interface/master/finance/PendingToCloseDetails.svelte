@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createClient } from '@supabase/supabase-js';
+	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 
 	export let windowId: string;
@@ -295,11 +295,6 @@
 	let verifiedCashierUserId: string | null = null;
 	
 	let closingSaved: boolean = false;
-
-	const supabase = createClient(
-		import.meta.env.VITE_SUPABASE_URL,
-		import.meta.env.VITE_SUPABASE_ANON_KEY
-	);
 
 	async function verifySupervisorCode() {
 		supervisorCodeError = '';

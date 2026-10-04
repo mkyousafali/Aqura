@@ -1,4 +1,5 @@
 <script>
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onMount } from 'svelte';
 	import XLSX from 'xlsx-js-style';
 
@@ -729,7 +730,7 @@
 		`;
 
 		try {
-			const response = await fetch('/api/erp-products', {
+			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ action: 'query', branchId: currentBranchErp.branch_id, sql })
@@ -760,7 +761,7 @@
 						ORDER BY pu.ProductBatchID, pu.MultiFactor ASC
 					`;
 					try {
-						const detailResp = await fetch('/api/erp-products', {
+						const detailResp = await authenticatedFetch('/api/erp-products', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({ action: 'query', branchId: currentBranchErp.branch_id, sql: detailSql })
@@ -883,7 +884,7 @@
 					const batch = barcodes.slice(i, i + batchSize);
 					const batchPromises = batch.map(async (bc) => {
 						try {
-							const response = await fetch('/api/erp-products', {
+							const response = await authenticatedFetch('/api/erp-products', {
 								method: 'POST',
 								headers: { 'Content-Type': 'application/json' },
 								body: JSON.stringify({
@@ -988,7 +989,7 @@
 				`;
 
 				try {
-					const costResponse = await fetch('/api/erp-products', {
+					const costResponse = await authenticatedFetch('/api/erp-products', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ action: 'query', branchId: branch.branch_id, sql: costSql })
@@ -1024,7 +1025,7 @@
 						ORDER BY pu.ProductBatchID, pu.MultiFactor ASC
 					`;
 					try {
-						const detailResp = await fetch('/api/erp-products', {
+						const detailResp = await authenticatedFetch('/api/erp-products', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({ action: 'query', branchId: branch.branch_id, sql: detailSql })
