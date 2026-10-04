@@ -6,6 +6,7 @@
 	import { locale, getTranslation } from '$lib/i18n';
 	import { notifications } from '$lib/stores/notifications';
 	import AutoTaskList from '$lib/components/common/AutoTaskList.svelte';
+	import { translateText as translateIncidentText } from '$lib/utils/translationService';
 
 	let currentUserData = null;
 	let tasks = [];
@@ -16,12 +17,20 @@
 	let filterPriority = 'all';
 	let showCompleted = false; // Toggle for showing/hiding completed tasks
 	let autoTaskCount = 0;
+	let expandedIncidentTaskId = null;
+	let incidentTaskFinished = false;
+	let incidentCompletionNotes = '';
+	let completingIncidentTaskId = null;
+	let incidentCompletionError = '';
+	let expandedIncidentDetailsTaskId = null;
+	let loadingIncidentDetailsId = null;
+	let incidentDetailsError = '';
+	let incidentDetailsCache = {};
+	let incidentTranslations = {};
+	let translatingIncidentId = null;
 
 	// User cache for displaying usernames and employee names
 	let userCache = {};
-
-	// Incident attachments cache for quick tasks
-	let incidentAttachmentsCache = {};
 
 	// Image preview modal variables
 	let showImagePreview = false;
@@ -37,40 +46,6 @@
 		const timer = setInterval(() => currentUserData && loadTasks(), 15000);
 		return () => clearInterval(timer);
 	});
-
-	// Function to fetch and cache incident attachments
-	async function loadIncidentAttachments(incidentId) {
-		if (!incidentId) return [];
-		
-		// Return from cache if already loaded
-		if (incidentAttachmentsCache[incidentId]) {
-			return incidentAttachmentsCache[incidentId];
-		}
-
-		try {
-			const { data: incident, error } = await supabase
-				.from('incidents')
-				.select('attachments')
-				.eq('id', incidentId)
-				.single();
-			
-			if (error) {
-				console.warn('Failed to fetch incident attachments:', error);
-				incidentAttachmentsCache[incidentId] = [];
-				return [];
-			}
-
-			if (incident?.attachments && Array.isArray(incident.attachments) && incident.attachments.length > 0) {
-				incidentAttachmentsCache[incidentId] = incident.attachments;
-				return incident.attachments;
-			}
-		} catch (err) {
-			console.warn('Error loading incident attachments:', err);
-		}
-
-		incidentAttachmentsCache[incidentId] = [];
-		return [];
-	}
 
 	// Function to load and cache user information
 	async function loadUserCache() {
@@ -220,6 +195,24 @@
 		return currentUserData?.username || 'You';
 	}		// Last resort fallback
 		return fallbackName || 'Unknown User';
+	}
+
+	function getLocalizedTaskText(text, type = 'title') {
+		if (!text) return '';
+		const separator = type === 'title' ? '|' : '\n---\n';
+		const parts = text.split(separator);
+		if (parts.length < 2) return text.trim();
+
+		const selectedText = ($locale === 'ar' ? parts.slice(1).join(separator) : parts[0]).trim();
+
+		// Incident titles store the visible incident number after the Arabic half.
+		// Preserve that number when showing only the English half.
+		if (type === 'title' && $locale !== 'ar' && !selectedText.includes(':')) {
+			const suffixMatch = parts.slice(1).join(separator).match(/:\s*([^:]+)$/);
+			if (suffixMatch) return `${selectedText}: ${suffixMatch[1].trim()}`;
+		}
+
+		return selectedText;
 	}
 
 	function hideImage(e) {
@@ -497,8 +490,8 @@
 	}
 
 			// Safe search - handle null/undefined values
-			const title = task.title || '';
-			const description = task.description || '';
+			const title = getLocalizedTaskText(task.title, 'title');
+			const description = getLocalizedTaskText(task.description, 'description');
 			const matchesSearch = searchTerm === '' || 
 				title.toLowerCase().includes(searchTerm.toLowerCase()) ||
 				description.toLowerCase().includes(searchTerm.toLowerCase());
@@ -690,7 +683,9 @@
 
 	async function markAsComplete(task) {
 // Navigate to the appropriate completion page based on task type
-if (task.task_type === 'quick') {
+if (isIncidentTask(task)) {
+toggleIncidentTask(task);
+} else if (task.task_type === 'quick') {
 goto(`/mobile-interface/quick-tasks/${task.id}/complete`);
 } else if (task.task_type === 'receiving') {
 // Handle receiving task completion inline with API call
@@ -698,7 +693,137 @@ await completeReceivingTask(task);
 } else {
 goto(`/mobile-interface/tasks/${task.id}/complete`);
 }
-}
+	}
+
+	function isIncidentTask(task) {
+		return task?.task_type === 'quick' && !!task?.incident_id;
+	}
+
+	function toggleIncidentTask(task) {
+		if (!isIncidentTask(task) || completingIncidentTaskId) return;
+		if (expandedIncidentTaskId === task.assignment_id) {
+			expandedIncidentTaskId = null;
+			return;
+		}
+		expandedIncidentTaskId = task.assignment_id;
+		incidentTaskFinished = false;
+		incidentCompletionNotes = '';
+		incidentCompletionError = '';
+	}
+
+	async function toggleIncidentDetails(task) {
+		if (!isIncidentTask(task)) return;
+		if (expandedIncidentDetailsTaskId === task.assignment_id) {
+			expandedIncidentDetailsTaskId = null;
+			return;
+		}
+
+		expandedIncidentDetailsTaskId = task.assignment_id;
+		incidentDetailsError = '';
+		if (incidentDetailsCache[task.incident_id]) return;
+
+		loadingIncidentDetailsId = task.assignment_id;
+		try {
+			const { data, error } = await supabase
+				.from('incidents')
+				.select(`
+					id,
+					what_happened,
+					witness_details,
+					related_party,
+					resolution_status,
+					attachments,
+					created_at,
+					incident_types(incident_type_en, incident_type_ar),
+					warning_violation(name_en, name_ar)
+				`)
+				.eq('id', task.incident_id)
+				.single();
+			if (error) throw error;
+			incidentDetailsCache = { ...incidentDetailsCache, [task.incident_id]: data };
+		} catch (error) {
+			console.error('Error loading inline incident details:', error);
+			incidentDetailsError = error?.message || 'Failed to load incident details.';
+		} finally {
+			loadingIncidentDetailsId = null;
+		}
+	}
+
+	function getIncidentDetailName(record, field) {
+		if (!record) return '';
+		return $locale === 'ar' ? (record[`${field}_ar`] || record[`${field}_en`]) : (record[`${field}_en`] || record[`${field}_ar`]);
+	}
+
+	async function translateWhatHappened(incident) {
+		const text = incident?.what_happened?.description?.trim();
+		if (!text || translatingIncidentId) return;
+
+		translatingIncidentId = incident.id;
+		try {
+			const translated = await translateIncidentText({
+				text,
+				targetLanguage: $locale === 'ar' ? 'ar' : 'en'
+			});
+			if (translated) {
+				incidentTranslations = { ...incidentTranslations, [incident.id]: translated };
+			}
+		} catch (error) {
+			console.error('Error translating incident details:', error);
+			notifications.add({ type: 'error', message: 'Failed to translate incident details.', duration: 3000 });
+		} finally {
+			translatingIncidentId = null;
+		}
+	}
+
+	async function completeIncidentTask(task) {
+		if (!currentUserData?.id || !incidentTaskFinished || completingIncidentTaskId) return;
+		completingIncidentTaskId = task.assignment_id;
+		incidentCompletionError = '';
+
+		try {
+			const { error: completionError } = await supabase.rpc('submit_quick_task_completion', {
+				p_assignment_id: task.assignment_id,
+				p_user_id: currentUserData.id,
+				p_completion_notes: incidentCompletionNotes.trim() || null,
+				p_photos: null,
+				p_erp_reference: null
+			});
+			if (completionError) throw completionError;
+
+			try {
+				const { data: incident } = await supabase
+					.from('incidents')
+					.select('user_statuses')
+					.eq('id', task.incident_id)
+					.single();
+				if (incident) {
+					const userStatuses = typeof incident.user_statuses === 'string'
+						? JSON.parse(incident.user_statuses)
+						: (incident.user_statuses || {});
+					userStatuses[currentUserData.id] = {
+						...userStatuses[currentUserData.id],
+						status: 'acknowledged',
+						acknowledged_at: new Date().toISOString()
+					};
+					await supabase.from('incidents').update({ user_statuses: userStatuses }).eq('id', task.incident_id);
+				}
+			} catch (statusError) {
+				console.warn('Could not update incident acknowledgement status:', statusError);
+			}
+
+			notifications.add({ type: 'success', message: 'Incident task completed successfully!', duration: 3000 });
+			expandedIncidentTaskId = null;
+			incidentTaskFinished = false;
+			incidentCompletionNotes = '';
+			await loadTasks();
+		} catch (error) {
+			console.error('Error completing incident task:', error);
+			incidentCompletionError = error?.message || 'Failed to complete the incident task. Please try again.';
+			notifications.add({ type: 'error', message: incidentCompletionError, duration: 4000 });
+		} finally {
+			completingIncidentTaskId = null;
+		}
+	}
 
 	async function completeReceivingTask(task) {
 		// Special handling for roles that require detailed completion forms
@@ -756,7 +881,9 @@ goto(`/mobile-interface/tasks/${task.id}/complete`);
 
 function navigateToTask(task) {
 // Navigate to the appropriate task view based on task type
-if (task.task_type === 'quick') {
+if (isIncidentTask(task)) {
+toggleIncidentDetails(task);
+} else if (task.task_type === 'quick') {
 goto(`/mobile-interface/quick-tasks/${task.id}/complete`);
 } else if (task.task_type === 'receiving') {
 showReceivingTaskDetails(task);
@@ -1071,7 +1198,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 							tabindex="0"
 						>
 							<div class="task-title-section">
-								<h3>{task.title}</h3>
+								<h3>{getLocalizedTaskText(task.title, 'title')}</h3>
 								<div class="task-meta">
 									{#if task.task_type === 'quick'}
 										<span class="task-type-badge quick-task">⚡ {getTranslation('mobile.tasksContent.taskCard.quickTask')}</span>
@@ -1123,6 +1250,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 									</div>
 								</div>
 							{:else if task.description}
+								{@const localizedDescription = getLocalizedTaskText(task.description, 'description')}
 								{@const oldPriceMatch = task.description.match(/Old Price:\s*([\d.]+)/i)}
 								{@const newPriceMatch = task.description.match(/New Price:\s*([\d.]+)/i)}
 								{@const urlPart = task.description.split('Photo URL:')[1]}
@@ -1138,7 +1266,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 										</div>
 									</div>
 								{:else}
-									<p class="task-description">{task.description.split('Photo URL:')[0] || task.description}</p>
+									<p class="task-description">{localizedDescription.split('Photo URL:')[0] || localizedDescription}</p>
 									{#if photoUrl && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))}
 										<div class="barcode-image-preview">
 											<img 
@@ -1154,6 +1282,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 								{/if}
 							{/if}
 							
+							<!-- Incident attachments are intentionally shown only on the incident details page.
 							{#if task.task_type === 'quick' && task.incident_id}
 								<div class="incident-attachments-section">
 									{#await loadIncidentAttachments(task.incident_id) then attachments}
@@ -1184,6 +1313,7 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 									{/await}
 								</div>
 							{/if}
+							-->
 							
 							<div class="task-details">
 								{#if task.deadline_date}
@@ -1296,18 +1426,20 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 
 						{#if task.assignment_status !== 'completed' && task.assignment_status !== 'cancelled'}
 							<div class="task-actions">
-								<button class="complete-btn" on:click={() => markAsComplete(task)} disabled={isLoading}>
+								<button class="complete-btn" on:click={() => markAsComplete(task)} disabled={isLoading || completingIncidentTaskId === task.assignment_id} aria-expanded={isIncidentTask(task) ? expandedIncidentTaskId === task.assignment_id : undefined}>
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<polyline points="20,6 9,17 4,12"/>
 									</svg>
-									{getTranslation('mobile.tasksContent.taskCard.markComplete')}
+									{isIncidentTask(task) && expandedIncidentTaskId === task.assignment_id ? 'Hide Completion' : getTranslation('mobile.tasksContent.taskCard.markComplete')}
 								</button>
 								<button class="view-btn" on:click={() => navigateToTask(task)}>
 									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
 										<circle cx="12" cy="12" r="3"/>
 									</svg>
-									{getTranslation('mobile.tasksContent.taskCard.viewDetails')}
+									{isIncidentTask(task)
+										? (expandedIncidentDetailsTaskId === task.assignment_id ? 'Hide Incident Details' : 'View Incident Details')
+										: getTranslation('mobile.tasksContent.taskCard.viewDetails')}
 								</button>
 							</div>
 						{:else}
@@ -1319,6 +1451,96 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 									</svg>
 									{getTranslation('mobile.tasksContent.taskCard.viewDetails')}
 								</button>
+							</div>
+						{/if}
+
+						{#if isIncidentTask(task) && expandedIncidentDetailsTaskId === task.assignment_id}
+							<div class="inline-incident-details" on:click|stopPropagation>
+								{#if loadingIncidentDetailsId === task.assignment_id}
+									<div class="inline-incident-loading">Loading incident details...</div>
+								{:else if incidentDetailsError}
+									<div class="inline-completion-error" role="alert">{incidentDetailsError}</div>
+								{:else if incidentDetailsCache[task.incident_id]}
+									{@const incident = incidentDetailsCache[task.incident_id]}
+									<div class="inline-incident-heading">
+										<strong>{getIncidentDetailName(incident.incident_types, 'incident_type') || 'Incident'}</strong>
+										<span class="inline-incident-status">{incident.resolution_status?.replace('_', ' ') || 'reported'}</span>
+									</div>
+									{#if incident.warning_violation}
+										<div class="inline-incident-row"><span>Violation</span><strong>{getIncidentDetailName(incident.warning_violation, 'name')}</strong></div>
+									{/if}
+									{#if incident.related_party?.name || incident.related_party?.details}
+										<div class="inline-incident-row"><span>Related Party</span><strong>{incident.related_party.name || incident.related_party.details}</strong></div>
+									{/if}
+									{#if incident.what_happened?.description}
+										<div class="inline-incident-block">
+											<div class="inline-incident-block-heading">
+												<span>What Happened</span>
+												<button type="button" class="inline-translate-btn" on:click={() => translateWhatHappened(incident)} disabled={translatingIncidentId === incident.id}>
+													{translatingIncidentId === incident.id ? 'Translating...' : 'Translate'}
+												</button>
+											</div>
+											<p>{incident.what_happened.description}</p>
+											{#if incidentTranslations[incident.id]}
+												<p class="inline-incident-translation" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>{incidentTranslations[incident.id]}</p>
+											{/if}
+										</div>
+									{/if}
+									{#if incident.witness_details?.details}
+										<div class="inline-incident-block"><span>Witness Details</span><p>{incident.witness_details.details}</p></div>
+									{/if}
+									{#if incident.attachments?.length}
+										<div class="inline-incident-attachments">
+											<span>Attachments ({incident.attachments.length})</span>
+											{#each incident.attachments as attachment}
+												{#if attachment.type === 'image'}
+													<button type="button" class="inline-incident-image-button" on:click={() => { showImagePreview = true; previewImageSrc = attachment.url; previewImageAlt = attachment.name || 'Incident'; }}>
+														<img src={attachment.url} alt={attachment.name || 'Incident attachment'} loading="lazy" />
+													</button>
+												{:else}
+													<a href={attachment.url} target="_blank" rel="noopener noreferrer">{attachment.name || 'Open attachment'}</a>
+												{/if}
+											{/each}
+										</div>
+									{/if}
+									<div class="inline-incident-date">Reported {formatDate(incident.created_at)}</div>
+								{/if}
+							</div>
+						{/if}
+
+						{#if isIncidentTask(task) && expandedIncidentTaskId === task.assignment_id}
+							<div class="incident-completion-panel" on:click|stopPropagation>
+								<div class="inline-completion-heading">
+									<div>
+										<strong>Complete Incident Task</strong>
+										<span>Confirm the requirement below</span>
+									</div>
+									<span class="inline-progress-value">{incidentTaskFinished ? 100 : 0}%</span>
+								</div>
+								<div class="inline-progress-track" aria-hidden="true">
+									<div class="inline-progress-fill" style:width={incidentTaskFinished ? '100%' : '0%'}></div>
+								</div>
+								<h4>Completion Requirement</h4>
+								<label class="inline-requirement">
+									<span class="inline-requirement-copy">
+										<strong>Task Finished</strong>
+										<small>Required to complete this task</small>
+									</span>
+									<input aria-label="Confirm task finished" type="checkbox" bind:checked={incidentTaskFinished} disabled={completingIncidentTaskId === task.assignment_id} />
+								</label>
+								<label class="inline-notes">
+									<span>📝 Additional Notes (Optional)</span>
+									<textarea bind:value={incidentCompletionNotes} placeholder="Add any additional notes about the task completion..." disabled={completingIncidentTaskId === task.assignment_id}></textarea>
+								</label>
+								{#if incidentCompletionError}
+									<div class="inline-completion-error" role="alert">{incidentCompletionError}</div>
+								{/if}
+								<div class="inline-completion-actions">
+									<button type="button" class="inline-cancel-btn" on:click={() => toggleIncidentTask(task)} disabled={completingIncidentTaskId === task.assignment_id}>Cancel</button>
+									<button type="button" class="inline-submit-btn" on:click={() => completeIncidentTask(task)} disabled={!incidentTaskFinished || completingIncidentTaskId === task.assignment_id}>
+										{completingIncidentTaskId === task.assignment_id ? 'Completing...' : 'Complete Incident Task'}
+									</button>
+								</div>
 							</div>
 						{/if}
 					</div>
@@ -2004,6 +2226,323 @@ goto(`/mobile-interface/receiving-tasks/${task.id}`);
 	.view-btn.full-width {
 		flex: unset;
 		width: 100%;
+	}
+
+	.inline-incident-details {
+		padding: 1rem;
+		border-top: 1px solid #dbeafe;
+		background: #eff6ff;
+		color: #1e293b;
+	}
+
+	.inline-incident-loading {
+		padding: 1rem;
+		text-align: center;
+		color: #64748b;
+	}
+
+	.inline-incident-heading,
+	.inline-incident-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.inline-incident-heading {
+		margin-bottom: 0.75rem;
+		font-size: 0.95rem;
+	}
+
+	.inline-incident-status {
+		padding: 0.2rem 0.55rem;
+		border-radius: 999px;
+		background: #dbeafe;
+		color: #1d4ed8;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+	}
+
+	.inline-incident-row,
+	.inline-incident-block {
+		margin-top: 0.6rem;
+		padding: 0.7rem;
+		border: 1px solid #dbeafe;
+		border-radius: 8px;
+		background: white;
+		font-size: 0.82rem;
+	}
+
+	.inline-incident-row span,
+	.inline-incident-block > span,
+	.inline-incident-attachments > span {
+		color: #64748b;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.inline-incident-block p {
+		margin: 0.4rem 0 0;
+		line-height: 1.45;
+		white-space: pre-wrap;
+	}
+
+	.inline-incident-block-heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.inline-translate-btn {
+		padding: 0.3rem 0.65rem;
+		border: 1px solid #93c5fd;
+		border-radius: 6px;
+		background: #eff6ff;
+		color: #1d4ed8;
+		font-size: 0.72rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.inline-translate-btn:disabled {
+		opacity: 0.6;
+		cursor: wait;
+	}
+
+	.inline-incident-block .inline-incident-translation {
+		margin-top: 0.65rem;
+		padding-top: 0.65rem;
+		border-top: 1px solid #dbeafe;
+		color: #1d4ed8;
+		font-weight: 500;
+	}
+
+	.inline-incident-attachments {
+		display: grid;
+		gap: 0.55rem;
+		margin-top: 0.6rem;
+	}
+
+	.inline-incident-image-button {
+		padding: 0;
+		overflow: hidden;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+		background: white;
+		cursor: pointer;
+	}
+
+	.inline-incident-image-button img {
+		display: block;
+		width: 100%;
+		max-height: 260px;
+		object-fit: contain;
+	}
+
+	.inline-incident-attachments a {
+		padding: 0.65rem;
+		border: 1px solid #bfdbfe;
+		border-radius: 8px;
+		background: white;
+		color: #1d4ed8;
+		font-size: 0.82rem;
+		text-decoration: none;
+	}
+
+	.inline-incident-date {
+		margin-top: 0.7rem;
+		color: #64748b;
+		font-size: 0.72rem;
+		text-align: right;
+	}
+
+	.incident-completion-panel {
+		margin: 0 0.5rem 0.5rem;
+		padding: 1rem;
+		border: 1px solid #dbe4ee;
+		border-radius: 12px;
+		background: white;
+		box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+	}
+
+	.inline-completion-heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.inline-completion-heading > div {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.inline-completion-heading strong {
+		font-size: 0.95rem;
+		color: #1f2937;
+	}
+
+	.inline-completion-heading span:not(.inline-progress-value) {
+		font-size: 0.72rem;
+		color: #64748b;
+	}
+
+	.inline-progress-value {
+		min-width: 46px;
+		padding: 0.3rem 0.5rem;
+		border-radius: 999px;
+		background: #ecfdf5;
+		color: #047857;
+		font-size: 0.78rem;
+		font-weight: 700;
+		text-align: center;
+	}
+
+	.inline-progress-track {
+		height: 6px;
+		margin-bottom: 1rem;
+		overflow: hidden;
+		border-radius: 999px;
+		background: #e5e7eb;
+	}
+
+	.inline-progress-fill {
+		height: 100%;
+		border-radius: inherit;
+		background: #10b981;
+		transition: width 0.2s ease;
+	}
+
+	.incident-completion-panel h4 {
+		margin: 0 0 0.75rem;
+		font-size: 0.78rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		color: #64748b;
+	}
+
+	.inline-requirement,
+	.inline-notes {
+		display: flex;
+		padding: 0.85rem;
+		border: 1px solid #dbe1e8;
+		border-radius: 8px;
+		background: white;
+	}
+
+	.inline-requirement {
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		border-color: #fecaca;
+		background: #fffafa;
+		cursor: pointer;
+	}
+
+	.inline-requirement-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.inline-requirement-copy strong {
+		color: #b91c1c;
+		font-size: 0.86rem;
+	}
+
+	.inline-requirement-copy small {
+		color: #64748b;
+		font-size: 0.7rem;
+		font-weight: 400;
+	}
+
+	.inline-requirement input {
+		appearance: none;
+		flex: 0 0 24px;
+		width: 24px;
+		height: 24px;
+		border: 2px solid #94a3b8;
+		border-radius: 7px;
+		background: white;
+		cursor: pointer;
+	}
+
+	.inline-requirement input:checked {
+		border-color: #10b981;
+		background: #10b981 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='m5 10 3 3 7-7'/%3E%3C/svg%3E") center / 18px no-repeat;
+	}
+
+	.inline-notes {
+		flex-direction: column;
+		gap: 0.65rem;
+		margin-top: 0.75rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #1f2937;
+		background: #f8fafc;
+	}
+
+	.inline-notes textarea {
+		min-height: 82px;
+		padding: 0.75rem;
+		border: 1px solid #cbd5e1;
+		border-radius: 7px;
+		font: inherit;
+		font-weight: 400;
+		resize: vertical;
+		background: white;
+	}
+
+	.inline-completion-error {
+		margin-top: 0.75rem;
+		padding: 0.75rem;
+		border-radius: 7px;
+		background: #fef2f2;
+		color: #b91c1c;
+		font-size: 0.82rem;
+	}
+
+	.inline-completion-actions {
+		display: grid;
+		grid-template-columns: 0.8fr 1.5fr;
+		gap: 0.65rem;
+		margin-top: 0.9rem;
+	}
+
+	.inline-cancel-btn,
+	.inline-submit-btn {
+		min-height: 46px;
+		padding: 0.7rem;
+		border: 0;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.78rem;
+		line-height: 1.2;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.inline-cancel-btn {
+		border: 1px solid #cbd5e1;
+		background: white;
+		color: #334155;
+	}
+
+	.inline-submit-btn {
+		background: #10b981;
+		color: white;
+	}
+
+	.inline-submit-btn:disabled,
+	.inline-cancel-btn:disabled {
+		background: #d1d5db;
+		color: #94a3b8;
+		cursor: not-allowed;
 	}
 
 	/* Attachment Styles */
