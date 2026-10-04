@@ -54,6 +54,24 @@ export async function createSupabaseAuthSession(
   if (linkError || !link.user?.id || !link.properties?.hashed_token)
     throw linkError || new Error("Could not create Supabase Auth identity");
 
+  const appMetadata =
+    subject === "customer"
+      ? {
+          role: "customer_authenticated",
+          aqura_customer_id: subjectId,
+          aqura_subject: subject,
+        }
+      : {
+          role: "authenticated",
+          aqura_user_id: subjectId,
+          aqura_subject: subject,
+        };
+  const { error: metadataError } = await admin.auth.admin.updateUserById(
+    link.user.id,
+    { app_metadata: appMetadata },
+  );
+  if (metadataError) throw metadataError;
+
   const { data: mappedUser, error: mappingError } = await admin
     .from(subject === "customer" ? "customers" : "users")
     .update({ auth_user_id: link.user.id })
