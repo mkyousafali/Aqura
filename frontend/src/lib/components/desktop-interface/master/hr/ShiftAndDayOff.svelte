@@ -1639,11 +1639,12 @@
         try {
             await initSupabase();
             const { data: { session } } = await supabase.auth.getSession();
+            const aquraUserId = session?.user?.user_metadata?.aqura_user_id || null;
             const { error } = await supabase.rpc('set_day_off_weekday_version', {
                 p_employee_id: selectedEmployeeId,
                 p_date_from: selectedDayOffEffectiveDate,
                 p_weekdays: selectedDayOffWeekdays,
-                p_created_by: session?.user?.id || null,
+                p_created_by: aquraUserId,
                 p_change_reason: 'Updated from Days Off window'
             });
 
@@ -1679,9 +1680,10 @@
         try {
             await initSupabase();
             const { data: { session } } = await supabase.auth.getSession();
+            const aquraUserId = session?.user?.user_metadata?.aqura_user_id || null;
             const { error } = await supabase.rpc('delete_day_off_weekday_version', {
                 p_version_id: versionId,
-                p_deleted_by: session?.user?.id || null,
+                p_deleted_by: aquraUserId,
                 p_reason: 'Deleted mistaken version from Days Off window'
             });
 

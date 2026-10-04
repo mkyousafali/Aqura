@@ -640,7 +640,8 @@
       
       // 1. Get current user
       const { data: { user } } = await supabase.auth.getUser();
-      console.log('Current user ID:', user?.id, 'Type:', typeof user?.id);
+      const aquraUserId = user?.user_metadata?.aqura_user_id;
+      console.log('Current Aqura user ID:', aquraUserId, 'Type:', typeof aquraUserId);
       
       // 2. Get the offer data
       const { data: offerData, error: offerError } = await supabase
@@ -668,7 +669,7 @@
         original_offer_id: offerId, // Keep as integer
         offer_data: offerData,
         bundles_data: bundlesData || [],
-        deleted_by: user?.id || null, // This IS a UUID
+        deleted_by: aquraUserId || null,
         deletion_reason: 'Deleted by admin'
       };
       

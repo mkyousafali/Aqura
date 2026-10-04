@@ -892,12 +892,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 			// Get current user info
 			const { data: { user } } = await supabase.auth.getUser();
+			const aquraUserId = user?.user_metadata?.aqura_user_id;
+			if (!aquraUserId) throw new Error('Authenticated session is not linked to an Aqura user');
 			
 			// Update box_operations with completed_by info and branch name
 			const { error: updateError } = await supabase
 				.from('box_operations')
 				.update({
-					completed_by_user_id: user?.id,
+					completed_by_user_id: aquraUserId,
 					completed_by_name: completedByName,
 					complete_details: JSON.stringify({
 						branch_name: currentBranchName

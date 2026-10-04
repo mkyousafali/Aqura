@@ -703,6 +703,8 @@
 
       // Get current user ID
       const { data: { user } } = await supabase.auth.getUser();
+      const aquraUserId = user?.user_metadata?.aqura_user_id;
+      if (!aquraUserId) throw new Error('Authenticated session is not linked to an Aqura user');
 
       // Save template to database
       const templateData = {
@@ -720,8 +722,8 @@
         },
         is_active: true,
         is_default: false,
-        created_by: user?.id,
-        updated_by: user?.id
+        created_by: aquraUserId,
+        updated_by: aquraUserId
       };
 
       let result;
@@ -731,7 +733,7 @@
           .from('flyer_templates')
           .update({
             ...templateData,
-            updated_by: user?.id
+            updated_by: aquraUserId
           })
           .eq('id', selectedTemplateId)
           .select()

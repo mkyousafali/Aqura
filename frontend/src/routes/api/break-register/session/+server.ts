@@ -13,7 +13,10 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 			if (!error && data?.success) userId = data.user?.id;
 		} else if (typeof body.accessToken === 'string') {
 			const { data, error } = await db.auth.getUser(body.accessToken);
-			if (!error) userId = data.user?.id;
+			if (!error) {
+				const mappedUserId = data.user?.user_metadata?.aqura_user_id;
+				if (typeof mappedUserId === 'string') userId = mappedUserId;
+			}
 		}
 		if (!userId) return json({ error: 'Authentication failed' }, { status: 401 });
 		const { data: user } = await db.from('users').select('status').eq('id', userId).single();

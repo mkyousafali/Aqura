@@ -147,6 +147,8 @@
     isUploadingFont = true;
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const aquraUserId = user?.user_metadata?.aqura_user_id;
+      if (!aquraUserId) throw new Error('Authenticated session is not linked to an Aqura user');
       
       for (const file of files) {
         const fontName = file.name.replace(/\.(ttf|otf|woff|woff2)$/i, '');
@@ -167,7 +169,7 @@
           font_url: publicUrl,
           file_name: fileName,
           file_size: file.size,
-          created_by: user?.id
+          created_by: aquraUserId
         });
         
         const fontFace = new FontFace(fontName, `url(${publicUrl})`);

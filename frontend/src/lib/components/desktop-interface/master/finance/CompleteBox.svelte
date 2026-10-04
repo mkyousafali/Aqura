@@ -1604,12 +1604,13 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 					// Log to audit table
 					const { data: { user } } = await supabase.auth.getUser();
+					const aquraUserId = user?.user_metadata?.aqura_user_id;
 					const { error: auditError } = await supabase.from('pos_deduction_transfer_edits').insert({
 						box_operation_id: operation.id,
 						old_short_amount: existingDeduction.short_amount,
 						new_short_amount: isNowExcess ? null : newShortAmount,
 						action: isNowExcess ? 'deleted' : 'updated',
-						edited_by: user?.id || null
+						edited_by: aquraUserId || null
 					});
 					if (auditError) {
 						console.error('❌ Audit log insert failed:', auditError);

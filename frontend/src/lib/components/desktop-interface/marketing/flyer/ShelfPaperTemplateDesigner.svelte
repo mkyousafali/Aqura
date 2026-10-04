@@ -471,7 +471,8 @@
   async function getCurrentUser() {
     // Try to get user from regular supabase client first (with session)
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) return user;
+    const aquraUserId = user?.user_metadata?.aqura_user_id;
+    if (user && aquraUserId) return { ...user, id: aquraUserId };
     
     // Fallback to custom session storage
     if (typeof window === 'undefined') return null;
