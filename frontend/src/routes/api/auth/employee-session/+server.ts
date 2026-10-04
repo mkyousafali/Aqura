@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import {
+  createSupabaseAuthSession,
   databaseClient,
   requireBreakUser,
   setBreakSession,
@@ -111,6 +112,7 @@ export const POST: RequestHandler = async ({
     if (interfacePermission?.desktop_enabled === false)
       return failure("Desktop interface access is disabled", 403);
 
+    const authSession = await createSupabaseAuthSession(userId);
     setBreakSession(cookies, userId, url.protocol === "https:", "desktop");
     clearEmployeeLoginFailures(key);
     return json({
@@ -127,6 +129,7 @@ export const POST: RequestHandler = async ({
         user_type: verification.user?.user_type,
         avatar: verification.user?.avatar,
       },
+      authSession,
     });
   } catch (error) {
     console.error(

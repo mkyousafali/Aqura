@@ -140,6 +140,7 @@
 		selectedBranch = null;
 		currentUser.set(null);
 		isAuthenticated.set(false);
+		void supabase.auth.signOut({ scope: 'local' });
 	}
 
 	function handleLoginSuccess(event: CustomEvent) {
@@ -172,6 +173,7 @@
 
 		// Clear cashier session
 		clearCashierSession();
+		await supabase.auth.signOut({ scope: 'local' });
 
 		// Also ensure desktop auth is cleared
 		currentUser.set(null);

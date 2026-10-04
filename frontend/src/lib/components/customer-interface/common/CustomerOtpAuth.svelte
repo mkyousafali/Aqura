@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte';
-  import { getEdgeFunctionUrl } from '$lib/utils/supabase';
+  import { getEdgeFunctionUrl, supabase } from '$lib/utils/supabase';
   import { currentLocale } from '$lib/i18n';
 
   export let initialView: 'login' | 'register' | 'forgot' | 'loyalty' = 'login';
@@ -144,6 +144,14 @@
         const attempts = data?.attempts_remaining != null ? ` (${data.attempts_remaining} attempts remaining)` : '';
         throw new Error((data?.message || data?.error || 'OTP verification failed.') + attempts);
       }
+      const accessToken = data?.authSession?.access_token;
+      const refreshToken = data?.authSession?.refresh_token;
+      if (!accessToken || !refreshToken) throw new Error('Could not establish an authenticated session.');
+      const { data: authData, error: authError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      });
+      if (authError || !authData.session) throw authError || new Error('Authenticated session failed.');
       localStorage.setItem('customer_session', JSON.stringify({
         customer_id: data.customer_id,
         customer_name: data.customer_name,

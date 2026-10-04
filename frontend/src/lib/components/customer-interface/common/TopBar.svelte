@@ -157,7 +157,11 @@
     goto('/customer-interface');
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    await Promise.allSettled([
+      fetch('/api/auth/customer-session', { method: 'DELETE' }),
+      supabase.auth.signOut({ scope: 'local' })
+    ]);
     localStorage.clear();
     goto('/login/customer');
   }

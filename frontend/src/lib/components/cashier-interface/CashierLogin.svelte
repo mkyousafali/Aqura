@@ -25,6 +25,7 @@
 	let assignedBranchId = '';
 	let allowBranchChange = false;
 	let showSessionConfirmation = false;
+	let pendingAuthSession: { access_token: string; refresh_token: string } | null = null;
 
 	$: selectedBranch = branches.find(branch => String(branch.id) === String(selectedBranchId));
 	$: assignedBranch = branches.find(branch => String(branch.id) === String(assignedBranchId));
@@ -95,6 +96,10 @@
 				accessCode = '';
 				return;
 			}
+			if (!result?.authSession?.access_token || !result?.authSession?.refresh_token) {
+				throw new Error('Could not establish an authenticated session');
+			}
+			pendingAuthSession = result.authSession;
 
 			const userData = result.user;
 			const employeeNameEn = userData.name_en || userData.name_ar || userData.username;
@@ -169,6 +174,16 @@
 			}
 		}
 
+		if (!pendingAuthSession) {
+			error = 'A fresh login is required. Please try again.';
+			return;
+		}
+		const { data: authData, error: authError } = await supabase.auth.setSession(pendingAuthSession);
+		if (authError || !authData.session) {
+			error = 'Could not establish an authenticated session.';
+			return;
+		}
+
 		// Dispatch login success event (page calls setCashierAuth with token)
 		dispatch('loginSuccess', {
 			user: authenticatedUser,
@@ -193,6 +208,7 @@
 		allowBranchChange = false;
 		showSessionConfirmation = false;
 		authenticatedUser = null;
+		pendingAuthSession = null;
 	}
 
 	function handleDigitInput(event: Event, index: number) {

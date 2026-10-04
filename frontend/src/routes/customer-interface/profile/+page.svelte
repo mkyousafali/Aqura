@@ -425,9 +425,13 @@
     deleting: 'Deleting...'
   };
 
-  function handleLogout() {
+  async function handleLogout() {
     console.log('🔄 [Profile] Logout button clicked');
     try {
+      await Promise.allSettled([
+        fetch('/api/auth/customer-session', { method: 'DELETE' }),
+        supabase.auth.signOut({ scope: 'local' })
+      ]);
       localStorage.clear();
       console.log('🔄 [Profile] Navigating to customer login page...');
       goto('/login');

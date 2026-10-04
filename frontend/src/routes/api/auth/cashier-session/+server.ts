@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import {
   clearBreakSession,
+  createSupabaseAuthSession,
   databaseClient,
   requireBreakUser,
   setBreakSession,
@@ -108,6 +109,7 @@ export const POST: RequestHandler = async ({
     if (permission?.cashier_enabled !== true)
       return failure("Cashier access is disabled", 403);
 
+    const authSession = await createSupabaseAuthSession(verifiedUser.id);
     setBreakSession(
       cookies,
       verifiedUser.id,
@@ -129,6 +131,7 @@ export const POST: RequestHandler = async ({
           employee?.name_ar || employee?.name_en || verifiedUser.username,
         role: "Cashier",
       },
+      authSession,
     });
   } catch (error) {
     console.error(

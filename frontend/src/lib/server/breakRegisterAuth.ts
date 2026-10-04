@@ -23,6 +23,73 @@ export function databaseClient() {
   });
 }
 
+export async function createSupabaseAuthSession(
+  subjectId: string,
+  subject: "employee" | "customer" = "employee",
+): Promise<{
+  access_token: string;
+  refresh_token: string;
+}> {
+  const url = env.VITE_SUPABASE_URL;
+  const anonKey = env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !anonKey)
+    throw new Error("Supabase Auth session creation is not configured");
+
+  const admin = databaseClient();
+  const existingAuthUser = await admin.auth.admin.getUserById(subjectId);
+  const email =
+    existingAuthUser.data.user?.email ||
+    `${subject === "customer" ? "customer" : "desktop"}-${subjectId}@auth.aqura.invalid`;
+
+  const { data: link, error: linkError } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+    options: {
+      data:
+        subject === "customer"
+          ? { aqura_customer_id: subjectId, aqura_subject: subject }
+          : { aqura_user_id: subjectId, aqura_subject: subject },
+    },
+  });
+  if (linkError || !link.user?.id || !link.properties?.hashed_token)
+    throw linkError || new Error("Could not create Supabase Auth identity");
+
+  const { data: mappedUser, error: mappingError } = await admin
+    .from(subject === "customer" ? "customers" : "users")
+    .update({ auth_user_id: link.user.id })
+    .eq("id", subjectId)
+    .or(`auth_user_id.is.null,auth_user_id.eq.${link.user.id}`)
+    .select("auth_user_id")
+    .single();
+  const mappingColumnMissing =
+    mappingError?.code === "PGRST204" || mappingError?.code === "42703";
+  if (
+    !mappingColumnMissing &&
+    (mappingError || mappedUser?.auth_user_id !== link.user.id)
+  )
+    throw mappingError || new Error("Supabase Auth identity mapping conflict");
+
+  const authClient = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: verified, error: verifyError } =
+    await authClient.auth.verifyOtp({
+      token_hash: link.properties.hashed_token,
+      type: "email",
+    });
+  if (
+    verifyError ||
+    !verified.session?.access_token ||
+    !verified.session.refresh_token
+  )
+    throw verifyError || new Error("Could not establish Supabase Auth session");
+
+  return {
+    access_token: verified.session.access_token,
+    refresh_token: verified.session.refresh_token,
+  };
+}
+
 function readSession(
   cookies: Cookies,
   kind: InterfaceKind,
@@ -139,9 +206,7 @@ export async function requireBreakUser(
   };
 }
 
-export async function requireCustomerSession(
-  cookies: Cookies,
-): Promise<{
+export async function requireCustomerSession(cookies: Cookies): Promise<{
   customer_id: string;
   customer_name: string;
   whatsapp_number: string;

@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import {
   clearBreakSession,
+  createSupabaseAuthSession,
   databaseClient,
   requireCustomerSession,
   setBreakSession,
@@ -86,11 +87,18 @@ export const POST: RequestHandler = async ({
     if (error) throw error;
     if (!data?.success || !data.customer_id) {
       recordEmployeeLoginFailure(key);
-      return json(data || { success: false, error: "OTP verification failed" }, {
-        status: 401,
-      });
+      return json(
+        data || { success: false, error: "OTP verification failed" },
+        {
+          status: 401,
+        },
+      );
     }
 
+    const authSession = await createSupabaseAuthSession(
+      String(data.customer_id),
+      "customer",
+    );
     setBreakSession(
       cookies,
       String(data.customer_id),
@@ -98,7 +106,7 @@ export const POST: RequestHandler = async ({
       "customer",
     );
     clearEmployeeLoginFailures(key);
-    return json(data);
+    return json({ ...data, authSession });
   } catch (error) {
     console.error(
       "[CustomerSession] Verification failed:",

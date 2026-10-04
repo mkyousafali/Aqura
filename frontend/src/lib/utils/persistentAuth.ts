@@ -286,6 +286,7 @@ export class PersistentAuthService {
     quickAccessCode: string,
     interfaceType: "desktop" | "mobile" | "customer" = "desktop",
   ): Promise<{ success: boolean; error?: string; user?: UserSession }> {
+    let activatedEmployeeAuthSession = false;
     try {
       console.log("🔐 [PersistentAuth] Starting quick access login process");
 
@@ -302,6 +303,10 @@ export class PersistentAuthService {
 
       let dbUser: any;
       let serverUserDetails: any = null;
+      let employeeAuthSession: {
+        access_token: string;
+        refresh_token: string;
+      } | null = null;
       if (interfaceType === "desktop" || interfaceType === "mobile") {
         // Employee authentication is verified server-side. The access code no
         // longer goes directly from the browser to the anonymous database RPC.
@@ -320,6 +325,16 @@ export class PersistentAuthService {
             result?.error || "Authentication failed. Please try again.",
           );
         }
+        if (interfaceType === "desktop" || interfaceType === "mobile") {
+          const accessToken = result?.authSession?.access_token;
+          const refreshToken = result?.authSession?.refresh_token;
+          if (!accessToken || !refreshToken)
+            throw new Error("Could not establish an authenticated session");
+          employeeAuthSession = {
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          };
+        }
         dbUser = result.user;
         serverUserDetails = result.userDetails;
       } else {
@@ -337,6 +352,16 @@ export class PersistentAuthService {
         dbUser = verifyResult.user;
       }
       console.log("✅ [PersistentAuth] Found user:", dbUser.username);
+
+      // Activate the real Supabase Auth session before any protected reads or
+      // writes (permissions, last-login, user_sessions, and audit logs).
+      if (employeeAuthSession) {
+        const { data: sessionData, error: sessionError } =
+          await supabase.auth.setSession(employeeAuthSession);
+        if (sessionError || !sessionData.session)
+          throw sessionError || new Error("Authenticated session failed");
+        activatedEmployeeAuthSession = true;
+      }
 
       // Step 3: Get user details from view
       console.log("🔍 [PersistentAuth] Getting user details from view");
@@ -513,6 +538,11 @@ export class PersistentAuthService {
       return { success: true, user: userSession };
     } catch (error) {
       console.error("❌ [PersistentAuth] Quick access login error:", error);
+
+      // Do not leave a partially completed employee login authenticated.
+      if (activatedEmployeeAuthSession) {
+        await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+      }
 
       // Rethrow with more specific error messages
       if (error instanceof Error) {
