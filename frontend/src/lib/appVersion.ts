@@ -1,10 +1,10 @@
 // This is the single version source for every web interface.
 // deployment/bump-version.mjs updates all four numbers together.
 export const interfaceVersions = {
-  desktop: 40,
-  mobile: 38,
-  cashier: 38,
-  customer: 36,
+  desktop: 41,
+  mobile: 39,
+  cashier: 39,
+  customer: 37,
 } as const;
 
 export const appVersion = `AQ${interfaceVersions.desktop}.${interfaceVersions.mobile}.${interfaceVersions.cashier}.${interfaceVersions.customer}`;
