@@ -22,6 +22,11 @@
 		branch_name?: string;
 	}
 
+	interface BranchOption {
+		id: number;
+		label: string;
+	}
+
 	let requests: NearExpiryReport[] = [];
 	let loading = true;
 	let error = '';
@@ -254,6 +259,7 @@
 				p_offset: page * PAGE_SIZE,
 				p_status: filterStatus !== 'all' ? filterStatus : null,
 				p_search: searchQuery.trim() || null,
+				p_branch_id: filterBranch ? Number(filterBranch) : null,
 				p_date_from: filterDateFrom || null,
 				p_date_to: filterDateTo || null
 			});
@@ -462,9 +468,14 @@
 		} catch { return []; }
 	}
 
-	$: branchOptions = [...new Set(requests.map(r => r.branch_name).filter(b => b && b !== '—'))] as string[];
-
 	$: filteredRequests = requests;
+	$: branchOptions = Array.from(
+		new Map(
+			requests
+				.filter((request) => request.branch_id != null && request.branch_name && request.branch_name !== '—')
+				.map((request) => [request.branch_id, { id: request.branch_id, label: request.branch_name! }])
+		).values()
+	) as BranchOption[];
 
 	$: filteredProductCount = filteredRequests.reduce((sum, r) => sum + getItemsCount(r.items), 0);
 
@@ -474,6 +485,7 @@
 		filterBranch = '';
 		filterDateFrom = '';
 		filterDateTo = '';
+		triggerReload();
 	}
 
 	$: hasActiveFilters = searchQuery || filterStatus !== 'all' || filterBranch || filterDateFrom || filterDateTo;
@@ -505,10 +517,10 @@
 				<option value="dismissed">{$locale === 'ar' ? 'مرفوض' : 'Dismissed'}</option>
 			</select>
 			<!-- Branch filter -->
-			<select bind:value={filterBranch} class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-red-400 min-w-[110px]">
+			<select bind:value={filterBranch} on:change={triggerReload} class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-red-400 min-w-[110px]">
 				<option value="">{$locale === 'ar' ? 'كل الفروع' : 'All Branches'}</option>
 				{#each branchOptions as branch}
-					<option value={branch}>{branch}</option>
+					<option value={String(branch.id)}>{branch.label}</option>
 				{/each}
 			</select>
 			<!-- Date range -->

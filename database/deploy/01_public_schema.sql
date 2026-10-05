@@ -15622,10 +15622,10 @@ $$;
 
 
 --
--- Name: get_near_expiry_reports(integer, integer, text, text, date, date); Type: FUNCTION; Schema: public; Owner: -
+-- Name: get_near_expiry_reports(integer, integer, text, text, integer, date, date); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.get_near_expiry_reports(p_limit integer DEFAULT 200, p_offset integer DEFAULT 0, p_status text DEFAULT NULL::text, p_search text DEFAULT NULL::text, p_date_from date DEFAULT NULL::date, p_date_to date DEFAULT NULL::date) RETURNS TABLE(id uuid, reporter_user_id uuid, branch_id integer, target_user_id uuid, title text, status text, items jsonb, notes text, created_at timestamp with time zone, updated_at timestamp with time zone, requester_name_en text, requester_name_ar text, target_name_en text, target_name_ar text, branch_name_en text, branch_name_ar text, branch_location_en text, branch_location_ar text, total_count bigint)
+CREATE FUNCTION public.get_near_expiry_reports(p_limit integer DEFAULT 200, p_offset integer DEFAULT 0, p_status text DEFAULT NULL::text, p_search text DEFAULT NULL::text, p_branch_id integer DEFAULT NULL::integer, p_date_from date DEFAULT NULL::date, p_date_to date DEFAULT NULL::date) RETURNS TABLE(id uuid, reporter_user_id uuid, branch_id integer, target_user_id uuid, title text, status text, items jsonb, notes text, created_at timestamp with time zone, updated_at timestamp with time zone, requester_name_en text, requester_name_ar text, target_name_en text, target_name_ar text, branch_name_en text, branch_name_ar text, branch_location_en text, branch_location_ar text, total_count bigint)
     LANGUAGE sql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -15655,6 +15655,7 @@ CREATE FUNCTION public.get_near_expiry_reports(p_limit integer DEFAULT 200, p_of
     LEFT JOIN branches b ON b.id = r.branch_id
     WHERE
         (p_status IS NULL OR p_status = 'all' OR r.status = p_status)
+        AND (p_branch_id IS NULL OR r.branch_id = p_branch_id)
         AND (p_date_from IS NULL OR r.created_at::DATE >= p_date_from)
         AND (p_date_to   IS NULL OR r.created_at::DATE <= p_date_to)
         AND (
@@ -66320,11 +66321,11 @@ GRANT ALL ON FUNCTION public.get_my_followup_tasks(p_user_id uuid) TO anon;
 
 
 --
--- Name: FUNCTION get_near_expiry_reports(p_limit integer, p_offset integer, p_status text, p_search text, p_date_from date, p_date_to date); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION get_near_expiry_reports(p_limit integer, p_offset integer, p_status text, p_search text, p_branch_id integer, p_date_from date, p_date_to date); Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON FUNCTION public.get_near_expiry_reports(p_limit integer, p_offset integer, p_status text, p_search text, p_date_from date, p_date_to date) TO authenticated;
-GRANT ALL ON FUNCTION public.get_near_expiry_reports(p_limit integer, p_offset integer, p_status text, p_search text, p_date_from date, p_date_to date) TO anon;
+GRANT ALL ON FUNCTION public.get_near_expiry_reports(p_limit integer, p_offset integer, p_status text, p_search text, p_branch_id integer, p_date_from date, p_date_to date) TO authenticated;
+GRANT ALL ON FUNCTION public.get_near_expiry_reports(p_limit integer, p_offset integer, p_status text, p_search text, p_branch_id integer, p_date_from date, p_date_to date) TO anon;
 
 
 --
