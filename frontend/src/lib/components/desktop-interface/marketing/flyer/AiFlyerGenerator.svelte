@@ -590,6 +590,10 @@
     hours = hours % 12; if (hours === 0) hours = 12;
     return `${day}-${month}-${year}, ${String(hours).padStart(2, '0')}:${minutes} ${period}`;
   }
+  function formatDisplayTime(time24: string): string {
+    const [hour, minute, period] = to12Hour(time24);
+    return `${hour}:${minute} ${period}`;
+  }
   function convert12HourTo24Hour(hour: string, period: string): string {
     let h = parseInt(hour, 10);
     if (period === 'PM' && h !== 12) h += 12;
@@ -1021,7 +1025,14 @@
     <div class="toolbar"><h2>AI Generated Flyers</h2><button disabled={loadingLibrary} on:click={loadLibrary}>Refresh</button></div>
     {#if libraryError}<p class="error" role="alert">{libraryError}</p>{/if}
     {#if loadingLibrary}<p>Loading saved flyers…</p>{:else if !library.length && !libraryError}<p>No AI flyers have been saved yet.</p>{:else}
-      <div class="table-scroll"><table><thead><tr><th>Flyer</th><th>Offer dates</th><th>Products</th><th>Pages</th><th>Saved</th><th>Published to</th><th>Action</th></tr></thead><tbody>{#each library as row}<tr><td>{row.title}</td><td>{formatDisplayDate(row.start_date)} — {formatDisplayDate(row.end_date)}</td><td>{row.product_count}</td><td>{row.page_count}</td><td>{formatDisplayDateTime(row.created_at)}</td><td class="pub-chips"><div class="pub-chips">{#if row.publications?.length}{#each row.publications as pub (pub.branch_id)}<span class="status-badge {publicationStatusBadge(pub).cls}">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}{#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={previewBusy || !!deletingId || unpublishingKey === `${row.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(row, pub.branch_id)}>✕</button>{/if}</span>{/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</div></td><td><div class="row-actions"><button disabled={previewBusy || !!deletingId} on:click={() => openPreview(row)}>Preview</button><button disabled={previewBusy || !!deletingId} on:click={() => openPublishDialog(row)}>Publish</button><button disabled={previewBusy || !!deletingId} on:click={() => deleteFlyer(row)}>{deletingId === row.id ? 'Deleting…' : 'Delete'}</button></div></td></tr>{/each}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Flyer</th><th>Offer dates</th><th>Products</th><th>Pages</th><th>Saved</th><th>Published to</th><th>Action</th></tr></thead><tbody>{#each library as row}<tr><td>{row.title}</td><td>{formatDisplayDate(row.start_date)} — {formatDisplayDate(row.end_date)}</td><td>{row.product_count}</td><td>{row.page_count}</td><td>{formatDisplayDateTime(row.created_at)}</td><td class="pub-chips"><div class="pub-chips">{#if row.publications?.length}{#each row.publications as pub (pub.branch_id)}
+        <span class="status-badge publication-badge {publicationStatusBadge(pub).cls}">
+          <span class="publication-heading">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}</span>
+          <span class="publication-schedule">Start: {formatDisplayDate(pub.offer.start_date)}, {formatDisplayTime(pub.offer.start_time)}</span>
+          <span class="publication-schedule">End: {formatDisplayDate(pub.offer.end_date)}, {formatDisplayTime(pub.offer.end_time)}</span>
+          {#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={previewBusy || !!deletingId || unpublishingKey === `${row.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(row, pub.branch_id)}>✕</button>{/if}
+        </span>
+      {/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</div></td><td><div class="row-actions"><button disabled={previewBusy || !!deletingId} on:click={() => openPreview(row)}>Preview</button><button disabled={previewBusy || !!deletingId} on:click={() => openPublishDialog(row)}>Publish</button><button disabled={previewBusy || !!deletingId} on:click={() => deleteFlyer(row)}>{deletingId === row.id ? 'Deleting…' : 'Delete'}</button></div></td></tr>{/each}</tbody></table></div>
       <div class="toolbar"><button disabled={!libraryPage || loadingLibrary} on:click={() => { libraryPage--; loadLibrary(); }}>Previous</button><span>Page {libraryPage + 1}</span><button disabled={!hasMore || loadingLibrary} on:click={() => { libraryPage++; loadLibrary(); }}>Next</button></div>
     {/if}
   {/if}
@@ -1058,7 +1069,14 @@
       <div class="toolbar">
         <h2>{preview.title}</h2>
         {#if !improvedPages.length}
-          <div class="pub-chips">{#if preview.publications.length}{#each preview.publications as pub (pub.branch_id)}<span class="status-badge {publicationStatusBadge(pub).cls}">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}{#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={busy || improving || unpublishingKey === `${preview.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(preview!, pub.branch_id)}>✕</button>{/if}</span>{/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</div>
+          <div class="pub-chips">{#if preview.publications.length}{#each preview.publications as pub (pub.branch_id)}
+            <span class="status-badge publication-badge {publicationStatusBadge(pub).cls}">
+              <span class="publication-heading">{branchLabel(pub.branch_id)}: {publicationStatusBadge(pub).text}</span>
+              <span class="publication-schedule">Start: {formatDisplayDate(pub.offer.start_date)}, {formatDisplayTime(pub.offer.start_time)}</span>
+              <span class="publication-schedule">End: {formatDisplayDate(pub.offer.end_date)}, {formatDisplayTime(pub.offer.end_time)}</span>
+              {#if pub.offer?.status === 'published'}<button type="button" class="chip-x" title={`Unpublish from ${branchLabel(pub.branch_id)}`} disabled={busy || improving || unpublishingKey === `${preview.id}:${pub.branch_id}`} on:click={() => unpublishFlyer(preview!, pub.branch_id)}>✕</button>{/if}
+            </span>
+          {/each}{:else}<span class="status-badge status-none">Not Published</span>{/if}</div>
         {/if}
         {#if improvedPages.length}
           <button class="primary" disabled={busy || improving} title={improving ? 'Wait for every page to finish improving first' : ''} on:click={acceptImprovement}>Done</button>
@@ -1198,6 +1216,7 @@ th:last-child,td:last-child{white-space:nowrap;width:1%;}
 .edit-panel{background:white;border:1px solid #cbd5e1;border-radius:10px;padding:16px;margin-top:12px;}
 .edit-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}.edit-chips button{padding:6px 12px;font-size:12px;background:#eef2ff;border-color:#c7d2fe;color:#3730a3;}
 div.pub-chips{display:flex;flex-wrap:wrap;gap:8px;}.pub-chips .status-badge{display:inline-flex;align-items:center;gap:6px;}
+.pub-chips .publication-badge{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 28px 7px 10px;white-space:normal;line-height:1.25;}.publication-heading{font-weight:800;}.publication-schedule{font-size:10px;font-weight:600;opacity:.82;}.publication-badge .chip-x{position:absolute;right:7px;top:7px;}
 .chip-x{padding:0;width:16px;height:16px;min-width:16px;border:none;background:rgba(0,0,0,.15);color:inherit;border-radius:50%;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}.chip-x:disabled{opacity:.5;cursor:not-allowed;}
 .publish-pages{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;}
 .publish-page{display:flex;flex-direction:column;align-items:center;gap:6px;width:110px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:white;font-size:12px;font-weight:600;cursor:pointer;}
