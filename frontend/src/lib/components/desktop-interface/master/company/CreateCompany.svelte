@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import { locale } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
 
 	let activeTab: 'create' | 'manage' | 'branches' = 'create';
 	let documentSection: 'create' | 'manage' = 'create';
@@ -48,6 +49,14 @@
 	let documentNotificationWhatsAppNumbers: string[] = [];
 	let notificationPeriods = ['30', '15', '5'];
 	let reminderTime = '09:00';
+	type SavedCompanyDocument = { id: number; company_id: number; branch_id: number | null; document_name_ar: string; document_name_en: string; document_scope: DocumentScope; document_number: string | null; expiry_date: string | null; storage_bucket: string | null; storage_path: string | null; original_file_name: string | null; created_at: string };
+	let savedCompanyDocuments: SavedCompanyDocument[] = [];
+	let savedDocumentsLoading = false;
+	let managedDocumentSaving = false;
+	let manageDocumentError = '';
+	let manageDocumentSuccess = '';
+	let deletingDocumentId: number | null = null;
+	$: isMasterAdmin = $currentUser?.isMasterAdmin === true;
 	$: selectedManageDocument = allDocumentTypes.find((document) => String(document.id) === selectedManageDocumentId) || null;
 	$: availableManageBranches = selectedManageCompanyId
 		? companyBranches.filter((branch) => String(branch.company_id) === selectedManageCompanyId)
@@ -62,7 +71,20 @@
 		await loadCompanies();
 		await loadCompanyBranches();
 		await loadDocumentTypes();
+		await loadSavedCompanyDocuments();
 	});
+
+	async function loadSavedCompanyDocuments() {
+		if (!supabase) return;
+		savedDocumentsLoading = true;
+		const { data, error } = await supabase
+			.from('company_documents')
+			.select('id, company_id, branch_id, document_name_ar, document_name_en, document_scope, document_number, expiry_date, storage_bucket, storage_path, original_file_name, created_at')
+			.order('created_at', { ascending: false });
+		if (error) manageDocumentError = $locale === 'ar' ? 'فشل تحميل المستندات المحفوظة.' : (error.message || 'Failed to load saved documents.');
+		else savedCompanyDocuments = data || [];
+		savedDocumentsLoading = false;
+	}
 
 	async function loadCompanyBranches() {
 		if (!supabase) return;
@@ -84,6 +106,8 @@
 		documentNotificationWhatsAppNumbers = [];
 		notificationPeriods = ['30', '15', '5'];
 		reminderTime = '09:00';
+		manageDocumentError = '';
+		manageDocumentSuccess = '';
 	}
 
 	function changeManageCompany() {
@@ -120,6 +144,119 @@
 	function selectManageDocumentFile(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		selectedManageDocumentFile = input.files?.[0] || null;
+	}
+
+	async function saveManagedDocument() {
+		if (!selectedManageDocument || !selectedManageCompanyId) {
+			manageDocumentError = $locale === 'ar' ? 'يرجى اختيار المستند والشركة / المؤسسة.' : 'Select a document and company / establishment.';
+			return;
+		}
+		if (selectedManageDocument.scope === 'branch_wise' && !selectedManageBranchId) {
+			manageDocumentError = $locale === 'ar' ? 'يرجى اختيار الفرع.' : 'Select a branch.';
+			return;
+		}
+		if (selectedManageDocument.requires_number && !manageDocumentNumber.trim()) {
+			manageDocumentError = $locale === 'ar' ? 'رقم المستند مطلوب.' : 'Document number is required.';
+			return;
+		}
+		if (selectedManageDocument.requires_expiry_date && !manageExpiryDate) {
+			manageDocumentError = $locale === 'ar' ? 'تاريخ الانتهاء مطلوب.' : 'Expiry date is required.';
+			return;
+		}
+		if (selectedManageDocument.requires_upload && !selectedManageDocumentFile) {
+			manageDocumentError = $locale === 'ar' ? 'رفع المستند مطلوب.' : 'Document upload is required.';
+			return;
+		}
+		if (selectedManageDocumentFile && selectedManageDocumentFile.size > 20 * 1024 * 1024) {
+			manageDocumentError = $locale === 'ar' ? 'يجب ألا يتجاوز حجم الملف 20 ميجابايت.' : 'The file must not exceed 20 MB.';
+			return;
+		}
+
+		managedDocumentSaving = true;
+		manageDocumentError = '';
+		manageDocumentSuccess = '';
+		let uploadedPath: string | null = null;
+		try {
+			if (selectedManageDocumentFile) {
+				const extension = selectedManageDocumentFile.name.includes('.') ? selectedManageDocumentFile.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : '';
+				uploadedPath = `${selectedManageCompanyId}/${new Date().getFullYear()}/${crypto.randomUUID()}${extension ? `.${extension}` : ''}`;
+				const { error: uploadError } = await supabase.storage.from('company-documents').upload(uploadedPath, selectedManageDocumentFile, { contentType: selectedManageDocumentFile.type || 'application/octet-stream', upsert: false });
+				if (uploadError) throw uploadError;
+			}
+
+			const periods = selectedManageDocument.requires_expiry_date
+				? notificationPeriods.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0).slice(0, 3)
+				: [];
+			const { error } = await supabase.rpc('save_company_document', {
+				p_company_id: Number(selectedManageCompanyId),
+				p_branch_id: selectedManageDocument.scope === 'branch_wise' ? Number(selectedManageBranchId) : null,
+				p_custom_document_type_id: selectedManageDocument.source === 'custom' ? Number(selectedManageDocument.id) : null,
+				p_document_type_key: String(selectedManageDocument.id),
+				p_document_name_ar: selectedManageDocument.name_ar,
+				p_document_name_en: selectedManageDocument.name_en,
+				p_document_scope: selectedManageDocument.scope,
+				p_document_number: manageDocumentNumber.trim() || null,
+				p_expiry_date: manageExpiryDate || null,
+				p_storage_bucket: uploadedPath ? 'company-documents' : null,
+				p_storage_path: uploadedPath,
+				p_original_file_name: selectedManageDocumentFile?.name || null,
+				p_file_mime_type: selectedManageDocumentFile?.type || null,
+				p_file_size: selectedManageDocumentFile?.size || null,
+				p_notification_emails: selectedManageDocument.requires_expiry_date ? documentNotificationEmails.map((value) => value.trim()).filter(Boolean) : [],
+				p_notification_whatsapp_numbers: selectedManageDocument.requires_expiry_date ? documentNotificationWhatsAppNumbers.map((value) => value.trim()).filter(Boolean) : [],
+				p_notification_period_days: periods,
+				p_reminder_time: selectedManageDocument.requires_expiry_date ? reminderTime : null
+			});
+			if (error) throw error;
+			manageDocumentSuccess = $locale === 'ar' ? 'تم حفظ المستند بنجاح.' : 'Document saved successfully.';
+			resetManageDocumentFields();
+			selectedManageDocumentId = '';
+			showManageDocumentPicker = false;
+			manageDocumentSuccess = $locale === 'ar' ? 'تم حفظ المستند بنجاح.' : 'Document saved successfully.';
+			await loadSavedCompanyDocuments();
+		} catch (error: any) {
+			if (uploadedPath) await supabase.storage.from('company-documents').remove([uploadedPath]);
+			manageDocumentError = error?.message || ($locale === 'ar' ? 'فشل حفظ المستند.' : 'Failed to save document.');
+		} finally {
+			managedDocumentSaving = false;
+		}
+	}
+
+	async function viewSavedDocument(document: SavedCompanyDocument) {
+		if (!document.storage_bucket || !document.storage_path) return;
+		const { data, error } = await supabase.storage.from(document.storage_bucket).createSignedUrl(document.storage_path, 300);
+		if (error || !data?.signedUrl) {
+			manageDocumentError = $locale === 'ar' ? 'تعذر فتح المستند.' : 'Unable to open document.';
+			return;
+		}
+		window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+	}
+
+	async function deleteSavedDocument(document: SavedCompanyDocument) {
+		if (!isMasterAdmin || deletingDocumentId !== null) return;
+		const confirmed = confirm($locale === 'ar'
+			? `هل أنت متأكد من حذف المستند "${document.document_name_ar}"؟ لا يمكن التراجع عن هذا الإجراء.`
+			: `Delete "${document.document_name_en}"? This action cannot be undone.`);
+		if (!confirmed) return;
+		deletingDocumentId = document.id;
+		manageDocumentError = '';
+		manageDocumentSuccess = '';
+		try {
+			const { data, error } = await supabase.rpc('delete_company_document', { p_document_id: document.id });
+			if (error) throw error;
+			const deleted = Array.isArray(data) ? data[0] : data;
+			if (deleted?.storage_bucket && deleted?.storage_path) {
+				const { error: storageError } = await supabase.storage.from(deleted.storage_bucket).remove([deleted.storage_path]);
+				if (storageError) throw storageError;
+			}
+			savedCompanyDocuments = savedCompanyDocuments.filter((item) => item.id !== document.id);
+			manageDocumentSuccess = $locale === 'ar' ? 'تم حذف المستند بنجاح.' : 'Document deleted successfully.';
+		} catch (error: any) {
+			manageDocumentError = error?.message || ($locale === 'ar' ? 'فشل حذف المستند.' : 'Failed to delete document.');
+			await loadSavedCompanyDocuments();
+		} finally {
+			deletingDocumentId = null;
+		}
 	}
 
 	async function loadDocumentTypes() {
@@ -527,10 +664,37 @@
 								</div>
 								<div class="selected-file-name">{selectedManageDocumentFile?.name || ($locale === 'ar' ? 'لم يتم اختيار مستند' : 'No document selected')}</div>
 							</div>
+							<div class="managed-document-actions">
+								<button type="button" class="cancel-button" on:click={() => { selectedManageDocumentId = ''; resetManageDocumentFields(); showManageDocumentPicker = false; }} disabled={managedDocumentSaving}>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+								<button type="button" class="save-button" on:click={saveManagedDocument} disabled={managedDocumentSaving}>{managedDocumentSaving ? ($locale === 'ar' ? 'جارٍ الحفظ...' : 'Saving...') : ($locale === 'ar' ? 'حفظ المستند' : 'Save Document')}</button>
+							</div>
 						</div>
 									{/if}
 								</div>
 							{/if}
+							{#if manageDocumentError}<div class="form-message error-message">{manageDocumentError}</div>{/if}
+							{#if manageDocumentSuccess}<div class="form-message success-message">{manageDocumentSuccess}</div>{/if}
+							<div class="saved-documents-card">
+								<h3>{$locale === 'ar' ? 'المستندات المحفوظة' : 'Saved Documents'}</h3>
+								<div class="table-wrap">
+									<table>
+										<thead><tr><th>#</th><th>{$locale === 'ar' ? 'المستند' : 'Document'}</th><th>{$locale === 'ar' ? 'الشركة / المؤسسة' : 'Company / Establishment'}</th><th>{$locale === 'ar' ? 'الفرع' : 'Branch'}</th><th>{$locale === 'ar' ? 'الرقم' : 'Number'}</th><th>{$locale === 'ar' ? 'تاريخ الانتهاء' : 'Expiry Date'}</th><th>{$locale === 'ar' ? 'الملف' : 'File'}</th><th>{$locale === 'ar' ? 'تاريخ الحفظ' : 'Saved'}</th>{#if isMasterAdmin}<th>{$locale === 'ar' ? 'الإجراء' : 'Action'}</th>{/if}</tr></thead>
+										<tbody>
+											{#if savedDocumentsLoading}
+												<tr><td colspan={isMasterAdmin ? 9 : 8} class="empty-row">{$locale === 'ar' ? 'جارٍ التحميل...' : 'Loading...'}</td></tr>
+											{:else if savedCompanyDocuments.length === 0}
+												<tr><td colspan={isMasterAdmin ? 9 : 8} class="empty-row">{$locale === 'ar' ? 'لا توجد مستندات محفوظة.' : 'No saved documents.'}</td></tr>
+											{:else}
+												{#each savedCompanyDocuments as document, index (document.id)}
+													{@const company = companies.find((item) => item.id === document.company_id)}
+													{@const branch = companyBranches.find((item) => item.id === document.branch_id)}
+													<tr><td>{index + 1}</td><td>{$locale === 'ar' ? document.document_name_ar : document.document_name_en}</td><td>{$locale === 'ar' ? company?.name_ar : company?.name_en}</td><td>{branch ? ($locale === 'ar' ? branch.name_ar : branch.name_en) : '—'}</td><td>{document.document_number || '—'}</td><td>{document.expiry_date || '—'}</td><td>{#if document.storage_path}<button type="button" class="view-document-button" on:click={() => viewSavedDocument(document)}>👁 {$locale === 'ar' ? 'عرض' : 'View'}</button>{:else}—{/if}</td><td>{formatDate(document.created_at)}</td>{#if isMasterAdmin}<td><button type="button" class="delete-document-button" on:click={() => deleteSavedDocument(document)} disabled={deletingDocumentId !== null}>{deletingDocumentId === document.id ? ($locale === 'ar' ? 'جارٍ الحذف...' : 'Deleting...') : ($locale === 'ar' ? 'حذف' : 'Delete')}</button></td>{/if}</tr>
+												{/each}
+											{/if}
+										</tbody>
+									</table>
+								</div>
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -1021,6 +1185,16 @@
 		font-size: 11px;
 		font-weight: 700;
 	}
+
+	.managed-document-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+	.form-message { margin: 12px 16px 0; padding: 10px 12px; border-radius: 7px; font-size: 12px; font-weight: 700; }
+	.error-message { border: 1px solid #fecaca; background: #fff1f2; color: #b91c1c; }
+	.success-message { border: 1px solid #a7f3d0; background: #ecfdf5; color: #047857; }
+	.saved-documents-card { margin: 14px 16px 18px; border: 1px solid #dbe4ee; border-radius: 8px; overflow: hidden; background: #ffffff; }
+	.saved-documents-card h3 { margin: 0; padding: 12px 14px; border-bottom: 1px solid #dbe4ee; background: #f8fafc; color: #334155; font-size: 13px; }
+	.view-document-button { padding: 5px 9px; border: 1px solid #06b6d4; border-radius: 5px; background: #ecfeff; color: #0e7490; font-size: 11px; font-weight: 700; cursor: pointer; }
+	.delete-document-button { padding: 5px 9px; border: 1px solid #fecaca; border-radius: 5px; background: #fff1f2; color: #dc2626; font-size: 11px; font-weight: 700; cursor: pointer; }
+	.delete-document-button:disabled { opacity: .55; cursor: default; }
 
 	@media (max-width: 700px) {
 		.manage-document-fields,
