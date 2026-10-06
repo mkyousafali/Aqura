@@ -44,9 +44,11 @@
 	import DenominationPermissionManager from '$lib/components/desktop-interface/master/finance/DenominationPermissionManager.svelte';
 	import ReceivingRecordsPermissionsModal from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecordsPermissionsModal.svelte';
 	import SalaryStatementPermissionsModal from '$lib/components/desktop-interface/master/hr/SalaryStatementPermissionsModal.svelte';
+	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 
 	type TabId =
 		| 'buttonAccess'
+		| 'leaveApprovers'
 		| 'approval'
 		| 'defaultIncidentUsers'
 		| 'defaultEntryTaskUsers'
@@ -108,6 +110,7 @@
 	$: canInterfaceAccess = buttonPermissionsLoaded && (isMasterAdmin || allowedButtonCodes.has('INTERFACE_ACCESS_MANAGER'));
 
 	$: tabDefs = [
+		{ id: 'leaveApprovers', icon: '✅', labelKey: 'nav.defaultLeaveApprovers', fallback: 'Default Approvers (Leaves)', locked: !isMasterAdmin },
 		{ id: 'buttonAccess', icon: '🔘', labelKey: 'nav.buttonAccessControl', fallback: 'Button Access Control', locked: !canButtonAccess },
 		{ id: 'approval', icon: '✅', labelKey: 'nav.approvalPermissions', fallback: 'Approval Permissions', locked: !isMasterAdmin },
 		{ id: 'defaultIncidentUsers', icon: '🏢', labelKey: 'nav.defaultIncidentUsers', fallback: 'Default Incident Users', locked: !isMasterAdmin },
@@ -151,6 +154,9 @@
 
 	<!-- Content -->
 	<div class="flex-1 min-h-0 overflow-hidden">
+		{#if activeTab === 'leaveApprovers' && isMasterAdmin}
+			<BranchMaster initialTab="approvers" hideTabSwitcher={true} />
+		{/if}
 		{#if activeTab === 'buttonAccess' && canButtonAccess}
 			<ButtonAccessControl />
 		{/if}

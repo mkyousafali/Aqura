@@ -138,6 +138,10 @@
 	}
 
 	async function queryBranch(branch: any, today: string, yesterday: string, twoDaysAgo: string, previousMonthSameDay: string, twoDaysAgoPreviousMonth: string) {
+		const erpBranchId = Number(branch.erp_branch_id);
+		if (!Number.isInteger(erpBranchId) || erpBranchId <= 0) {
+			throw new Error(`Missing or invalid ERP branch ID for Aqura branch ${branch.branch_id}`);
+		}
 		const sql = `
 			SELECT
 				CONVERT(varchar(10), CAST(TransactionDate AS date), 23) AS SaleDate,
@@ -146,7 +150,8 @@
 				SUM(CASE WHEN VoucherType = 'SR' THEN GrandTotal ELSE 0 END) AS ReturnAmount,
 				SUM(CASE WHEN VoucherType = 'SR' THEN 1 ELSE 0 END) AS ReturnBills
 			FROM InvTransactionMaster
-			WHERE CAST(TransactionDate AS date) IN ('${twoDaysAgoPreviousMonth}', '${previousMonthSameDay}', '${twoDaysAgo}', '${yesterday}', '${today}')
+			WHERE BranchID = ${erpBranchId}
+			  AND CAST(TransactionDate AS date) IN ('${twoDaysAgoPreviousMonth}', '${previousMonthSameDay}', '${twoDaysAgo}', '${yesterday}', '${today}')
 			  AND VoucherType IN ('SI', 'SR')
 			GROUP BY CAST(TransactionDate AS date)
 			ORDER BY CAST(TransactionDate AS date);
@@ -203,7 +208,7 @@
 		twoDaysAgoPreviousMonthDate = twoDaysAgoPreviousMonth;
 		const { data: connections, error } = await supabase
 			.from('erp_connections')
-			.select('branch_id, branch_name')
+			.select('branch_id, branch_name, erp_branch_id')
 			.eq('is_active', true)
 			.order('branch_id');
 		if (error) throw error;
@@ -250,40 +255,27 @@
 	onMount(refresh);
 </script>
 
-<div class:mobile class="live-report" dir={isArabic ? 'rtl' : 'ltr'}>
-	{#if !mobile}
-		<header>
-			<div>
-				<h2>{ui('Sales Report', 'تقرير المبيعات')}</h2>
-				<p>{ui('Live ERP tunnel data for today and yesterday', 'بيانات مباشرة من نظام ERP لليوم والأمس')}</p>
-			</div>
-			<button on:click={refresh} disabled={loading}>{loading ? ui('Loading…', 'جارٍ التحميل…') : ui('Refresh', 'تحديث')}</button>
-		</header>
-	{/if}
-
-	{#if mobile}
-		<div class="mobile-report-toolbar">
-			<label for="sales-branch-filter">
-				<span>{ui('Branch', 'الفرع')}</span>
-				<select id="sales-branch-filter" bind:value={selectedBranchId} disabled={loading}>
-					<option value="all">{ui('All Branches', 'جميع الفروع')}</option>
-					{#each availableBranches as branch}
-						<option value={branch.id}>{branch.name}</option>
-					{/each}
-				</select>
-			</label>
-			<button class="mobile-refresh-btn" type="button" on:click={refresh} disabled={loading} aria-label={ui('Refresh sales', 'تحديث المبيعات')} title={ui('Refresh', 'تحديث')}>
-				<span aria-hidden="true">↻</span>
-				{loading ? ui('Loading', 'تحميل') : ui('Refresh', 'تحديث')}
-			</button>
-		</div>
-	{/if}
+<div class="live-report mobile" dir={isArabic ? 'rtl' : 'ltr'}>
+	<div class="mobile-report-toolbar">
+		<label for="sales-branch-filter">
+			<span>{ui('Branch', 'الفرع')}</span>
+			<select id="sales-branch-filter" bind:value={selectedBranchId} disabled={loading}>
+				<option value="all">{ui('All Branches', 'جميع الفروع')}</option>
+				{#each availableBranches as branch}
+					<option value={branch.id}>{branch.name}</option>
+				{/each}
+			</select>
+		</label>
+		<button class="mobile-refresh-btn" type="button" on:click={refresh} disabled={loading} aria-label={ui('Refresh sales', 'تحديث المبيعات')} title={ui('Refresh', 'تحديث')}>
+			<span aria-hidden="true">↻</span>
+			{loading ? ui('Loading', 'تحميل') : ui('Refresh', 'تحديث')}
+		</button>
+	</div>
 
 	{#if loading}
 		<div class="loading">{ui('Loading live branch data…', 'جارٍ تحميل بيانات الفروع المباشرة…')}</div>
 	{:else}
-		{#if mobile}
-			<div class="sales-overview-card">
+		<div class="sales-overview-card">
 				<div class="mobile-card-title">
 					<div><h3>{ui("Today's Overview", 'نظرة عامة على اليوم')}</h3><p>{ui('Today’s key figures for the selected branch scope', 'المؤشرات الرئيسية لليوم ضمن نطاق الفروع المحدد')}</p></div>
 				</div>
@@ -400,7 +392,6 @@
 				<span>ⓘ {ui('Data shows net sales after discounts and before tax.', 'تعرض البيانات صافي المبيعات بعد الخصومات وقبل الضريبة.')}</span>
 				<small>{ui('Last updated', 'آخر تحديث')} {lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString(isArabic ? 'ar-SA' : 'en-SA', { hour: '2-digit', minute: '2-digit' }) : '—'}</small>
 			</div>
-		{/if}
 		<section>
 			<h3>{ui('Today — ERP Sales', 'اليوم — مبيعات ERP')}</h3>
 			<div class="total-card">

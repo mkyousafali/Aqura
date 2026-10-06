@@ -22,7 +22,6 @@
 	import DancingCharacter from './DancingCharacter.svelte';
 	
 	// Component imports
-	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import TaskMaster from '$lib/components/desktop-interface/master/TaskMaster.svelte';
 	import ManageVendor from '$lib/components/desktop-interface/master/vendor/ManageVendor.svelte';
 	import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
@@ -191,10 +190,16 @@
 	import EmailCampaignReports from '$lib/components/desktop-interface/email/EmailCampaignReports.svelte';
 	import EmailFailed from '$lib/components/desktop-interface/email/EmailFailed.svelte';
 	import EmailSetupGuide from '$lib/components/desktop-interface/email/EmailSetupGuide.svelte';
+	import CreateCompany from '$lib/components/desktop-interface/master/company/CreateCompany.svelte';
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
 
+	let showCompanySubmenu = false;
+	let showCompanyDashboardSubmenu = false;
+	let showCompanyManageSubmenu = false;
+	let showCompanyOperationsSubmenu = false;
+	let showCompanyReportsSubmenu = false;
 	let showDeliverySubmenu = false;
 	let showDeliveryDashboardSubmenu = false;
 	let showDeliveryManageSubmenu = false;
@@ -283,6 +288,10 @@
 
 	// Map button_code to translation key for multilingual support
 	const buttonCodeTranslationMap: Record<string, string> = {
+		'COMPANY_DASHBOARD': 'nav.dashboard',
+		'CREATE_COMPANY': 'nav.createCompany',
+		'COMPANY_OPERATIONS': 'nav.operations',
+		'COMPANY_REPORTS': 'nav.reports',
 		'CUSTOMER_MASTER': 'admin.customerMaster', 'AD_MANAGER': 'admin.adManager',
 		'PRODUCTS_MANAGER': 'admin.productsManager', 'DELIVERY_SETTINGS': 'admin.deliverySettings',
 		'DELIVERY_MANAGE_PRODUCTS': 'nav.manageProducts',
@@ -325,7 +334,7 @@
 		'CREATE_NOTIFICATION': 'mobile.createNotification', 'USER_MANAGEMENT': 'nav.usersList',
 		'CREATE_USER': 'nav.createUser', 'MANAGE_ADMIN_USERS': 'nav.manageAdminUsers',
 		'MANAGE_MASTER_ADMIN': 'nav.manageMasterAdmin', 'INTERFACE_ACCESS_MANAGER': 'nav.interfaceAccess',
-		'APPROVAL_PERMISSIONS': 'nav.approvalPermissions', 'BRANCHES': 'admin.branchesMaster',
+		'APPROVAL_PERMISSIONS': 'nav.approvalPermissions',
 		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'APP_PERMISSIONS': 'nav.appPermissions',
@@ -336,7 +345,7 @@
 		'UPLOAD_EMPLOYEES': 'hr.masterUploadEmployees', 'WARNING_MASTER': 'nav.warningMaster',
 		'SALARY_WAGE_MANAGEMENT': 'hr.masterSalaryManagement', 'CONTACT_MANAGEMENT': 'hr.masterContactManagement',
 		'DOCUMENT_MANAGEMENT': 'hr.masterDocumentManagement', 'BIOMETRIC_DATA': 'hr.biometricData',
-		'BRANCH_MASTER': 'admin.branchesMaster', 'SOUND_SETTINGS': 'nav.soundSettings',
+		'SOUND_SETTINGS': 'nav.soundSettings',
 		'CATEGORY_MANAGER': 'nav.categoryManager', 'REPORTS_STATS': 'nav.reportsAndStats',
 		'COUPON_DASHBOARD': 'nav.couponDashboard', 'MANAGE_CAMPAIGNS': 'nav.manageCampaigns',
 		'IMPORT_CUSTOMERS': 'nav.importCustomers', 'MANAGE_PRODUCTS': 'nav.manageProducts',
@@ -541,6 +550,10 @@
 	// Access Control's display only and doesn't match this nav's nesting
 	// 1:1 — e.g. STOCK_* codes render under Vendor, not a "Stock" section).
 	const SUBSECTION_CODES: Record<string, string[]> = {
+		CompanyDashboard: ["COMPANY_DASHBOARD"],
+		CompanyManage: ["CREATE_COMPANY"],
+		CompanyOperations: ["COMPANY_OPERATIONS"],
+		CompanyReports: ["COMPANY_REPORTS"],
 		DeliveryDashboard: [],
 		DeliveryManage: ["CUSTOMER_MASTER","AD_MANAGER","PRODUCTS_MANAGER","DELIVERY_MANAGE_PRODUCTS","DELIVERY_SETTINGS"],
 		DeliveryOperations: ["ORDERS_MANAGER","OFFER_MANAGEMENT"],
@@ -582,7 +595,7 @@
 		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE"],
 		ControlsReports: ["PC_LOCK_GUARD"],
 		SystemDashboard: [],
-		SystemManage: ["BRANCHES","ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
+		SystemManage: ["ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
 		SystemOperations: ["HELPER_APPS","SIDEBAR_ANIMATION"],
 		SystemReports: ["CENTRAL_PERFORMANCE","DRAWER_ACTION_MONITOR"],
 		WhatsAppDashboard: ["WA_DASHBOARD"],
@@ -596,6 +609,7 @@
 	};
 
 	const SECTIONS: Record<string, string[]> = {
+		Company: ["CompanyDashboard","CompanyManage","CompanyOperations","CompanyReports"],
 		Delivery: ["DeliveryDashboard","DeliveryManage","DeliveryOperations","DeliveryReports"],
 		Vendor: ["VendorDashboard","VendorManager","VendorOperations","VendorReports"],
 		Media: ["MediaDashboard","MediaManage","MediaOperations","MediaReports"],
@@ -733,30 +747,6 @@
 			maximizable: true,
 			closable: true
 		});
-	}
-
-	function openBranches() {
-		const windowId = generateWindowId('branch-master');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
-		openWindow({
-			id: windowId,
-			title: `${t('admin.branchesMaster') || 'Branch Master'} #${instanceNumber}`,
-			component: BranchMaster,
-			componentName: "BranchMaster",
-			icon: '🏢',
-			size: { width: 1200, height: 800 },
-			position: { 
-				x: 50 + (Math.random() * 100), // Slightly offset each new window
-				y: 50 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		showSystemSubmenu = false;
-		showSystemManageSubmenu = false;
 	}
 
 	function openTaskMaster() {
@@ -1770,6 +1760,26 @@ function openApprovalCenter() {
 		alert(`${section} - ${t('status.pending') || 'pending'}...`);
 	}
 
+	function openCreateCompany() {
+		const windowId = generateWindowId('create-company');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${t('nav.createCompany') || 'Create Company'} #${instanceNumber}`,
+			component: CreateCompany,
+			componentName: 'CreateCompany',
+			icon: '🏢',
+			size: { width: 1100, height: 700 },
+			position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllMenus();
+	}
+
 	function openUserManagement() {
 		const windowId = generateWindowId('user-management');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2365,7 +2375,6 @@ function openApprovalCenter() {
 			'CREATE_USER': openCreateUser,
 			'MANAGE_ADMIN_USERS': openManageAdminUsers,
 			'MANAGE_MASTER_ADMIN': openManageMasterAdmin,
-			'BRANCHES': openBranches,
 			'SETTINGS': openSettings,
 			'E_R_P_CONNECTIONS': openERPConnections,
 			'CLEAR_TABLES': openClearTables,
@@ -2451,6 +2460,10 @@ function openApprovalCenter() {
 
 	// Open Receiving window
 	function collapseAllSubsections() {
+		showCompanyDashboardSubmenu = false;
+		showCompanyManageSubmenu = false;
+		showCompanyOperationsSubmenu = false;
+		showCompanyReportsSubmenu = false;
 		showDeliveryDashboardSubmenu = false;
 		showDeliveryManageSubmenu = false;
 		showDeliveryOperationsSubmenu = false;
@@ -2507,6 +2520,8 @@ function openApprovalCenter() {
 
 	function collapseAllMenus() {
 		collapseAllSubsections();
+		showCompanySubmenu = false;
+		showDeliverySubmenu = false;
 		showVendorSubmenu = false;
 		showMediaSubmenu = false;
 		showPromoSubmenu = false;
@@ -4251,6 +4266,72 @@ function openApprovalCenter() {
 
 	{#if sidebarViewMode === 'standard'}
 	<!-- ============ STANDARD SIDEBAR ============ -->
+	<!-- Company Section -->
+	{#if sectionVisible['Company']}
+	<div class="menu-section">
+		<button class="section-button" on:click={() => showCompanySubmenu = !showCompanySubmenu}>
+			<span class="section-icon">🏢</span>
+			<span class="section-text">{t('nav.company') || 'Company'}</span>
+			<span class="arrow" class:expanded={showCompanySubmenu}>▼</span>
+		</button>
+	</div>
+	{/if}
+
+	{#if showCompanySubmenu}
+		<div class="submenu-inline company-submenu">
+			{#if subsectionVisible['CompanyDashboard']}
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only" on:click={() => {
+					if (showCompanyDashboardSubmenu) collapseAllSubsections();
+					else { collapseAllSubsections(); showCompanyDashboardSubmenu = true; }
+				}} title={t('nav.dashboard')}>
+					<span class="menu-text">{t('nav.dashboard')}</span>
+				</button>
+			</div>
+			{/if}
+			{#if subsectionVisible['CompanyManage']}
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only" on:click={() => {
+					if (showCompanyManageSubmenu) collapseAllSubsections();
+					else { collapseAllSubsections(); showCompanyManageSubmenu = true; }
+				}} title={t('nav.manage')}>
+					<span class="menu-text">{t('nav.manage')}</span>
+				</button>
+			</div>
+			{/if}
+			{#if showCompanyManageSubmenu && isButtonAllowed('CREATE_COMPANY')}
+			<div class="submenu-subitem-container">
+				<div class="submenu-item-container">
+					<button class="submenu-item" on:click={openCreateCompany}>
+						<span class="menu-icon">🏢</span>
+						<span class="menu-text">{t('nav.createCompany') || 'Create Company'}</span>
+					</button>
+				</div>
+			</div>
+			{/if}
+			{#if subsectionVisible['CompanyOperations']}
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only" on:click={() => {
+					if (showCompanyOperationsSubmenu) collapseAllSubsections();
+					else { collapseAllSubsections(); showCompanyOperationsSubmenu = true; }
+				}} title={t('nav.operations')}>
+					<span class="menu-text">{t('nav.operations')}</span>
+				</button>
+			</div>
+			{/if}
+			{#if subsectionVisible['CompanyReports']}
+			<div class="submenu-item-container">
+				<button class="submenu-subsection-button icon-only" on:click={() => {
+					if (showCompanyReportsSubmenu) collapseAllSubsections();
+					else { collapseAllSubsections(); showCompanyReportsSubmenu = true; }
+				}} title={t('nav.reports')}>
+					<span class="menu-text">{t('nav.reports')}</span>
+				</button>
+			</div>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Delivery Section -->
 	{#if sectionVisible['Delivery']}
 	<div class="menu-section">
@@ -6614,14 +6695,6 @@ function openApprovalCenter() {
 					     (Controls > Dashboard) — see
 					     Do not delete/PERMISSION_SYSTEMS_AUDIT.md. Gating is now
 					     enforced inside AppPermissionsManager.svelte itself. -->
-					{#if isButtonAllowed('BRANCHES')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openBranches}>
-								<span class="menu-icon">🏢</span>
-								<span class="menu-text">{t('admin.branchesMaster') || 'Branch Master'}</span>
-							</button>
-						</div>
-					{/if}
 					{#if isButtonAllowed('ERP_PRODUCT_MANAGER')}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openErpProductManager}>

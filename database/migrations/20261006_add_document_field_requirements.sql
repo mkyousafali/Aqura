@@ -1,0 +1,53 @@
+begin;
+
+alter table public.company_document_types
+  add column if not exists requires_number boolean not null default false,
+  add column if not exists requires_expiry_date boolean not null default false;
+
+drop function if exists public.create_company_document_type(text, text, text);
+
+create function public.create_company_document_type(
+  p_name_ar text,
+  p_name_en text,
+  p_scope text,
+  p_requires_number boolean,
+  p_requires_expiry_date boolean
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id bigint;
+begin
+  if auth.uid() is null or not exists (
+    select 1 from public.users where id = public.aqura_current_user_id()
+  ) then
+    raise exception 'Authentication required';
+  end if;
+
+  if nullif(trim(p_name_ar), '') is null or nullif(trim(p_name_en), '') is null then
+    raise exception 'Arabic and English document names are required';
+  end if;
+
+  if p_scope not in ('common', 'branch_wise') then
+    raise exception 'Document scope must be common or branch-wise';
+  end if;
+
+  insert into public.company_document_types (
+    name_ar, name_en, scope, requires_number, requires_expiry_date
+  ) values (
+    trim(p_name_ar), trim(p_name_en), p_scope,
+    coalesce(p_requires_number, false), coalesce(p_requires_expiry_date, false)
+  )
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.create_company_document_type(text, text, text, boolean, boolean) from public, anon;
+grant execute on function public.create_company_document_type(text, text, text, boolean, boolean) to authenticated, service_role;
+
+commit;

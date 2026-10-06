@@ -3,6 +3,9 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { dataService } from '$lib/utils/dataService';
 	import { _ as t, localeData, locale } from '$lib/i18n';
+	import { currentUser } from '$lib/utils/persistentAuth';
+
+	$: isMasterAdmin = $currentUser?.isMasterAdmin === true;
 
 	// State
 	let branches: any[] = [];
@@ -53,6 +56,7 @@
 	let savedContractExpiryDate = '';
 	let contractFile: File | null = null;
 	let isUploadingContract = false;
+	let removingDocumentField = '';
 	let contractDaysUntilExpiry = 0;
 	let whatsappNumber = '';
 	let savedWhatsappNumber = '';
@@ -658,6 +662,59 @@
 	function viewIDDocument() {
 		if (selectedEmployee?.id_document_url) {
 			window.open(selectedEmployee.id_document_url, '_blank');
+		}
+	}
+
+	async function removeEmployeeDocument(field: 'id_document_url' | 'health_card_document_url' | 'driving_licence_document_url' | 'contract_document_url') {
+		if (!isMasterAdmin || !selectedEmployee?.id || !selectedEmployee?.[field]) return;
+		if (!confirm($t('employeeFiles.confirmRemoveDocument'))) return;
+
+		removingDocumentField = field;
+		try {
+			const documentUrl = selectedEmployee[field];
+			const { error } = await supabase.rpc('remove_employee_document', {
+				p_employee_id: selectedEmployee.id,
+				p_document_field: field
+			});
+			if (error) throw error;
+
+			selectedEmployee[field] = null;
+			if (field === 'id_document_url') {
+				selectedEmployee.id_number = null;
+				selectedEmployee.id_expiry_date = null;
+				idNumber = savedIdNumber = '';
+				idExpiryDate = savedIdExpiryDate = '';
+				daysUntilExpiry = 0;
+			} else if (field === 'health_card_document_url') {
+				selectedEmployee.health_card_number = null;
+				selectedEmployee.health_card_expiry_date = null;
+				healthCardNumber = savedHealthCardNumber = '';
+				healthCardExpiryDate = savedHealthCardExpiryDate = '';
+				healthCardDaysUntilExpiry = 0;
+			} else if (field === 'driving_licence_document_url') {
+				selectedEmployee.driving_licence_number = null;
+				selectedEmployee.driving_licence_expiry_date = null;
+				drivingLicenceNumber = savedDrivingLicenceNumber = '';
+				drivingLicenceExpiryDate = savedDrivingLicenceExpiryDate = '';
+				drivingLicenceDaysUntilExpiry = 0;
+			} else if (field === 'contract_document_url') {
+				selectedEmployee.contract_expiry_date = null;
+				contractExpiryDate = savedContractExpiryDate = '';
+				contractDaysUntilExpiry = 0;
+			}
+			const marker = '/storage/v1/object/public/employee-documents/';
+			const markerIndex = documentUrl.indexOf(marker);
+			if (markerIndex >= 0) {
+				const storagePath = decodeURIComponent(documentUrl.slice(markerIndex + marker.length));
+				const { error: storageError } = await supabase.storage.from('employee-documents').remove([storagePath]);
+				if (storageError) console.error('Document reference removed, but storage cleanup failed:', storageError);
+			}
+			alert($t('employeeFiles.documentRemoved'));
+		} catch (error) {
+			console.error('Error removing employee document:', error);
+			alert($t('employeeFiles.alerts.saveError'));
+		} finally {
+			removingDocumentField = '';
 		}
 	}
 
@@ -1931,6 +1988,11 @@
 										<button class="view-button" on:click={viewIDDocument}>
 											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
+										{#if isMasterAdmin}
+											<button class="remove-document-button" on:click={() => removeEmployeeDocument('id_document_url')} disabled={removingDocumentField === 'id_document_url'}>
+												🗑️ {removingDocumentField === 'id_document_url' ? $t('employeeFiles.removingDocument') : $t('employeeFiles.removeDocument')}
+											</button>
+										{/if}
 										{#if !idDocumentFile}
 											<button class="update-button" on:click={() => idDocumentFile = {} as any}>
 												✏️ {$t('employeeFiles.update')}
@@ -2085,6 +2147,11 @@
 										<button class="view-button" on:click={viewHealthCardDocument}>
 											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
+										{#if isMasterAdmin}
+											<button class="remove-document-button" on:click={() => removeEmployeeDocument('health_card_document_url')} disabled={removingDocumentField === 'health_card_document_url'}>
+												🗑️ {removingDocumentField === 'health_card_document_url' ? $t('employeeFiles.removingDocument') : $t('employeeFiles.removeDocument')}
+											</button>
+										{/if}
 										{#if !healthCardFile}
 											<button class="update-button" on:click={() => healthCardFile = {} as any}>
 												✏️ {$t('employeeFiles.update')}
@@ -2293,6 +2360,11 @@
 										<button class="view-button" on:click={viewDrivingLicenceDocument}>
 											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
+										{#if isMasterAdmin}
+											<button class="remove-document-button" on:click={() => removeEmployeeDocument('driving_licence_document_url')} disabled={removingDocumentField === 'driving_licence_document_url'}>
+												🗑️ {removingDocumentField === 'driving_licence_document_url' ? $t('employeeFiles.removingDocument') : $t('employeeFiles.removeDocument')}
+											</button>
+										{/if}
 										{#if !drivingLicenceFile}
 											<button class="update-button" on:click={() => drivingLicenceFile = {} as any}>
 												✏️ {$t('employeeFiles.update')}
@@ -2402,6 +2474,11 @@
 										<button class="view-button" on:click={viewContractDocument}>
 											👁️ {$t('employeeFiles.viewDocument')}
 										</button>
+										{#if isMasterAdmin}
+											<button class="remove-document-button" on:click={() => removeEmployeeDocument('contract_document_url')} disabled={removingDocumentField === 'contract_document_url'}>
+												🗑️ {removingDocumentField === 'contract_document_url' ? $t('employeeFiles.removingDocument') : $t('employeeFiles.removeDocument')}
+											</button>
+										{/if}
 										{#if !contractFile}
 											<button class="update-button" on:click={() => contractFile = {} as any}>
 												✏️ {$t('employeeFiles.update')}
@@ -3978,6 +4055,21 @@
 	.view-button:hover {
 		background: #5568d3;
 	}
+
+	.remove-document-button {
+		width: 100%;
+		padding: 8px 12px;
+		border: none;
+		border-radius: 4px;
+		background: #dc2626;
+		color: white;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.remove-document-button:hover:not(:disabled) { background: #b91c1c; }
+	.remove-document-button:disabled { cursor: not-allowed; opacity: 0.65; }
 
 	.health-card {
 		background: #f0f8ff;

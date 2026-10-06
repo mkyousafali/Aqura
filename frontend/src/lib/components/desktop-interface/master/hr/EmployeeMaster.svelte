@@ -7,7 +7,7 @@
 	let supabase: any = null;
 
 	// ─── Active Tab ───────────────────────────────────────────────────────────
-	let activeTab: 'departments' | 'levels' | 'positions' | 'dashboard' | 'doc-expiry' = 'dashboard';
+	let activeTab: 'departments' | 'levels' | 'positions' | 'dashboard' | 'doc-expiry' | 'sponsors' = 'dashboard';
 
 	// ─── Dropdown Data ────────────────────────────────────────────────────────
 	let dropdowns: any = { branches: [], positions: [], departments: [], levels: [], employment_statuses: [] };
@@ -38,6 +38,16 @@
 	let posTotalCount = 0;
 	let posDeptFilter: string = '';
 	let posLevelFilter: string = '';
+
+	// Sponsors
+	let sponsors: any[] = [];
+	let sponsorsLoading = false;
+	let sponsorsError = '';
+	let showSponsorForm = false;
+	let sponsorNameAr = '';
+	let sponsorNameEn = '';
+	let sponsorSaving = false;
+	let sponsorFormError = '';
 
 	// ─── EMPLOYEE DASHBOARD ───────────────────────────────────────────────────
 	let employees: any[] = [];
@@ -247,7 +257,25 @@
 			};
 			const { data, error } = await supabase.rpc('get_employee_master_list', args);
 			if (error) throw error;
-			const rows = data || [];
+			let rows = data || [];
+			if (rows.length > 0) {
+				const { data: sponsorLinks, error: sponsorLinksError } = await supabase
+					.from('hr_employee_master')
+					.select('id, sponsorship_status, sponsor_id, company_master(name_en, name_ar)')
+					.in('id', rows.map((row: any) => row.id));
+				if (sponsorLinksError) throw sponsorLinksError;
+				const sponsorLinkMap = new Map((sponsorLinks || []).map((row: any) => [row.id, row]));
+				rows = rows.map((row: any) => {
+					const link: any = sponsorLinkMap.get(row.id) || {};
+					return {
+						...row,
+						sponsorship_status: link.sponsorship_status,
+						sponsor_id: link.sponsor_id,
+						sponsor_name_en: link.company_master?.name_en || '',
+						sponsor_name_ar: link.company_master?.name_ar || ''
+					};
+				});
+			}
 			if (append) {
 				employees = [...employees, ...rows];
 			} else {
@@ -470,7 +498,64 @@
 		if (tab === 'departments' && depts.length === 0 && !deptsLoading) await loadDepts();
 		if (tab === 'levels' && levels.length === 0 && !levelsLoading) await loadLevels();
 		if (tab === 'positions' && positions.length === 0 && !posLoading) await loadPositions();
-		if (tab === 'doc-expiry' && documentsExpiryData.length === 0 && !docExpiryLoading) await loadDocumentsExpiryData();
+		if (tab === 'doc-expiry') {
+			if (documentsExpiryData.length === 0 && !docExpiryLoading) await loadDocumentsExpiryData();
+			if (sponsors.length === 0 && !sponsorsLoading) await loadSponsors();
+		}
+		if (tab === 'sponsors' && sponsors.length === 0 && !sponsorsLoading) await loadSponsors();
+	}
+
+	async function loadSponsors() {
+		sponsorsLoading = true;
+		sponsorsError = '';
+		try {
+			const { data, error } = await supabase
+				.from('company_master')
+				.select('id, name_ar, name_en, created_at')
+				.order('name_en', { ascending: true });
+			if (error) throw error;
+			sponsors = data || [];
+		} catch (e: any) {
+			sponsorsError = e?.message || $t('employeeMaster.errors.loadFailed');
+		} finally {
+			sponsorsLoading = false;
+		}
+	}
+
+	function openSponsorForm() {
+		sponsorNameAr = '';
+		sponsorNameEn = '';
+		sponsorFormError = '';
+		showSponsorForm = true;
+	}
+
+	function closeSponsorForm() {
+		showSponsorForm = false;
+		sponsorFormError = '';
+	}
+
+	async function saveSponsor() {
+		const nameAr = sponsorNameAr.trim();
+		const nameEn = sponsorNameEn.trim();
+		if (!nameAr || !nameEn) {
+			sponsorFormError = $t('employeeMaster.sponsors.required');
+			return;
+		}
+
+		sponsorSaving = true;
+		sponsorFormError = '';
+		try {
+			const { error } = await supabase.rpc('create_company', { p_name_ar: nameAr, p_name_en: nameEn });
+			if (error) throw error;
+			closeSponsorForm();
+			await loadSponsors();
+		} catch (e: any) {
+			sponsorFormError = e?.code === '23505'
+				? $t('employeeMaster.sponsors.duplicate')
+				: (e?.message || $t('employeeMaster.errors.saveFailed'));
+		} finally {
+			sponsorSaving = false;
+		}
 	}
 
 	// ─── SEARCH DEBOUNCE ─────────────────────────────────────────────────────
@@ -551,6 +636,7 @@
 		{ key: 'nationality', label: 'Nationality' },
 		{ key: 'branch', label: 'Current Branch' },
 		{ key: 'sponsorship_status', label: 'Sponsorship Status' },
+		{ key: 'sponsor', label: 'Sponsor' },
 		{ key: 'doc_id', label: 'ID Expiry' },
 		{ key: 'doc_health_card', label: 'Health Card' },
 		{ key: 'doc_driving_licence', label: 'Driving Licence' },
@@ -568,6 +654,8 @@
 	let docSelectedBranch = '';
 	let docSelectedNationality = '';
 	let docSelectedSponsorship = '';
+	let docSortKey = 'doc_id';
+	let docSortDirection: 'asc' | 'desc' = 'asc';
 	let showDocFilterModal = false;
 	let docDaysLimit: number | null = null;
 	let docFilterType = 'id';
@@ -588,7 +676,7 @@
 	$: docStatusOptions = [...new Set([...ALL_EMP_STATUSES_LIST, ...(dropdowns.employment_statuses || []), ...documentsExpiryData.map(emp => emp.employment_status).filter(Boolean)])];
 	let showColumnDropdown = false;
 	let columnVisibility: Record<string, boolean> = {
-		id: true, name: true, nationality: true, branch: true, sponsorship_status: true,
+		id: true, name: true, nationality: true, branch: true, sponsorship_status: true, sponsor: true,
 		doc_id: true, doc_health_card: true, doc_driving_licence: true,
 		doc_contract: true, doc_work_permit: true, doc_insurance: true, doc_health_educational: true
 	};
@@ -601,6 +689,12 @@
 	let modalCurDate = '';
 	let modalNewDate = '';
 	let isSavingDate = false;
+	let showSponsorAssignModal = false;
+	let sponsorAssignEmpId = '';
+	let sponsorAssignEmpName = '';
+	let sponsorAssignId = '';
+	let sponsorAssignSaving = false;
+	let sponsorAssignError = '';
 
 	// Employee Status state
 	let showStatusModal = false;
@@ -636,27 +730,52 @@
 		return matchesSearch && matchesBranch && matchesNat && matchesStatus && matchesSponsorship && matchesRemaining;
 	});
 
-	$: docSortedData = [...docFilteredData].sort((a, b) => getDocUrgencyScore(a).score - getDocUrgencyScore(b).score);
+	function getDocSortValue(emp: any, key: string): string | number | null {
+		switch (key) {
+			case 'id': return emp.id || '';
+			case 'name': return lang === 'ar' ? (emp.name_ar || emp.name_en || '') : (emp.name_en || emp.name_ar || '');
+			case 'nationality': return lang === 'ar' ? (emp.nationality_name_ar || emp.nationality_name_en || '') : (emp.nationality_name_en || emp.nationality_name_ar || '');
+			case 'branch': return lang === 'ar' ? (emp.branch_name_ar || emp.branch_name_en || '') : (emp.branch_name_en || emp.branch_name_ar || '');
+			case 'sponsorship_status': return emp.sponsorship_status === true ? 0 : 1;
+			case 'sponsor': return lang === 'ar' ? (emp.sponsor_name_ar || emp.sponsor_name_en || '') : (emp.sponsor_name_en || emp.sponsor_name_ar || '');
+			case 'doc_id': return emp.documents?.id?.expiryDate || null;
+			case 'doc_health_card': return emp.documents?.health_card?.expiryDate || null;
+			case 'doc_driving_licence': return emp.documents?.driving_licence?.expiryDate || null;
+			case 'doc_contract': return emp.documents?.contract?.expiryDate || null;
+			case 'doc_work_permit': return emp.documents?.work_permit?.expiryDate || null;
+			case 'doc_insurance': return emp.documents?.insurance?.expiryDate || null;
+			case 'doc_health_educational': return emp.documents?.health_educational?.expiryDate || null;
+			default: return null;
+		}
+	}
+
+	function getDefaultDocGroup(emp: any): number {
+		if (emp.sponsorship_status !== true) return 2;
+		const nationalityEn = String(emp.nationality_name_en || '').trim().toLowerCase();
+		const nationalityAr = String(emp.nationality_name_ar || '');
+		const isSaudi = nationalityEn === 'saudi arabia' || nationalityAr.includes('السعودية');
+		return isSaudi ? 0 : 1;
+	}
+
+	$: docSortedData = docSortKey
+		? [...docFilteredData].sort((a, b) => {
+			const sponsorshipOrder = Number(a.sponsorship_status !== true) - Number(b.sponsorship_status !== true);
+			if (sponsorshipOrder !== 0) return sponsorshipOrder;
+			const av = getDocSortValue(a, docSortKey);
+			const bv = getDocSortValue(b, docSortKey);
+			if (av == null || av === '') return bv == null || bv === '' ? 0 : 1;
+			if (bv == null || bv === '') return -1;
+			const comparison = typeof av === 'number' && typeof bv === 'number'
+				? av - bv
+				: String(av).localeCompare(String(bv), lang === 'ar' ? 'ar' : 'en', { numeric: true, sensitivity: 'base' });
+			return docSortDirection === 'asc' ? comparison : -comparison;
+		})
+		: [...docFilteredData].sort((a, b) => getDefaultDocGroup(a) - getDefaultDocGroup(b));
 
 	function calcDaysRemaining(expiryDate: string | null): number {
 		if (!expiryDate) return -999;
 		const today = new Date(); today.setHours(0, 0, 0, 0);
 		return Math.ceil((new Date(expiryDate).getTime() - today.getTime()) / 86400000);
-	}
-
-	function getDocUrgencyScore(emp: any): { score: number } {
-		let mostUrgent = 999999;
-		if (emp.documents) {
-			for (const k in emp.documents) {
-				const d = emp.documents[k];
-				if (d && d.daysRemaining !== undefined && d.daysRemaining !== -999 && Number(d.daysRemaining) < mostUrgent) mostUrgent = Number(d.daysRemaining);
-			}
-		}
-		const days = mostUrgent === 999999 ? 999999 : mostUrgent;
-		if (days < 0) return { score: days };
-		if (days <= 30) return { score: 1000 + days };
-		if (days <= 90) return { score: 2000 + days };
-		return { score: 3000 + days };
 	}
 
 	function openDocDateModal(empId: string, empName: string, docType: string, docKey: string, curDate: string) {
@@ -665,6 +784,51 @@
 		showDateModal = true;
 	}
 	function closeDocDateModal() { showDateModal = false; isSavingDate = false; }
+
+	async function openSponsorAssignModal(emp: any) {
+		if (sponsors.length === 0 && !sponsorsLoading) await loadSponsors();
+		sponsorAssignEmpId = emp.id;
+		sponsorAssignEmpName = lang === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar);
+		sponsorAssignId = emp.sponsor_id == null ? '' : String(emp.sponsor_id);
+		sponsorAssignError = '';
+		showSponsorAssignModal = true;
+	}
+
+	function closeSponsorAssignModal() {
+		showSponsorAssignModal = false;
+		sponsorAssignSaving = false;
+		sponsorAssignError = '';
+	}
+
+	async function saveSponsorAssignment() {
+		if (!sponsorAssignEmpId || !sponsorAssignId) {
+			sponsorAssignError = $t('employeeMaster.sponsors.selectRequired');
+			return;
+		}
+		sponsorAssignSaving = true;
+		sponsorAssignError = '';
+		try {
+			const { error } = await supabase.rpc('set_employee_sponsor', {
+				p_employee_id: sponsorAssignEmpId,
+				p_sponsor_id: Number(sponsorAssignId)
+			});
+			if (error) throw error;
+			const selectedSponsor = sponsors.find(sponsor => String(sponsor.id) === sponsorAssignId);
+			const applySponsor = (emp: any) => emp.id === sponsorAssignEmpId ? {
+				...emp,
+				sponsor_id: Number(sponsorAssignId),
+				sponsor_name_en: selectedSponsor?.name_en || '',
+				sponsor_name_ar: selectedSponsor?.name_ar || ''
+			} : emp;
+			employees = employees.map(applySponsor);
+			documentsExpiryData = documentsExpiryData.map(applySponsor);
+			closeSponsorAssignModal();
+		} catch (e: any) {
+			sponsorAssignError = e?.message || $t('employeeMaster.errors.saveFailed');
+		} finally {
+			sponsorAssignSaving = false;
+		}
+	}
 
 	async function saveDocDateChange() {
 		if (!supabase || !modalEmpId || !modalDocKey) return;
@@ -690,10 +854,16 @@
 				.order('name_en', { ascending: true });
 			if (error) throw error;
 			const { data: nats } = await supabase.from('nationalities').select('id, name_en, name_ar');
+			const { data: sponsorLinks, error: sponsorLinksError } = await supabase
+				.from('hr_employee_master')
+				.select('id, sponsor_id, company_master(name_en, name_ar)');
+			if (sponsorLinksError) throw sponsorLinksError;
 			const natMap = new Map((nats || []).map((n: any) => [n.id, n]));
+			const sponsorLinkMap = new Map((sponsorLinks || []).map((row: any) => [row.id, row]));
 			documentsExpiryData = (employees || []).map((emp: any) => {
 				const nat: any = natMap.get(emp.nationality_id) || { name_en: 'N/A', name_ar: 'N/A' };
 				const branch = emp.branches || { name_en: 'N/A', name_ar: 'N/A', location_en: 'N/A', location_ar: 'N/A' };
+				const sponsorLink: any = sponsorLinkMap.get(emp.id) || {};
 				const documents: any = {};
 				DOCUMENT_TYPES_EXP.forEach(dt => {
 					const days = calcDaysRemaining(emp[dt.key]);
@@ -702,6 +872,8 @@
 				return {
 					id: emp.id, name_en: emp.name_en || 'N/A', name_ar: emp.name_ar || 'N/A',
 					sponsorship_status: emp.sponsorship_status,
+					sponsor_id: sponsorLink.sponsor_id,
+					sponsor_name_en: sponsorLink.company_master?.name_en || '', sponsor_name_ar: sponsorLink.company_master?.name_ar || '',
 					employment_status: emp.employment_status,
 					nationality_id: emp.nationality_id, nationality_name_en: nat.name_en, nationality_name_ar: nat.name_ar,
 					current_branch_id: emp.current_branch_id, branch_name_en: branch.name_en, branch_name_ar: branch.name_ar,
@@ -816,7 +988,10 @@
 		</button>
 		<button class="em-tab" class:active={activeTab === 'doc-expiry'} on:click={() => switchTab('doc-expiry')}>
 		<span>📄</span> {$t('employeeMaster.tabs.docExpiry')}
-	</button>
+		</button>
+		<button class="em-tab" class:active={activeTab === 'sponsors'} on:click={() => switchTab('sponsors')}>
+			<span>🤝</span> {$t('employeeMaster.tabs.sponsors')}
+		</button>
 	</div>
 
 	<!-- ── DASHBOARD TAB ── -->
@@ -900,6 +1075,7 @@
 						<th style="min-width:160px">{$t('employeeMaster.cols.branch')}</th>
 						<th style="min-width:140px">{$t('employeeMaster.cols.position')}</th>
 						<th style="min-width:130px">{$t('employeeMaster.cols.status')}</th>
+						<th style="min-width:130px">{$t('employeeMaster.sponsors.sponsor')}</th>
 						<th style="min-width:160px">{$t('employeeMaster.cols.contact')}</th>
 						{#if isMasterAdmin}
 						<th style="min-width:120px">🌍 Nationality</th>
@@ -927,6 +1103,17 @@
 							<span class="em-badge" style="background:{statusBg(emp.employment_status)};color:{statusColor(emp.employment_status)}">
 								{getStatusLabel(emp.employment_status || '—')}
 							</span>
+						</td>
+						<td
+							class="em-sponsor-cell"
+							on:dblclick|stopPropagation={() => { if (emp.sponsorship_status === true) openSponsorAssignModal(emp); }}
+							title={emp.sponsorship_status === true ? $t('employeeMaster.sponsors.doubleClickEdit') : ''}
+						>
+							{#if emp.sponsor_id}
+								<span class="em-sponsor-name">{lang === 'ar' ? (emp.sponsor_name_ar || emp.sponsor_name_en) : (emp.sponsor_name_en || emp.sponsor_name_ar)}</span>
+							{:else if emp.sponsorship_status === true}
+								<button class="em-sponsor-add" on:click|stopPropagation={() => openSponsorAssignModal(emp)} aria-label={$t('employeeMaster.sponsors.assign')}>+</button>
+							{/if}
 						</td>
 						<td class="em-cell-contact">
 							{#if emp.whatsapp_number}<span>📱 {emp.whatsapp_number}</span>{/if}
@@ -1151,6 +1338,58 @@
 	</div>
 	{/if}
 
+	<!-- ── SPONSORS TAB ── -->
+	{#if activeTab === 'sponsors'}
+	<div class="em-panel">
+		<div class="em-controls">
+			<button class="em-btn-add" on:click={openSponsorForm}>+ {$t('employeeMaster.sponsors.add')}</button>
+			<span class="em-count">{sponsors.length} {$t('employeeMaster.sponsors.title')}</span>
+		</div>
+
+		{#if showSponsorForm}
+			<form class="em-inline-form" on:submit|preventDefault={saveSponsor}>
+				<div class="em-inline-form-title">{$t('employeeMaster.sponsors.add')}</div>
+				<div class="em-inline-form-fields">
+					<div class="em-field">
+						<label for="sponsor-name-ar">{$t('employeeMaster.sponsors.nameAr')}</label>
+						<input id="sponsor-name-ar" bind:value={sponsorNameAr} dir="rtl" autocomplete="off" />
+					</div>
+					<div class="em-field">
+						<label for="sponsor-name-en">{$t('employeeMaster.sponsors.nameEn')}</label>
+						<input id="sponsor-name-en" bind:value={sponsorNameEn} dir="ltr" autocomplete="off" />
+					</div>
+				</div>
+				{#if sponsorFormError}<div class="em-modal-error">⚠️ {sponsorFormError}</div>{/if}
+				<div class="em-inline-form-actions">
+					<button type="button" class="em-btn-cancel" on:click={closeSponsorForm} disabled={sponsorSaving}>{$t('employeeMaster.modal.cancel')}</button>
+					<button type="submit" class="em-btn-save" disabled={sponsorSaving}>
+						{sponsorSaving ? $t('employeeMaster.modal.saving') : $t('employeeMaster.modal.save')}
+					</button>
+				</div>
+			</form>
+		{/if}
+
+		{#if sponsorsLoading}
+			<div class="em-state em-loading"><div class="em-spinner"></div> {$t('employeeMaster.loading')}</div>
+		{:else if sponsorsError}
+			<div class="em-state em-error">⚠️ {sponsorsError}</div>
+		{:else if sponsors.length === 0}
+			<div class="em-state em-empty">🤝 {$t('employeeMaster.sponsors.empty')}</div>
+		{:else}
+			<div class="em-table-wrap">
+				<table class="em-table">
+					<thead><tr><th>{$t('employeeMaster.sponsors.nameAr')}</th><th>{$t('employeeMaster.sponsors.nameEn')}</th><th>{$t('employeeMaster.cols.created')}</th></tr></thead>
+					<tbody>
+						{#each sponsors as sponsor (sponsor.id)}
+							<tr><td><strong>{sponsor.name_ar}</strong></td><td>{sponsor.name_en}</td><td class="em-muted">{formatDate(sponsor.created_at)}</td></tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</div>
+	{/if}
+
 	<!-- ============================================================ -->
 	<!-- DOCUMENTS EXPIRY TAB -->
 <!-- ============================================================ -->
@@ -1158,14 +1397,14 @@
 	<div class="em-panel" style="overflow:auto; padding:0; gap:0;">
 	<!-- Filters -->
 	<div class="flex flex-wrap gap-3 p-4 bg-white border-b border-slate-200">
-		<input type="text" bind:value={docSearchTerm} placeholder={$t('employeeMaster.docExpiry.searchPlaceholder')} class="border border-slate-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-[160px] focus:outline-none focus:ring-2 focus:ring-violet-400" />
-		<select bind:value={docSelectedBranch} class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+		<input type="text" bind:value={docSearchTerm} placeholder={$t('employeeMaster.docExpiry.searchPlaceholder')} class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" style="width:220px; min-width:220px; flex:0 0 220px;" />
+		<select bind:value={docSelectedBranch} class="doc-toolbar-select border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
 			<option value="">{$t('employeeMaster.docExpiry.allBranches')}</option>
 			{#each docUniqueBranches as b}
 				<option value={b.id}>{lang === 'ar' ? b.name_ar : b.name_en}</option>
 			{/each}
 		</select>
-		<select bind:value={docSelectedNationality} class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+		<select bind:value={docSelectedNationality} class="doc-toolbar-select border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
 			<option value="">{$t('employeeMaster.docExpiry.allNationalities')}</option>
 			{#each docUniqueNationalities as n}
 				<option value={n.id}>{lang === 'ar' ? n.name_ar : n.name_en}</option>
@@ -1176,7 +1415,7 @@
 			<span class="text-sm text-slate-600 self-center">{$t(`employeeMaster.docExpiry.documentTypes.${docFilterType}`)} ? {$t('employeeMaster.docExpiry.remainingLessThan')}: {docDaysLimit}</span>
 			<button on:click={() => docDaysLimit = null} class="em-btn-clear">{$t('employeeMaster.clearFilters')}</button>
 		{/if}
-		<select bind:value={docSelectedSponsorship} aria-label={$t('employeeFiles.sponsorshipStatus')} class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+		<select bind:value={docSelectedSponsorship} aria-label={$t('employeeFiles.sponsorshipStatus')} class="doc-toolbar-select border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
 			<option value="">{$t('employeeMaster.docExpiry.allSponsorshipStatuses')}</option>
 			<option value="on">{$t('employeeMaster.docExpiry.onSponsorship')}</option>
 			<option value="none">{$t('employeeMaster.docExpiry.noSponsorship')}</option>
@@ -1196,6 +1435,21 @@
 			</div>
 			{/if}
 		</div>
+		<select bind:value={docSortKey} aria-label={$t('employeeMaster.docExpiry.sortBy')} class="doc-toolbar-select border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+			<option value="">{$t('employeeMaster.docExpiry.noSorting')}</option>
+			{#each COLUMN_LABELS_EXP.filter(col => col.key.startsWith('doc_')) as col}
+				<option value={col.key}>{$t('employeeMaster.docExpiry.sortBy')} {col.label}</option>
+			{/each}
+		</select>
+		{#if docSortKey}
+			<button
+				on:click={() => docSortDirection = docSortDirection === 'asc' ? 'desc' : 'asc'}
+				class="border border-sky-300 text-sky-700 rounded-lg px-3 py-2 text-sm bg-white hover:bg-sky-50"
+				title={docSortDirection === 'asc' ? $t('employeeMaster.docExpiry.ascending') : $t('employeeMaster.docExpiry.descending')}
+			>
+				{docSortDirection === 'asc' ? '↑' : '↓'}
+			</button>
+		{/if}
 		<span class="text-sm text-slate-500 self-center">{docSortedData.length} {$t('employeeMaster.docExpiry.employees')}</span>
 		<button on:click={loadDocumentsExpiryData} class="border border-violet-300 text-violet-700 rounded-lg px-3 py-2 text-sm hover:bg-violet-50">↻ {$t('employeeMaster.docExpiry.refresh')}</button>
 	</div>
@@ -1224,6 +1478,7 @@
 					{#if docVisibleColumns.nationality}<th>{$t('employeeMaster.docExpiry.colNationality')}</th>{/if}
 					{#if docVisibleColumns.branch}<th>{$t('employeeMaster.docExpiry.colBranch')}</th>{/if}
 					{#if docVisibleColumns.sponsorship_status}<th>{$t('employeeFiles.sponsorshipStatus')}</th>{/if}
+					{#if docVisibleColumns.sponsor}<th>{$t('employeeMaster.sponsors.sponsor')}</th>{/if}
 					{#if docVisibleColumns.doc_id}<th style="text-align:center">{$t('employeeMaster.docExpiry.colIdExpiry')}</th>{/if}
 					{#if docVisibleColumns.doc_health_card}<th style="text-align:center">{$t('employeeMaster.docExpiry.colHealthCard')}</th>{/if}
 					{#if docVisibleColumns.doc_driving_licence}<th style="text-align:center">{$t('employeeMaster.docExpiry.colDrivingLicence')}</th>{/if}
@@ -1243,6 +1498,19 @@
 					{#if docVisibleColumns.branch}<td>{lang === 'ar' ? emp.branch_name_ar : emp.branch_name_en}</td>{/if}
 					{#if docVisibleColumns.sponsorship_status}
 						<td>{emp.sponsorship_status === true ? $t('employeeMaster.docExpiry.onSponsorship') : $t('employeeMaster.docExpiry.noSponsorship')}</td>
+					{/if}
+					{#if docVisibleColumns.sponsor}
+						<td
+							class="em-sponsor-cell"
+							on:dblclick={() => { if (emp.sponsorship_status === true) openSponsorAssignModal(emp); }}
+							title={emp.sponsorship_status === true ? $t('employeeMaster.sponsors.doubleClickEdit') : ''}
+						>
+							{#if emp.sponsor_id}
+								<span class="em-sponsor-name">{lang === 'ar' ? (emp.sponsor_name_ar || emp.sponsor_name_en) : (emp.sponsor_name_en || emp.sponsor_name_ar)}</span>
+							{:else if emp.sponsorship_status === true}
+								<button class="em-sponsor-add" on:click={() => openSponsorAssignModal(emp)} aria-label={$t('employeeMaster.sponsors.assign')}>+</button>
+							{/if}
+						</td>
 					{/if}
 					{#each [
 						{ col: 'doc_id', type: 'id', key: 'id_expiry_date' },
@@ -1562,6 +1830,39 @@
 {/if}
 
 <!-- ============================================================ -->
+<!-- SPONSOR ASSIGNMENT MODAL -->
+<!-- ============================================================ -->
+{#if showSponsorAssignModal}
+<div class="em-overlay" on:click|self={closeSponsorAssignModal} role="dialog" aria-modal="true">
+	<form class="em-modal" style="max-width:440px;" on:submit|preventDefault={saveSponsorAssignment}>
+		<div class="em-modal-header">
+			<h2 class="em-modal-title">{$t('employeeMaster.sponsors.assign')}</h2>
+			<button type="button" class="em-modal-close" on:click={closeSponsorAssignModal}>✕</button>
+		</div>
+		<div class="em-modal-body">
+			<p class="text-sm text-slate-500 mb-4"><strong>{sponsorAssignEmpName}</strong></p>
+			<div class="em-field">
+				<label for="employee-sponsor">{$t('employeeMaster.sponsors.sponsor')} *</label>
+				<select id="employee-sponsor" bind:value={sponsorAssignId}>
+					<option value="">{$t('employeeMaster.sponsors.select')}</option>
+					{#each sponsors as sponsor (sponsor.id)}
+						<option value={String(sponsor.id)}>{lang === 'ar' ? sponsor.name_ar : sponsor.name_en}</option>
+					{/each}
+				</select>
+			</div>
+			{#if sponsorAssignError}<div class="em-modal-error">⚠️ {sponsorAssignError}</div>{/if}
+		</div>
+		<div class="em-modal-footer">
+			<button type="button" class="em-btn-cancel" on:click={closeSponsorAssignModal} disabled={sponsorAssignSaving}>{$t('employeeMaster.modal.cancel')}</button>
+			<button type="submit" class="em-btn-save" disabled={sponsorAssignSaving}>
+				{sponsorAssignSaving ? $t('employeeMaster.modal.saving') : $t('employeeMaster.modal.save')}
+			</button>
+		</div>
+	</form>
+</div>
+{/if}
+
+<!-- ============================================================ -->
 <!-- STATUS CHANGE MODAL (Employee Status) -->
 <!-- ============================================================ -->
 {#if showStatusModal}
@@ -1685,6 +1986,44 @@
 .em-tabs .em-tab:nth-child(5)       { background: #fef08a; color: #b91c1c; }
 .em-tabs .em-tab:nth-child(5):hover { background: #fde047; color: #991b1b; opacity: 1; }
 .em-tabs .em-tab:nth-child(5).active{ background: #facc15; color: #991b1b; opacity: 1; box-shadow: 0 2px 8px rgba(250,204,21,0.45); border-bottom: 2px solid #b45309; font-weight: 700; }
+
+.em-tabs .em-tab:nth-child(6)       { background: #bae6fd; color: #0c4a6e; }
+.em-tabs .em-tab:nth-child(6):hover { background: #38bdf8; color: #fff; opacity: 1; }
+.em-tabs .em-tab:nth-child(6).active{ background: #0284c7; color: #fff; opacity: 1; box-shadow: 0 2px 8px rgba(2,132,199,0.35); border-bottom: 2px solid #075985; font-weight: 700; }
+
+.em-inline-form {
+	margin: 16px;
+	padding: 18px;
+	background: #f8fafc;
+	border: 1px solid #bae6fd;
+	border-radius: 12px;
+	box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+.em-inline-form-title { margin-bottom: 14px; color: #0c4a6e; font-size: 16px; font-weight: 700; }
+.em-inline-form-fields { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 14px; }
+.em-inline-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+@media (max-width: 700px) { .em-inline-form-fields { grid-template-columns: 1fr; } }
+.em-sponsor-cell { min-width: 130px; cursor: pointer; }
+.em-sponsor-name { color: #0369a1; font-weight: 600; }
+.em-sponsor-add {
+	width: 28px;
+	height: 28px;
+	border: 1px dashed #38bdf8;
+	border-radius: 8px;
+	background: #f0f9ff;
+	color: #0284c7;
+	font-size: 18px;
+	font-weight: 700;
+	line-height: 1;
+}
+.em-sponsor-add:hover { background: #e0f2fe; border-style: solid; }
+.doc-toolbar-select {
+	width: max-content;
+	min-width: 180px;
+	max-width: none;
+	flex: 0 0 auto;
+	padding-inline-end: 34px;
+}
 
 /* ── Panel ── */
 .em-panel {

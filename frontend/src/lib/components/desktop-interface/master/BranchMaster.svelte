@@ -6,13 +6,20 @@
 	// import { goAPI } from '$lib/utils/goAPI'; // Removed - Go backend no longer used
 
 	// Tab management
-	let activeTab: 'branches' | 'approvers' = 'branches';
+	export let initialTab: 'branches' | 'approvers' = 'branches';
+	export let hideTabSwitcher = true;
+	let activeTab: 'branches' | 'approvers' = initialTab;
 
 	// State management
-	let branches: Branch[] = [];
+	type BranchWithCompany = Branch & {
+		company_id: number | null;
+		company_master?: { name_en: string; name_ar: string } | null;
+	};
+	let branches: BranchWithCompany[] = [];
+	let companies: Array<{ id: number; name_en: string; name_ar: string }> = [];
 	let showCreateBranchPopup = false;
 	let showEditBranchPopup = false;
-	let currentBranch: Partial<Branch> = {
+	let currentBranch: Partial<BranchWithCompany> = {
 		name_en: '',
 		name_ar: '',
 		location_en: '',
@@ -48,9 +55,23 @@
 
 	// Load branches on component mount
 	onMount(async () => {
+		await loadCompanies();
 		await loadBranches();
-		await loadApprovers();
+		if (initialTab === 'approvers') await loadApprovers();
 	});
+
+	async function loadCompanies() {
+		const { data, error } = await supabase
+			.from('company_master')
+			.select('id, name_en, name_ar')
+			.order('name_en', { ascending: true });
+		if (error) {
+			errorMessage = error.message || 'Failed to load companies';
+			companies = [];
+			return;
+		}
+		companies = data || [];
+	}
 
 	// Load branches from Supabase
 	async function loadBranches() {
@@ -61,7 +82,7 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('*')
+				.select('*, company_master(name_en, name_ar)')
 				.order('created_at', { ascending: false });
 			
 			const loadTime = Math.round(performance.now() - startTime);
@@ -238,7 +259,8 @@
 			location_ar: '',
 			is_active: true,
 			is_main_branch: false,
-			vat_number: ''
+			vat_number: '',
+			company_id: companies[0]?.id ?? null
 		};
 		showCreateBranchPopup = true;
 	}
@@ -261,6 +283,10 @@
 		showEditBranchPopup = true;
 	}
 
+	function openCompanyLinkPopup(branch: BranchWithCompany) {
+		openEditBranchPopup(branch);
+	}
+
 	function closeEditBranchPopup() {
 		showEditBranchPopup = false;
 		editingBranch = null;
@@ -275,7 +301,7 @@
 	}
 
 	async function saveBranch() {
-		if (!currentBranch.name_en || !currentBranch.name_ar || !currentBranch.location_en || !currentBranch.location_ar) {
+		if (!currentBranch.name_en || !currentBranch.name_ar || !currentBranch.location_en || !currentBranch.location_ar || !currentBranch.company_id) {
 			alert('Please fill in all fields');
 			return;
 		}
@@ -291,7 +317,8 @@
 				location_ar: currentBranch.location_ar!,
 				is_active: currentBranch.is_active || true,
 				is_main_branch: currentBranch.is_main_branch || false,
-				vat_number: currentBranch.vat_number || null
+				vat_number: currentBranch.vat_number || null,
+				company_id: Number(currentBranch.company_id)
 			};
 
 			let result;
@@ -686,6 +713,7 @@
 </script>
 
 <div class="h-full flex flex-col bg-[#f8fafc] overflow-hidden font-sans" dir={$locale === 'ar' ? 'rtl' : 'ltr'}>
+	{#if !hideTabSwitcher}
 	<!-- Header with Tab Navigation -->
 	<div class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-end shadow-sm">
 		<div class="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 shadow-inner">
@@ -722,6 +750,7 @@
 			</button>
 		</div>
 	</div>
+	{/if}
 
 	<!-- Main Content Area -->
 	<div class="flex-1 p-8 relative overflow-y-auto bg-gradient-to-br from-white via-slate-50 to-slate-100">
@@ -754,46 +783,54 @@
 				{/if}
 
 				<!-- Branches Table Card -->
-				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
+				<div class="branches-card overflow-hidden flex flex-col">
 					<!-- Branches Header with Create Button -->
-					<div class="bg-white border-b border-slate-100 px-8 py-6 flex items-center justify-between">
-						<h2 class="text-2xl font-bold text-slate-800">🏢 Branches</h2>
+					<div class="branches-card-header flex items-center justify-between">
+						<div>
+							<h2 class="text-xl font-bold text-white">🏢 {$locale === 'ar' ? 'إدارة الفروع' : 'Branch Master'}</h2>
+							<p class="text-xs text-blue-100 mt-1">{$locale === 'ar' ? 'إدارة الفروع وربطها بالشركات / المؤسسات' : 'Manage branches and their company / establishment links'}</p>
+						</div>
 						<button 
-							class="flex items-center gap-2.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-all duration-300 shadow-md hover:shadow-lg"
+							class="create-branch-button flex items-center gap-2.5 px-4 py-2.5 text-white rounded-lg font-semibold transition-all duration-300"
 							on:click={openCreateBranchPopup}
 							disabled={isLoading}
 						>
 							<span class="text-lg">+</span>
-							Create Branch
+							{$locale === 'ar' ? 'إنشاء فرع' : 'Create Branch'}
 						</button>
 					</div>
 
 					<!-- Branches Table -->
-					<div class="overflow-x-auto flex-1">
-						<table class="w-full text-sm">
+					<div class="branches-table-wrap overflow-x-auto flex-1">
+						<table class="branches-table w-full text-sm">
 							<thead class="bg-slate-50 border-b border-slate-200 sticky top-0">
 								<tr>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Branch ID</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Name (EN)</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Name (AR)</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Location (EN)</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Location (AR)</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">VAT</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Status</th>
-									<th class="px-6 py-4 text-left font-bold text-slate-700">Main</th>
-									<th class="px-6 py-4 text-center font-bold text-slate-700">Biometric Sync</th>
-									<th class="px-6 py-4 text-center font-bold text-slate-700">Actions</th>
+									<th>{$locale === 'ar' ? 'معرف الفرع' : 'Branch ID'}</th>
+									<th>{$locale === 'ar' ? 'اسم الفرع' : 'Branch Name'}</th>
+									<th>{$locale === 'ar' ? 'الشركة / المؤسسة' : 'Company / Establishment'}</th>
+									<th>{$locale === 'ar' ? 'الموقع' : 'Location'}</th>
+									<th>{$locale === 'ar' ? 'الرقم الضريبي' : 'VAT'}</th>
+									<th>{$locale === 'ar' ? 'مزامنة البصمة' : 'Biometric Sync'}</th>
+									<th>{$locale === 'ar' ? 'الحالة' : 'Status'}</th>
+									<th>{$locale === 'ar' ? 'الرئيسي' : 'Main'}</th>
+									<th>{$locale === 'ar' ? 'الإجراءات' : 'Actions'}</th>
 								</tr>
 							</thead>
 							<tbody>
 								{#each branches as branch (branch.id)}
 									{@const bio = biometricInfo(branch)}
 									<tr class="border-b border-slate-200 hover:bg-blue-50/50 transition">
-										<td class="px-6 py-4 text-slate-700 font-mono text-xs">{branch.id}</td>
-										<td class="px-6 py-4 text-slate-700 font-medium">{branch.name_en}</td>
-										<td class="px-6 py-4 text-slate-700 font-medium text-right">{branch.name_ar}</td>
-										<td class="px-6 py-4 text-slate-600">{branch.location_en}</td>
-										<td class="px-6 py-4 text-slate-600 text-right">{branch.location_ar}</td>
+										<td><span class="branch-id-badge">{branch.id}</span></td>
+										<td>{$locale === 'ar' ? branch.name_ar : branch.name_en}</td>
+										<td class="px-6 py-4 text-center">
+											<div class="flex flex-col items-center gap-1.5">
+												<span class="company-name-pill">{$locale === 'ar' ? (branch.company_master?.name_ar || 'غير مرتبط') : (branch.company_master?.name_en || 'Not linked')}</span>
+												<button class="company-link-button" on:click={() => openCompanyLinkPopup(branch)}>
+											{$locale === 'ar' ? (branch.company_id ? 'تغيير الربط' : 'ربط') : (branch.company_id ? 'Change Link' : 'Link')}
+												</button>
+											</div>
+										</td>
+										<td>{$locale === 'ar' ? branch.location_ar : branch.location_en}</td>
 										<td class="px-6 py-4">
 											{#if branch.vat_number}
 												<span class="inline-block px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">{branch.vat_number}</span>
@@ -801,8 +838,8 @@
 												<span class="text-slate-400">—</span>
 											{/if}
 										</td>
-										<td class="px-6 py-4 min-w-[260px]">
-											<div class="flex flex-col items-center gap-2" title={bio?.ready ? '' : biometricMissing(branch)}>
+										<td class="biometric-column">
+											<div class="biometric-cell" title={bio?.ready ? '' : biometricMissing(branch)}>
 												<button
 													class="relative w-12 h-6 rounded-full transition-colors {bio?.sync_enabled ? 'bg-emerald-500' : 'bg-slate-300'} disabled:opacity-40 disabled:cursor-not-allowed"
 													on:click={() => toggleBiometricSync(branch)}
@@ -811,14 +848,14 @@
 												>
 													<span class="absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all {bio?.sync_enabled ? 'left-7' : 'left-1'}"></span>
 												</button>
-												<span class="text-[10px] font-bold {bio?.ready ? 'text-slate-600' : 'text-red-600'}">{bio?.ready ? (bio?.sync_enabled ? 'Automatic enabled' : 'Ready — disabled') : 'Configuration incomplete'}</span>
+												<span class="biometric-status {bio?.ready ? 'ready' : 'missing'}">{$locale === 'ar' ? (bio?.ready ? (bio?.sync_enabled ? 'التلقائي مفعل' : 'جاهز — معطل') : 'الإعداد غير مكتمل') : (bio?.ready ? (bio?.sync_enabled ? 'Automatic enabled' : 'Ready — disabled') : 'Configuration incomplete')}</span>
 												<div class="flex gap-1">
-													<select class="px-2 py-1 border border-slate-200 rounded text-[10px]" bind:value={biometricModes[Number(branch.id)]} disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}>
-														<option value="both">Sync both</option><option value="punches">Punches</option><option value="employees">Employees</option><option value="dry-run">Dry run</option>
+													<select class="biometric-mode-select px-2 py-1 border border-slate-200 rounded" bind:value={biometricModes[Number(branch.id)]} disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}>
+													<option value="both">{$locale === 'ar' ? 'مزامنة الكل' : 'Sync both'}</option><option value="punches">{$locale === 'ar' ? 'البصمات' : 'Punches'}</option><option value="employees">{$locale === 'ar' ? 'الموظفون' : 'Employees'}</option>
 													</select>
-													<button class="px-2 py-1 rounded text-[10px] font-bold bg-cyan-100 text-cyan-700 hover:bg-cyan-200 disabled:opacity-40" on:click={() => runBiometricSync(branch)} disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}>Sync Now</button>
+												<button class="px-2 py-1 rounded text-[10px] font-bold bg-cyan-100 text-cyan-700 hover:bg-cyan-200 disabled:opacity-40" on:click={() => runBiometricSync(branch)} disabled={!bio?.ready || biometricActionBranch === Number(branch.id)}>{$locale === 'ar' ? 'مزامنة الآن' : 'Sync Now'}</button>
 												</div>
-												{#if !bio?.ready && bio?.missing_requirements?.length}<button class="text-[10px] text-red-600 underline" on:click={() => alert(biometricMissing(branch))}>Show missing details</button>{/if}
+											{#if !bio?.ready && bio?.missing_requirements?.length}<button class="text-[10px] text-red-600 underline" on:click={() => alert(biometricMissing(branch))}>{$locale === 'ar' ? 'عرض التفاصيل الناقصة' : 'Show missing details'}</button>{/if}
 											</div>
 										</td>
 										<td class="px-6 py-4">
@@ -826,7 +863,7 @@
 											{branch.is_active 
 												? 'bg-emerald-100 text-emerald-800' 
 												: 'bg-red-100 text-red-800'}">
-												{branch.is_active ? '✓ Active' : '✗ Inactive'}
+											{$locale === 'ar' ? (branch.is_active ? '✓ نشط' : '✗ غير نشط') : (branch.is_active ? '✓ Active' : '✗ Inactive')}
 											</span>
 										</td>
 										<td class="px-6 py-4">
@@ -843,21 +880,21 @@
 													on:click={() => toggleBranchActive(branch)}
 													disabled={isLoading}
 												>
-													{branch.is_active ? 'Deactivate' : 'Activate'}
+											{$locale === 'ar' ? (branch.is_active ? 'تعطيل' : 'تفعيل') : (branch.is_active ? 'Deactivate' : 'Activate')}
 												</button>
 												<button 
 													class="px-2.5 py-1.5 rounded text-xs font-bold bg-blue-100 text-blue-700 hover:bg-blue-200 transition"
 													on:click={() => openEditBranchPopup(branch)}
 													disabled={isLoading}
 												>
-													Edit
+											{$locale === 'ar' ? 'تعديل' : 'Edit'}
 												</button>
 												<button 
 													class="px-2.5 py-1.5 rounded text-xs font-bold bg-red-100 text-red-700 hover:bg-red-200 transition"
 													on:click={() => deleteBranch(branch.id)}
 													disabled={isLoading}
 												>
-													Delete
+											{$locale === 'ar' ? 'حذف' : 'Delete'}
 												</button>
 											</div>
 										</td>
@@ -865,8 +902,8 @@
 								{/each}
 								{#if branches.length === 0 && !isLoading}
 									<tr>
-										<td colspan="10" class="px-6 py-12 text-center">
-											<div class="text-slate-400 font-semibold text-lg">📭 No branches found</div>
+										<td colspan="9" class="px-6 py-12 text-center">
+											<div class="text-slate-400 font-semibold text-lg">📭 {$locale === 'ar' ? 'لا توجد فروع' : 'No branches found'}</div>
 										</td>
 									</tr>
 								{/if}
@@ -1008,6 +1045,17 @@
 				<form on:submit|preventDefault={saveBranch}>
 					<div class="form-row">
 						<div class="form-group">
+							<label for="company-create">{$locale === 'ar' ? 'الشركة / المؤسسة' : 'Company / Establishment'}</label>
+							<select id="company-create" bind:value={currentBranch.company_id} required>
+								<option value={null} disabled>{$locale === 'ar' ? 'اختر الشركة / المؤسسة' : 'Select company / establishment'}</option>
+								{#each companies as company (company.id)}
+									<option value={company.id}>{company.name_en} — {company.name_ar}</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+					<div class="form-row">
+						<div class="form-group">
 							<label for="name-en">Name (English)</label>
 							<input
 								id="name-en"
@@ -1107,6 +1155,17 @@
 			
 			<div class="popup-content">
 				<form on:submit|preventDefault={saveBranch}>
+					<div class="form-row">
+						<div class="form-group">
+							<label for="company-edit">{$locale === 'ar' ? 'الشركة / المؤسسة' : 'Company / Establishment'}</label>
+							<select id="company-edit" bind:value={currentBranch.company_id} required>
+								<option value={null} disabled>{$locale === 'ar' ? 'اختر الشركة / المؤسسة' : 'Select company / establishment'}</option>
+								{#each companies as company (company.id)}
+									<option value={company.id}>{company.name_en} — {company.name_ar}</option>
+								{/each}
+							</select>
+						</div>
+					</div>
 					<div class="form-row">
 						<div class="form-group">
 							<label for="edit-name-en">Name (English)</label>
@@ -1455,6 +1514,200 @@
 {/if}
 
 <style>
+	.branches-card {
+		border: 1px solid #bfdbfe;
+		border-radius: 14px;
+		background: #ffffff;
+		box-shadow: 0 12px 30px rgba(30, 64, 175, .10);
+	}
+
+	.branches-card-header {
+		padding: 16px 20px;
+		background: linear-gradient(120deg, #075985 0%, #0369a1 48%, #0891b2 100%);
+		border-bottom: 1px solid #0e7490;
+	}
+
+	.branches-card-header h2 {
+		color: #ffffff !important;
+		font-size: 20px;
+		letter-spacing: -.01em;
+	}
+
+	.branches-card-header p {
+		color: #bae6fd !important;
+		font-size: 12px;
+	}
+
+	.create-branch-button {
+		background: rgba(255, 255, 255, .18);
+		border: 1px solid rgba(255, 255, 255, .55);
+		box-shadow: 0 4px 12px rgba(15, 23, 42, .18);
+	}
+
+	.create-branch-button:hover {
+		background: #ffffff;
+		color: #075985;
+		transform: translateY(-1px);
+	}
+
+	.branches-table-wrap {
+		padding: 14px;
+		background: #f8fafc;
+	}
+
+	.branches-table {
+		border-collapse: separate;
+		border-spacing: 0;
+		border: 1px solid #94a3b8;
+		border-radius: 10px;
+		overflow: hidden;
+		background: #ffffff;
+		box-shadow: 0 3px 10px rgba(15, 23, 42, .06);
+		min-width: 1320px;
+	}
+
+	.branches-table th {
+		padding: 12px 10px !important;
+		background: #155e75 !important;
+		color: #ffffff !important;
+		text-align: center;
+		font-size: 11.5px;
+		font-weight: 800;
+		letter-spacing: .035em;
+		text-transform: uppercase;
+		border-right: 1px solid rgba(255, 255, 255, .22);
+		border-bottom: 2px solid #083344;
+		white-space: nowrap;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		text-shadow: 0 1px 1px rgba(0, 0, 0, .25);
+	}
+
+	.branches-table thead,
+	.branches-table thead tr {
+		background: #155e75 !important;
+	}
+
+	.branches-table td {
+		padding: 10px !important;
+		text-align: center !important;
+		border-right: 1px solid #cbd5e1;
+		border-bottom: 1px solid #cbd5e1;
+		vertical-align: middle;
+		font-size: 13px;
+		font-weight: 500;
+	}
+
+	.branches-table th:last-child,
+	.branches-table td:last-child {
+		border-right: 0;
+	}
+
+	.branches-table tbody tr:last-child td {
+		border-bottom: 0;
+	}
+
+	.branches-table tbody tr:nth-child(even) {
+		background: #f1f5f9;
+	}
+
+	.branches-table tbody tr:hover {
+		background: #cffafe;
+		box-shadow: inset 3px 0 0 #06b6d4;
+	}
+
+	.branches-table tbody tr {
+		transition: background-color .18s ease, box-shadow .18s ease;
+	}
+
+	.branches-table td button {
+		box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+	}
+
+	.branch-id-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 30px;
+		height: 30px;
+		padding: 0 7px;
+		border-radius: 999px;
+		background: #e0f2fe;
+		color: #075985;
+		font-weight: 800;
+	}
+
+	.company-name-pill {
+		display: inline-block;
+		max-width: 210px;
+		padding: 6px 10px;
+		border: 1px solid #a5f3fc;
+		border-radius: 7px;
+		background: #ecfeff;
+		color: #155e75;
+		font-size: 12px;
+		font-weight: 700;
+		line-height: 1.3;
+	}
+
+	.company-link-button {
+		padding: 5px 11px;
+		border: 1px solid #06b6d4;
+		border-radius: 6px;
+		background: #06b6d4;
+		color: #ffffff;
+		font-size: 11px;
+		font-weight: 700;
+	}
+
+	.company-link-button:hover {
+		background: #0891b2;
+	}
+
+	.biometric-column {
+		min-width: 310px;
+		width: 310px;
+	}
+
+	.biometric-cell {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.biometric-status {
+		font-size: 10px;
+		font-weight: 800;
+	}
+
+	.biometric-status.ready { color: #047857; }
+	.biometric-status.missing { color: #dc2626; }
+
+	.biometric-mode-select {
+		width: 145px;
+		min-width: 145px;
+		height: 30px;
+		font-size: 11px;
+		color: #334155;
+		background: #ffffff;
+	}
+
+	.branches-table td:last-child > div {
+		gap: 6px;
+		flex-wrap: nowrap;
+	}
+
+	.branches-table td:last-child button {
+		min-width: 58px;
+		min-height: 30px;
+		padding: 6px 9px !important;
+		border: 1px solid rgba(100, 116, 139, .18);
+		font-size: 11px;
+		font-weight: 700;
+	}
+
 	.branch-master {
 		padding: 24px;
 		height: 100%;

@@ -108,6 +108,12 @@ function extractSidebarButtonNames(sidebarCode: string): Map<string, string> {
 // renamed there (e.g. Vendor → Sourcing) without this catalog being updated.
 // ─────────────────────────────────────────────────────────────────────────
 const structure: Record<string, Record<string, string[]>> = {
+	COMPANY: {
+		DASHBOARD: ['COMPANY_DASHBOARD'],
+		MANAGE: ['CREATE_COMPANY'],
+		OPERATIONS: ['COMPANY_OPERATIONS'],
+		REPORTS: ['COMPANY_REPORTS']
+	},
 	DELIVERY: {
 		DASHBOARD: [],
 		MANAGE: ['CUSTOMER_MASTER', 'AD_MANAGER', 'PRODUCTS_MANAGER', 'DELIVERY_MANAGE_PRODUCTS', 'DELIVERY_SETTINGS'],
@@ -196,7 +202,7 @@ const structure: Record<string, Record<string, string[]>> = {
 	},
 	SYSTEM: {
 		DASHBOARD: [],
-		MANAGE: ['BUTTON_ACCESS_CONTROL', 'BRANCHES', 'ERP_PRODUCT_MANAGER', 'ERP_CREDENTIALS', 'SETTINGS', 'BRANDING'],
+		MANAGE: ['BUTTON_ACCESS_CONTROL', 'ERP_PRODUCT_MANAGER', 'ERP_CREDENTIALS', 'SETTINGS', 'BRANDING'],
 		OPERATIONS: ['HELPER_APPS', 'SIDEBAR_ANIMATION'],
 		REPORTS: ['CENTRAL_PERFORMANCE', 'DRAWER_ACTION_MONITOR']
 	},
@@ -221,6 +227,7 @@ const structure: Record<string, Record<string, string[]>> = {
 // defines the order sections are returned in, which drives the sort order
 // shown in Button Access Control.
 const SECTION_DISPLAY_NAMES: Record<string, string> = {
+	COMPANY: 'Company',
 	DELIVERY: 'Delivery',
 	VENDOR: 'Sourcing',
 	MEDIA: 'Designer',

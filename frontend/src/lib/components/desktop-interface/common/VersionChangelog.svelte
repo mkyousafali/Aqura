@@ -16,27 +16,27 @@ import { appVersion, interfaceVersions } from '$lib/appVersion';
 <div class="value-grid">
 <div class="value-item">
 <p class="value-label">Total Development Hours</p>
-<p class="value-number">5,430 hours</p>
-<p class="value-note">Phase 1: 4,842 hrs &nbsp;|&nbsp; Phase 2: 588 hrs</p>
+<p class="value-number">5,940 hours</p>
+<p class="value-note">Phase 1: 4,842 hrs &nbsp;|&nbsp; Phase 2: 1,098 hrs</p>
 </div>
 <div class="value-item">
 <p class="value-label">Total Duration</p>
-<p class="value-number">~11 months</p>
-<p class="value-note">Phase 1: Jul 2025 – Mar 2026 &nbsp;|&nbsp; Phase 2: Apr – Jun 2026</p>
+<p class="value-number">15 months</p>
+<p class="value-note">Phase 1: Jul 2025 – Mar 2026 &nbsp;|&nbsp; Phase 2: Apr – Sep 2026</p>
 </div>
 <div class="value-item">
 <p class="value-label">Development Cost</p>
-<p class="value-number">610,875 SAR</p>
+<p class="value-number">668,250 SAR</p>
 <p class="value-note">Human Development (Professional)</p>
 </div>
 <div class="value-item">
 <p class="value-label">AI Assistance Cost</p>
-<p class="value-number">16,217.58 SAR</p>
-<p class="value-note">Phase 1: $3,689.43 USD + Phase 2: $635.26 USD</p>
+<p class="value-number">20,621.40 SAR</p>
+<p class="value-note">Phase 1: $3,689.43 USD + Phase 2: $1,809.61 USD</p>
 </div>
 <div class="value-item highlight">
 <p class="value-label">Grand Total Value</p>
-<p class="value-number">627,092.58 SAR</p>
+<p class="value-number">688,871.40 SAR</p>
 <p class="value-note">Total Professional Investment</p>
 </div>
 </div>
@@ -74,7 +74,24 @@ import { appVersion, interfaceVersions } from '$lib/appVersion';
 </div>
 
 <div class="latest-change">
-<h3>✨ Latest Update — June 4, 2026 (AQ7.6.6.6)</h3>
+<h3>🚀 Latest Update — 30 September 2026 ({appVersion})</h3>
+<p class="change-description">Aqura expanded substantially from June through September with production deployment automation, stronger authentication, AI flyer creation and publishing, task automation, finance reporting, cashier controls, and mobile workflow improvements.</p>
+<div class="change-details">
+<h4>Major updates delivered through 30 September 2026:</h4>
+<ul>
+<li><b>Authentication and security:</b> Secure interface sessions, inactivity reauthentication, improved desktop and cashier login, customer WhatsApp OTP, centralized API-key management, and authenticated frontend data access.</li>
+<li><b>AI flyers:</b> AI-generated multi-page flyers, shared artwork, offer context, color themes, Improve and region editing, saved flyer library, branch publishing, page selection, and publication scheduling.</li>
+<li><b>Auto Tasks:</b> Automated tasks with branch configuration, performance tracking, evidence capture, and retirement of legacy receiving tasks.</li>
+<li><b>Finance and ERP:</b> Sales Analysis, ERP Ledgers, ERP Entry Tasks, vendor-payment exports, Safe Box workflows, cashier drawer-change controls, and audit reporting.</li>
+<li><b>HR and attendance:</b> Biometric edge synchronization, attendance analysis, recurring employee days off, employee analysis improvements, and branch-aware monitoring.</li>
+<li><b>Mobile and customer:</b> Standalone Android app with FCM push notifications, safe-area corrections, fixed interface themes, improved navigation, and customer authentication.</li>
+<li><b>Production operations:</b> Atomic deployments with versioning, health checks, rollback protection, release retention, and production build optimization.</li>
+</ul>
+</div>
+</div>
+
+<div class="previous-change">
+<h3>✨ Update — June 4, 2026 (AQ7.6.6.6)</h3>
 <p class="change-description">Desktop security code QR toggle, mobile POS-closed enhancements, and fingerprint card visual improvements.</p>
 <div class="change-details">
 <h4>🖥️ Desktop Interface (v7):</h4>
@@ -91,21 +108,21 @@ import { appVersion, interfaceVersions } from '$lib/appVersion';
 </div>
 
 <div class="latest-change">
-<h3>🚀 Phase Two — In Progress (Updated June 4, 2026)</h3>
+<h3>🚀 Phase Two — In Progress (Updated 30 September 2026)</h3>
 <p class="change-description">Phase Two development is actively underway with major enhancements, new modules, system optimizations, and expanded functionality across all platforms.</p>
 <div class="change-details">
 <h4>Phase Two Development Summary:</h4>
 <ul>
 <li>👨‍💻 <b>Developed by:</b> Yousafali — mk.yousafali@gmail.com</li>
-<li>📅 <b>Development Period:</b> April 1, 2026 — June 4, 2026 (ongoing)</li>
-<li>⏱️ <b>Duration so far:</b> 98 days (~3.3 months)</li>
+<li>📅 <b>Development Period:</b> April 1, 2026 — September 30, 2026</li>
+<li>⏱️ <b>Duration:</b> 183 calendar days (~6 months)</li>
 <li>🕐 <b>Average Daily Development:</b> 6 hours/day</li>
-<li>⚡ <b>Development Hours (Phase 2):</b> 588 hours (as of June 4, 2026)</li>
-<li>💰 <b>Professional Development Cost (Phase 2):</b> 66,150 SAR</li>
-<li>📊 <b>Combined Development Hours:</b> Phase One (4,842 hrs) + Phase Two (588 hrs) = 5,430 hours</li>
-<li>💰 <b>Combined Professional Development Cost:</b> 610,875 SAR</li>
+<li>⚡ <b>Development Hours (Phase 2):</b> 1,098 hours (183 days × 6 hours/day)</li>
+<li>💰 <b>Professional Development Value (Phase 2):</b> 123,525 SAR</li>
+<li>📊 <b>Combined Development Hours:</b> Phase One (4,842 hrs) + Phase Two (1,098 hrs) = 5,940 hours</li>
+<li>💰 <b>Combined Professional Development Value:</b> 668,250 SAR</li>
 </ul>
-<h4>Phase Two Key Features Delivered (Apr 1 — June 4, 2026):</h4>
+<h4>Phase Two Key Features Delivered (Apr 1 — September 30, 2026):</h4>
 <ul>
 <li>👥 <b>Employee Master Window:</b> Unified HR hub with Dashboard, Departments, Levels, Positions &amp; Documents Expiry tabs</li>
 <li>🛠️ <b>HR Services:</b> Employee leave salary rules, shift assignments, and service management</li>
@@ -126,38 +143,40 @@ import { appVersion, interfaceVersions } from '$lib/appVersion';
 </div>
 
 <div class="latest-change">
-<h3>🤖 AI Assistant Costs — Updated June 4, 2026</h3>
+<h3>🤖 AI Assistant Costs — Updated 30 September 2026</h3>
 <p class="change-description">AI assistance (Claude / GitHub Copilot) has been utilized throughout both phases to accelerate coding, debugging, and feature implementation.</p>
 <div class="change-details">
 <h4>AI Development Cost Summary:</h4>
 <ul>
 <li>👨‍💻 <b>AI Model Used:</b> Claude / GitHub Copilot</li>
 <li>📅 <b>Phase 1 AI Usage:</b> Feb 27, 2026 — Mar 5, 2026 → <b>$3,689.43 USD = 13,835.36 SAR</b></li>
-<li>📅 <b>Phase 2 AI Usage:</b> Apr 1, 2026 — June 4, 2026 → <b>$635.26 USD = 2,382.22 SAR</b></li>
-<li>📊 <b>Total AI Cost:</b> 13,835.36 + 2,382.22 = <b>16,217.58 SAR</b></li>
-<li>💰 <b>Grand Total Investment:</b> Development (610,875 SAR) + AI (16,217.58 SAR) = <b>627,092.58 SAR</b></li>
+<li>📅 <b>Phase 2 AI Usage:</b> April 1, 2026 — September 30, 2026</li>
+<li><b>Monthly billed amounts:</b> Apr $26.25 · May $31.64 · Jun $178.53 · Jul $761.15 · Aug $736.37 · Sep $75.67</li>
+<li>🤖 <b>Phase 2 AI Cost:</b> <b>$1,809.61 USD = 6,786.04 SAR</b> (3.75 SAR/USD)</li>
+<li>📊 <b>Total AI Cost:</b> 13,835.36 + 6,786.04 = <b>20,621.40 SAR</b></li>
+<li>💰 <b>Grand Total Investment:</b> Development value (668,250 SAR) + AI (20,621.40 SAR) = <b>688,871.40 SAR</b></li>
 </ul>
 </div>
 </div>
 
 <div class="latest-change">
-<h3>💵 Real Cost Breakdown — Actual Expenses (Updated June 4, 2026)</h3>
+<h3>💵 Real Cost Breakdown — Actual Expenses (Updated 30 September 2026)</h3>
 <p class="change-description">Real cost calculation based on actual daily developer rate (94 SAR/day) minus 4 free days per month, plus AI expenses incurred. Note: Phase Two has no additional developer payment.</p>
 <div class="change-details">
 <h4>Real Development Cost Summary:</h4>
 <ul>
 <li>💼 <b>Developer Daily Rate:</b> 94 SAR/day</li>
-<li>📅 <b>Total Duration:</b> ~10 months (July 2025 — May 2026)</li>
+<li>📅 <b>Total Development Period:</b> 15 months (July 2025 — September 2026)</li>
 <li>📅 <b>Phase One Duration:</b> 269 days (~8.8 months)</li>
 <li>📅 <b>Phase One Free Days:</b> 36 days (4 days/month × 9 months)</li>
 <li>📅 <b>Phase One Paid Days:</b> 233 days × 94 SAR/day = <b>21,902 SAR</b></li>
-<li>📅 <b>Phase Two Duration:</b> 65 days (Apr 1 — June 4, 2026)</li>
+<li>📅 <b>Phase Two Duration:</b> 183 days (Apr 1 — September 30, 2026)</li>
 <li>⚠️ <b>Phase Two Developer Cost:</b> <b>0 SAR</b> — No additional payment for Phase Two development</li>
 <li>📊 <b>Total Developer Real Cost:</b> <b>21,902 SAR</b> (Phase One additional salary for Yousuf)</li>
 <li>🤖 <b>Phase One AI Cost:</b> 13,835.36 SAR</li>
-<li>🤖 <b>Phase Two AI Cost:</b> 2,382.22 SAR</li>
-<li>🤖 <b>Total AI Cost:</b> <b>16,217.58 SAR</b></li>
-<li>💰 <b>Grand Total Real Cost:</b> <b>38,119.58 SAR</b></li>
+<li>🤖 <b>Phase Two AI Cost:</b> 6,786.04 SAR</li>
+<li>🤖 <b>Total AI Cost:</b> <b>20,621.40 SAR</b></li>
+<li>💰 <b>Grand Total Real Cost:</b> <b>42,523.40 SAR</b></li>
 </ul>
 </div>
 </div>
@@ -167,19 +186,19 @@ import { appVersion, interfaceVersions } from '$lib/appVersion';
 		<div class="value-card-content">
 			<div class="value-row total">
 				<span class="value-label">Total Development Hours:</span>
-				<span class="value-amount">5,430 hrs</span>
+				<span class="value-amount">5,940 hrs</span>
 			</div>
 			<div class="value-row">
 				<span class="value-label">Professional Development Cost:</span>
-				<span class="value-amount">610,875 SAR</span>
+				<span class="value-amount">668,250 SAR</span>
 			</div>
 			<div class="value-row">
 				<span class="value-label">AI Assistance Cost:</span>
-				<span class="value-amount">16,217.58 SAR</span>
+				<span class="value-amount">20,621.40 SAR</span>
 			</div>
 			<div class="value-row final">
 				<span class="value-label">💰 Grand Total Value:</span>
-				<span class="value-amount final">627,092.58 SAR</span>
+				<span class="value-amount final">688,871.40 SAR</span>
 			</div>
 			<div class="value-divider"></div>
 			<div class="value-row">
@@ -196,11 +215,11 @@ import { appVersion, interfaceVersions } from '$lib/appVersion';
 			</div>
 			<div class="value-row">
 				<span class="value-label">Real AI Cost (Phase 2):</span>
-				<span class="value-amount">2,382.22 SAR <span class="upcoming">($635.26 USD)</span></span>
+				<span class="value-amount">6,786.04 SAR <span class="upcoming">($1,809.61 USD)</span></span>
 			</div>
 			<div class="value-row final">
 				<span class="value-label">💵 Grand Total Real Cost:</span>
-				<span class="value-amount final">38,119.58 SAR</span>
+				<span class="value-amount final">42,523.40 SAR</span>
 			</div>
 		</div>
 	</div>

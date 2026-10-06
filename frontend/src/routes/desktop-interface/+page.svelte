@@ -9,11 +9,11 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { favoritesStore, favoriteButtonCodes, favoritesPanelOpen } from '$lib/stores/favorites';
 	import type { FavoriteButton } from '$lib/stores/favorites';
-	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import WelcomeWindow from '$lib/components/common/WelcomeWindow.svelte';
 	import VersionChangelog from '$lib/components/desktop-interface/common/VersionChangelog.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { appVersion } from '$lib/appVersion';
+	let versionClickCount = 0;
 
 	async function handleUpdateClick() {
 		const fn = $triggerUpdate;
@@ -22,6 +22,8 @@
 
 	// Icon mapping for sidebar buttons (used when saving favorites)
 	const buttonIconMap: Record<string, string> = {
+		'COMPANY_DASHBOARD': '🏢', 'CREATE_COMPANY': '🏢',
+		'COMPANY_OPERATIONS': '🔄', 'COMPANY_REPORTS': '📈',
 		'CUSTOMER_MASTER': '🤝', 'AD_MANAGER': '📢', 'PRODUCTS_MANAGER': '🛍️',
 		'DELIVERY_SETTINGS': '📦', 'ORDERS_MANAGER': '🛒', 'OFFER_MANAGEMENT': '🎁',
 		'RECEIVING': '📦', 'UPLOAD_VENDOR': '📤', 'CREATE_VENDOR': '➕',
@@ -51,7 +53,7 @@
 		'CREATE_NOTIFICATION': '📝', 'USER_MANAGEMENT': '👤', 'CREATE_USER': '👤',
 		'MANAGE_ADMIN_USERS': '👥', 'MANAGE_MASTER_ADMIN': '🔐',
 		'INTERFACE_ACCESS_MANAGER': '🔧', 'APPROVAL_PERMISSIONS': '🔐',
-		'BRANCHES': '🏢', 'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
+		'SETTINGS': '🔊', 'E_R_P_CONNECTIONS': '🔌',
 		'CLEAR_TABLES': '🗑️', 'BUTTON_ACCESS_CONTROL': '🎛️',
 		'APP_PERMISSIONS': '🛡️',
 		'LEAVES_AND_VACATIONS': '🏖️', 'LEAVE_REQUEST': '📋',
@@ -59,7 +61,7 @@
 		// Additional DB button codes
 		'UPLOAD_EMPLOYEES': '📤', 'WARNING_MASTER': '⚠️', 'SALARY_WAGE_MANAGEMENT': '💰',
 		'CONTACT_MANAGEMENT': '📇', 'DOCUMENT_MANAGEMENT': '📑', 'BIOMETRIC_DATA': '👆',
-		'BRANCH_MASTER': '🏢', 'SOUND_SETTINGS': '🔊', 'CATEGORY_MANAGER': '📂', 'ASSET_MANAGER': '🏗️', 'LEASE_AND_RENT': '🏠',
+		'SOUND_SETTINGS': '🔊', 'CATEGORY_MANAGER': '📂', 'ASSET_MANAGER': '🏗️', 'LEASE_AND_RENT': '🏠',
 		'REPORTS_STATS': '📊', 'COUPON_DASHBOARD': '🎁', 'MANAGE_CAMPAIGNS': '📋',
 		'IMPORT_CUSTOMERS': '👥', 'MANAGE_PRODUCTS': '🎁', 'OVER_DUES': '⏰',
 		'USER_PERMISSIONS': '🔐', 'USERS': '👤', 'CREATE_USER_ROLES': '👥',
@@ -170,6 +172,10 @@
 
 	// Map button_code → i18n translation key for showing translated button names
 	const buttonCodeTranslationMap: Record<string, string> = {
+		'COMPANY_DASHBOARD': 'nav.dashboard',
+		'CREATE_COMPANY': 'nav.createCompany',
+		'COMPANY_OPERATIONS': 'nav.operations',
+		'COMPANY_REPORTS': 'nav.reports',
 		'CUSTOMER_MASTER': 'admin.customerMaster',
 		'AD_MANAGER': 'admin.adManager',
 		'PRODUCTS_MANAGER': 'admin.productsManager',
@@ -257,7 +263,6 @@
 		'MANAGE_MASTER_ADMIN': 'nav.manageMasterAdmin',
 		'INTERFACE_ACCESS_MANAGER': 'nav.interfaceAccess',
 		'APPROVAL_PERMISSIONS': 'nav.approvalPermissions',
-		'BRANCHES': 'admin.branchesMaster',
 		'SETTINGS': 'nav.soundSettings',
 		'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables',
@@ -275,7 +280,6 @@
 		'CONTACT_MANAGEMENT': 'hr.masterContactManagement',
 		'DOCUMENT_MANAGEMENT': 'hr.masterDocumentManagement',
 		'BIOMETRIC_DATA': 'hr.biometricData',
-		'BRANCH_MASTER': 'admin.branchesMaster',
 		'SOUND_SETTINGS': 'nav.soundSettings',
 		'CATEGORY_MANAGER': 'nav.categoryManager',
 		'ASSET_MANAGER': 'nav.assetManager',
@@ -608,6 +612,14 @@
 		});
 	}
 
+	function handleVersionClick() {
+		if (!$currentUser?.isMasterAdmin) return;
+		versionClickCount += 1;
+		if (versionClickCount < 20) return;
+		versionClickCount = 0;
+		showVersionInfo();
+	}
+
 	// Sample windows for demonstration
 	function openWelcomeWindow() {
 		openWindow({
@@ -687,9 +699,7 @@
 									🔄 {$currentLocale === 'ar' ? 'تحديث الآن' : 'Update Now'}
 								</button>
 							{/if}
-							{#if $currentUser?.isMasterAdmin}
-								<button class="version-badge" on:click={showVersionInfo} title="Version Changelog">{appVersion}</button>
-							{/if}
+							<button class="version-badge" on:click={handleVersionClick} title="Application version">{appVersion}</button>
 						</div>
 						<div class="logo-section">
 							<div class="logo" on:click={handleLogoClick} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && handleLogoClick()}>

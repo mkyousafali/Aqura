@@ -2,6 +2,10 @@
 // It handles cases where the sidebar display name differs from the database code
 
 export const buttonNameToCodeMap: Record<string, string> = {
+  "Company Dashboard": "COMPANY_DASHBOARD",
+  "Create Company": "CREATE_COMPANY",
+  "Company Operations": "COMPANY_OPERATIONS",
+  "Company Reports": "COMPANY_REPORTS",
   "Customer Master": "CUSTOMER_MASTER",
   "Ad Manager": "AD_MANAGER",
   "Products Manager": "PRODUCTS_MANAGER",
@@ -75,7 +79,6 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Clear Tables": "CLEAR_TABLES",
   "Com Center": "COMMUNICATION_CENTER",
   "Reports & Stats": "REPORTS_STATS",
-  "Branch Master": "BRANCH_MASTER",
   "Branch Performance": "BRANCH_PERFORMANCE",
   "View Task Templates": "VIEW_TASK_TEMPLATES",
   "Manage Products": "MANAGE_PRODUCTS",
