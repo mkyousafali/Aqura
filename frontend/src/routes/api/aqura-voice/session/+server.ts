@@ -5,7 +5,6 @@ import { aquraVoiceAuthError, requireAquraVoiceUser } from '$lib/server/aquraVoi
 export const GET: RequestHandler = async ({ request }) => {
 	try {
 		const { db, user } = await requireAquraVoiceUser(request);
-		if (user.is_master_admin) return json({ success:true, user, unlimited:true });
 		const today = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 		const [{ data: access }, { data: usage }] = await Promise.all([
 			db.from('aqura_voice_access').select('daily_limit,subscription_expiry').eq('user_id',user.id).single(),

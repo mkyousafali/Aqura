@@ -20,8 +20,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		const translationPrompt=String(body.translationPrompt).replace('{{TRANSCRIPT}}',transcript).slice(0,16000);
 		const translation = await call([{text:translationPrompt}]);
 		if(!translation) throw new Error('Translation failed');
-		let usage:any={success:true,unlimited:true};
-		if(!user.is_master_admin){ const consumed=await db.rpc('consume_aqura_voice_usage',{p_user_id:user.id}); usage=consumed.data; if(!usage?.success) return json(usage,{status:429}); }
+		const consumed=await db.rpc('consume_aqura_voice_usage',{p_user_id:user.id});
+		const usage=consumed.data;
+		if(!usage?.success) return json(usage,{status:429});
 		return json({success:true,transcript,translation,usage});
 	} catch(error:any){ const auth=aquraVoiceAuthError(error); return auth||json({success:false,error:error?.message||'Processing failed'},{status:500}); }
 };

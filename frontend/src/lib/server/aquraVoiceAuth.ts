@@ -10,12 +10,10 @@ export async function requireAquraVoiceUser(request: Request) {
 	if (!userId) throw new Error('AUTH_REQUIRED');
 	const { data: user } = await db.from('users').select('id,username,is_master_admin,status').eq('id', userId).single();
 	if (!user || user.status !== 'active') throw new Error('ACCOUNT_INACTIVE');
-	if (!user.is_master_admin) {
-		const { data: access } = await db.from('aqura_voice_access').select('is_enabled,subscription_expiry,daily_limit').eq('user_id', userId).maybeSingle();
-		if (!access?.is_enabled) throw new Error('PERMISSION_DENIED');
-		const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
-		if (access.subscription_expiry && access.subscription_expiry < today) throw new Error('SUBSCRIPTION_EXPIRED');
-	}
+	const { data: access } = await db.from('aqura_voice_access').select('is_enabled,subscription_expiry,daily_limit').eq('user_id', userId).maybeSingle();
+	if (!access?.is_enabled) throw new Error('PERMISSION_DENIED');
+	const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date());
+	if (access.subscription_expiry && access.subscription_expiry < today) throw new Error('SUBSCRIPTION_EXPIRED');
 	return { db, user };
 }
 
