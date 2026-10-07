@@ -550,6 +550,7 @@ export const englishLocale: LocaleData = {
       manageMasterAdmin: "Manage Master Admin",
       buttonAccessControl: "Button Access Control",
       appPermissions: "App Permissions",
+      attendanceNotifiers: "Attendance Notifiers",
       completeBoxClosure: "Complete Box Closure",
       camCheckerAccess: "External Apps Access",
       safeBoxControl: "Safe Box Control",

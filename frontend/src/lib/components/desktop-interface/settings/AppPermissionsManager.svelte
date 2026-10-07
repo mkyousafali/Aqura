@@ -46,6 +46,7 @@
 	import SalaryStatementPermissionsModal from '$lib/components/desktop-interface/master/hr/SalaryStatementPermissionsModal.svelte';
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
 	import AquraVoiceControl from '$lib/components/desktop-interface/settings/AquraVoiceControl.svelte';
+	import AttendanceNotifiersManager from '$lib/components/desktop-interface/settings/AttendanceNotifiersManager.svelte';
 
 	type TabId =
 		| 'buttonAccess'
@@ -62,7 +63,8 @@
 		| 'salaryStatement'
 		| 'camChecker'
 		| 'safeBoxControl'
-		| 'aquraVoice';
+		| 'aquraVoice'
+		| 'attendanceNotifiers';
 
 	let activeTab: TabId = 'buttonAccess';
 
@@ -126,7 +128,8 @@
 		{ id: 'salaryStatement', icon: '💰', labelKey: 'nav.salaryStatement', fallback: 'Salary Statement', locked: !isMasterAdmin },
 		{ id: 'camChecker', icon: '🎥', labelKey: 'nav.camCheckerAccess', fallback: 'External Apps Access', locked: false },
 		{ id: 'safeBoxControl', icon: '🔐', labelKey: 'nav.safeBoxControl', fallback: 'Safe Box Control', locked: !isMasterAdmin },
-		{ id: 'aquraVoice', icon: '🎙️', labelKey: 'nav.aquraVoice', fallback: 'Aqura Voice', locked: !isMasterAdmin }
+		{ id: 'aquraVoice', icon: '🎙️', labelKey: 'nav.aquraVoice', fallback: 'Aqura Voice', locked: !isMasterAdmin },
+		{ id: 'attendanceNotifiers', icon: '⏰', labelKey: 'nav.attendanceNotifiers', fallback: 'Attendance Notifiers', locked: !isMasterAdmin }
 	] as TabDef[];
 
 	function selectTab(tab: TabDef) {
@@ -201,6 +204,9 @@
 		{/if}
 		{#if activeTab === 'aquraVoice' && isMasterAdmin}
 			<AquraVoiceControl />
+		{/if}
+		{#if activeTab === 'attendanceNotifiers' && isMasterAdmin}
+			<AttendanceNotifiersManager />
 		{/if}
 	</div>
 </div>

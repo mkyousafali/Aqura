@@ -553,6 +553,7 @@ export const arabicLocale: LocaleData = {
       manageMasterAdmin: "إدارة المشرف الرئيسي",
       buttonAccessControl: "التحكم في وصول الأزرار",
       appPermissions: "صلاحيات التطبيق",
+      attendanceNotifiers: "تنبيهات الحضور",
       completeBoxClosure: "إغلاق الصندوق الكامل",
       camCheckerAccess: "صلاحية التطبيقات الخارجية",
       safeBoxControl: "التحكم في الصندوق الآمن",
