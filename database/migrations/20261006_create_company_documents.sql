@@ -122,6 +122,73 @@ $$;
 revoke all on function public.save_company_document(bigint, bigint, bigint, text, text, text, text, text, date, text, text, text, text, bigint, text[], text[], integer[], time without time zone) from public, anon;
 grant execute on function public.save_company_document(bigint, bigint, bigint, text, text, text, text, text, date, text, text, text, text, bigint, text[], text[], integer[], time without time zone) to authenticated, service_role;
 
+create or replace function public.update_company_document(
+  p_document_id bigint,
+  p_company_id bigint,
+  p_branch_id bigint,
+  p_custom_document_type_id bigint,
+  p_document_type_key text,
+  p_document_name_ar text,
+  p_document_name_en text,
+  p_document_scope text,
+  p_document_number text,
+  p_expiry_date date,
+  p_storage_bucket text,
+  p_storage_path text,
+  p_original_file_name text,
+  p_file_mime_type text,
+  p_file_size bigint,
+  p_notification_emails text[],
+  p_notification_whatsapp_numbers text[],
+  p_notification_period_days integer[],
+  p_reminder_time time without time zone
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or not exists (
+    select 1 from public.users where id = public.aqura_current_user_id()
+  ) then raise exception 'Authentication required'; end if;
+
+  if p_document_scope not in ('common', 'branch_wise') then raise exception 'Invalid document scope'; end if;
+  if p_document_scope = 'branch_wise' and p_branch_id is null then raise exception 'Branch is required'; end if;
+  if p_document_scope = 'common' then p_branch_id := null; end if;
+  if p_branch_id is not null and not exists (
+    select 1 from public.branches where id = p_branch_id and company_id = p_company_id and is_active = true
+  ) then raise exception 'The selected active branch does not belong to this company'; end if;
+
+  update public.company_documents set
+    company_id = p_company_id,
+    branch_id = p_branch_id,
+    custom_document_type_id = p_custom_document_type_id,
+    document_type_key = trim(p_document_type_key),
+    document_name_ar = trim(p_document_name_ar),
+    document_name_en = trim(p_document_name_en),
+    document_scope = p_document_scope,
+    document_number = nullif(trim(p_document_number), ''),
+    expiry_date = p_expiry_date,
+    storage_bucket = nullif(trim(p_storage_bucket), ''),
+    storage_path = nullif(trim(p_storage_path), ''),
+    original_file_name = nullif(trim(p_original_file_name), ''),
+    file_mime_type = nullif(trim(p_file_mime_type), ''),
+    file_size = p_file_size,
+    notification_emails = coalesce(p_notification_emails, '{}'),
+    notification_whatsapp_numbers = coalesce(p_notification_whatsapp_numbers, '{}'),
+    notification_period_days = coalesce(p_notification_period_days, '{}'),
+    reminder_time = p_reminder_time,
+    updated_at = now()
+  where id = p_document_id;
+
+  if not found then raise exception 'Document not found'; end if;
+end;
+$$;
+
+revoke all on function public.update_company_document(bigint, bigint, bigint, bigint, text, text, text, text, text, date, text, text, text, text, bigint, text[], text[], integer[], time without time zone) from public, anon;
+grant execute on function public.update_company_document(bigint, bigint, bigint, bigint, text, text, text, text, text, date, text, text, text, text, bigint, text[], text[], integer[], time without time zone) to authenticated, service_role;
+
 create or replace function public.delete_company_document(p_document_id bigint)
 returns table(storage_bucket text, storage_path text)
 language plpgsql
