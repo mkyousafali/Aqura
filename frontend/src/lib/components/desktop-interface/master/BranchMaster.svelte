@@ -742,7 +742,7 @@
 				on:click={() => activeTab = 'approvers'}
 			>
 				<span class="text-base filter drop-shadow-sm transition-transform duration-500 group-hover:rotate-12">✅</span>
-				<span class="relative z-10">Default Approvers (Leaves)</span>
+				<span class="relative z-10">Leave Approvers</span>
 				
 				{#if activeTab === 'approvers'}
 					<div class="absolute inset-0 bg-white/10 animate-pulse"></div>
@@ -940,7 +940,7 @@
 				<div class="bg-white/40 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col">
 					<!-- Approvers Header with Create Button -->
 					<div class="bg-white border-b border-slate-100 px-8 py-6 flex items-center justify-between">
-						<h2 class="text-2xl font-bold text-slate-800">✅ Default Approvers (Leaves)</h2>
+						<h2 class="text-2xl font-bold text-slate-800">✅ Leave Approvers</h2>
 						<button 
 							class="flex items-center gap-2.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all duration-300 shadow-md hover:shadow-lg"
 							on:click={openCreateApproverPopup}

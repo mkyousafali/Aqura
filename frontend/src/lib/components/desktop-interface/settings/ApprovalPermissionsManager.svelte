@@ -10,6 +10,7 @@
 	let searchQuery = '';
 	let statusFilter = 'all';
 	let permissionFilter = 'all';
+	let filteredUsers: any[] = [];
 
 	// Tab state
 	export let initialTab: 'permissions' | 'default-users' = 'permissions';
@@ -18,6 +19,7 @@
 	// as two SEPARATE outer tabs (e.g. in the App Permissions window), so
 	// there's no redundant nested tab bar duplicating the outer one.
 	export let hideTabSwitcher: boolean = false;
+	export let permissionScope: 'general' | 'incidents' = 'general';
 
 	let activeTab: 'permissions' | 'default-users' = initialTab;
 
@@ -65,7 +67,7 @@
 
 	$: isMasterAdmin = $currentUser?.isMasterAdmin;
 
-	const permissionSections = [
+	const allPermissionSections = [
 		{
 			title: 'Financial Approvals',
 			icon: '💰',
@@ -84,7 +86,6 @@
 			icon: '👥',
 			color: 'emerald',
 			permissions: [
-				{ key: 'can_approve_leave_requests', label: 'Approve Leave Requests', icon: '🏖️' },
 				{ key: 'can_approve_purchase_vouchers', label: 'Approve Purchase Vouchers', icon: '🎫' },
 				{ key: 'can_add_missing_punches', label: 'Add Missing Punches', icon: '⏱️' },
 			]
@@ -106,6 +107,10 @@
 			]
 		}
 	];
+
+	$: permissionSections = permissionScope === 'incidents'
+		? allPermissionSections.filter((section) => section.title === 'Incident Receivers')
+		: allPermissionSections.filter((section) => section.title !== 'Incident Receivers');
 
 	let defaultChannel: any = null;
 
@@ -355,6 +360,18 @@
 		return count;
 	}
 
+	function usersWithPermissionsFirst(list: any[]): any[] {
+		return [...list].sort((a, b) => {
+			const aIsActive = a.status === 'active';
+			const bIsActive = b.status === 'active';
+			if (aIsActive !== bIsActive) return bIsActive ? 1 : -1;
+
+			const countDifference = countPermissions(b) - countPermissions(a);
+			if (countDifference !== 0) return countDifference;
+			return (a.username || '').localeCompare(b.username || '', undefined, { sensitivity: 'base' });
+		});
+	}
+
 	function getPermissionSummary(user: any): string[] {
 		const active: string[] = [];
 		permissionSections.forEach(section => {
@@ -467,26 +484,38 @@
 		}
 	}
 
-	$: filteredUsers = users.filter((user) => {
+	$: {
+		// Reference the visible permission sections directly so Svelte recalculates
+		// the ordering whenever the permission scope changes.
+		const visiblePermissionKeys = permissionSections.flatMap((section) =>
+			section.permissions.map((permission) => permission.key)
+		);
+		const permissionCount = (user: any) => visiblePermissionKeys.reduce(
+			(count, key) => count + (user.permissions?.[key] ? 1 : 0),
+			0
+		);
 		const searchLower = searchQuery.toLowerCase();
-		const matchesSearch =
-			searchQuery === '' ||
-			user.username.toLowerCase().includes(searchLower) ||
-			user.employee_name?.toLowerCase().includes(searchLower);
 
-		const matchesStatus =
-			statusFilter === 'all' ||
-			(statusFilter === 'active' && user.status === 'active') ||
-			(statusFilter === 'inactive' && user.status !== 'active');
+		filteredUsers = users.filter((user) => {
+			const matchesSearch =
+				searchQuery === '' ||
+				user.username.toLowerCase().includes(searchLower) ||
+				user.employee_name?.toLowerCase().includes(searchLower);
 
-		const hasPerms = countPermissions(user) > 0;
-		const matchesPermission =
-			permissionFilter === 'all' ||
-			(permissionFilter === 'with-permissions' && hasPerms) ||
-			(permissionFilter === 'without-permissions' && !hasPerms);
+			const matchesStatus =
+				statusFilter === 'all' ||
+				(statusFilter === 'active' && user.status === 'active') ||
+				(statusFilter === 'inactive' && user.status !== 'active');
 
-		return matchesSearch && matchesStatus && matchesPermission;
-	});
+			const hasPerms = permissionCount(user) > 0;
+			const matchesPermission =
+				permissionFilter === 'all' ||
+				(permissionFilter === 'with-permissions' && hasPerms) ||
+				(permissionFilter === 'without-permissions' && !hasPerms);
+
+			return matchesSearch && matchesStatus && matchesPermission;
+		});
+	}
 
 	// ===== Default Incident Users Assignment Tab =====
 	async function loadIncidentTypes() {
@@ -746,23 +775,6 @@
 
 		{#if activeTab === 'permissions'}
 		<!-- ===== APPROVAL PERMISSIONS TAB ===== -->
-		<!-- Header Bar -->
-		<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-3">
-			<div class="flex items-center justify-between flex-wrap gap-3">
-				<div class="flex items-center gap-3">
-					<div class="bg-gradient-to-br from-red-600 to-rose-700 rounded-xl p-2 shadow-lg">
-						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-						</svg>
-					</div>
-					<h2 class="text-lg font-black text-slate-800">Approval Permissions</h2>
-					<div class="flex items-center gap-2">
-						<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 text-xs font-black">{users.length} Users</span>
-						<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-black">{users.filter(u => countPermissions(u) > 0).length} With Perms</span>
-					</div>
-				</div>
-			</div>
-		</div>
 
 		<!-- Search + Filters Row -->
 		<div class="bg-white/40 backdrop-blur-xl rounded-2xl border border-white shadow-[0_8px_32px_-8px_rgba(0,0,0,0.06)] px-4 py-2">
@@ -808,7 +820,7 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-200">
-						{#each filteredUsers as user, index (user.id)}
+						{#each usersWithPermissionsFirst(filteredUsers) as user, index (user.id)}
 							<tr class="hover:bg-red-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'} {user.status !== 'active' ? 'opacity-50' : ''}">
 								<td class="px-3 py-2 text-center text-xs font-bold text-slate-400">{index + 1}</td>
 								<td class="px-4 py-2 text-sm text-slate-700">

@@ -249,114 +249,87 @@
 
 <div class="dp-container">
 
-  <!-- Branch Selection -->
+  <div class="branch-dropdown-bar">
+    <label for="default-positions-branch">🏢 {t('defaultPositions.selectBranch')}</label>
+    {#if isLoadingBranches}
+      <span class="branch-loading">{t('defaultPositions.loadingBranches')}</span>
+    {:else if branches.length === 0}
+      <span class="branch-loading">{t('defaultPositions.noBranches')}</span>
+    {:else}
+      <select
+        id="default-positions-branch"
+        value={selectedBranchId || ''}
+        on:change={(event) => event.currentTarget.value ? selectBranch(Number(event.currentTarget.value)) : changeBranch()}
+      >
+        <option value="">{t('defaultPositions.selectBranch')}</option>
+        {#each branches as branch}
+          <option value={branch.id}>{getBranchName(branch)}</option>
+        {/each}
+      </select>
+    {/if}
+  </div>
+
   {#if !selectedBranchId}
-    <div class="branch-selection-card">
-      <div class="section-label">🏢 {t('defaultPositions.selectBranch')}</div>
-
-      {#if isLoadingBranches}
-        <div class="state-center">
-          <div class="spinner"></div>
-          <span>{t('defaultPositions.loadingBranches')}</span>
-        </div>
-      {:else if branches.length === 0}
-        <div class="state-center muted">
-          <span>📭</span>
-          <p>{t('defaultPositions.noBranches')}</p>
-        </div>
-      {:else}
-        <div class="branch-grid">
-          {#each branches as branch}
-            <button class="branch-card" on:click={() => selectBranch(branch.id)}>
-              <span class="branch-card-icon">🏪</span>
-              <span class="branch-card-name">{getBranchName(branch)}</span>
-              <span class="branch-card-id">{t('defaultPositions.branchId')}: {branch.id}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-
-  {:else}
-    <!-- Selected Branch Header -->
-    <div class="branch-header-bar">
-      <div class="branch-header-info">
-        <span class="bh-icon">🏪</span>
-        <div>
-          <div class="bh-name">{selectedBranchName}</div>
-          <div class="bh-id">{t('defaultPositions.branchId')}: {selectedBranchId}</div>
-        </div>
-      </div>
-      <button class="change-btn" on:click={changeBranch}>{t('defaultPositions.changeBranch')}</button>
-    </div>
-
-    <!-- Position Cards -->
-    {#if isLoadingPositions}
+    <div class="table-placeholder">🏢 {t('defaultPositions.selectBranch')}</div>
+  {:else if isLoadingPositions}
       <div class="state-center">
         <div class="spinner"></div>
         <span>{t('defaultPositions.loadingPositions')}</span>
       </div>
-    {:else}
-      <div class="positions-grid">
-        {#each positionRoles as role}
-          <div class="position-card">
-            <div class="pos-header">
-              <span class="pos-icon">{role.icon}</span>
-              <span class="pos-label">{t('defaultPositions.roles.' + role.labelKey)}</span>
-              {#if !role.single}
-                <span class="multi-chip">{t('defaultPositions.multiple')}</span>
-              {/if}
-            </div>
-
-            <div class="pos-body">
-              {#if role.single}
-                {#if assignedUsers[role.key]}
-                  <div class="assigned-row">
-                    <div class="user-chip">
-                      <span class="user-chip-avatar">👤</span>
-                      <span class="user-chip-name">{getUserName(assignedUsers[role.key])}</span>
+  {:else}
+      <div class="positions-table-wrap">
+        <table class="positions-table">
+          <thead>
+            <tr>
+              <th class="serial-column">#</th>
+              <th>{t('defaultPositions.position')}</th>
+              <th>{t('defaultPositions.assignmentType')}</th>
+              <th>{t('defaultPositions.assignedUsers')}</th>
+              <th class="actions-column">{t('defaultPositions.actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each positionRoles as role, roleIndex}
+              <tr>
+                <td class="serial-cell">{roleIndex + 1}</td>
+                <td>
+                  <div class="position-name-cell">
+                    <span class="pos-icon">{role.icon}</span>
+                    <span class="pos-label">{t('defaultPositions.roles.' + role.labelKey)}</span>
+                  </div>
+                </td>
+                <td>
+                  <span class:multiple-type={!role.single} class="type-chip">
+                    {role.single ? t('defaultPositions.single') : t('defaultPositions.multiple')}
+                  </span>
+                </td>
+                <td>
+                  {#if role.single && assignedUsers[role.key]}
+                    <div class="table-user-chip"><span>👤</span><b>{getUserName(assignedUsers[role.key])}</b></div>
+                  {:else if !role.single && assignedUsers[role.key] && assignedUsers[role.key].length > 0}
+                    <div class="table-users-list">
+                      {#each assignedUsers[role.key] as user}
+                        <span class="table-user-chip"><span>👤</span><b>{getUserName(user)}</b><button class="inline-remove" on:click={() => removeUser(role.key, user.id)} title="Remove">✕</button></span>
+                      {/each}
                     </div>
-                    <div class="row-actions">
-                      <button class="icon-btn blue" on:click={() => openUserPicker(role.key, role.labelKey, role.single)} title="Change">🔄</button>
-                      <button class="icon-btn red"  on:click={() => removeUser(role.key)} title="Remove">✕</button>
-                    </div>
-                  </div>
-                {:else}
-                  <div class="no-assignment-row">
+                  {:else}
                     <span class="no-assign-text">{t('defaultPositions.noAssignment')}</span>
+                  {/if}
+                </td>
+                <td>
+                  <div class="table-actions">
                     <button class="assign-btn" on:click={() => openUserPicker(role.key, role.labelKey, role.single)}>
-                      {t('defaultPositions.assignUser')}
+                      {role.single && assignedUsers[role.key] ? t('defaultPositions.change') : (!role.single && assignedUsers[role.key]?.length ? t('defaultPositions.addAnother') : t('defaultPositions.assignUser'))}
                     </button>
+                    {#if role.single && assignedUsers[role.key]}
+                      <button class="remove-btn" on:click={() => removeUser(role.key)}>{t('defaultPositions.remove')}</button>
+                    {/if}
                   </div>
-                {/if}
-              {:else}
-                {#if assignedUsers[role.key] && assignedUsers[role.key].length > 0}
-                  <div class="multi-list">
-                    {#each assignedUsers[role.key] as user}
-                      <div class="assigned-row compact">
-                        <div class="user-chip">
-                          <span class="user-chip-avatar">👤</span>
-                          <span class="user-chip-name">{getUserName(user)}</span>
-                        </div>
-                        <button class="icon-btn red" on:click={() => removeUser(role.key, user.id)} title="Remove">✕</button>
-                      </div>
-                    {/each}
-                  </div>
-                  <button class="assign-btn purple full-w" on:click={() => openUserPicker(role.key, role.labelKey, role.single)}>
-                    {t('defaultPositions.addAnother')}
-                  </button>
-                {:else}
-                  <div class="no-assignment-row">
-                    <span class="no-assign-text">{t('defaultPositions.noAssignment')}</span>
-                    <button class="assign-btn" on:click={() => openUserPicker(role.key, role.labelKey, role.single)}>
-                      {t('defaultPositions.assignUser')}
-                    </button>
-                  </div>
-                {/if}
-              {/if}
-            </div>
-          </div>
-        {/each}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       </div>
 
       <!-- Save Section -->
@@ -375,7 +348,6 @@
           {/if}
         </button>
       </div>
-    {/if}
   {/if}
 </div>
 
@@ -451,6 +423,48 @@
     gap: 0.75rem;
     background: linear-gradient(135deg, #e8f0fe 0%, #f0f7ff 50%, #e8f4f8 100%);
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+
+  .branch-dropdown-bar {
+    display: grid;
+    grid-template-columns: minmax(10rem, 15rem) minmax(16rem, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+  }
+
+  .branch-dropdown-bar label {
+    color: #334155;
+    font-size: 0.85rem;
+    font-weight: 800;
+  }
+
+  .branch-dropdown-bar select {
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: white;
+    color: #1e293b;
+    font-size: 0.85rem;
+  }
+
+  .branch-loading { color: #64748b; font-size: 0.82rem; }
+
+  .table-placeholder {
+    display: grid;
+    min-height: 12rem;
+    place-items: center;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px dashed #94a3b8;
+    border-radius: 12px;
+    color: #64748b;
+    font-size: 0.9rem;
+    font-weight: 700;
   }
 
   /* ===================== BRANCH SELECTION ===================== */
@@ -531,7 +545,96 @@
   }
   .change-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
 
-  /* ===================== POSITIONS GRID ===================== */
+  /* ===================== POSITIONS TABLE ===================== */
+  .positions-table-wrap {
+    min-height: 0;
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(59, 130, 246, 0.06);
+  }
+
+  .positions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+  }
+
+  .positions-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  .positions-table th {
+    padding: 0.7rem 0.8rem;
+    background: #e2e8f0;
+    border-inline-end: 1px solid #cbd5e1;
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-align: start;
+    text-transform: uppercase;
+  }
+
+  .positions-table td {
+    padding: 0.7rem 0.8rem;
+    border-top: 1px solid #e2e8f0;
+    border-inline-end: 1px solid #e2e8f0;
+    vertical-align: middle;
+  }
+
+  .positions-table th:last-child,
+  .positions-table td:last-child { border-inline-end: none; }
+  .positions-table tbody tr:hover { background: #f8fafc; }
+  .serial-column, .serial-cell { width: 3rem; text-align: center !important; }
+  .serial-cell { color: #64748b; font-weight: 700; }
+  .actions-column { width: 14rem; }
+  .position-name-cell { display: flex; align-items: center; gap: 0.55rem; }
+
+  .type-chip {
+    display: inline-flex;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .type-chip.multiple-type { background: #ede9fe; color: #7c3aed; }
+
+  .table-users-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .table-user-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #bbf7d0;
+    border-radius: 7px;
+    background: #f0fdf4;
+    color: #166534;
+  }
+  .inline-remove {
+    border: 0;
+    background: transparent;
+    color: #dc2626;
+    cursor: pointer;
+    font-weight: 800;
+  }
+  .table-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .remove-btn {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #fecaca;
+    border-radius: 7px;
+    background: #fef2f2;
+    color: #dc2626;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  /* Legacy card styles retained for compatibility with older embedded layouts. */
   .positions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

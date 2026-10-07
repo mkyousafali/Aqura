@@ -254,13 +254,41 @@
 		return userStatuses[currentUserID]?.status?.toLowerCase() === 'claimed';
 	}
 
+	function getAuthorizedRecipientIds(): string[] {
+		if (!incident?.reports_to_user_ids) return [];
+		let recipientIds = incident.reports_to_user_ids;
+
+		if (typeof recipientIds === 'string') {
+			try {
+				recipientIds = JSON.parse(recipientIds);
+			} catch {
+				return [];
+			}
+		}
+
+		return Array.isArray(recipientIds) ? recipientIds.map(String) : [];
+	}
+
+	function isAuthorizedToClaim(): boolean {
+		return !!currentUserID && getAuthorizedRecipientIds().includes(String(currentUserID));
+	}
+
 	function canClaim(): boolean {
 		if (!incident) return false;
-		return incident.resolution_status === 'reported' && !isClaimedByCurrentUser();
+		return incident.resolution_status === 'reported' && isAuthorizedToClaim() && !isClaimedByCurrentUser();
 	}
 
 	async function claimIncident() {
 		if (!currentUserID || !incident) return;
+		if (!isAuthorizedToClaim()) {
+			notifications.add({
+				type: 'error',
+				message: $currentLocale === 'ar'
+					? 'أنت غير مخول بالمطالبة بهذه الحادثة'
+					: 'You are not authorized to claim this incident'
+			});
+			return;
+		}
 		
 		claimingIncident = true;
 		try {
@@ -294,7 +322,7 @@
 				reportsToIds.push(currentUserID);
 			}
 
-			const { error } = await supabase
+			const { data: claimedIncident, error } = await supabase
 				.from('incidents')
 				.update({
 					resolution_status: 'claimed',
@@ -302,9 +330,16 @@
 					user_statuses: userStatusesObj,
 					reports_to_user_ids: reportsToIds
 				})
-				.eq('id', incident.id);
+				.eq('id', incident.id)
+				.eq('resolution_status', 'reported')
+				.contains('reports_to_user_ids', [currentUserID])
+				.select('id')
+				.maybeSingle();
 
 			if (error) throw error;
+			if (!claimedIncident) {
+				throw new Error('Incident is no longer claimable or the user is not authorized');
+			}
 
 			await loadIncident();
 			notifications.add({ type: 'success', message: $currentLocale === 'ar' ? 'تم مطالبة الحادثة بنجاح' : 'Incident claimed successfully' });

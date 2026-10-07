@@ -92,7 +92,6 @@
 	import PendingReceivingRecords from '$lib/components/desktop-interface/master/vendor/PendingReceivingRecords.svelte';
 	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
 	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
-	import DefaultPositions from '$lib/components/desktop-interface/master/vendor/DefaultPositions.svelte';
 	import AutoTaskManager from '$lib/components/desktop-interface/master/vendor/AutoTaskManager.svelte';
 	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
 	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
@@ -2239,28 +2238,6 @@ function openApprovalCenter() {
 		});
 	}
 
-	function openDefaultPositions() {
-		collapseAllMenus();
-		const windowId = generateWindowId('receiving-tasks-manager');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		const title = $currentLocale === 'ar' ? 'مدير مهام الاستلام' : 'Receiving Tasks Manager';
-		
-		openWindow({
-			id: windowId,
-			title: `${title} #${instanceNumber}`,
-			component: AutoTaskManager,
-			componentName: "AutoTaskManager",
-			icon: '📋',
-			size: { width: 950, height: 750 },
-			position: { 
-				x: 100 + (Math.random() * 100),
-				y: 100 + (Math.random() * 100) 
-			},
-			resizable: true,
-			minimizable: true,
-		});
-	}
-
 	function openAutoTaskManager() {
 		collapseAllMenus();
 		const windowId = generateWindowId('auto-task-manager');
@@ -2295,7 +2272,7 @@ function openApprovalCenter() {
 			'UPLOAD_VENDOR': openUploadVendor,
 			'CREATE_VENDOR': openCreateVendor,
 			'MANAGE_VENDOR': openManageVendor,
-			'DEFAULT_POSITIONS': openAutoTaskManager,
+			'DEFAULT_POSITIONS': openAppPermissions,
 			'RECEIVING': openReceiving,
 			'START_RECEIVING': openStartReceiving,
 			'RECEIVING_RECORDS': openReceivingRecords,
@@ -4618,12 +4595,6 @@ function openApprovalCenter() {
 						</div>
 					{/if}
 					{#if isButtonAllowed('DEFAULT_POSITIONS')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openAutoTaskManager} style="display:none" aria-hidden="true" tabindex="-1">
-								<span class="menu-icon">📋</span>
-								<span class="menu-text">{$currentLocale === 'ar' ? 'مدير مهام الاستلام' : 'Receiving Tasks Manager'}</span>
-							</button>
-						</div>
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openAutoTaskManager}>
 								<span class="menu-icon">⚙️</span>
