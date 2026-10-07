@@ -45,6 +45,7 @@
 	import ReceivingRecordsPermissionsModal from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecordsPermissionsModal.svelte';
 	import SalaryStatementPermissionsModal from '$lib/components/desktop-interface/master/hr/SalaryStatementPermissionsModal.svelte';
 	import BranchMaster from '$lib/components/desktop-interface/master/BranchMaster.svelte';
+	import AquraVoiceControl from '$lib/components/desktop-interface/settings/AquraVoiceControl.svelte';
 
 	type TabId =
 		| 'buttonAccess'
@@ -60,7 +61,8 @@
 		| 'receiving'
 		| 'salaryStatement'
 		| 'camChecker'
-		| 'safeBoxControl';
+		| 'safeBoxControl'
+		| 'aquraVoice';
 
 	let activeTab: TabId = 'buttonAccess';
 
@@ -123,7 +125,8 @@
 		{ id: 'receiving', icon: '📥', labelKey: 'nav.receivingRecords', fallback: 'Receiving Records', locked: !isMasterAdmin },
 		{ id: 'salaryStatement', icon: '💰', labelKey: 'nav.salaryStatement', fallback: 'Salary Statement', locked: !isMasterAdmin },
 		{ id: 'camChecker', icon: '🎥', labelKey: 'nav.camCheckerAccess', fallback: 'External Apps Access', locked: false },
-		{ id: 'safeBoxControl', icon: '🔐', labelKey: 'nav.safeBoxControl', fallback: 'Safe Box Control', locked: !isMasterAdmin }
+		{ id: 'safeBoxControl', icon: '🔐', labelKey: 'nav.safeBoxControl', fallback: 'Safe Box Control', locked: !isMasterAdmin },
+		{ id: 'aquraVoice', icon: '🎙️', labelKey: 'nav.aquraVoice', fallback: 'Aqura Voice', locked: !isMasterAdmin }
 	] as TabDef[];
 
 	function selectTab(tab: TabDef) {
@@ -195,6 +198,9 @@
 		{/if}
 		{#if activeTab === 'safeBoxControl' && isMasterAdmin}
 			<SafeBoxControl />
+		{/if}
+		{#if activeTab === 'aquraVoice' && isMasterAdmin}
+			<AquraVoiceControl />
 		{/if}
 	</div>
 </div>

@@ -218,3 +218,5 @@ aqura-designer-standalone/
 
 # Local npm cache artifact, not project files
 .npm-cache/
+.gradle/
+.android/

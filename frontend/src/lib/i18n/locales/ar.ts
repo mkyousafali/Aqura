@@ -556,6 +556,7 @@ export const arabicLocale: LocaleData = {
       completeBoxClosure: "إغلاق الصندوق الكامل",
       camCheckerAccess: "صلاحية التطبيقات الخارجية",
       safeBoxControl: "التحكم في الصندوق الآمن",
+      aquraVoice: "صوت أقورا",
       masterAdminRequired: "يتطلب صلاحية المشرف الرئيسي",
       tabAccessRequired: "ليس لديك صلاحية الوصول لهذا",
       defaultIncidentUsers: "المستخدمون الافتراضيون للحوادث",

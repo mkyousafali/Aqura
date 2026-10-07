@@ -553,6 +553,7 @@ export const englishLocale: LocaleData = {
       completeBoxClosure: "Complete Box Closure",
       camCheckerAccess: "External Apps Access",
       safeBoxControl: "Safe Box Control",
+      aquraVoice: "Aqura Voice",
       masterAdminRequired: "Master Admin access required",
       tabAccessRequired: "You don't have access to this",
       defaultIncidentUsers: "Default Incident Users",
