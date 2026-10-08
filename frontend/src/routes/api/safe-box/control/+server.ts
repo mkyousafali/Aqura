@@ -26,7 +26,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
     const ids = [...new Set((grants || []).flatMap(row => [row.user_id, row.added_by]))];
     const [{ data: users }, { data: employees }] = ids.length ? await Promise.all([
       db.from('users').select('id,username').in('id', ids),
-      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').in('user_id', ids)
+      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).in('user_id', ids)
     ]) : [{ data: [] }, { data: [] }];
     const names = new Map((users || []).map(row => [row.id, row.username]));
     const employeeNames = new Map((employees || []).map(row => [row.user_id, row]));
@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
     }
     const db = databaseClient();
     const [{ data: employee }, { data: user }] = await Promise.all([
-      db.from('hr_employee_master').select('user_id').eq('user_id', userId).eq('current_branch_id', branchId).maybeSingle(),
+      db.from('hr_employee_master').select('user_id').eq('is_removed', false).eq('user_id', userId).eq('current_branch_id', branchId).maybeSingle(),
       db.from('users').select('id,status').eq('id', userId).maybeSingle()
     ]);
     if (!employee || user?.status !== 'active') return json({ error: 'User is not active in the selected branch.' }, { status: 400 });

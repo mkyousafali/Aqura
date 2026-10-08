@@ -14,9 +14,9 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
     const db = databaseClient();
     const pattern = `%${term.replace(/[%_]/g, '\\$&')}%`;
     const [english, arabic, employeeId] = await Promise.all([
-      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('current_branch_id', branchId).ilike('name_en', pattern).limit(25),
-      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('current_branch_id', branchId).ilike('name_ar', pattern).limit(25),
-      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('current_branch_id', branchId).ilike('id', pattern).limit(25)
+      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).eq('current_branch_id', branchId).ilike('name_en', pattern).limit(25),
+      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).eq('current_branch_id', branchId).ilike('name_ar', pattern).limit(25),
+      db.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).eq('current_branch_id', branchId).ilike('id', pattern).limit(25)
     ]);
     if (english.error || arabic.error || employeeId.error) throw english.error || arabic.error || employeeId.error;
     const employees = [...new Map([...(english.data || []), ...(arabic.data || []), ...(employeeId.data || [])]

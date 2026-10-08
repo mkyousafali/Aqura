@@ -15,7 +15,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
 		const [users, permissions, employees] = await Promise.all([
 			db.from('users').select('id,username,employee_id').eq('status', 'active').order('username'),
 			db.from('break_register_permissions').select('user_id,can_see_own_breaks,can_see_branch_breaks,can_see_all_breaks'),
-			db.from('hr_employee_master').select('user_id,name_en,name_ar')
+			db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false)
 		]);
 		if (users.error || permissions.error || employees.error) throw users.error || permissions.error || employees.error;
 		const byPermission = new Map((permissions.data || []).map(row => [row.user_id, row]));

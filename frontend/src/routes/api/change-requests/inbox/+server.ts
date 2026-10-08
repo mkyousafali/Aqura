@@ -23,7 +23,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
     if (error) throw error;
     const recipientIds = [...new Set((data || []).map(item => item.requested_to_user_id))];
     const { data: employees } = recipientIds.length
-      ? await db.from('hr_employee_master').select('user_id,name_en,name_ar').in('user_id', recipientIds)
+      ? await db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).in('user_id', recipientIds)
       : { data: [] };
     const names = new Map((employees || []).map(item => [item.user_id, { name_en: item.name_en, name_ar: item.name_ar }]));
     return json((data || []).map(item => ({ ...item, safeBoxUser: names.get(item.requested_to_user_id) || null })),

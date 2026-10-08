@@ -15,7 +15,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
     const userId = access.userId;
     const db = databaseClient();
     const { data: employee, error: employeeError } = await db.from('hr_employee_master')
-      .select('current_branch_id,name_en,name_ar').eq('user_id', userId).maybeSingle();
+      .select('current_branch_id,name_en,name_ar').eq('is_removed', false).eq('user_id', userId).maybeSingle();
     if (employeeError) throw employeeError;
     if (!employee?.current_branch_id) return json({ error: 'No current branch is assigned to this user.' }, { status: 404 });
     if (!access.canBalance) return json({ ...access, name: employee.name_en || employee.name_ar || '', counts: {}, totalAmount: 0 },

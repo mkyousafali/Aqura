@@ -59,7 +59,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			const { data: credentials, error } = await db.from('user_erp_credentials').select('user_id,erp_username').eq('aqura_branch_id', branchId);
 			if (error) throw error;
 			const ids = [...new Set((credentials || []).map((row: any) => row.user_id).filter(Boolean))];
-			const employees = ids.length ? (await db.from('hr_employee_master').select('user_id,name_en,name_ar').in('user_id', ids)).data || [] : [];
+			const employees = ids.length ? (await db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).in('user_id', ids)).data || [] : [];
 			const names = new Map(employees.map((row: any) => [row.user_id, row]));
 			data = (credentials || []).map((row: any) => ({ erp_username: row.erp_username, ...names.get(row.user_id) })).filter((row: any) => row.name_en || row.name_ar);
 		} else if (op === 'flagged-drawer-events') {
@@ -77,7 +77,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				readAll('aqura_pos_print_actions', printColumns, branchId),
 				kind === 'safeBox' ? readAll('aqura_safe_box_operations', 'id,user_id,branch_id,operation_type,denomination_counts,total_amount,balance_before,balance_after,printer_name,status,opened_at,completed_at,created_at,opening_print_status', branchId) : [],
 				kind === 'safeBox' ? readAll('aqura_change_requests', 'id,requested_by_user_id,requested_to_user_id,branch_id,denomination_counts,total_amount,status,requested_at,created_at,received_counts,received_total,received_at,withdrawal_counts,withdrawal_total,safe_box_printed_at,processed_at,cashier_confirmed_at,completed_at,safe_box_printer_name,cashier_printer_name,request_number', branchId) : [],
-				(await db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId).limit(10000)).data || [],
+				(await db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).eq('current_branch_id', branchId).limit(10000)).data || [],
 				(await db.from('users').select('id,username').limit(10000)).data || []
 			]);
 			data = { prints, operations, requests, employees, users };

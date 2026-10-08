@@ -58,7 +58,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
       if (!permission) return json({ error: 'Drawer Action report access required.' }, { status: 403 });
     }
     const { data: ownEmployee, error: ownError } = await db.from('hr_employee_master')
-      .select('current_branch_id').eq('user_id', actor.id).maybeSingle();
+      .select('current_branch_id').eq('is_removed', false).eq('user_id', actor.id).maybeSingle();
     if (ownError) throw ownError;
     const ownBranch = Number(ownEmployee?.current_branch_id || 0);
     if (!actor.isMasterAdmin && !ownBranch) return json({ error: 'No branch is assigned to this user.' }, { status: 403 });
@@ -73,8 +73,8 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
     }
     const [{ data: branches, error: branchError }, { data: employees, error: employeeError }] = await Promise.all([
       db.from('branches').select('id,name_en,name_ar').order('id'),
-      branchId ? db.from('hr_employee_master').select('user_id,name_en,name_ar,current_branch_id').eq('current_branch_id', branchId)
-        : db.from('hr_employee_master').select('user_id,name_en,name_ar,current_branch_id')
+      branchId ? db.from('hr_employee_master').select('user_id,name_en,name_ar,current_branch_id').eq('is_removed', false).eq('current_branch_id', branchId)
+        : db.from('hr_employee_master').select('user_id,name_en,name_ar,current_branch_id').eq('is_removed', false)
     ]);
     if (branchError || employeeError) throw branchError || employeeError;
     const allowedBranches = actor.isMasterAdmin ? (branches || []) : (branches || []).filter(b => Number(b.id) === ownBranch);

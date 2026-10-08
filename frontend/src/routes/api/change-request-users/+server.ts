@@ -21,13 +21,13 @@ export const GET: RequestHandler = async ({ request, url }) => {
     if (!await cashierInBranch(db, userId, branchId)) return json({ error: 'Cashier branch mismatch.' }, { status: 403 });
     const employeeResults = term
       ? await Promise.all([
-          db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId)
+          db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).eq('current_branch_id', branchId)
             .ilike('name_en', `%${term.replace(/[%_]/g, '\\$&')}%`).limit(30),
-          db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('current_branch_id', branchId)
+          db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).eq('current_branch_id', branchId)
             .ilike('name_ar', `%${term.replace(/[%_]/g, '\\$&')}%`).limit(30)
         ])
       : [await db.from('hr_employee_master').select('user_id,name_en,name_ar')
-          .eq('current_branch_id', branchId).limit(100)];
+          .eq('is_removed', false).eq('current_branch_id', branchId).limit(100)];
     for (const result of employeeResults) if (result.error) throw result.error;
     const employees = [...new Map(employeeResults.flatMap(result => result.data || [])
       .map(item => [item.user_id, item])).values()];

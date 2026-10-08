@@ -12,7 +12,7 @@ export const GET: RequestHandler = async ({ request }) => {
     p_user_id: userId, p_session_token: token
   });
   if (error || session?.valid !== true) return json({ error: 'Cashier session expired.' }, { status: 401 });
-  const { data: employee } = await db.from('hr_employee_master').select('current_branch_id').eq('user_id', userId).maybeSingle();
+  const { data: employee } = await db.from('hr_employee_master').select('current_branch_id').eq('is_removed', false).eq('user_id', userId).maybeSingle();
   const { error: permissionsError } = await db.from('aqura_safe_box_permissions').select('id').limit(1);
   const canWatchPermissions = !permissionsError;
   if (permissionsError && !safeBoxSchemaUnavailable(permissionsError)) return json({ error: 'Could not watch receiver permissions.' }, { status: 500 });

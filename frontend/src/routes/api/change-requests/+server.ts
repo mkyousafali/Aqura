@@ -68,7 +68,7 @@ export const POST: RequestHandler = async ({ request }) => {
       db.from('users').select('id,status').eq('id', requestedToUserId).maybeSingle(),
       db.from('branches').select('id').eq('id', branchId).maybeSingle(),
       db.from('interface_permissions').select('desktop_enabled').eq('user_id', requestedToUserId).maybeSingle(),
-      db.from('hr_employee_master').select('user_id').eq('user_id', requestedToUserId).eq('current_branch_id', branchId).maybeSingle()
+      db.from('hr_employee_master').select('user_id').eq('is_removed', false).eq('user_id', requestedToUserId).eq('current_branch_id', branchId).maybeSingle()
     ]);
     if (sender?.status !== 'active' || recipient?.status !== 'active' || !branch || !recipientEmployee || permission?.desktop_enabled === false ||
         !await isSafeBoxReceiver(db, requestedToUserId, Number(branchId))) {

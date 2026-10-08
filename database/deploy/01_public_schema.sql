@@ -13395,12 +13395,15 @@ CREATE FUNCTION public.get_employee_master_list(p_search text DEFAULT ''::text, 
       OR e.name_en ILIKE '%' || p_search || '%'
       OR e.name_ar ILIKE '%' || p_search || '%'
       OR e.id ILIKE '%' || p_search || '%'
+      OR e.id_number ILIKE '%' || p_search || '%'
       OR e.whatsapp_number ILIKE '%' || p_search || '%'
       OR e.email ILIKE '%' || p_search || '%')
     AND (p_status_filter IS NULL OR p_status_filter = '' OR s.employment_status = p_status_filter)
     AND (p_branch_filter IS NULL OR e.current_branch_id = p_branch_filter)
     AND (p_position_filter IS NULL OR e.current_position_id = p_position_filter)
-  ORDER BY e.name_en ASC NULLS LAST
+  ORDER BY
+    CASE WHEN lower(trim(COALESCE(s.employment_status, ''))) = 'resigned' THEN 1 ELSE 0 END,
+    e.name_en ASC NULLS LAST
   LIMIT GREATEST(1, LEAST(p_limit, 200))
   OFFSET (GREATEST(1, p_page) - 1) * GREATEST(1, LEAST(p_limit, 200));
 $$;
@@ -13430,6 +13433,7 @@ CREATE FUNCTION public.get_employee_master_list(p_search text DEFAULT ''::text, 
       OR e.name_en ILIKE '%' || p_search || '%'
       OR e.name_ar ILIKE '%' || p_search || '%'
       OR e.id ILIKE '%' || p_search || '%'
+      OR e.id_number ILIKE '%' || p_search || '%'
       OR e.whatsapp_number ILIKE '%' || p_search || '%'
       OR e.email ILIKE '%' || p_search || '%')
     AND (p_status_filter IS NULL OR p_status_filter = '' OR s.employment_status = p_status_filter)
@@ -13438,7 +13442,9 @@ CREATE FUNCTION public.get_employee_master_list(p_search text DEFAULT ''::text, 
     AND (p_exclude_statuses IS NULL
          OR array_length(p_exclude_statuses, 1) IS NULL
          OR NOT (s.employment_status = ANY(p_exclude_statuses)))
-  ORDER BY e.name_en ASC NULLS LAST
+  ORDER BY
+    CASE WHEN lower(trim(COALESCE(s.employment_status, ''))) = 'resigned' THEN 1 ELSE 0 END,
+    e.name_en ASC NULLS LAST
   LIMIT GREATEST(1, LEAST(p_limit, 200))
   OFFSET (GREATEST(1, p_page) - 1) * GREATEST(1, LEAST(p_limit, 200));
 $$;

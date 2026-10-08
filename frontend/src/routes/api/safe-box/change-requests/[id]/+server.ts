@@ -14,7 +14,7 @@ export const POST: RequestHandler = async ({ cookies, params, request }) => {
       .eq('id', params.id).eq('requested_to_user_id', userId).eq('branch_id', access.branchId).single();
     if (error || !item) return json({ error: 'Assigned request not found.' }, { status: 404 });
     const { data: employee } = await db.from('hr_employee_master').select('current_branch_id')
-      .eq('user_id', userId).maybeSingle();
+      .eq('is_removed', false).eq('user_id', userId).maybeSingle();
     if (employee?.current_branch_id !== Number(item.branch_id)) return json({ error: 'Request belongs to another branch.' }, { status: 403 });
     const body = await request.json();
     if (body.action === 'received') {

@@ -38,6 +38,7 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
 			const { data: employee, error } = await db
 				.from('hr_employee_master')
 				.select('current_branch_id')
+				.eq('is_removed', false)
 				.eq('user_id', actor.id)
 				.maybeSingle();
 			if (error) throw error;

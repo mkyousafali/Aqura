@@ -21,7 +21,7 @@ export async function safeBoxAccess(cookies: Cookies): Promise<SafeBoxAccess> {
   const user = await requireBreakUser(cookies, 'desktop');
   const db = databaseClient();
   const { data: employee, error: employeeError } = await db.from('hr_employee_master')
-    .select('current_branch_id').eq('user_id', user.id).maybeSingle();
+    .select('current_branch_id').eq('is_removed', false).eq('user_id', user.id).maybeSingle();
   if (employeeError || !employee?.current_branch_id) throw new Error('No current branch is assigned to this user.');
   const branchId = Number(employee.current_branch_id);
   const { data: grants, error: grantsError } = await db.from('aqura_safe_box_permissions')

@@ -18,7 +18,7 @@ export const GET: RequestHandler = async ({ cookies }) => {
     const branchIds = [...new Set((requests || []).map(row => row.branch_id))];
     const [{ data: senders }, { data: employees }, { data: branches }] = await Promise.all([
       senderIds.length ? db.from('users').select('id,username').in('id', senderIds) : Promise.resolve({ data: [] }),
-      senderIds.length ? db.from('hr_employee_master').select('user_id,name_en,name_ar').in('user_id', senderIds) : Promise.resolve({ data: [] }),
+      senderIds.length ? db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).in('user_id', senderIds) : Promise.resolve({ data: [] }),
       branchIds.length ? db.from('branches').select('id,name_en,name_ar,location_en,location_ar').in('id', branchIds) : Promise.resolve({ data: [] })
     ]);
     const userNames = new Map((senders || []).map(row => [row.id, row.username]));

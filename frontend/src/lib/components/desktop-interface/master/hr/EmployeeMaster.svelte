@@ -60,12 +60,14 @@
 	let empHasMore = false;
 	let empExcludeStatuses: string[] = [];
 	let empBranchFilter: number | null = null;
+	let empSponsorFilter: number | null = null;
 	let empExporting = false;
 
 	// Total salary / nationality per employee (master admin only)
 	$: isMasterAdmin = $currentUser?.isMasterAdmin === true;
 	let salaryTotals: Record<string, number> = {};
 	let nationalityMap: Record<string, { en: string; ar: string }> = {};
+	let employeeNationalityCounts = { total: 0, saudi: 0, nonSaudi: 0 };
 
 	// ─── MODAL STATE ──────────────────────────────────────────────────────────
 	let modal: {
@@ -85,16 +87,15 @@
 		return lang === 'ar' ? (item?.[arKey] || item?.[enKey] || '') : (item?.[enKey] || item?.[arKey] || '');
 	}
 
-	// Reload salary totals / nationalities if master-admin status resolves after initial mount
+	// Reload salary totals if master-admin status resolves after initial mount
 	$: if (isMasterAdmin && supabase && Object.keys(salaryTotals).length === 0) loadSalaryTotals();
-	$: if (isMasterAdmin && supabase && Object.keys(nationalityMap).length === 0) loadNationalities();
 
 	// ─── LIFECYCLE ────────────────────────────────────────────────────────────
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
-		await Promise.all([loadDropdowns(), loadEmployees()]);
-		if (isMasterAdmin) { loadSalaryTotals(); loadNationalities(); }
+		await Promise.all([loadDropdowns(), loadSponsors(), loadEmployees(), loadNationalities()]);
+		if (isMasterAdmin) loadSalaryTotals();
 	});
 
 	async function loadSalaryTotals() {
@@ -116,9 +117,13 @@
 				.select('id, nationalities(name_en, name_ar)');
 			if (error) throw error;
 			const map: Record<string, { en: string; ar: string }> = {};
+			let saudi = 0;
 			(data || []).forEach((row: any) => {
 				const nat = row.nationalities;
 				map[row.id] = { en: nat?.name_en || '-', ar: nat?.name_ar || '-' };
+				const nameEn = String(nat?.name_en || '').trim().toLowerCase();
+				const nameAr = String(nat?.name_ar || '');
+				if (nameEn === 'saudi arabia' || nameEn === 'saudi' || nameAr.includes('السعودية')) saudi++;
 			});
 			nationalityMap = map;
 		} catch (e) {
@@ -253,15 +258,65 @@
 				p_page: empPage,
 				p_limit: LIMIT,
 				p_branch_filter: empBranchFilter || null,
+				p_sponsor_filter: empSponsorFilter || null,
 				p_exclude_statuses: empExcludeStatuses.length > 0 ? empExcludeStatuses : null
 			};
-			const { data, error } = await supabase.rpc('get_employee_master_list', args);
+			const [listResult, countResult] = await Promise.all([
+				supabase.rpc('get_employee_master_list', args),
+				supabase.rpc('get_employee_master_counts', {
+					p_search: empSearch.trim(),
+					p_branch_filter: empBranchFilter || null,
+					p_sponsor_filter: empSponsorFilter || null,
+					p_exclude_statuses: empExcludeStatuses.length > 0 ? empExcludeStatuses : null
+				})
+			]);
+			const { data, error } = listResult;
 			if (error) throw error;
+			if (countResult.error) throw countResult.error;
+			const counts = countResult.data?.[0] || {};
+			employeeNationalityCounts = {
+				total: Number(counts.total_count) || 0,
+				saudi: Number(counts.saudi_count) || 0,
+				nonSaudi: Number(counts.non_saudi_count) || 0
+			};
 			let rows = data || [];
+
+			// Compatibility fallback for environments where get_employee_master_list has not
+			// yet been migrated to search hr_employee_master.id_number.
+			if (!append && rows.length === 0 && empSearch.trim()) {
+				const search = empSearch.trim();
+				const offset = (Math.max(1, empPage) - 1) * LIMIT;
+				let idNumberQuery = supabase
+					.from('hr_employee_master')
+					.select('id', { count: 'exact' })
+					.ilike('id_number', `%${search}%`)
+					.range(offset, offset + LIMIT - 1);
+				if (empBranchFilter) idNumberQuery = idNumberQuery.eq('current_branch_id', empBranchFilter);
+				if (empSponsorFilter) idNumberQuery = idNumberQuery.eq('sponsor_id', empSponsorFilter);
+
+				const { data: idMatches, count: idMatchCount, error: idMatchError } = await idNumberQuery;
+				if (idMatchError) throw idMatchError;
+
+				if (idMatches?.length) {
+					const matchResults = await Promise.all(
+						idMatches.map((match: any) => supabase.rpc('get_employee_master_list', {
+							...args,
+							p_search: match.id,
+							p_page: 1,
+							p_limit: 1
+						}))
+					);
+					const failedMatch = matchResults.find((result: any) => result.error);
+					if (failedMatch?.error) throw failedMatch.error;
+					rows = matchResults.flatMap((result: any) => result.data || []);
+					if (rows.length > 0) rows[0].total_count = idMatchCount ?? rows.length;
+				}
+			}
+
 			if (rows.length > 0) {
 				const { data: sponsorLinks, error: sponsorLinksError } = await supabase
 					.from('hr_employee_master')
-					.select('id, sponsorship_status, sponsor_id, company_master(name_en, name_ar)')
+					.select('id, id_number, sponsorship_status, sponsor_id, company_master(name_en, name_ar)')
 					.in('id', rows.map((row: any) => row.id));
 				if (sponsorLinksError) throw sponsorLinksError;
 				const sponsorLinkMap = new Map((sponsorLinks || []).map((row: any) => [row.id, row]));
@@ -269,6 +324,7 @@
 					const link: any = sponsorLinkMap.get(row.id) || {};
 					return {
 						...row,
+						id_number: link.id_number,
 						sponsorship_status: link.sponsorship_status,
 						sponsor_id: link.sponsor_id,
 						sponsor_name_en: link.company_master?.name_en || '',
@@ -281,7 +337,7 @@
 			} else {
 				employees = rows;
 			}
-			empTotalCount = rows[0]?.total_count ?? empTotalCount;
+			empTotalCount = rows[0]?.total_count ?? 0;
 			empHasMore = employees.length < empTotalCount;
 		} catch (e: any) {
 			empError = e.message || $t('employeeMaster.errors.loadFailed');
@@ -317,6 +373,7 @@
 					p_page: page,
 					p_limit: exportLimit,
 					p_branch_filter: empBranchFilter || null,
+					p_sponsor_filter: empSponsorFilter || null,
 					p_exclude_statuses: empExcludeStatuses.length > 0 ? empExcludeStatuses : null
 				};
 				const { data, error } = await supabase.rpc('get_employee_master_list', args);
@@ -503,6 +560,25 @@
 			if (sponsors.length === 0 && !sponsorsLoading) await loadSponsors();
 		}
 		if (tab === 'sponsors' && sponsors.length === 0 && !sponsorsLoading) await loadSponsors();
+	}
+
+	async function removeEmployeeFromSystem(emp: any) {
+		if (!isMasterAdmin) return;
+		const employeeName = lang === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar);
+		const confirmed = window.confirm(
+			$t('employeeMaster.removeFromSystem.confirm').replace('{name}', employeeName || emp.id)
+		);
+		if (!confirmed) return;
+
+		try {
+			const { error } = await supabase.rpc('remove_employee_from_system', { p_employee_id: emp.id });
+			if (error) throw error;
+			empPage = 1;
+			employees = [];
+			await Promise.all([loadEmployees(), loadNationalities()]);
+		} catch (e: any) {
+			alert(e?.message || $t('employeeMaster.removeFromSystem.error'));
+		}
 	}
 
 	async function loadSponsors() {
@@ -1014,16 +1090,26 @@
 						<option value={b.id}>{locName(b, 'name_en', 'name_ar')}</option>
 					{/each}
 				</select>
-				<button class="em-btn-clear" on:click={() => { empSearch=''; empExcludeStatuses=[]; empBranchFilter=null; empPage=1; employees=[]; loadEmployees(); }}>
+				<select class="em-filter" bind:value={empSponsorFilter} on:change={() => { empPage = 1; employees = []; loadEmployees(); }}>
+					<option value={null}>{$t('employeeMaster.allSponsors')}</option>
+					{#each sponsors as sponsor}
+						<option value={sponsor.id}>{locName(sponsor, 'name_en', 'name_ar')}</option>
+					{/each}
+				</select>
+				<button class="em-btn-clear" on:click={() => { empSearch=''; empExcludeStatuses=[]; empBranchFilter=null; empSponsorFilter=null; empPage=1; employees=[]; loadEmployees(); }}>
 					↺ {$t('employeeMaster.clearFilters')}
 				</button>
 				<button class="em-btn-export" disabled={empExporting} on:click={exportEmployeesToExcel}>
 					{#if empExporting}⏳{:else}📥{/if} Export to Excel
 				</button>
-				<span class="em-count">{empTotalCount} {$t('employeeMaster.employees')}</span>
-				{#if isMasterAdmin}
-					<span class="em-count em-salary-total">💰 {Object.values(salaryTotals).reduce((s, v) => s + (v || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</span>
-				{/if}
+				<div class="em-summary">
+					<span class="em-count em-count-total">👥 {$t('employeeMaster.totalEmployees')}: {employeeNationalityCounts.total}</span>
+					<span class="em-count em-count-saudi">🇸🇦 {$t('employeeMaster.saudiEmployees')}: {employeeNationalityCounts.saudi}</span>
+					<span class="em-count em-count-non-saudi">🌍 {$t('employeeMaster.nonSaudiEmployees')}: {employeeNationalityCounts.nonSaudi}</span>
+					{#if isMasterAdmin}
+						<span class="em-count em-salary-total">💰 {Object.values(salaryTotals).reduce((s, v) => s + (v || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</span>
+					{/if}
+				</div>
 			</div>
 			<!-- Status exclude checkboxes row -->
 			{#if (dropdowns.employment_statuses || []).length > 0}
@@ -1072,6 +1158,7 @@
 					<tr>
 						<th style="width:42px;text-align:center">#</th>
 						<th style="min-width:160px">{$t('employeeMaster.cols.name')}</th>
+						<th style="min-width:120px">{$t('employeeMaster.cols.idNumber')}</th>
 						<th style="min-width:160px">{$t('employeeMaster.cols.branch')}</th>
 						<th style="min-width:140px">{$t('employeeMaster.cols.position')}</th>
 						<th style="min-width:130px">{$t('employeeMaster.cols.status')}</th>
@@ -1092,6 +1179,7 @@
 							<strong>{lang === 'ar' ? (emp.name_ar || emp.name_en) : (emp.name_en || emp.name_ar)}</strong>
 							<span class="em-cell-empid">{emp.id}</span>
 						</td>
+						<td style="white-space:nowrap">{emp.id_number || '—'}</td>
 						<td class="em-cell-branch">
 							<span class="em-branch-name">{lang === 'ar' ? (emp.branch_name_ar || emp.branch_name_en) : (emp.branch_name_en || emp.branch_name_ar)}</span>
 							{#if emp.branch_location_en || emp.branch_location_ar}
@@ -1129,6 +1217,9 @@
 						<td style="white-space:nowrap">
 							<button class="em-btn-edit" on:click={() => openEditEmp(emp)}>✏️ {$t('employeeMaster.edit')}</button>
 							<button class="em-btn-edit" on:click={() => openEmpStatusModal(emp)}>🔄 {$t('employeeMaster.empStatus.changeButton') || 'Status'}</button>
+							{#if isMasterAdmin}
+								<button class="em-btn-remove" on:click={() => removeEmployeeFromSystem(emp)}>🗑️ {$t('employeeMaster.removeFromSystem.button')}</button>
+							{/if}
 						</td>
 					</tr>
 					{/each}
@@ -2258,7 +2349,30 @@
 }
 .em-btn-export:hover:not(:disabled) { background: #059669; }
 .em-btn-export:disabled { opacity: 0.6; cursor: not-allowed; }
+.em-btn-remove {
+	border: 1px solid #fecaca;
+	background: #fff1f2;
+	color: #be123c;
+	border-radius: 7px;
+	padding: 5px 9px;
+	font-size: 11px;
+	font-weight: 700;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.em-btn-remove:hover { background: #ffe4e6; border-color: #fda4af; }
 .em-salary-total { color: #059669; font-weight: 700; }
+.em-summary {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+.em-summary .em-count { margin: 0; }
+.em-count-total { color: #4338ca; background: rgba(99,102,241,0.1); font-weight: 700; }
+.em-count-saudi { color: #047857; background: rgba(16,185,129,0.1); font-weight: 700; }
+.em-count-non-saudi { color: #0369a1; background: rgba(14,165,233,0.1); font-weight: 700; }
 .em-count {
 	margin-left: auto;
 	font-size: 12px;
@@ -2268,6 +2382,8 @@
 	border-radius: 20px;
 }
 [dir="rtl"] .em-count { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .em-summary { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .em-summary .em-count { margin: 0; }
 
 /* ── State Messages ── */
 .em-state {

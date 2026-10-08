@@ -1,9 +1,13 @@
 import { json } from "@sveltejs/kit";
-import { supabase } from "$lib/utils/supabase";
+import {
+  databaseClient,
+  requireBreakUser,
+} from "$lib/server/breakRegisterAuth";
 
 /** @type {import('./$types').RequestHandler} */
-export async function POST({ request }) {
+export async function POST({ request, cookies }) {
   try {
+    await requireBreakUser(cookies, "desktop");
     const { receivingRecordId, erpReference } = await request.json();
 
     // Validate input
@@ -19,7 +23,7 @@ export async function POST({ request }) {
     }
 
     // Update the receiving record with the ERP reference
-    const { data, error } = await supabase
+    const { data, error } = await databaseClient()
       .from("receiving_records")
       .update({
         erp_purchase_invoice_reference: erpReference.trim(),
@@ -27,8 +31,8 @@ export async function POST({ request }) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", receivingRecordId)
-      .select()
-      .single();
+      .select("id, erp_purchase_invoice_reference")
+      .maybeSingle();
 
     if (error) {
       console.error("Database error updating ERP reference:", error);
@@ -42,10 +46,6 @@ export async function POST({ request }) {
       return json({ error: "Receiving record not found" }, { status: 404 });
     }
 
-    console.log(
-      `ERP reference updated successfully for record ${receivingRecordId}: ${erpReference}`,
-    );
-
     return json({
       success: true,
       data: data,
@@ -53,6 +53,8 @@ export async function POST({ request }) {
     });
   } catch (error) {
     console.error("Error updating ERP reference:", error);
-    return json({ error: "Internal server error" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Internal server error";
+    const status = /session|authentication|access/i.test(message) ? 401 : 500;
+    return json({ error: message }, { status });
   }
 }

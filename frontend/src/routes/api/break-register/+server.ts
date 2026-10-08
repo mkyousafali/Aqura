@@ -13,7 +13,7 @@ export const GET: RequestHandler = async ({ cookies, url, request }) => {
 		if (permissionError) throw permissionError;
 		const scope = user.isMasterAdmin || permission?.can_see_all_breaks ? 'all' : permission?.can_see_branch_breaks ? 'branch' : 'own';
 		const { data: employee, error: employeeError } = await db.from('hr_employee_master')
-			.select('id,current_branch_id').eq('user_id', user.id).maybeSingle();
+			.select('id,current_branch_id').eq('is_removed', false).eq('user_id', user.id).maybeSingle();
 		if (employeeError) throw employeeError;
 		if (scope === 'branch' && !employee?.current_branch_id) return json({ error: 'No assigned branch' }, { status: 403 });
 		const view = url.searchParams.get('view') || 'logs';
