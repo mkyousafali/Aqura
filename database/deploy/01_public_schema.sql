@@ -53515,7 +53515,7 @@ ALTER TABLE ONLY public.hr_regular_shift_versions
 --
 
 ALTER TABLE ONLY public.hr_salary_notes
-    ADD CONSTRAINT hr_salary_notes_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+    ADD CONSTRAINT hr_salary_notes_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
 --
