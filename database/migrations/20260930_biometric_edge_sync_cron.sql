@@ -8,7 +8,7 @@ END $$;
 
 SELECT cron.schedule(
   'biometric-punch-sync-5m',
-  '*/5 * * * *',
+  '* * * * *',
   $job$
     SELECT net.http_post(
       url := COALESCE(
@@ -27,7 +27,7 @@ SELECT cron.schedule(
 
 SELECT cron.schedule(
   'biometric-employee-sync-hourly',
-  '2 * * * *',
+  '*/10 * * * *',
   $job$
     SELECT net.http_post(
       url := COALESCE(

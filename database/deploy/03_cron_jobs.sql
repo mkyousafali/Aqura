@@ -10,7 +10,7 @@ select cron.schedule('process-fingerprints-hourly', '*/2 * * * *', '
     body := ''{}''::jsonb
   );
   ');
-select cron.schedule('analyze-attendance-auto', '*/3 * * * *', 'SELECT net.http_post(url := ''http://supabase-kong:8000/functions/v1/analyze-attendance'', headers := jsonb_build_object(''Content-Type'', ''application/json'', ''Authorization'', ''Bearer <SERVICE_ROLE_JWT>''), body := ''{"rollingDays": 3}''::jsonb);');
+select cron.schedule('analyze-attendance-auto', '*/2 * * * *', 'SELECT net.http_post(url := ''http://supabase-kong:8000/functions/v1/analyze-attendance'', headers := jsonb_build_object(''Content-Type'', ''application/json'', ''Authorization'', ''Bearer <SERVICE_ROLE_JWT>''), body := ''{"rollingDays": 3}''::jsonb);');
 select cron.schedule('analyze-breaks-auto', '5,15,25,35,45,55 * * * *', 'SELECT net.http_post(url := ''http://supabase-kong:8000/functions/v1/analyze-breaks'', headers := jsonb_build_object(''Content-Type'', ''application/json'', ''Authorization'', ''Bearer <SERVICE_ROLE_JWT>''), body := ''{"rollingDays": 3}''::jsonb);');
 select cron.schedule('vip-campaign-schedule-check', '* * * * *', 'SELECT public.check_vip_campaign_schedule()');
 select cron.schedule('broadcast-watchdog', '*/2 * * * *', 'SELECT public.broadcast_watchdog()');
