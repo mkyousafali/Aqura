@@ -119,6 +119,29 @@ function safeError(error: unknown) {
   return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500)
 }
 
+async function refreshAttendancePipeline(supabaseUrl: string, serviceKey: string, today: string) {
+  const headers = { Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' }
+  const processResponse = await fetch(`${supabaseUrl}/functions/v1/process-fingerprints`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ skipAnalyze: true }),
+  })
+  const processResult = await processResponse.json().catch(() => ({}))
+  if (!processResponse.ok || processResult.success === false) {
+    throw new Error(`Final fingerprint processing failed (${processResponse.status}): ${processResult.error || 'unknown error'}`)
+  }
+
+  const analyzeResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-attendance`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ dateFrom: today, dateTo: today, triggerType: 'attendance-no-show-final-check' }),
+  })
+  const analyzeResult = await analyzeResponse.json().catch(() => ({}))
+  if (!analyzeResponse.ok || analyzeResult.success === false) {
+    throw new Error(`Final attendance analysis failed (${analyzeResponse.status}): ${analyzeResult.error || 'unknown error'}`)
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -137,6 +160,7 @@ serve(async (req: Request) => {
   const now = new Date()
   const { date: today, weekday } = saudiParts(now)
   const summary = { evaluated: 0, pending: 0, cancelled: 0, alerted: 0, deliveries: 0, errors: [] as string[] }
+  let attendanceRefresh: Promise<void> | null = null
 
   try {
     const { data: monitored, error: monitoredError } = await supabase
@@ -258,6 +282,11 @@ serve(async (req: Request) => {
           alert = data || alert
         }
         if (!alert || now < eligibleAt) continue
+
+        // Refresh the full pipeline once per invocation before any notification
+        // can be created. If it fails, the invocation stops and nothing is sent.
+        attendanceRefresh ||= refreshAttendancePipeline(supabaseUrl, serviceKey, today)
+        await attendanceRefresh
 
         // Final, live verification immediately before delivery creation.
         const [{ data: liveEmployee }, { data: liveLeave }, { data: liveAttendance }] = await Promise.all([

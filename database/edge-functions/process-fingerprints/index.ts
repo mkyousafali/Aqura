@@ -28,9 +28,11 @@ Deno.serve(async (req: Request) => {
 
     // Optional: process only a specific employee
     let specificEmployeeId: string | null = null;
+    let skipAnalyze = false;
     try {
       const body = await req.json();
       if (body.employeeId) specificEmployeeId = body.employeeId;
+      skipAnalyze = body.skipAnalyze === true;
     } catch { /* no body = process all */ }
 
     console.log(`🔄 [Process Fingerprints] Starting...${specificEmployeeId ? ` Employee: ${specificEmployeeId}` : ' All employees'}`);
@@ -221,6 +223,7 @@ Deno.serve(async (req: Request) => {
     // Called automatically so the Quick Dashboard & mobile page get fresh attendance
     // data immediately after new fingerprint records are processed.
     try {
+      if (!skipAnalyze) {
       const analyzeUrl = `${supabaseUrl}/functions/v1/analyze-attendance`;
       const serviceKey = supabaseServiceKey;
       // fire-and-forget: we don't await so this never delays the response
@@ -233,6 +236,9 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ rollingDays: 3 }),
       }).catch(e => console.warn('⚠️ analyze-attendance fire-and-forget failed:', e.message));
       console.log('🔗 Triggered analyze-attendance (fire-and-forget)');
+      } else {
+        console.log('Skipping chained analyze-attendance; caller will run it synchronously');
+      }
     } catch (chainErr: any) {
       // Never let this block the main response
       console.warn('⚠️ Could not trigger analyze-attendance:', chainErr.message);
