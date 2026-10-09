@@ -358,6 +358,7 @@ serve(async (req: Request) => {
         const shiftStart = new Date(alert.shift_start_at)
         const shiftEnd = new Date(alert.shift_end_at)
         const checkedAt = new Date(alert.last_checked_at)
+        const minutesLate = Math.max(0, Math.floor((now.getTime() - shiftStart.getTime()) / 60_000))
         const employeeEn = employee?.name_en || employee?.name_ar || alert.employee_id
         const employeeAr = employee?.name_ar || employee?.name_en || alert.employee_id
         const branchEn = `${branch?.name_en || ''} - ${branch?.location_en || ''}`.replace(/^\s*-\s*|\s*-\s*$/g, '')
@@ -391,8 +392,7 @@ serve(async (req: Request) => {
                 { type: 'text', text: employeeAr }, { type: 'text', text: branch?.name_ar || branch?.name_en || '' },
                 { type: 'text', text: branch?.location_ar || branch?.location_en || '' }, { type: 'text', text: formatDateAr(shiftStart) },
                 { type: 'text', text: formatTime(shiftStart, 'ar-SA') }, { type: 'text', text: formatTime(shiftEnd, 'ar-SA') },
-                { type: 'text', text: alert.shift_name }, { type: 'text', text: formatTime(now, 'ar-SA') },
-                { type: 'text', text: `${formatDateAr(checkedAt)} ${formatTime(checkedAt, 'ar-SA')}` },
+                { type: 'text', text: formatTime(now, 'ar-SA') }, { type: 'text', text: String(minutesLate) },
               ] }] },
             }),
           })
