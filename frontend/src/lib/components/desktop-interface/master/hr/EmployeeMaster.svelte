@@ -726,6 +726,20 @@
 	// Documents Expiry state
 	let documentsExpiryData: any[] = [];
 	let docExpiryLoading = false;
+	let copiedEmployeeId = '';
+
+	async function copyEmployeeIdNumber(idNumber: string) {
+		if (!idNumber) return;
+		try {
+			await navigator.clipboard.writeText(idNumber);
+			copiedEmployeeId = idNumber;
+			setTimeout(() => {
+				if (copiedEmployeeId === idNumber) copiedEmployeeId = '';
+			}, 1500);
+		} catch (err) {
+			console.error('Failed to copy employee ID number:', err);
+		}
+	}
 	let docSearchTerm = '';
 	let docSelectedBranch = '';
 	let docSelectedNationality = '';
@@ -923,7 +937,7 @@
 		try {
 			const { data: employees, error } = await supabase
 				.from('hr_employee_master_with_status')
-				.select(`id, name_en, name_ar, nationality_id, current_branch_id, employment_status, sponsorship_status,
+				.select(`id, id_number, name_en, name_ar, nationality_id, current_branch_id, employment_status, sponsorship_status,
 					id_expiry_date, health_card_expiry_date, driving_licence_expiry_date,
 					contract_expiry_date, work_permit_expiry_date, insurance_expiry_date,
 					health_educational_renewal_date, branches(name_en, name_ar, location_en, location_ar)`)
@@ -946,7 +960,7 @@
 					documents[dt.type] = { label: dt.label, expiryDate: emp[dt.key], daysRemaining: days, status: days < 0 ? 'Expired' : days <= 30 ? 'Expiring Soon' : days <= 90 ? 'Warning' : 'Active' };
 				});
 				return {
-					id: emp.id, name_en: emp.name_en || 'N/A', name_ar: emp.name_ar || 'N/A',
+					id: emp.id, id_number: emp.id_number || '', name_en: emp.name_en || 'N/A', name_ar: emp.name_ar || 'N/A',
 					sponsorship_status: emp.sponsorship_status,
 					sponsor_id: sponsorLink.sponsor_id,
 					sponsor_name_en: sponsorLink.company_master?.name_en || '', sponsor_name_ar: sponsorLink.company_master?.name_ar || '',
@@ -1584,7 +1598,21 @@
 				{@const docs = emp.documents}
 				<tr>
 					{#if docVisibleColumns.id}<td style="font-family:monospace;font-size:11px;color:#64748b">{emp.id}</td>{/if}
-					{#if docVisibleColumns.name}<td style="font-weight:500">{lang === 'ar' ? emp.name_ar : emp.name_en}</td>{/if}
+					{#if docVisibleColumns.name}
+						<td style="font-weight:500">
+							<div>{lang === 'ar' ? emp.name_ar : emp.name_en}</div>
+							{#if emp.id_number}
+								<button
+									type="button"
+									class="mt-0.5 border-0 bg-transparent p-0 font-mono text-[11px] font-normal text-slate-500 hover:text-violet-700 cursor-copy"
+									on:dblclick={() => copyEmployeeIdNumber(emp.id_number)}
+									title={lang === 'ar' ? 'انقر نقراً مزدوجاً للنسخ' : 'Double-click to copy'}
+								>
+									{copiedEmployeeId === emp.id_number ? (lang === 'ar' ? 'تم النسخ ✓' : 'Copied ✓') : emp.id_number}
+								</button>
+							{/if}
+						</td>
+					{/if}
 					{#if docVisibleColumns.nationality}<td>{lang === 'ar' ? emp.nationality_name_ar : emp.nationality_name_en}</td>{/if}
 					{#if docVisibleColumns.branch}<td>{lang === 'ar' ? emp.branch_name_ar : emp.branch_name_en}</td>{/if}
 					{#if docVisibleColumns.sponsorship_status}
