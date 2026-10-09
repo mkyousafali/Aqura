@@ -721,6 +721,24 @@
 		{ key: 'doc_insurance', label: 'Insurance' },
 		{ key: 'doc_health_educational', label: 'Health Educational Renewal' }
 	];
+	const COLUMN_TRANSLATION_KEYS_EXP: Record<string, string> = {
+		id: 'employeeMaster.docExpiry.colId',
+		name: 'employeeMaster.docExpiry.colName',
+		nationality: 'employeeMaster.docExpiry.colNationality',
+		branch: 'employeeMaster.docExpiry.colBranch',
+		sponsorship_status: 'employeeFiles.sponsorshipStatus',
+		sponsor: 'employeeMaster.sponsors.sponsor',
+		doc_id: 'employeeMaster.docExpiry.colIdExpiry',
+		doc_health_card: 'employeeMaster.docExpiry.colHealthCard',
+		doc_driving_licence: 'employeeMaster.docExpiry.colDrivingLicence',
+		doc_contract: 'employeeMaster.docExpiry.colContract',
+		doc_work_permit: 'employeeMaster.docExpiry.colWorkPermit',
+		doc_insurance: 'employeeMaster.docExpiry.colInsurance',
+		doc_health_educational: 'employeeMaster.docExpiry.colHealthEdu'
+	};
+	function getDocColumnLabel(key: string): string {
+		return $t(COLUMN_TRANSLATION_KEYS_EXP[key] || key);
+	}
 	const ALL_EMP_STATUSES_LIST = ['Job (With Finger)', 'Remote Job', 'Vacation', 'Resigned'];
 
 	// Documents Expiry state
@@ -1517,7 +1535,7 @@
 		</select>
 		<button on:click={openDocFilter} class="border border-violet-300 text-violet-700 rounded-lg px-3 py-2 text-sm hover:bg-violet-50">{$t('employeeMaster.docExpiry.filter')}</button>
 		{#if docDaysLimit !== null}
-			<span class="text-sm text-slate-600 self-center">{$t(`employeeMaster.docExpiry.documentTypes.${docFilterType}`)} ? {$t('employeeMaster.docExpiry.remainingLessThan')}: {docDaysLimit}</span>
+			<span class="text-sm text-slate-600 self-center">{$t(`employeeMaster.docExpiry.documentTypes.${docFilterType}`)} — {$t('employeeMaster.docExpiry.remainingLessThan')}: {docDaysLimit}</span>
 			<button on:click={() => docDaysLimit = null} class="em-btn-clear">{$t('employeeMaster.clearFilters')}</button>
 		{/if}
 		<select bind:value={docSelectedSponsorship} aria-label={$t('employeeFiles.sponsorshipStatus')} class="doc-toolbar-select border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
@@ -1534,7 +1552,7 @@
 				{#each COLUMN_LABELS_EXP as col}
 				<label class="flex items-center gap-2 py-1 px-2 rounded hover:bg-slate-50 cursor-pointer text-sm">
 					<input type="checkbox" bind:checked={columnVisibility[col.key]} disabled={docDaysLimit !== null && col.key.startsWith('doc_')} class="rounded" />
-					{col.label}
+					{getDocColumnLabel(col.key)}
 				</label>
 				{/each}
 			</div>
@@ -1543,7 +1561,7 @@
 		<select bind:value={docSortKey} aria-label={$t('employeeMaster.docExpiry.sortBy')} class="doc-toolbar-select border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
 			<option value="">{$t('employeeMaster.docExpiry.noSorting')}</option>
 			{#each COLUMN_LABELS_EXP.filter(col => col.key.startsWith('doc_')) as col}
-				<option value={col.key}>{$t('employeeMaster.docExpiry.sortBy')} {col.label}</option>
+				<option value={col.key}>{$t('employeeMaster.docExpiry.sortBy')} {getDocColumnLabel(col.key)}</option>
 			{/each}
 		</select>
 		{#if docSortKey}
