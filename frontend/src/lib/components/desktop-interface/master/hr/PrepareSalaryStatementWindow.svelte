@@ -9,6 +9,13 @@
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
 	import SalaryAndWage from './SalaryAndWage.svelte';
+	import {
+		SALARY_STATEMENT_CALCULATION_VERSION,
+		calculateSalaryStatement,
+		enumerateDates,
+		getEmploymentEligibility,
+		isPayrollPeriod
+	} from '$lib/utils/salaryStatementCalculation';
 
 	export let windowId: string;
 
@@ -243,6 +250,10 @@
 		branch_name_en?: string;
 		branch_name_ar?: string;
 		employment_status: string;
+		employment_status_effective_date?: string | null;
+		join_date?: string | null;
+		id_number?: string | null;
+		whatsapp_number?: string | null;
 		nationality_id?: string;
 		nationality_name_en?: string;
 	}
@@ -256,6 +267,7 @@
 	let searchQuery = '';
 	
 	let analysisData: any[] = [];
+	let statementCalculationVersion = SALARY_STATEMENT_CALCULATION_VERSION;
 	let datesInRange: string[] = [];
 	let editableWorkedDays: { [key: string]: string } = {};
 	let workedDaysEditOriginal: { [key: string]: string } = {};
@@ -593,96 +605,95 @@
 			return String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true });
 		});
 
-	// Compute per-row salary numbers (mirrors table cell formulas)
-	function computeRowSalary(row: any) {
+	function rowCalculationInput(row: any, overrides?: any) {
+		const id = row.employeeId;
+		return {
+			earnings: {
+				basic: overrides?.basicSalary ?? basicSalaries[id] ?? 0,
+				other: overrides?.otherAllowance ?? otherAllowances[id] ?? 0,
+				accommodation: overrides?.accommodation ?? accommodationAllowances[id] ?? 0,
+				travel: overrides?.travel ?? travelAllowances[id] ?? 0,
+				food: overrides?.food ?? foodAllowances[id] ?? 0
+			},
+			paymentModes: {
+				basic: overrides?.basicPaymentMode ?? paymentModes[id] ?? 'Bank',
+				other: overrides?.otherAllowancePaymentMode ?? otherAllowancePaymentModes[id] ?? 'Bank',
+				accommodation: overrides?.accommodationPaymentMode ?? accommodationPaymentModes[id] ?? 'Bank',
+				travel: overrides?.travelPaymentMode ?? travelPaymentModes[id] ?? 'Bank',
+				food: overrides?.foodPaymentMode ?? foodPaymentModes[id] ?? 'Bank'
+			},
+			eligibleCalendarDays: row.eligibleCalendarDays ?? datesInRange.length,
+			fullPeriodEmployment: row.fullPeriodEmployment ?? true,
+			deductions: {
+				gosi: overrides?.gosiDeduction ?? gosiDeductions[id] ?? 0,
+				lateMinutes: overrides?.lateMinutes ?? lateMinutesOverrides[id] ?? row.totalLateMinutes ?? 0,
+				underWorkedMinutes: overrides?.underWorkedMinutes ?? underWorkedMinutesOverrides[id] ?? row.totalUnderWorkedMinutes ?? 0,
+				incompleteDays: row.totalIncompleteDays || 0,
+				unapprovedDays: row.totalUnapprovedDaysOff || 0,
+				lateOverride: overrides ? overrides.lateDeduction : lateDeductionOverrides[id],
+				underWorkedOverride: overrides ? overrides.underWorkedDeduction : underWorkedDeductionOverrides[id],
+				incompleteOverride: overrides ? overrides.incompleteDayDeduction : incompleteDayDeductionOverrides[id],
+				unapprovedOverride: overrides ? overrides.unapprovedLeaveDeduction : unapprovedLeaveDeductionOverrides[id],
+				posShortage: overrides?.posShortage ?? posShortageDeductions[id] ?? 0,
+				salaryAdvance: overrides?.salaryAdvance ?? empEditOverrides[id]?.salaryAdvance ?? 0,
+				loan: overrides?.loanDeductions ?? empEditOverrides[id]?.loanDeductions ?? 0,
+				penalties: (overrides?.autoFine ?? autoFineDeductions[id] ?? 0) + (overrides?.penalties ?? empEditOverrides[id]?.penalties ?? 0),
+				other: overrides?.otherDeductions ?? empEditOverrides[id]?.otherDeductions ?? 0,
+				foodDeductionActive: overrides?.foodDeductionActive ?? foodDeductionActives[id] ?? false
+			}
+		};
+	}
+
+	// Version 1 snapshots retain the exact historic behavior and are never silently recalculated.
+	function computeLegacyRowSalary(row: any) {
 		const basicSal = basicSalaries[row.employeeId] || 0;
 		const otherAllow = otherAllowances[row.employeeId] || 0;
 		const accommAllow = accommodationAllowances[row.employeeId] || 0;
 		const travelAllow = travelAllowances[row.employeeId] || 0;
 		const foodAllow = foodAllowances[row.employeeId] || 0;
-		const gosiDed = gosiDeductions[row.employeeId] || 0;
-
 		const totalAllowances = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-		let grossWorkedSalary = totalAllowances;
+		let gross = totalAllowances;
 		if (row.employmentStatus === 'Remote Job') {
-			const wdRaw = editableWorkedDays[row.employeeId];
-			const wd = (wdRaw !== undefined && wdRaw !== '') ? parseFloat(wdRaw) : (row.totalExpectedWorkDays || 0);
-			const expWd = row.totalExpectedWorkDays || 0;
-			if (expWd > 0) grossWorkedSalary = totalAllowances * (wd / expWd);
+			const raw = editableWorkedDays[row.employeeId];
+			const worked = raw !== undefined && raw !== '' ? parseFloat(raw) : row.totalExpectedWorkDays || 0;
+			if ((row.totalExpectedWorkDays || 0) > 0) gross = totalAllowances * worked / row.totalExpectedWorkDays;
 		}
+		const hourly = totalAllowances / 240;
+		const remote = row.employmentStatus === 'Remote Job';
+		const late = lateDeductionOverrides[row.employeeId] ?? ((remote ? 0 : lateMinutesOverrides[row.employeeId] ?? row.totalLateMinutes ?? 0) / 60 * hourly);
+		const under = underWorkedDeductionOverrides[row.employeeId] ?? ((remote ? 0 : underWorkedMinutesOverrides[row.employeeId] ?? row.totalUnderWorkedMinutes ?? 0) / 60 * hourly);
+		const incomplete = incompleteDayDeductionOverrides[row.employeeId] ?? ((remote ? 0 : row.totalIncompleteDays || 0) * 8 * hourly);
+		const unapproved = unapprovedLeaveDeductionOverrides[row.employeeId] ?? ((remote ? 0 : row.totalUnapprovedDaysOff || 0) * 8 * hourly);
+		const foodDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
+		const totalDeductions = (gosiDeductions[row.employeeId] || 0) + late + under + incomplete + unapproved +
+			(posShortageDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.salaryAdvance || 0) +
+			(empEditOverrides[row.employeeId]?.loanDeductions || 0) + (autoFineDeductions[row.employeeId] || 0) +
+			(empEditOverrides[row.employeeId]?.penalties || 0) + (empEditOverrides[row.employeeId]?.otherDeductions || 0) + foodDed;
+		const netSalary = gross - totalDeductions;
+		let bank = 0;
+		for (const [value, mode] of [[basicSal,paymentModes[row.employeeId]], [otherAllow,otherAllowancePaymentModes[row.employeeId]], [accommAllow,accommodationPaymentModes[row.employeeId]], [travelAllow,travelPaymentModes[row.employeeId]], [foodDed ? 0 : foodAllow,foodPaymentModes[row.employeeId]]] as any[]) if ((mode || 'Bank') === 'Bank') bank += value;
+		const scale = totalAllowances > 0 ? gross / totalAllowances : 1;
+		const grossBank = bank * scale;
+		const grossCash = (totalAllowances - foodDed - bank) * scale;
+		const nonFood = totalDeductions - foodDed;
+		const fromBank = Math.min(nonFood, grossBank);
+		return { gross, totalDeductions, netSalary, netBank: Math.max(0, grossBank - fromBank), netCash: Math.max(0, grossCash - (nonFood - fromBank)) };
+	}
 
-		const hourlyRate = totalAllowances / 240;
-		const shiftHoursPerDay = 8;
+	// Compute every monetary output through one calculation path.
+	function computeRowSalary(row: any) {
+		if (statementCalculationVersion < SALARY_STATEMENT_CALCULATION_VERSION) return computeLegacyRowSalary(row);
+		return calculateSalaryStatement(rowCalculationInput(row));
+	}
 
-		// Remote Job has no fingerprint data - zero out attendance-derived deductions (mirrors cell logic)
-		const _isRemote = row.employmentStatus === 'Remote Job';
-		const lateOvr = lateDeductionOverrides[row.employeeId];
-		const underOvr = underWorkedDeductionOverrides[row.employeeId];
-		const unapOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
-		const incompOvr = incompleteDayDeductionOverrides[row.employeeId];
-		const effLate = _isRemote ? 0 : (lateMinutesOverrides[row.employeeId] ?? row.totalLateMinutes ?? 0);
-		const effUnder = _isRemote ? 0 : (underWorkedMinutesOverrides[row.employeeId] ?? row.totalUnderWorkedMinutes ?? 0);
-		const effIncompDays = _isRemote ? 0 : (row.totalIncompleteDays || 0);
-		const effUnapDays = _isRemote ? 0 : (row.totalUnapprovedDaysOff || 0);
+	function centralDeduction(row: any, key: string): number | undefined {
+		if (statementCalculationVersion < SALARY_STATEMENT_CALCULATION_VERSION) return undefined;
+		return (calculateSalaryStatement(rowCalculationInput(row)).deductions as any)[key];
+	}
 
-		let lateDeduction = 0;
-		let underWorkedDeduction = 0;
-		let unapprovedLeaveDeduction = 0;
-		let incompleteDayDeduction = 0;
-
-		// Manual overrides (typed by an admin in the Edit modal) always apply, regardless of employment
-		// status — only the *auto-computed* fallback (effLate/effUnder/effIncompDays/effUnapDays) is
-		// zeroed for Remote Job, since that's derived from fingerprint data Remote employees don't have.
-		if (lateOvr !== undefined) lateDeduction = lateOvr;
-		else if (effLate > 0) lateDeduction = (effLate / 60) * hourlyRate;
-
-		if (underOvr !== undefined) underWorkedDeduction = underOvr;
-		else if (effUnder > 0) underWorkedDeduction = (effUnder / 60) * hourlyRate;
-
-		if (incompOvr !== undefined) incompleteDayDeduction = incompOvr;
-		else if (effIncompDays > 0) incompleteDayDeduction = effIncompDays * shiftHoursPerDay * hourlyRate;
-
-		if (unapOvr !== undefined) unapprovedLeaveDeduction = unapOvr;
-		else if (effUnapDays > 0) unapprovedLeaveDeduction = effUnapDays * shiftHoursPerDay * hourlyRate;
-
-		const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
-		const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-		const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
-		const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
-		const posShortageDed = posShortageDeductions[row.employeeId] || 0;
-		const foodDeductionDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
-
-		const totalDeductions = gosiDed + lateDeduction + underWorkedDeduction + unapprovedLeaveDeduction
-			+ salaryAdvanceDed + loanDed + penaltiesDed + incompleteDayDeduction + posShortageDed + otherDed + foodDeductionDed;
-
-		const netSalary = grossWorkedSalary - totalDeductions;
-
-		const basicPayMode = paymentModes[row.employeeId] || 'Bank';
-		const otherPayMode = otherAllowancePaymentModes[row.employeeId] || 'Bank';
-		const accommPayMode = accommodationPaymentModes[row.employeeId] || 'Bank';
-		const travelPayMode = travelPaymentModes[row.employeeId] || 'Bank';
-		const foodPayMode = foodPaymentModes[row.employeeId] || 'Bank';
-		const isFoodDed = foodDeductionActives[row.employeeId] ?? false;
-		// When food deduction toggle is ON, food is fully deducted — exclude it from distribution entirely
-		const distFoodAllow = isFoodDed ? 0 : foodAllow;
-		let bankAllow = 0;
-		if (basicPayMode === 'Bank') bankAllow += basicSal;
-		if (otherPayMode === 'Bank') bankAllow += otherAllow;
-		if (accommPayMode === 'Bank') bankAllow += accommAllow;
-		if (travelPayMode === 'Bank') bankAllow += travelAllow;
-		if (foodPayMode === 'Bank') bankAllow += distFoodAllow;
-		const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFoodAllow;
-		// Deductions are applied to Bank first (attendance-scaled for Remote Jobs); only the
-		// overflow — if Bank isn't enough to cover them — spills over to Cash.
-		const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
-		const effGrossBank = bankAllow * scaleFactor;
-		const effGrossCash = (distTotal - bankAllow) * scaleFactor;
-		const nonFoodDeds = totalDeductions - foodDeductionDed;
-		const deductFromBank = Math.min(nonFoodDeds, effGrossBank);
-		const netBank = Math.max(0, effGrossBank - deductFromBank);
-		const netCash = Math.max(0, effGrossCash - (nonFoodDeds - deductFromBank));
-
-		return { gross: grossWorkedSalary, totalDeductions, netSalary, netBank, netCash };
+	function displayedEarning(row: any, key: 'basic' | 'other' | 'accommodation' | 'travel' | 'food', legacyValue: number): number {
+		if (statementCalculationVersion < SALARY_STATEMENT_CALCULATION_VERSION) return legacyValue;
+		return calculateSalaryStatement(rowCalculationInput(row)).proratedEarnings[key];
 	}
 
 	// Compute totals over current filtered rows. Reads module state directly.
@@ -704,6 +715,8 @@
 		for (const r of rows) {
 			if (r.employmentStatus === 'Remote Job') t.countRemoteJob++;
 			else if (r.employmentStatus === 'Job (With Finger)') t.countFingerJob++;
+			const s = computeRowSalary(r);
+			const centralDeductions = statementCalculationVersion >= SALARY_STATEMENT_CALCULATION_VERSION ? (s as any).deductions : null;
 			const basicSal = basicSalaries[r.employeeId] || 0;
 			const otherAllow = otherAllowances[r.employeeId] || 0;
 			const accommAllow = accommodationAllowances[r.employeeId] || 0;
@@ -713,8 +726,12 @@
 			const totalAllowances = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
 			const hourlyRate = totalAllowances / 240;
 			const shiftHoursPerDay = 8;
-			t.basicSalary += basicSal; t.otherAllowance += otherAllow; t.accommodation += accommAllow;
-			t.travel += travelAllow; t.foodAllowance += foodAllow; t.gosiDeduction += gosiDed;
+			t.basicSalary += displayedEarning(r, 'basic', basicSal);
+			t.otherAllowance += displayedEarning(r, 'other', otherAllow);
+			t.accommodation += displayedEarning(r, 'accommodation', accommAllow);
+			t.travel += displayedEarning(r, 'travel', travelAllow);
+			t.foodAllowance += displayedEarning(r, 'food', foodAllow);
+			t.gosiDeduction += gosiDed;
 			// Remote Job: zero out attendance counts (no fingerprint data)
 			const isRemote = r.employmentStatus === 'Remote Job';
 			t.workedMinutes += r.totalWorkedMinutes || 0;
@@ -755,17 +772,16 @@
 			let unapDed = 0;
 			if (unapOvr !== undefined) unapDed = unapOvr;
 			else if (!isRemote && (r.totalUnapprovedDaysOff || 0) > 0) unapDed = (r.totalUnapprovedDaysOff || 0) * shiftHoursPerDay * hourlyRate;
-			t.lateDeductions += lateDed;
-			t.underWorkedDeductions += underDed;
-			t.incompleteDeductions += incompDed;
-			t.unapprovedLeaveDeductions += unapDed;
+			t.lateDeductions += centralDeductions?.late ?? lateDed;
+			t.underWorkedDeductions += centralDeductions?.underWorked ?? underDed;
+			t.incompleteDeductions += centralDeductions?.incomplete ?? incompDed;
+			t.unapprovedLeaveDeductions += centralDeductions?.unapprovedLeave ?? unapDed;
 			t.posShortage += posShortageDeductions[r.employeeId] || 0;
 			t.salaryAdvance += empEditOverrides[r.employeeId]?.salaryAdvance || 0;
 			t.loanDeductions += empEditOverrides[r.employeeId]?.loanDeductions || 0;
 			t.penalties += (autoFineDeductions[r.employeeId] || 0) + (empEditOverrides[r.employeeId]?.penalties || 0);
 			t.otherDeductions += empEditOverrides[r.employeeId]?.otherDeductions || 0;
-			t.foodDeduction += (foodDeductionActives[r.employeeId] ?? false) ? foodAllow : 0;
-			const s = computeRowSalary(r);
+			t.foodDeduction += centralDeductions?.food ?? ((foodDeductionActives[r.employeeId] ?? false) ? foodAllow : 0);
 			t.totalGross += s.gross;
 			t.totalDed += s.totalDeductions;
 			t.totalNet += s.netSalary;
@@ -874,6 +890,9 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		) / 240;
 		const shiftHPD = 8;
 		const isRemote = row.employmentStatus === 'Remote Job';
+		const centralized = statementCalculationVersion >= SALARY_STATEMENT_CALCULATION_VERSION
+			? calculateSalaryStatement(rowCalculationInput(row))
+			: null;
 
 		const foodAllow = foodAllowances[empId] || 0;
 		const foodDeductionActive = foodDeductionActives[empId] ?? false;
@@ -885,10 +904,10 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		// Deductions below) at the same time, per their salary setup.
 		const otherAllow = otherAllowances[empId] || 0;
 		const otherAllowPayMode = (otherAllowancePaymentModes[empId] || 'Bank').toLowerCase();
-		const otherAllowBank = otherAllowPayMode !== 'cash' ? otherAllow : 0;
+		const otherAllowBank = otherAllowPayMode !== 'cash' ? (centralized?.proratedEarnings.other ?? otherAllow) : 0;
 
 		const foodPayMode = (foodPaymentModes[empId] || 'Bank').toLowerCase();
-		const foodAllowBank = foodPayMode !== 'cash' ? foodAllow : 0;
+		const foodAllowBank = foodPayMode !== 'cash' ? (centralized?.proratedEarnings.food ?? foodAllow) : 0;
 
 		const otherAllowancesAmount = otherAllowBank + foodAllowBank;
 
@@ -918,11 +937,13 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		if (unapOvr !== undefined) unapprovedDed = unapOvr;
 		else if (effUnapDays > 0) unapprovedDed = effUnapDays * shiftHPD * hourlyRate;
 
-		const leaveOfAbsenceAmount = incompleteDed + lateDed + underDed + unapprovedDed;
+		const leaveOfAbsenceAmount = centralized
+			? centralized.deductions.incomplete + centralized.deductions.late + centralized.deductions.underWorked + centralized.deductions.unapprovedLeave
+			: incompleteDed + lateDed + underDed + unapprovedDed;
 
 		// Other Deductions = POS + advance + loan + penalties + other + food deduction
-		const foodDeductionDed = foodDeductionActive ? foodAllow : 0;
-		const otherDeductionsAmount =
+		const foodDeductionDed = centralized?.deductions.food ?? (foodDeductionActive ? foodAllow : 0);
+		const legacyOtherDeductionsAmount =
 			(posShortageDeductions[empId] || 0) +
 			(empEditOverrides[empId]?.salaryAdvance || 0) +
 			(empEditOverrides[empId]?.loanDeductions || 0) +
@@ -930,6 +951,9 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			(empEditOverrides[empId]?.penalties || 0) +
 			(empEditOverrides[empId]?.otherDeductions || 0) +
 			foodDeductionDed;
+		const otherDeductionsAmount = centralized
+			? centralized.deductions.posShortage + centralized.deductions.salaryAdvance + centralized.deductions.loan + centralized.deductions.penalties + centralized.deductions.other + centralized.deductions.food
+			: legacyOtherDeductionsAmount;
 
 		map.set(legalId, {
 			otherAllowances: otherAllowancesAmount,
@@ -1379,7 +1403,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 	function buildStatementSnapshot() {
 		return {
-			version: 1,
+			version: SALARY_STATEMENT_CALCULATION_VERSION,
+			calculationVersion: SALARY_STATEMENT_CALCULATION_VERSION,
 			savedAt: new Date().toISOString(),
 			filters: { startDate, endDate, selectedBranch, searchQuery },
 			datesInRange,
@@ -1416,6 +1441,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 	function restoreStatementSnapshot(snap: any) {
 		if (!snap) return;
+		statementCalculationVersion = Number(snap.calculationVersion ?? snap.version ?? 1);
 		if (snap.filters) {
 			startDate = snap.filters.startDate || '';
 			endDate = snap.filters.endDate || '';
@@ -1846,6 +1872,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		if (dirtyRowIds.size > 0 && !confirm($t('hr.salaryStatement.closeWithUnsavedConfirm').replace('{count}', String(dirtyRowIds.size)))) return;
 		recordLog({ action_type: LOG.RESET, action_description: `Reset saved statement context (was: ${saveStatementName || 'unnamed'})`, related_ui: 'SaveBar' });
 		currentSavedStatementId = null;
+		statementCalculationVersion = SALARY_STATEMENT_CALCULATION_VERSION;
 		isLoadedFromSaved = false;
 		isModified = false;
 		rowBaseline = new Map();
@@ -2263,24 +2290,17 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		// Polling disabled - causes table to reload constantly
 		// pollingInterval setup removed
 		
-		// Set default date range: 25th of previous month to yesterday
+		// Set the most recently completed 25th-through-24th payroll period.
 		const today = new Date();
-		
-		// Yesterday
-		const yesterday = new Date(today);
-		yesterday.setDate(today.getDate() - 1);
-		endDate = yesterday.toISOString().split('T')[0];
-		
-		// 25th of previous month
-		const prevMonth = new Date(today);
-		prevMonth.setMonth(today.getMonth() - 1);
-		prevMonth.setDate(25);
-		startDate = prevMonth.toISOString().split('T')[0];
+		const completedEnd = new Date(today.getFullYear(), today.getMonth() - (today.getDate() < 25 ? 1 : 0), 24);
+		const completedStart = new Date(completedEnd.getFullYear(), completedEnd.getMonth() - 1, 25);
+		const localYmd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+		endDate = localYmd(completedEnd);
+		startDate = localYmd(completedStart);
 
-		// Automatic load if employees were found
-		if (employees.length > 0) {
-			await loadAnalysis();
-		}
+		// Period eligibility is historical and may include resigned/rejoined or vacation employees
+		// even when they are absent from the current active roster.
+		await loadAnalysis();
 
 		recordLog({ action_type: LOG.OPEN, action_description: 'Opened Prepare Salary Statement window', related_ui: 'PrepareSalaryStatementWindow', metadata: { employeeCount: employees.length } });
 	});
@@ -2345,6 +2365,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					name_ar,
 					current_branch_id,
 					employment_status,
+					employment_status_effective_date,
+					join_date,
 					id_number,
 					whatsapp_number,
 					nationality_id,
@@ -2374,38 +2396,23 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		}
 	}
 
-	/** Active roster plus Resigned employees who worked (status history) inside the range */
+	/** Every employee with an employed status interval overlapping the payroll range. */
 	async function fetchPeriodEmployees(rangeStart: string, rangeEnd: string): Promise<any[]> {
-		// Resigned employees who actually worked during this period still get a
-		// prorated statement (payment for the days actually worked) -- pull
-		// anyone with a Job (With Finger)/Remote Job status_history period
-		// overlapping the selected range, on top of the currently-active
-		// roster, but only if their CURRENT status is Resigned. Vacation stays
-		// fully excluded, unchanged.
-		const { data: workedPeriods } = await supabase
+		const { data: employedPeriods, error: periodsError } = await supabase
 			.from('hr_employee_status_history')
 			.select('employee_id')
-			.in('status', ['Job (With Finger)', 'Remote Job'])
+			.in('status', ['Job (With Finger)', 'Remote Job', 'Vacation'])
 			.or(`effective_to.is.null,effective_to.gte.${rangeStart}`)
 			.or(`effective_from.is.null,effective_from.lte.${rangeEnd}`);
-
-		const activeIds = new Set(employees.map(e => String(e.id)));
-		const resignedCandidateIds = [...new Set((workedPeriods || []).map((p: any) => String(p.employee_id)))]
-			.filter(id => !activeIds.has(id));
-
-		let periodEmployees: any[] = employees;
-		if (resignedCandidateIds.length > 0) {
-			const { data: resignedEmps } = await supabase
-				.from('hr_employee_master_with_status')
-				.select(`id, name_en, name_ar, current_branch_id, employment_status, id_number, whatsapp_number, nationality_id, nationalities(name_en)`)
-				.in('id', resignedCandidateIds)
-				.eq('employment_status', 'Resigned');
-			periodEmployees = [
-				...employees,
-				...(resignedEmps || []).map(e => ({ ...e, nationality_name_en: (e as any).nationalities?.name_en }))
-			];
-		}
-		return periodEmployees;
+		if (periodsError) throw periodsError;
+		const ids = [...new Set([...(employedPeriods || []).map((p: any) => String(p.employee_id)), ...employees.map(e => String(e.id))])];
+		if (!ids.length) return [];
+		const { data: periodEmployees, error } = await supabase
+			.from('hr_employee_master_with_status')
+			.select(`id, name_en, name_ar, current_branch_id, employment_status, employment_status_effective_date, join_date, id_number, whatsapp_number, nationality_id, nationalities(name_en)`)
+			.in('id', ids);
+		if (error) throw error;
+		return (periodEmployees || []).map(e => ({ ...e, nationality_name_en: (e as any).nationalities?.name_en }));
 	}
 
 	/**
@@ -2417,10 +2424,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 	async function buildAnalysisForEmployees(emps: any[], rangeStart: string, rangeEnd: string, dates: string[]) {
 		const empIds = emps.map(e => e.id);
 
-		// Fetch pre-computed attendance data + POS deductions + this employee
-		// set's status history overlapping the period (used below to exclude
-		// Resigned days from the deduction math and the expected-days
-		// denominator -- their pay is prorated to days actually worked).
+		// Fetch attendance, deductions, and all status intervals needed to construct
+		// employment eligibility independently from attendance.
 		const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }, { data: statusPeriodRows }] = await Promise.all([
 			supabase
 				.from('hr_analysed_attendance_data')
@@ -2445,23 +2450,17 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				.from('hr_employee_status_history')
 				.select('employee_id, status, effective_from, effective_to')
 				.in('employee_id', empIds)
-				.eq('status', 'Resigned')
 				.or(`effective_to.is.null,effective_to.gte.${rangeStart}`)
 				.or(`effective_from.is.null,effective_from.lte.${rangeEnd}`)
 		]);
 
 		if (error) throw error;
 
-		const resignedPeriodsByEmp = new Map<string, any[]>();
+		const statusPeriodsByEmp = new Map<string, any[]>();
 		for (const p of statusPeriodRows || []) {
 			const id = String(p.employee_id);
-			if (!resignedPeriodsByEmp.has(id)) resignedPeriodsByEmp.set(id, []);
-			resignedPeriodsByEmp.get(id)!.push(p);
-		}
-		function isResignedOn(empId: string, dateYmd: string): boolean {
-			const periods = resignedPeriodsByEmp.get(empId);
-			if (!periods) return false;
-			return periods.some(p => (p.effective_from == null || p.effective_from <= dateYmd) && (p.effective_to == null || p.effective_to >= dateYmd));
+			if (!statusPeriodsByEmp.has(id)) statusPeriodsByEmp.set(id, []);
+			statusPeriodsByEmp.get(id)!.push(p);
 		}
 
 		// Process unpaid incident fines per employee
@@ -2511,6 +2510,15 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 		for (const emp of emps) {
 			const empId = String(emp.id);
 			const empRows = rowsByEmp.get(empId) || [];
+			const eligibility = getEmploymentEligibility({
+				periodStart: rangeStart,
+				periodEnd: rangeEnd,
+				joinDate: emp.join_date,
+				statusPeriods: statusPeriodsByEmp.get(empId) || [],
+				currentStatus: emp.employment_status,
+				currentStatusEffectiveDate: emp.employment_status_effective_date
+			});
+			const eligibleDateSet = new Set(eligibility.eligibleDates);
 
 			let totalWorkedMinutes = 0;
 			let totalLateMinutes = 0;
@@ -2520,7 +2528,6 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			let totalOfficialLeaveDays = 0; // Specific approved leaves
 			let totalUnapprovedDaysOff = 0;
 			let totalWorkedDays = 0;
-			let totalResignedDays = 0; // days after resignation -- excluded from expected days, no deduction
 			const dayByDay: Record<string, any> = {};
 
 			for (const row of empRows) {
@@ -2528,9 +2535,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 					? row.shift_date.split('T')[0]
 					: new Date(row.shift_date).toISOString().split('T')[0];
 
-				if (isResignedOn(empId, dateStr)) {
-					dayByDay[dateStr] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
-					totalResignedDays++;
+				if (!eligibleDateSet.has(dateStr)) {
+					dayByDay[dateStr] = { workedMins: 0, status: 'Not Employed', lateMins: 0, underMins: 0 };
 					continue;
 				}
 
@@ -2557,13 +2563,11 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				if (workedMins > 0) totalWorkedDays++;
 			}
 
-			// Fill missing dates: Resigned (no deduction, excluded from expected
-			// days) for days after resignation, Absent otherwise
+			// Missing attendance is an absence only inside an eligible employment interval.
 			for (const date of dates) {
 				if (!dayByDay[date]) {
-					if (isResignedOn(empId, date)) {
-						dayByDay[date] = { workedMins: 0, status: 'Resigned', lateMins: 0, underMins: 0 };
-						totalResignedDays++;
+					if (!eligibleDateSet.has(date)) {
+						dayByDay[date] = { workedMins: 0, status: 'Not Employed', lateMins: 0, underMins: 0 };
 					} else {
 						dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
 						totalUnapprovedDaysOff++;
@@ -2571,7 +2575,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				}
 			}
 
-			const totalExpectedWorkDays = dates.length - totalApprovedDaysOff - totalResignedDays;
+			const totalExpectedWorkDays = eligibility.eligibleCalendarDays - totalApprovedDaysOff;
 			const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
 			const shiftInfo = shiftRow
 				? `${shiftRow.shift_start_time} - ${shiftRow.shift_end_time}`
@@ -2583,6 +2587,12 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				currentBranchId: emp.current_branch_id,
 				nationality: emp.nationality_name_en,
 				employmentStatus: emp.employment_status,
+				joinDate: emp.join_date ?? null,
+				statusPeriods: statusPeriodsByEmp.get(empId) || [],
+				eligibleDates: eligibility.eligibleDates,
+				eligibleCalendarDays: eligibility.eligibleCalendarDays,
+				fullPeriodEmployment: eligibility.fullPeriodEmployment,
+				prorationFactor: eligibility.prorationFactor,
 				idNumber: emp.id_number ?? null,
 				whatsappNumber: emp.whatsapp_number ?? null,
 				shiftInfo,
@@ -2599,7 +2609,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			});
 		}
 
-		return { results, employeeShifts, autoFineDeductions, posShortageDeductions, posDeductionsList };
+		return { results: results.filter(row => row.eligibleCalendarDays > 0), employeeShifts, autoFineDeductions, posShortageDeductions, posDeductionsList };
 	}
 
 	async function loadAnalysis() {
@@ -2610,18 +2620,20 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			recordLog({ action_type: LOG.LOAD_ANALYSIS, action_description: 'Load analysis failed: no date range', related_ui: 'TopBar', status: 'validation_error' });
 			return;
 		}
+		if (!isPayrollPeriod(startDate, endDate)) {
+			alert('Payroll period must run from the 25th through the following month\'s 24th.');
+			recordLog({ action_type: LOG.LOAD_ANALYSIS, action_description: 'Load analysis failed: invalid payroll period', related_ui: 'TopBar', status: 'validation_error', metadata: { startDate, endDate } });
+			return;
+		}
 		recordLog({ action_type: LOG.LOAD_ANALYSIS, action_description: `Load analysis: ${startDate} to ${endDate}`, related_ui: 'TopBar', metadata: { startDate, endDate, selectedBranch, searchQuery } });
 
 		loading = true;
+		statementCalculationVersion = SALARY_STATEMENT_CALCULATION_VERSION;
 		analysisData = [];
 		datesInRange = [];
 
 		// Generate date range
-		const start = new Date(startDate);
-		const end = new Date(endDate);
-		for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-			datesInRange.push(new Date(d).toISOString().split('T')[0]);
-		}
+		datesInRange = enumerateDates(startDate, endDate);
 
 		try {
 			const periodEmployees = await fetchPeriodEmployees(startDate, endDate);
@@ -3410,6 +3422,7 @@ return n;
 			case 'Check-In Missing': return $t('hr.processFingerprint.checkin_missing');
 			case 'Check-Out Missing': return $t('hr.processFingerprint.checkout_missing');
 			case 'Resigned': return $t('employeeFiles.resigned') || 'Resigned';
+			case 'Not Employed': return $locale === 'ar' ? 'غير موظف' : 'Not Employed';
 			default: return status;
 		}
 	}
@@ -3433,6 +3446,7 @@ return n;
 			case 'Official Day Off': return 'text-blue-600';
 			case 'Approved Leave': return 'text-indigo-600';
 			case 'Resigned': return 'text-slate-400 italic';
+			case 'Not Employed': return 'text-slate-400 italic';
 			default: return 'text-slate-400';
 		}
 	}
@@ -3857,7 +3871,7 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-rose-700 bg-rose-50/20 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDays ? '' : 'hidden'}">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays)}</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-pink-700 bg-pink-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDeductions ? '' : 'hidden'}">
-									{(() => {
+									{centralDeduction(row, 'incomplete') ?? (() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const incompOvr = incompleteDayDeductionOverrides[row.employeeId];
 											if (incompOvr !== undefined) return incompOvr > 0 ? incompOvr.toFixed(2) : '-';
@@ -3896,7 +3910,7 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-green-800 bg-green-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.basicSalary ? '' : 'hidden'}">
 									{#if basicSalaries[row.employeeId]}
 										<div class="flex flex-col items-center">
-											<span class="font-bold text-slate-800">{basicSalaries[row.employeeId].toLocaleString()}</span>
+											<span class="font-bold text-slate-800">{displayedEarning(row, 'basic', basicSalaries[row.employeeId]).toLocaleString()}</span>
 											<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-1">{paymentModes[row.employeeId] === 'Bank' ? $t('hr.salaryStatement.bank') : $t('hr.salaryStatement.cash')}</span>
 										</div>
 									{:else}
@@ -3906,7 +3920,7 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-amber-800 bg-amber-50/20 w-[150px] whitespace-nowrap group-hover:bg-amber-100/50 transition-colors {colVis.otherAllowance ? '' : 'hidden'}">
 									{#if otherAllowances[row.employeeId] && otherAllowances[row.employeeId] > 0}
 										<div class="flex flex-col items-center">
-											<span class="font-bold text-slate-800">{otherAllowances[row.employeeId].toLocaleString()}</span>
+											<span class="font-bold text-slate-800">{displayedEarning(row, 'other', otherAllowances[row.employeeId]).toLocaleString()}</span>
 											<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-1">{otherAllowancePaymentModes[row.employeeId] === 'Bank' ? $t('hr.salaryStatement.bank') : $t('hr.salaryStatement.cash')}</span>
 										</div>
 									{:else}
@@ -3916,7 +3930,7 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-cyan-800 bg-cyan-50/20 w-[150px] whitespace-nowrap group-hover:bg-cyan-100/50 transition-colors {colVis.accommodation ? '' : 'hidden'}">
 									{#if accommodationAllowances[row.employeeId] && accommodationAllowances[row.employeeId] > 0}
 										<div class="flex flex-col items-center">
-											<span class="font-bold text-slate-800">{accommodationAllowances[row.employeeId].toLocaleString()}</span>
+											<span class="font-bold text-slate-800">{displayedEarning(row, 'accommodation', accommodationAllowances[row.employeeId]).toLocaleString()}</span>
 											<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-1">{accommodationPaymentModes[row.employeeId] === 'Bank' ? $t('hr.salaryStatement.bank') : $t('hr.salaryStatement.cash')}</span>
 										</div>
 									{:else}
@@ -3926,7 +3940,7 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-blue-800 bg-blue-50/20 w-[150px] whitespace-nowrap group-hover:bg-blue-100/50 transition-colors {colVis.travel ? '' : 'hidden'}">
 							{#if travelAllowances[row.employeeId] && travelAllowances[row.employeeId] > 0}
 										<div class="flex flex-col items-center">
-											<span class="font-bold text-slate-800">{travelAllowances[row.employeeId].toLocaleString()}</span>
+											<span class="font-bold text-slate-800">{displayedEarning(row, 'travel', travelAllowances[row.employeeId]).toLocaleString()}</span>
 											<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-1">{travelPaymentModes[row.employeeId] === 'Bank' ? $t('hr.salaryStatement.bank') : $t('hr.salaryStatement.cash')}</span>
 										</div>
 									{:else}
@@ -3936,7 +3950,7 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-orange-800 bg-orange-50/20 w-[150px] whitespace-nowrap group-hover:bg-orange-100/50 transition-colors {colVis.foodAllowance ? '' : 'hidden'}">
 									{#if foodAllowances[row.employeeId] && foodAllowances[row.employeeId] > 0}
 										<div class="flex flex-col items-center">
-											<span class="font-bold text-slate-800">{foodAllowances[row.employeeId].toLocaleString()}</span>
+											<span class="font-bold text-slate-800">{displayedEarning(row, 'food', foodAllowances[row.employeeId]).toLocaleString()}</span>
 											<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-1">{foodPaymentModes[row.employeeId] === 'Bank' ? $t('hr.salaryStatement.bank') : $t('hr.salaryStatement.cash')}</span>
 										</div>
 									{:else}
@@ -3945,7 +3959,7 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-600 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-red-100/50 transition-colors {colVis.foodDeduction ? '' : 'hidden'}">
 									{#if foodDeductionActives[row.employeeId]}
-										<span class="font-bold text-red-700">{(foodAllowances[row.employeeId] || 0).toLocaleString()}</span>
+										<span class="font-bold text-red-700">{(centralDeduction(row, 'food') ?? (foodAllowances[row.employeeId] || 0)).toLocaleString()}</span>
 									{:else}
 										<span class="text-slate-400">0</span>
 									{/if}
@@ -3965,7 +3979,7 @@ title="Export salary data to Mudad Excel template"
 									{/if}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-purple-700 bg-purple-50/20 w-[150px] whitespace-nowrap group-hover:bg-purple-100/50 transition-colors {colVis.lateDeductions ? '' : 'hidden'}">
-										{(() => {
+										{(centralDeduction(row, 'late')?.toFixed(2)) ?? (() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const lateDedOvr = lateDeductionOverrides[row.employeeId];
 											if (lateDedOvr !== undefined) return lateDedOvr.toFixed(2);
@@ -3980,7 +3994,7 @@ title="Export salary data to Mudad Excel template"
 										})()}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-indigo-700 bg-indigo-50/20 w-[150px] whitespace-nowrap group-hover:bg-indigo-100/50 transition-colors {colVis.underWorkedDeductions ? '' : 'hidden'}">
-										{(() => {
+										{(centralDeduction(row, 'underWorked')?.toFixed(2)) ?? (() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const underOvr = underWorkedDeductionOverrides[row.employeeId];
 											if (underOvr !== undefined) return underOvr.toFixed(2);
@@ -4039,7 +4053,7 @@ title="Export salary data to Mudad Excel template"
 									{(() => { const _pv = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0); return _pv > 0 ? _pv.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'; })()}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-sky-700 bg-sky-50/20 w-[150px] whitespace-nowrap group-hover:bg-sky-100/50 transition-colors {colVis.unapprovedLeaveDeductions ? '' : 'hidden'}">
-										{(() => {
+										{(centralDeduction(row, 'unapprovedLeave')?.toFixed(2)) ?? (() => {
 											const _isRemote = row.employmentStatus === 'Remote Job';
 											const unapOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
 											if (unapOvr !== undefined) return unapOvr.toFixed(2);
@@ -4056,226 +4070,16 @@ title="Export salary data to Mudad Excel template"
 								<td class="px-4 py-3 border-r text-center font-bold text-gray-700 bg-gray-50/20 w-[150px] whitespace-nowrap group-hover:bg-gray-100/50 transition-colors {colVis.otherDeductions ? '' : 'hidden'}">
 									{(empEditOverrides[row.employeeId]?.otherDeductions || 0) > 0 ? (empEditOverrides[row.employeeId].otherDeductions).toLocaleString() : '-'}
 								</td>
-								<td class="px-4 py-3 border-l text-center font-bold text-emerald-800 bg-emerald-50 w-[150px] whitespace-nowrap group-hover:bg-emerald-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[600px]' : 'right-[600px]'} {colVis.grossEarnings ? '' : 'hidden'}">{(basicSalaries, otherAllowances, accommodationAllowances, travelAllowances, foodAllowances, editableWorkedDays, computeRowSalary(row).gross.toFixed(2))}</td>
-								<td class="px-4 py-3 border-l text-center font-bold text-rose-800 bg-rose-50 w-[150px] whitespace-nowrap group-hover:bg-rose-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[450px]' : 'right-[450px]'} {colVis.totalDeductions ? '' : 'hidden'}">{(basicSalaries, otherAllowances, accommodationAllowances, travelAllowances, foodAllowances, gosiDeductions, lateMinutesOverrides, underWorkedMinutesOverrides, lateDeductionOverrides, underWorkedDeductionOverrides, unapprovedLeaveDeductionOverrides, incompleteDayDeductionOverrides, posShortageDeductions, empEditOverrides, autoFineDeductions, foodDeductionActives, editableWorkedDays, computeRowSalary(row).totalDeductions.toFixed(2))}</td>
+								<td class="px-4 py-3 border-l text-center font-bold text-emerald-800 bg-emerald-50 w-[150px] whitespace-nowrap group-hover:bg-emerald-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[600px]' : 'right-[600px]'} {colVis.grossEarnings ? '' : 'hidden'}">{computeRowSalary(row).gross.toFixed(2)}</td>
+								<td class="px-4 py-3 border-l text-center font-bold text-rose-800 bg-rose-50 w-[150px] whitespace-nowrap group-hover:bg-rose-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[450px]' : 'right-[450px]'} {colVis.totalDeductions ? '' : 'hidden'}">{computeRowSalary(row).totalDeductions.toFixed(2)}</td>
 								<td class="px-4 py-3 border-l text-center font-bold text-yellow-800 bg-yellow-50 w-[150px] whitespace-nowrap group-hover:bg-yellow-100 transition-colors sticky z-20 shadow-[-2px_0_4px_rgba(0,0,0,0.05)] {$locale === 'ar' ? 'left-[300px]' : 'right-[300px]'} {colVis.netSalary ? '' : 'hidden'}">
-									{(() => {
-										const basicSal = basicSalaries[row.employeeId] || 0;
-										const otherAllow = otherAllowances[row.employeeId] || 0;
-										const accommAllow = accommodationAllowances[row.employeeId] || 0;
-										const travelAllow = travelAllowances[row.employeeId] || 0;
-										const foodAllow = foodAllowances[row.employeeId] || 0;
-										const gosiDed = gosiDeductions[row.employeeId] || 0;
-										
-										// Total Earnings = full allowances (unapproved absences deducted explicitly below)
-										const totalAllowances = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-										// Remote Job: prorate gross salary by edited worked days / expected work days
-										let grossWorkedSalary = totalAllowances;
-										if (row.employmentStatus === 'Remote Job') {
-											const _wdRaw = editableWorkedDays[row.employeeId];
-											const _wd = (_wdRaw !== undefined && _wdRaw !== '') ? parseFloat(_wdRaw) : (row.totalExpectedWorkDays || 0);
-											const _expWd = row.totalExpectedWorkDays || 0;
-											if (_expWd > 0) grossWorkedSalary = totalAllowances * (_wd / _expWd);
-										}
-										
-										let lateDeduction = 0;
-										let underWorkedDeduction = 0;
-										let unapprovedLeaveDeduction = 0;
-										let incompleteDayDeduction = 0;
-										
-										// Calculate deductions using fixed rate: Monthly Wage / 30 days / 8 hours
-										const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-										const hourlyRate = totalSalary / 240;
-										const shiftHoursPerDay = 8;
-										
-										// Use saved overrides if set, otherwise compute from rate
-										const _lateDedOvr = lateDeductionOverrides[row.employeeId];
-										const _underDedOvr = underWorkedDeductionOverrides[row.employeeId];
-										const _unapDedOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
-										const _incompDedOvr = incompleteDayDeductionOverrides[row.employeeId];
-										const effLate = lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0;
-										const effUnder = underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes) ?? 0;
-										if (_lateDedOvr !== undefined) { lateDeduction = _lateDedOvr; }
-										else if (effLate > 0) { lateDeduction = (effLate / 60) * hourlyRate; }
-										if (_underDedOvr !== undefined) { underWorkedDeduction = _underDedOvr; }
-										else if (effUnder > 0) { underWorkedDeduction = (effUnder / 60) * hourlyRate; }
-										if (_incompDedOvr !== undefined) { incompleteDayDeduction = _incompDedOvr; }
-										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) > 0) { incompleteDayDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) * shiftHoursPerDay * hourlyRate; }
-										if (_unapDedOvr !== undefined) { unapprovedLeaveDeduction = _unapDedOvr; }
-										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0) { unapprovedLeaveDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * shiftHoursPerDay * hourlyRate; }
-										const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
-										const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-										const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
-										const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
-										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
-										
-										// Calculate net salary
-										const foodDeductionDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
-										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + unapprovedLeaveDeduction + salaryAdvanceDed + loanDed + penaltiesDed + incompleteDayDeduction + posShortageDed + otherDed + foodDeductionDed);
-										
-										return netSalary.toFixed(2);
-									})()}
+									{computeRowSalary(row).netSalary.toFixed(2)}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-blue-800 bg-blue-50 w-[150px] whitespace-nowrap group-hover:bg-blue-100 transition-colors sticky z-20 {$locale === 'ar' ? 'left-[150px]' : 'right-[150px]'} {colVis.netBank ? '' : 'hidden'}">
-									{(() => {
-										const basicSal = basicSalaries[row.employeeId] || 0;
-										const otherAllow = otherAllowances[row.employeeId] || 0;
-										const accommAllow = accommodationAllowances[row.employeeId] || 0;
-										const travelAllow = travelAllowances[row.employeeId] || 0;
-										const foodAllow = foodAllowances[row.employeeId] || 0;
-										const gosiDed = gosiDeductions[row.employeeId] || 0;
-										
-										// Total Earnings = full allowances (unapproved absences deducted explicitly below)
-										const totalAllowances = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-										// Remote Job: prorate gross salary by edited worked days / expected work days
-										let grossWorkedSalary = totalAllowances;
-										if (row.employmentStatus === 'Remote Job') {
-											const _wdRaw = editableWorkedDays[row.employeeId];
-											const _wd = (_wdRaw !== undefined && _wdRaw !== '') ? parseFloat(_wdRaw) : (row.totalExpectedWorkDays || 0);
-											const _expWd = row.totalExpectedWorkDays || 0;
-											if (_expWd > 0) grossWorkedSalary = totalAllowances * (_wd / _expWd);
-										}
-										
-										let lateDeduction = 0;
-										let underWorkedDeduction = 0;
-										let unapprovedLeaveDeduction = 0;
-										let incompleteDayDeduction = 0;
-										
-										// Calculate deductions using fixed rate: Monthly Wage / 30 days / 8 hours
-										const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-										const hourlyRate = totalSalary / 240;
-										const shiftHoursPerDay = 8;
-										
-										// Use saved overrides if set, otherwise compute from rate
-										const _lateDedOvr = lateDeductionOverrides[row.employeeId];
-										const _underDedOvr = underWorkedDeductionOverrides[row.employeeId];
-										const _unapDedOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
-										const _incompDedOvr = incompleteDayDeductionOverrides[row.employeeId];
-										const effLate = lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0;
-										const effUnder = underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes) ?? 0;
-										if (_lateDedOvr !== undefined) { lateDeduction = _lateDedOvr; }
-										else if (effLate > 0) { lateDeduction = (effLate / 60) * hourlyRate; }
-										if (_underDedOvr !== undefined) { underWorkedDeduction = _underDedOvr; }
-										else if (effUnder > 0) { underWorkedDeduction = (effUnder / 60) * hourlyRate; }
-										if (_incompDedOvr !== undefined) { incompleteDayDeduction = _incompDedOvr; }
-										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) > 0) { incompleteDayDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) * shiftHoursPerDay * hourlyRate; }
-										if (_unapDedOvr !== undefined) { unapprovedLeaveDeduction = _unapDedOvr; }
-										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0) { unapprovedLeaveDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * shiftHoursPerDay * hourlyRate; }
-										const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
-										const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-								const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
-										const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
-										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
-										
-										const foodDeductionDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
-										// Calculate net salary
-										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + unapprovedLeaveDeduction + salaryAdvanceDed + loanDed + penaltiesDed + incompleteDayDeduction + posShortageDed + otherDed + foodDeductionDed);
-
-										// Distribute net salary across Bank/Cash based on each allowance's payment mode
-										const basicPayMode = paymentModes[row.employeeId] || 'Bank';
-										const otherPayMode = otherAllowancePaymentModes[row.employeeId] || 'Bank';
-										const accommPayMode = accommodationPaymentModes[row.employeeId] || 'Bank';
-										const travelPayMode = travelPaymentModes[row.employeeId] || 'Bank';
-										const foodPayMode = foodPaymentModes[row.employeeId] || 'Bank';
-										const isFoodDedActive = foodDeductionActives[row.employeeId] ?? false;
-										const distFood = isFoodDedActive ? 0 : foodAllow;
-										let bankAllowances = 0;
-										if (basicPayMode === 'Bank') bankAllowances += basicSal;
-										if (otherPayMode === 'Bank') bankAllowances += otherAllow;
-										if (accommPayMode === 'Bank') bankAllowances += accommAllow;
-										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
-										if (foodPayMode === 'Bank') bankAllowances += distFood;
-										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
-										// Deductions are applied to Bank first; only the overflow (if Bank isn't enough) spills to Cash.
-										const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
-										const effGrossBank = bankAllowances * scaleFactor;
-										const nonFoodDeds = grossWorkedSalary - netSalary - foodDeductionDed;
-										const deductFromBank = Math.min(nonFoodDeds, effGrossBank);
-										const netBank = Math.max(0, effGrossBank - deductFromBank);
-
-										return netBank.toFixed(2);
-									})()}
+									{computeRowSalary(row).netBank.toFixed(2)}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-800 bg-red-50 w-[150px] whitespace-nowrap group-hover:bg-red-100 transition-colors sticky z-20 {$locale === 'ar' ? 'left-0' : 'right-0'} {colVis.netCash ? '' : 'hidden'}">
-									{(() => {
-										const basicSal = basicSalaries[row.employeeId] || 0;
-										const otherAllow = otherAllowances[row.employeeId] || 0;
-										const accommAllow = accommodationAllowances[row.employeeId] || 0;
-										const travelAllow = travelAllowances[row.employeeId] || 0;
-										const foodAllow = foodAllowances[row.employeeId] || 0;
-										const gosiDed = gosiDeductions[row.employeeId] || 0;
-										
-										// Total Earnings = full allowances (unapproved absences deducted explicitly below)
-										const totalAllowances = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-										// Remote Job: prorate gross salary by edited worked days / expected work days
-										let grossWorkedSalary = totalAllowances;
-										if (row.employmentStatus === 'Remote Job') {
-											const _wdRaw = editableWorkedDays[row.employeeId];
-											const _wd = (_wdRaw !== undefined && _wdRaw !== '') ? parseFloat(_wdRaw) : (row.totalExpectedWorkDays || 0);
-											const _expWd = row.totalExpectedWorkDays || 0;
-											if (_expWd > 0) grossWorkedSalary = totalAllowances * (_wd / _expWd);
-										}
-										
-										let lateDeduction = 0;
-										let underWorkedDeduction = 0;
-										let unapprovedLeaveDeduction = 0;
-										let incompleteDayDeduction = 0;
-										
-										// Calculate deductions using fixed rate: Monthly Wage / 30 days / 8 hours
-										const totalSalary = basicSal + otherAllow + accommAllow + travelAllow + foodAllow;
-										const hourlyRate = totalSalary / 240;
-										const shiftHoursPerDay = 8;
-										
-										// Use saved overrides if set, otherwise compute from rate
-										const _lateDedOvr = lateDeductionOverrides[row.employeeId];
-										const _underDedOvr = underWorkedDeductionOverrides[row.employeeId];
-										const _unapDedOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
-										const _incompDedOvr = incompleteDayDeductionOverrides[row.employeeId];
-										const effLate = lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0;
-										const effUnder = underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes) ?? 0;
-										if (_lateDedOvr !== undefined) { lateDeduction = _lateDedOvr; }
-										else if (effLate > 0) { lateDeduction = (effLate / 60) * hourlyRate; }
-										if (_underDedOvr !== undefined) { underWorkedDeduction = _underDedOvr; }
-										else if (effUnder > 0) { underWorkedDeduction = (effUnder / 60) * hourlyRate; }
-										if (_incompDedOvr !== undefined) { incompleteDayDeduction = _incompDedOvr; }
-										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) > 0) { incompleteDayDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) * shiftHoursPerDay * hourlyRate; }
-										if (_unapDedOvr !== undefined) { unapprovedLeaveDeduction = _unapDedOvr; }
-										else if ((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0) { unapprovedLeaveDeduction = (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * shiftHoursPerDay * hourlyRate; }
-										const salaryAdvanceDed = empEditOverrides[row.employeeId]?.salaryAdvance || 0;
-										const loanDed = empEditOverrides[row.employeeId]?.loanDeductions || 0;
-								const penaltiesDed = (autoFineDeductions[row.employeeId] || 0) + (empEditOverrides[row.employeeId]?.penalties || 0);
-										const otherDed = empEditOverrides[row.employeeId]?.otherDeductions || 0;
-										const posShortageDed = posShortageDeductions[row.employeeId] || 0;
-										const foodDeductionDed = (foodDeductionActives[row.employeeId] ?? false) ? foodAllow : 0;
-										
-										// Calculate net salary
-										const netSalary = grossWorkedSalary - (gosiDed + lateDeduction + underWorkedDeduction + unapprovedLeaveDeduction + salaryAdvanceDed + loanDed + penaltiesDed + incompleteDayDeduction + posShortageDed + otherDed + foodDeductionDed);
-
-										// Distribute net salary across Bank/Cash based on each allowance's payment mode
-										const basicPayMode = paymentModes[row.employeeId] || 'Bank';
-										const otherPayMode = otherAllowancePaymentModes[row.employeeId] || 'Bank';
-										const accommPayMode = accommodationPaymentModes[row.employeeId] || 'Bank';
-										const travelPayMode = travelPaymentModes[row.employeeId] || 'Bank';
-										const foodPayMode = foodPaymentModes[row.employeeId] || 'Bank';
-										const isFoodDedActive = foodDeductionActives[row.employeeId] ?? false;
-										const distFood = isFoodDedActive ? 0 : foodAllow;
-										let bankAllowances = 0;
-										if (basicPayMode === 'Bank') bankAllowances += basicSal;
-										if (otherPayMode === 'Bank') bankAllowances += otherAllow;
-										if (accommPayMode === 'Bank') bankAllowances += accommAllow;
-										if (travelPayMode === 'Bank') bankAllowances += travelAllow;
-										if (foodPayMode === 'Bank') bankAllowances += distFood;
-										const distTotal = basicSal + otherAllow + accommAllow + travelAllow + distFood;
-										// Deductions are applied to Bank first; only the overflow (if Bank isn't enough) spills to Cash.
-										const scaleFactor = totalAllowances > 0 ? grossWorkedSalary / totalAllowances : 1;
-										const effGrossBank = bankAllowances * scaleFactor;
-										const effGrossCash = (distTotal - bankAllowances) * scaleFactor;
-										const nonFoodDeds = grossWorkedSalary - netSalary - foodDeductionDed;
-										const deductFromBank = Math.min(nonFoodDeds, effGrossBank);
-										const netCash = Math.max(0, effGrossCash - (nonFoodDeds - deductFromBank));
-
-										return netCash.toFixed(2);
-									})()}
+									{computeRowSalary(row).netCash.toFixed(2)}
 								</td>
 							</tr>
 						{/each}
@@ -4922,7 +4726,8 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	{@const _wdRawPop = editableWorkedDays[empEditRow.employeeId]}
 	{@const _wdPop = (_wdRawPop !== undefined && _wdRawPop !== '') ? parseFloat(_wdRawPop) : (empEditRow.totalExpectedWorkDays || 0)}
 	{@const _expWdPop = empEditRow.totalExpectedWorkDays || 0}
-	{@const _gross = empEditRow.employmentStatus === 'Remote Job' && _expWdPop > 0 ? _totalAllow * (_wdPop / _expWdPop) : _totalAllow}
+	{@const _editedCalc = statementCalculationVersion >= SALARY_STATEMENT_CALCULATION_VERSION ? calculateSalaryStatement(rowCalculationInput(empEditRow, empEdit)) : null}
+	{@const _gross = _editedCalc?.gross ?? (empEditRow.employmentStatus === 'Remote Job' && _expWdPop > 0 ? _totalAllow * (_wdPop / _expWdPop) : _totalAllow)}
 	{@const _shift = employeeShifts.get(String(empEditRow.employeeId))}
 	{@const _shiftMins = _shift ? (() => { const s = timeToMinutes(_shift.shift_start_time); const e = timeToMinutes(_shift.shift_end_time); let m = e - s; if (m < 0) m += 1440; return m; })() : 0}
 	{@const _totalExpH = _shift ? calculateTotalHoursInPeriod(_shiftMins) : 0}
@@ -4933,8 +4738,9 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	{@const _underDed = Number(empEdit.underWorkedDeduction) || 0}
 	{@const _unapDed = Number(empEdit.unapprovedLeaveDeduction) || 0}
 	{@const _incompleteDed = Number(empEdit.incompleteDayDeduction) || 0}
-	{@const _foodDed = (empEdit.foodDeductionActive ?? false) ? _food : 0}
-	{@const _netSal = _gross - (_gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed + _foodDed)}
+	{@const _foodDed = _editedCalc?.deductions.food ?? ((empEdit.foodDeductionActive ?? false) ? _food : 0)}
+	{@const _netSal = _editedCalc?.netSalary ?? (_gross - (_gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed + _foodDed))}
+	{@const _totalDed = _editedCalc?.totalDeductions ?? (_gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed + _foodDed)}
 	{@const _distFood = (empEdit.foodDeductionActive ?? false) ? 0 : _food}
 	{@const _bankAllow = (_basicSal * (empEdit.basicPaymentMode === 'Cash' ? 0 : 1)) + (_otherAllow * (empEdit.otherAllowancePaymentMode === 'Cash' ? 0 : 1)) + (_accomm * (empEdit.accommodationPaymentMode === 'Cash' ? 0 : 1)) + (_travel * (empEdit.travelPaymentMode === 'Cash' ? 0 : 1)) + (_distFood * (empEdit.foodPaymentMode === 'Cash' ? 0 : 1))}
 	{@const _distTotal = _basicSal + _otherAllow + _accomm + _travel + _distFood}
@@ -4943,8 +4749,8 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 	{@const _effGrossCash = (_distTotal - _bankAllow) * _scaleFactor}
 	{@const _nonFoodDeds = _gosi + _lateDed + _underDed + _unapDed + _salAdv + _loan + _pen + _posShort + _otherDed + _incompleteDed}
 	{@const _deductFromBank = Math.min(_nonFoodDeds, _effGrossBank)}
-	{@const _netBank = Math.max(0, _effGrossBank - _deductFromBank)}
-	{@const _netCash = Math.max(0, _effGrossCash - (_nonFoodDeds - _deductFromBank))}
+	{@const _netBank = _editedCalc?.netBank ?? Math.max(0, _effGrossBank - _deductFromBank)}
+	{@const _netCash = _editedCalc?.netCash ?? Math.max(0, _effGrossCash - (_nonFoodDeds - _deductFromBank))}
 	{@const _perMinuteRate = _hourlyRate / 60}
 	{@const _perDayRate = 8 * _hourlyRate}
 	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" on:click|self={() => showEmpEditModal = false} on:keydown={(e) => e.key === 'Escape' && (showEmpEditModal = false)}>
@@ -5046,7 +4852,7 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<div class="flex items-center justify-between mb-3">
 						<p class="text-xs font-bold text-green-700 uppercase tracking-widest">{$t('hr.salaryStatement.salaryAndAllowances')}</p>
 						<span class="text-xs font-bold text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-1">
-							{$t('hr.salaryStatement.total')}: {(_basicSal + _otherAllow + _accomm + _travel + _food).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR
+							{$t('hr.salaryStatement.total')}: {_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} SAR
 						</span>
 					</div>
 					<div class="grid grid-cols-5 gap-3">
@@ -5227,11 +5033,11 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 					<div class="grid grid-cols-3 gap-3">
 						<div class="bg-emerald-50 rounded-xl px-4 py-3 text-center border-2 border-emerald-300 shadow-sm">
 							<p class="text-xs text-emerald-700 font-semibold mb-1">{$t('hr.salaryStatement.totalSalaryAllowances')}</p>
-							<p class="text-2xl font-bold text-emerald-800">{_totalAllow.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+							<p class="text-2xl font-bold text-emerald-800">{_gross.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
 						</div>
 						<div class="bg-orange-50 rounded-xl px-4 py-3 text-center border-2 border-orange-300 shadow-sm">
 							<p class="text-xs text-orange-700 font-semibold mb-1">{$t('hr.salaryStatement.totalDeductions')}</p>
-							<p class="text-2xl font-bold text-orange-800">{(_gosi + _posShort + _salAdv + _loan + _pen + _otherDed + _lateDed + _underDed + _unapDed + _incompleteDed + _foodDed).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+							<p class="text-2xl font-bold text-orange-800">{_totalDed.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
 						</div>
 						<div class="bg-teal-50 rounded-xl px-4 py-3 text-center border-2 border-teal-400 shadow-md">
 							<p class="text-xs text-teal-700 font-semibold mb-1">{$t('hr.salaryStatement.netSalary')}</p>
