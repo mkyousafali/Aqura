@@ -560,6 +560,7 @@ export const arabicLocale: LocaleData = {
       manageMasterAdmin: "إدارة المشرف الرئيسي",
       buttonAccessControl: "التحكم في وصول الأزرار",
       appPermissions: "صلاحيات التطبيق",
+      otpLoginControl: "التحكم في رمز تحقق تسجيل الدخول",
       branchDefaultPositions: "المناصب الافتراضية للفروع",
       attendanceNotifiers: "تنبيهات الحضور",
       completeBoxClosure: "إغلاق الصندوق الكامل",

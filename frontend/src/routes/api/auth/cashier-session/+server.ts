@@ -12,6 +12,7 @@ import {
   employeeLoginLimit,
   recordEmployeeLoginFailure,
 } from "$lib/server/employeeLoginRateLimit";
+import { issueEmployeeLoginOtp, verifyEmployeeLoginOtp } from "$lib/server/employeeLoginOtp";
 
 function clientKey(getClientAddress: () => string): string {
   try {
@@ -71,23 +72,50 @@ export const POST: RequestHandler = async ({
   const body = await request.json().catch(() => ({}));
   const quickAccessCode =
     typeof body.quickAccessCode === "string" ? body.quickAccessCode.trim() : "";
-  if (!/^[0-9]{6}$/.test(quickAccessCode)) {
-    recordEmployeeLoginFailure(key);
-    return failure();
-  }
 
   try {
     const db = databaseClient();
-    const { data: verification, error: verificationError } = await db.rpc(
-      "verify_quick_access_code",
-      { p_code: quickAccessCode },
-    );
-    const verifiedUser =
-      !verificationError && verification?.success ? verification.user : null;
-    if (!verifiedUser?.id) {
-      recordEmployeeLoginFailure(key);
-      return failure();
+    let verifiedUser: any = null;
+    let otpPassed = false;
+    if (body.action === "verifyOtp") {
+      const otpResult = await verifyEmployeeLoginOtp(String(body.challengeId || ""), String(body.otp || "").trim(), "cashier");
+      if (!otpResult?.success) {
+        const messages: Record<string, string> = {
+          invalid_otp: "Incorrect OTP.", otp_expired: "OTP expired. Request a new code.",
+          otp_not_found: "OTP request is no longer valid. Start again.",
+          account_deactivated: "Account deactivated after three incorrect OTP attempts. Contact an administrator."
+        };
+        return json(
+          {
+            success: false,
+            ...otpResult,
+            message: messages[otpResult?.error] || "OTP verification failed",
+          },
+          { status: otpResult?.error === "account_deactivated" ? 403 : 400 },
+        );
+      }
+      const { data: user } = await db.from("users").select("*").eq("id", otpResult.user_id).single();
+      verifiedUser = user;
+      otpPassed = true;
+    } else if (body.action === "resendOtp") {
+      const { data: challenge } = await db.from("employee_login_otp_requests").select("user_id").eq("id", String(body.challengeId || "")).eq("interface_type", "cashier").maybeSingle();
+      if (challenge?.user_id) {
+        const userResult = await db.from("users").select("*").eq("id", challenge.user_id).single();
+        verifiedUser = userResult.data;
+      }
+    } else {
+      if (!/^[0-9]{6}$/.test(quickAccessCode)) {
+        recordEmployeeLoginFailure(key);
+        return failure();
+      }
+      const { data: verification, error: verificationError } = await db.rpc("verify_quick_access_code", { p_code: quickAccessCode });
+      verifiedUser = !verificationError && verification?.success ? verification.user : null;
+      if (!verifiedUser?.id) {
+        recordEmployeeLoginFailure(key);
+        return failure();
+      }
     }
+    if (!verifiedUser?.id) return failure("OTP request is no longer valid. Start again.", 400);
 
     const [
       { data: permission, error: permissionError },
@@ -106,8 +134,18 @@ export const POST: RequestHandler = async ({
     ]);
     if (permissionError) throw permissionError;
     if (employeeError) throw employeeError;
+    if (verifiedUser.status && verifiedUser.status !== "active") return failure("User account is inactive", 403);
     if (permission?.cashier_enabled !== true)
       return failure("Cashier access is disabled", 403);
+
+    if (!otpPassed) {
+      const issued = await issueEmployeeLoginOtp(verifiedUser.id, "cashier");
+      if (!issued?.success) {
+        const status = issued?.error === "delivery_limit" || issued?.error === "resend_cooldown" ? 429 : 400;
+        return json({ success: false, ...issued, message: issued?.message || (status === 429 ? "Please wait before requesting another OTP." : "OTP delivery failed. Contact an administrator.") }, { status });
+      }
+      if (issued.otp_required !== false) return json(issued);
+    }
 
     const authSession = await createSupabaseAuthSession(verifiedUser.id);
     setBreakSession(

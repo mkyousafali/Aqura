@@ -1,11 +1,9 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import {
-  createSupabaseAuthSession,
-  databaseClient,
   requireBreakUser,
-  setBreakSession,
 } from "$lib/server/breakRegisterAuth";
+import { runEmployeeSessionFlow } from "$lib/server/employeeSessionFlow";
 import {
   clearEmployeeLoginFailures,
   employeeLoginLimit,
@@ -65,74 +63,13 @@ export const POST: RequestHandler = async ({
     );
 
   const body = await request.json().catch(() => ({}));
-  const quickAccessCode =
-    typeof body.quickAccessCode === "string" ? body.quickAccessCode.trim() : "";
-  const expectedUserId =
-    typeof body.expectedUserId === "string" ? body.expectedUserId : undefined;
-  if (!/^[0-9]{6}$/.test(quickAccessCode)) {
-    recordEmployeeLoginFailure(key);
-    return failure();
-  }
-
   try {
-    const db = databaseClient();
-    const { data: verification, error: verificationError } = await db.rpc(
-      "verify_quick_access_code",
-      { p_code: quickAccessCode },
-    );
-    const userId =
-      !verificationError && verification?.success
-        ? verification.user?.id
-        : undefined;
-    if (!userId || (expectedUserId && String(userId) !== expectedUserId)) {
+    const result = await runEmployeeSessionFlow({ interfaceType: "mobile", body, cookies, secure: url.protocol === "https:" });
+    if (result.status === 401) {
       recordEmployeeLoginFailure(key);
-      return failure();
     }
-
-    const [
-      { data: userDetails, error: userError },
-      { data: interfacePermission, error: permissionError },
-    ] = await Promise.all([
-      db
-        .from("user_management_view")
-        .select(
-          "id,username,is_master_admin,is_admin,employee_name,branch_name,employee_id,branch_id,default_language,status",
-        )
-        .eq("id", userId)
-        .single(),
-      db
-        .from("interface_permissions")
-        .select("mobile_enabled")
-        .eq("user_id", userId)
-        .maybeSingle(),
-    ]);
-
-    if (userError) throw userError;
-    if (!userDetails || userDetails.status !== "active")
-      return failure("User account is inactive", 403);
-    if (permissionError) throw permissionError;
-    if (interfacePermission?.mobile_enabled === false)
-      return failure("Mobile interface access is disabled", 403);
-
-    const authSession = await createSupabaseAuthSession(userId);
-    setBreakSession(cookies, userId, url.protocol === "https:", "mobile");
-    clearEmployeeLoginFailures(key);
-    return json({
-      success: true,
-      user: {
-        id: userDetails.id,
-        username: userDetails.username,
-        is_master_admin: userDetails.is_master_admin === true,
-        is_admin: userDetails.is_admin === true,
-        user_type: verification.user?.user_type,
-      },
-      userDetails: {
-        ...userDetails,
-        user_type: verification.user?.user_type,
-        avatar: verification.user?.avatar,
-      },
-      authSession,
-    });
+    if (result.status === 200 && result.body.success === true && !result.body.otpRequired) clearEmployeeLoginFailures(key);
+    return json(result.body, { status: result.status });
   } catch (error) {
     console.error(
       "[MobileSession] Login failed:",

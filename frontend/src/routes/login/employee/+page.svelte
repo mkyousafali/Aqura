@@ -8,6 +8,7 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { isMobileDevice } from '$lib/utils/deviceRouting';
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
+	import EmployeeOtpChallenge from '$lib/components/shared/EmployeeOtpChallenge.svelte';
 
 	let showChangeAccessCode = false;
 
@@ -38,6 +39,42 @@
 
 	let quickAccessCode = '';
 	let quickAccessDigits = ['', '', '', '', '', ''];
+	let otpChallengeId = '';
+	let otpDestinations: string[] = [];
+	let otpExpires = 120;
+	let otpResendAfter = 30;
+	let otpDeliveriesRemaining = 0;
+	let otpAttemptsRemaining: number | undefined = undefined;
+	let otpComponent: EmployeeOtpChallenge;
+	const otpStorageKey = 'aqura.desktopLoginOtpChallenge';
+
+	function saveOtpChallenge() {
+		sessionStorage.setItem(otpStorageKey, JSON.stringify({
+			challengeId: otpChallengeId,
+			destinations: otpDestinations,
+			expiresAt: Date.now() + otpExpires * 1000,
+			resendAfterSeconds: otpResendAfter,
+			deliveriesRemaining: otpDeliveriesRemaining
+		}));
+	}
+
+	function restoreOtpChallenge() {
+		try {
+			const stored = JSON.parse(sessionStorage.getItem(otpStorageKey) || 'null');
+			const remaining = Math.ceil((Number(stored?.expiresAt) - Date.now()) / 1000);
+			if (!stored?.challengeId || remaining <= 0) {
+				sessionStorage.removeItem(otpStorageKey);
+				return;
+			}
+			otpChallengeId = stored.challengeId;
+			otpDestinations = Array.isArray(stored.destinations) ? stored.destinations : [];
+			otpExpires = remaining;
+			otpResendAfter = Number(stored.resendAfterSeconds) || 30;
+			otpDeliveriesRemaining = Number(stored.deliveriesRemaining) || 0;
+		} catch {
+			sessionStorage.removeItem(otpStorageKey);
+		}
+	}
 
 	let usernameValid = true;
 	let passwordValid = true;
@@ -69,6 +106,7 @@
 			hideMobile = true;
 			if (!$isAuthenticated) chooseInterface('desktop');
 		}
+		restoreOtpChallenge();
 	});
 
 	function checkExistingAuth() {
@@ -83,6 +121,9 @@
 		password = '';
 		quickAccessCode = '';
 		quickAccessDigits = ['', '', '', '', '', ''];
+		otpChallengeId = '';
+		if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(otpStorageKey);
+		otpAttemptsRemaining = undefined;
 		errorMessage = '';
 		successMessage = '';
 		usernameValid = true;
@@ -167,6 +208,7 @@
 			const result = await persistentAuthService.login(username, password);
 			
 			if (result.success) {
+				sessionStorage.removeItem(otpStorageKey);
 				interfacePreferenceService.forceDesktopInterface(result.user?.id);
 				successMessage = 'Login successful! Redirecting...';
 				
@@ -183,6 +225,47 @@
 			isLoading = false;
 		}
 	}
+
+	async function verifyOtp(event: CustomEvent<{ otp: string }>) {
+		isLoading = true; errorMessage = '';
+		try {
+			const result = await persistentAuthService.loginWithQuickAccess('', 'desktop', { action: 'verifyOtp', challengeId: otpChallengeId, otp: event.detail.otp });
+			if (result.success) {
+				sessionStorage.removeItem(otpStorageKey);
+				interfacePreferenceService.forceDesktopInterface(result.user?.id);
+				successMessage = 'Login successful! Redirecting...';
+				setTimeout(() => goto('/'), 600);
+			} else if (result.otpRequired && result.challengeId) {
+				otpChallengeId = result.challengeId;
+				otpDestinations = result.destinations || [];
+				otpExpires = result.expiresInSeconds || 120;
+				otpResendAfter = result.resendAfterSeconds || 30;
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				otpAttemptsRemaining = undefined;
+				saveOtpChallenge();
+			} else {
+				errorMessage = result.error || 'OTP verification failed.';
+				otpAttemptsRemaining = result.attemptsRemaining;
+			}
+		} finally { isLoading = false; }
+	}
+
+	async function resendOtp() {
+		isLoading = true; errorMessage = '';
+		try {
+			const result = await persistentAuthService.loginWithQuickAccess('', 'desktop', { action: 'resendOtp', challengeId: otpChallengeId });
+			if (result.otpRequired && result.challengeId) {
+				otpChallengeId = result.challengeId; otpDestinations = result.destinations || [];
+				otpExpires = result.expiresInSeconds || 120;
+				otpResendAfter = result.resendAfterSeconds || 30;
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				saveOtpChallenge();
+				otpComponent?.restart(result.expiresInSeconds || 120, result.resendAfterSeconds || 30);
+			} else errorMessage = result.error || 'Could not resend OTP.';
+		} finally { isLoading = false; }
+	}
+
+	function cancelOtp() { clearForm(); }
 
 	async function handleQuickAccessLogin() {
 		if (!validateQuickAccess()) {
@@ -206,6 +289,14 @@
 				setTimeout(() => {
 					goto('/');
 				}, 1500);
+			} else if (result.otpRequired && result.challengeId) {
+				otpChallengeId = result.challengeId;
+				otpDestinations = result.destinations || [];
+				otpExpires = result.expiresInSeconds || 120;
+				otpResendAfter = result.resendAfterSeconds || 30;
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				otpAttemptsRemaining = undefined;
+				saveOtpChallenge();
 			} else {
 				errorMessage = result.error || 'Quick access login failed. Please try again.';
 				// Clear digits and refocus first field on incorrect code
@@ -641,6 +732,8 @@
 										{/if}
 									</button>
 								</form>
+							{:else if otpChallengeId}
+								<EmployeeOtpChallenge bind:this={otpComponent} destinations={otpDestinations} expiresInSeconds={otpExpires} resendAfterSeconds={otpResendAfter} deliveriesRemaining={otpDeliveriesRemaining} attemptsRemaining={otpAttemptsRemaining} loading={isLoading} on:verify={verifyOtp} on:resend={resendOtp} on:back={cancelOtp} />
 							{:else}
 								<form class="auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
 									<div class="form-header">

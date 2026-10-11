@@ -285,13 +285,14 @@ export class PersistentAuthService {
   async loginWithQuickAccess(
     quickAccessCode: string,
     interfaceType: "desktop" | "mobile" | "customer" = "desktop",
-  ): Promise<{ success: boolean; error?: string; user?: UserSession }> {
+    otpAction?: { action: "verifyOtp"; challengeId: string; otp: string } | { action: "resendOtp"; challengeId: string },
+  ): Promise<{ success: boolean; error?: string; user?: UserSession; otpRequired?: boolean; challengeId?: string; expiresInSeconds?: number; resendAfterSeconds?: number; deliveriesRemaining?: number; destinations?: string[]; attemptsRemaining?: number; retryAfterSeconds?: number }> {
     let activatedEmployeeAuthSession = false;
     try {
       console.log("🔐 [PersistentAuth] Starting quick access login process");
 
       // Step 1: Validate code format
-      if (!/^[0-9]{6}$/.test(quickAccessCode)) {
+      if (!otpAction && !/^[0-9]{6}$/.test(quickAccessCode)) {
         console.error(
           "❌ [PersistentAuth] Invalid access code format:",
           quickAccessCode,
@@ -317,13 +318,27 @@ export class PersistentAuthService {
         const response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quickAccessCode }),
+          body: JSON.stringify(otpAction || { quickAccessCode }),
         });
         const result = await response.json().catch(() => ({}));
+        if (response.ok && result?.success && result?.otpRequired) {
+          return {
+            success: false,
+            otpRequired: true,
+            challengeId: result.challengeId,
+            expiresInSeconds: result.expiresInSeconds,
+            resendAfterSeconds: result.resendAfterSeconds,
+            deliveriesRemaining: result.deliveriesRemaining,
+            destinations: result.destinations || []
+          };
+        }
         if (!response.ok || !result?.success || !result?.user) {
-          throw new Error(
-            result?.error || "Authentication failed. Please try again.",
-          );
+          return {
+            success: false,
+            error: result?.message || result?.error || "Authentication failed. Please try again.",
+            attemptsRemaining: result?.attemptsRemaining,
+            retryAfterSeconds: result?.retryAfterSeconds
+          };
         }
         if (interfaceType === "desktop" || interfaceType === "mobile") {
           const accessToken = result?.authSession?.access_token;

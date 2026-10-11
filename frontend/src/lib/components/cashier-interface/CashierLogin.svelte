@@ -3,10 +3,11 @@
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
 	import { iconUrlMap } from '$lib/stores/iconStore';
-	import { setCashierAuth, claimWindowsCashierSession } from '$lib/stores/cashierAuth';
+	import { setCashierAuth, claimWindowsCashierSession, releaseWindowsCashierSession } from '$lib/stores/cashierAuth';
 	import { isWindowsApp } from '$lib/utils/cashierDevice';
 	import { t, currentLocale, switchLocaleManually } from '$lib/i18n';
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
+	import EmployeeOtpChallenge from '$lib/components/shared/EmployeeOtpChallenge.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -19,7 +20,12 @@
 	let loading = false;
 	let loadingBranches = true;
 	let error = '';
-	let step: 'accessCode' | 'branch' = 'accessCode';
+	let step: 'accessCode' | 'otp' | 'branch' = 'accessCode';
+	let otpChallengeId = '';
+	let otpDestinations: string[] = [];
+	let otpDeliveriesRemaining = 0;
+	let otpAttemptsRemaining: number | undefined = undefined;
+	let otpComponent: EmployeeOtpChallenge;
 	let authenticatedUser: any = null;
 	let showAccessCode = false;
 	let assignedBranchId = '';
@@ -90,18 +96,35 @@
 			});
 			const result = await response.json().catch(() => ({}));
 
+			if (response.ok && result?.success && result?.otpRequired) {
+				otpChallengeId = result.challengeId;
+				otpDestinations = result.destinations || [];
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				otpAttemptsRemaining = undefined;
+				step = 'otp';
+				return;
+			}
 			if (!response.ok || !result?.success || !result?.user) {
 				error = result?.error || 'Invalid access code';
 				accessDigits = ['', '', '', '', '', ''];
 				accessCode = '';
 				return;
 			}
-			if (!result?.authSession?.access_token || !result?.authSession?.refresh_token) {
-				throw new Error('Could not establish an authenticated session');
-			}
-			pendingAuthSession = result.authSession;
+			completeCashierAuthentication(result);
+		} catch (err: any) {
+			console.error('Login error:', err);
+			error = 'Login failed. Please try again.';
+			accessDigits = ['', '', '', '', '', ''];
+			accessCode = '';
+		} finally {
+			loading = false;
+		}
+	}
 
-			const userData = result.user;
+	function completeCashierAuthentication(result: any) {
+		if (!result?.authSession?.access_token || !result?.authSession?.refresh_token) throw new Error('Could not establish an authenticated session');
+		pendingAuthSession = result.authSession;
+		const userData = result.user;
 			const employeeNameEn = userData.name_en || userData.name_ar || userData.username;
 			const employeeNameAr = userData.name_ar || userData.name_en || userData.username;
 			const employeeBranchId = userData.branch_id;
@@ -120,14 +143,33 @@
 			allowBranchChange = !assignedBranchId;
 			selectAssignedBranch();
 			step = 'branch';
-		} catch (err: any) {
-			console.error('Login error:', err);
-			error = 'Login failed. Please try again.';
-			accessDigits = ['', '', '', '', '', ''];
-			accessCode = '';
-		} finally {
-			loading = false;
-		}
+	}
+
+	async function verifyOtp(event: CustomEvent<{ otp: string }>) {
+		loading = true; error = '';
+		try {
+			const response = await fetch('/api/auth/cashier-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verifyOtp', challengeId: otpChallengeId, otp: event.detail.otp }) });
+			const result = await response.json().catch(() => ({}));
+			if (!response.ok || !result?.success || !result?.user) {
+				error = result?.error || result?.message || 'OTP verification failed.';
+				otpAttemptsRemaining = result?.attemptsRemaining;
+				return;
+			}
+			completeCashierAuthentication(result);
+		} finally { loading = false; }
+	}
+
+	async function resendOtp() {
+		loading = true; error = '';
+		try {
+			const response = await fetch('/api/auth/cashier-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resendOtp', challengeId: otpChallengeId }) });
+			const result = await response.json().catch(() => ({}));
+			if (response.ok && result?.otpRequired) {
+				otpChallengeId = result.challengeId; otpDestinations = result.destinations || [];
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				otpComponent?.restart(result.expiresInSeconds || 120, result.resendAfterSeconds || 30);
+			} else error = result?.message || result?.error || 'Could not resend OTP.';
+		} finally { loading = false; }
 	}
 
 	async function handleBranchSelect() {
@@ -209,6 +251,8 @@
 		showSessionConfirmation = false;
 		authenticatedUser = null;
 		pendingAuthSession = null;
+		otpChallengeId = '';
+		otpAttemptsRemaining = undefined;
 	}
 
 	function handleDigitInput(event: Event, index: number) {
@@ -456,6 +500,9 @@
 						🔑 {t('auth.changeAccessCode') || 'Change Access Code'}
 					</button>
 
+				{:else if step === 'otp'}
+					<EmployeeOtpChallenge bind:this={otpComponent} destinations={otpDestinations} deliveriesRemaining={otpDeliveriesRemaining} attemptsRemaining={otpAttemptsRemaining} loading={loading} on:verify={verifyOtp} on:resend={resendOtp} on:back={goBack} />
+					{#if error}<span class="field-error">{error}</span>{/if}
 				{:else}
 					<!-- Branch Selection Step -->
 					<form class="auth-form" on:submit|preventDefault={handleBranchSelect}>

@@ -557,6 +557,7 @@ export const englishLocale: LocaleData = {
       manageMasterAdmin: "Manage Master Admin",
       buttonAccessControl: "Button Access Control",
       appPermissions: "App Permissions",
+      otpLoginControl: "OTP Login Control",
       branchDefaultPositions: "Branch Default Positions",
       attendanceNotifiers: "Attendance Notifiers",
       completeBoxClosure: "Complete Box Closure",

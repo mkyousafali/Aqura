@@ -33,6 +33,7 @@
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
 	import AppPermissionsManager from '$lib/components/desktop-interface/settings/AppPermissionsManager.svelte';
+	import OtpLoginControl from '$lib/components/desktop-interface/settings/OtpLoginControl.svelte';
 	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
 	import ApiKeysManager from '$lib/components/desktop-interface/settings/ApiKeysManager.svelte';
 	import SupportAppAccess from '$lib/components/desktop-interface/settings/SupportAppAccess.svelte';
@@ -339,6 +340,7 @@
 		'SETTINGS': 'nav.soundSettings', 'E_R_P_CONNECTIONS': 'nav.erpConnections',
 		'CLEAR_TABLES': 'nav.clearTables', 'BUTTON_ACCESS_CONTROL': 'nav.buttonAccessControl',
 		'APP_PERMISSIONS': 'nav.appPermissions',
+		'OTP_LOGIN_CONTROL': 'nav.otpLoginControl',
 		'AI_CHAT_GUIDE': 'nav.aiChatGuide', 'SUPPORT_APP_ACCESS': 'nav.supportAppAccess',
 		'ERP_PRODUCT_MANAGER': 'nav.erpProductManager', 'ERP_CREDENTIALS': 'nav.erpCredentials',
 		'DRAWER_ACTION_MONITOR': 'nav.drawerActionMonitor',
@@ -591,7 +593,7 @@
 		LoyaltyManage: ["MANAGE_TIERS"],
 		LoyaltyOperations: [],
 		LoyaltyReports: [],
-		ControlsDashboard: ["APP_PERMISSIONS"],
+		ControlsDashboard: ["APP_PERMISSIONS","OTP_LOGIN_CONTROL"],
 		ControlsManage: ["E_R_P_CONNECTIONS","CLEAR_TABLES","AI_CHAT_GUIDE","STORAGE_MANAGER","ICON_MANAGER","API_KEYS_MANAGER","SUPABASE_SECRETS","SUPPORT_APP_ACCESS"],
 		ControlsOperations: ["PUSH_NOTIFICATION_SETTINGS","LOCAL_UPDATE"],
 		ControlsReports: ["PC_LOCK_GUARD"],
@@ -1876,6 +1878,18 @@ function openApprovalCenter() {
 		showControlsSubmenu = false;
 	}
 
+	function openOtpLoginControl() {
+		const windowId = generateWindowId('otp-login-control');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+		openWindow({
+			id: windowId, title: `${t('nav.otpLoginControl') || 'OTP Login Control'} #${instanceNumber}`,
+			component: OtpLoginControl, componentName: 'OtpLoginControl', icon: '🔐',
+			size: { width: 1050, height: 700 }, position: { x: 90 + Math.random() * 100, y: 50 + Math.random() * 100 },
+			resizable: true, minimizable: true, maximizable: true, closable: true
+		});
+		showControlsSubmenu = false;
+	}
+
 	function openStorageManager() {
 		const windowId = generateWindowId('storage-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2384,6 +2398,7 @@ function openApprovalCenter() {
 			'E_R_P_CONNECTIONS': openERPConnections,
 			'CLEAR_TABLES': openClearTables,
 			'APP_PERMISSIONS': openAppPermissions,
+			'OTP_LOGIN_CONTROL': openOtpLoginControl,
 			'AI_CHAT_GUIDE': openAIChatGuide,
 			'ERP_PRODUCT_MANAGER': openErpProductManager,
 			'ERP_CREDENTIALS': openErpCredentials,
@@ -6480,6 +6495,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openAppPermissions}>
 								<span class="menu-icon">🛡️</span>
 								<span class="menu-text">{t('nav.appPermissions') || 'App Permissions'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('OTP_LOGIN_CONTROL')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openOtpLoginControl}>
+								<span class="menu-icon">🔐</span>
+								<span class="menu-text">{t('nav.otpLoginControl') || 'OTP Login Control'}</span>
 							</button>
 						</div>
 					{/if}

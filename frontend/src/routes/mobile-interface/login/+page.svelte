@@ -7,6 +7,7 @@
 	import ChangeAccessCode from '$lib/components/shared/ChangeAccessCode.svelte';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import { supabase } from '$lib/utils/supabase';
+	import EmployeeOtpChallenge from '$lib/components/shared/EmployeeOtpChallenge.svelte';
 
 	let showChangeAccessCode = false;
 	$: isAr = $currentLocale === 'ar';
@@ -75,6 +76,11 @@
 	let errorMessage = '';
 	let successMessage = '';
 	let quickAccessValid = true;
+	let otpChallengeId = '';
+	let otpDestinations: string[] = [];
+	let otpDeliveriesRemaining = 0;
+	let otpAttemptsRemaining: number | undefined = undefined;
+	let otpComponent: EmployeeOtpChallenge;
 
 	// Animation states
 	let mounted = false;
@@ -168,6 +174,11 @@
 					// Fallback method: Direct window navigation
 					window.location.href = '/mobile-interface';
 				}
+			} else if (result.otpRequired && result.challengeId) {
+				otpChallengeId = result.challengeId;
+				otpDestinations = result.destinations || [];
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				otpAttemptsRemaining = undefined;
 			} else {
 				console.error('❌ [Mobile Login] Login failed:', result.error);
 				errorMessage = result.error || t('mobile.login.invalidCode');
@@ -221,6 +232,37 @@
 			// Clear timeout just in case
 			if (timeoutId) clearTimeout(timeoutId);
 		}
+	}
+
+	async function verifyOtp(event: CustomEvent<{ otp: string }>) {
+		isLoading = true; errorMessage = '';
+		try {
+			const result = await persistentAuthService.loginWithQuickAccess('', 'mobile', { action: 'verifyOtp', challengeId: otpChallengeId, otp: event.detail.otp });
+			if (result.success) {
+				interfacePreferenceService.forceMobileInterface(result.user?.id);
+				await goto('/mobile-interface');
+			} else {
+				errorMessage = result.error || 'OTP verification failed.';
+				otpAttemptsRemaining = result.attemptsRemaining;
+			}
+		} finally { isLoading = false; }
+	}
+
+	async function resendOtp() {
+		isLoading = true; errorMessage = '';
+		try {
+			const result = await persistentAuthService.loginWithQuickAccess('', 'mobile', { action: 'resendOtp', challengeId: otpChallengeId });
+			if (result.otpRequired && result.challengeId) {
+				otpChallengeId = result.challengeId; otpDestinations = result.destinations || [];
+				otpDeliveriesRemaining = result.deliveriesRemaining ?? 0;
+				otpComponent?.restart(result.expiresInSeconds || 120, result.resendAfterSeconds || 30);
+			} else errorMessage = result.error || 'Could not resend OTP.';
+		} finally { isLoading = false; }
+	}
+
+	function cancelOtp() {
+		otpChallengeId = ''; otpAttemptsRemaining = undefined; errorMessage = '';
+		quickAccessDigits = ['', '', '', '', '', '']; quickAccessCode = '';
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -383,6 +425,9 @@
 				<div class="auth-heading">
 					<h1 class="page-title">{t('mobile.login.quickAccess')}</h1>
 				</div>
+				{#if otpChallengeId}
+					<EmployeeOtpChallenge bind:this={otpComponent} destinations={otpDestinations} deliveriesRemaining={otpDeliveriesRemaining} attemptsRemaining={otpAttemptsRemaining} loading={isLoading} on:verify={verifyOtp} on:resend={resendOtp} on:back={cancelOtp} />
+				{:else}
 				<form class="mobile-auth-form" on:submit|preventDefault={handleQuickAccessLogin}>
 					<div class="form-fields">
 						<div class="field-group">
@@ -439,6 +484,7 @@
 						{/if}
 					</button>
 				</form>
+				{/if}
 
 				<!-- Status Messages -->
 				{#if errorMessage}

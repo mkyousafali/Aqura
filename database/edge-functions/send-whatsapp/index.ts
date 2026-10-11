@@ -20,7 +20,7 @@ async function getWaCredentials(supabase: any): Promise<{ token: string; phoneId
 }
 
 interface SendWhatsAppRequest {
-  action: "send_access_code" | "send_loyalty_otp" | "send_customer_auth_otp" | "send_user_creation_otp" | "send_user_credentials";
+  action: "send_access_code" | "send_loyalty_otp" | "send_customer_auth_otp" | "send_user_creation_otp" | "send_employee_login_otp" | "send_user_credentials";
   phone_number: string; // E.164 format e.g. +966567334726
   access_code?: string;
   customer_name?: string;
@@ -56,7 +56,7 @@ serve(async (req: Request) => {
     let access_code = body.access_code;
     let customerOtpExpirySeconds: number | undefined;
 
-    if (action !== "send_access_code" && action !== "send_loyalty_otp" && action !== "send_customer_auth_otp" && action !== "send_user_creation_otp" && action !== "send_user_credentials") {
+    if (action !== "send_access_code" && action !== "send_loyalty_otp" && action !== "send_customer_auth_otp" && action !== "send_user_creation_otp" && action !== "send_employee_login_otp" && action !== "send_user_credentials") {
       return new Response(
         JSON.stringify({ error: "Invalid action" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -226,9 +226,9 @@ serve(async (req: Request) => {
     }
 
     // Loyalty OTP — uses Authentication template "loyalty_redemption_otp" (Copy code, Arabic)
-    if (action === "send_loyalty_otp" || action === "send_customer_auth_otp" || action === "send_user_creation_otp") {
+    if (action === "send_loyalty_otp" || action === "send_customer_auth_otp" || action === "send_user_creation_otp" || action === "send_employee_login_otp") {
       const otpTemplateName = action === "send_customer_auth_otp" ? "aqura_otp_verification" : "loyalty_redemption_otp";
-      const isVerificationOtp = action === "send_customer_auth_otp" || action === "send_user_creation_otp";
+      const isVerificationOtp = action === "send_customer_auth_otp" || action === "send_user_creation_otp" || action === "send_employee_login_otp";
       const resolvedTemplateName = isVerificationOtp ? "aqura_otp_verification" : otpTemplateName;
       const otpLanguage = isVerificationOtp && language === "en" ? "en" : "ar";
       const loyaltyPayload = {
@@ -281,7 +281,7 @@ serve(async (req: Request) => {
         try {
           await supabase.from("whatsapp_message_log").insert({
             phone_number: cleanPhone,
-            message_type: action === "send_user_creation_otp" ? "user_creation_otp" : action === "send_customer_auth_otp" ? "customer_auth_otp" : "loyalty_otp",
+            message_type: action === "send_employee_login_otp" ? "employee_login_otp" : action === "send_user_creation_otp" ? "user_creation_otp" : action === "send_customer_auth_otp" ? "customer_auth_otp" : "loyalty_otp",
             template_name: resolvedTemplateName,
             template_language: otpLanguage,
             whatsapp_message_id: loyaltyMessageId,
@@ -321,7 +321,7 @@ serve(async (req: Request) => {
         try {
           await supabase.from("whatsapp_message_log").insert({
             phone_number: cleanPhone,
-            message_type: action === "send_user_creation_otp" ? "user_creation_otp" : "customer_auth_otp",
+            message_type: action === "send_employee_login_otp" ? "employee_login_otp" : action === "send_user_creation_otp" ? "user_creation_otp" : "customer_auth_otp",
             template_name: resolvedTemplateName,
             template_language: secondLanguage,
             whatsapp_message_id: secondMessageId,
