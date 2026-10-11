@@ -51,6 +51,7 @@
 	import LeaseAndRent from '$lib/components/desktop-interface/master/finance/LeaseAndRent.svelte';
 	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
 	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
+	import ChangeRequests from '$lib/components/desktop-interface/master/finance/ChangeRequests.svelte';
 	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
 	import CustomerAppManager from '$lib/components/desktop-interface/admin-customer-app/CustomerAppManager.svelte';
 	import LoyaltyDashboard from '$lib/components/desktop-interface/master/loyalty/LoyaltyDashboard.svelte';
@@ -316,7 +317,7 @@
 		'MANAGE_RECONCILIATIONS': 'nav.manageReconciliations', 'MANUAL_SCHEDULING': 'nav.manualScheduling',
 		'DAY_BUDGET_PLANNER': 'nav.dayBudgetPlanner', 'MONTHLY_MANAGER': 'nav.monthlyManager',
 		'EXPENSE_MANAGER': 'nav.expenseManager', 'PAID_MANAGER': 'nav.paidManager',
-		'DENOMINATION': 'nav.denomination', 'PETTY_CASH': 'nav.pettyCash',
+		'DENOMINATION': 'nav.denomination', 'PETTY_CASH': 'nav.pettyCash', 'CHANGE_REQUESTS': 'Change Requests',
 		'EXPENSE_TRACKER': 'reports.expenseTracker', 'SALES_REPORT': 'reports.salesReport',
 		'MONTHLY_BREAKDOWN': 'nav.monthlyBreakdown', 'OVERDUES_REPORT': 'nav.overdues',
 		'VENDOR_PAYMENTS': 'reports.vendorPayments', 'POS_REPORT': 'nav.pos',
@@ -572,7 +573,7 @@
 		PromoReports: ["COUPON_REPORTS"],
 		FinanceDashboard: ["APPROVAL_CENTER","LC_PLANNER","ERP_LEDGERS"],
 		FinanceManage: ["CATEGORY_MANAGER","PURCHASE_VOUCHER_MANAGER","MANAGE_RECONCILIATIONS","ASSET_MANAGER","LEASE_AND_RENT"],
-		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH"],
+		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH","CHANGE_REQUESTS"],
 		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","SALES_ANALYSIS","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
 		HRDashboard: ["SECURITY_CODE","FINGERPRINT_DASHBOARD","QUICK_DASHBOARD"],
 		HRManage: ["EMPLOYEE_MASTER","LINK_ID","HR_SERVICES","SALARY_STATEMENT"],
@@ -2341,6 +2342,7 @@ function openApprovalCenter() {
 			'PAID_MANAGER': openPaidManager,
 			'DENOMINATION': openDenomination,
 			'PETTY_CASH': openPettyCash,
+			'CHANGE_REQUESTS': openChangeRequests,
 			'EXPENSE_TRACKER': openExpenseTracker,
 			'SALES_REPORT': openSalesReport,
 			'MONTHLY_BREAKDOWN': openMonthlyBreakdown,
@@ -3062,6 +3064,24 @@ function openApprovalCenter() {
 			},
 			resizable: true,
 			minimizable: true,
+		});
+	}
+
+	function openChangeRequests() {
+		collapseAllMenus();
+		const windowId = generateWindowId('change-requests');
+		openWindow({
+			id: windowId,
+			title: 'Change Requests',
+			component: ChangeRequests,
+			componentName: 'ChangeRequests',
+			icon: '🔄',
+			size: { width: 1250, height: 760 },
+			position: { x: 110 + (Math.random() * 100), y: 90 + (Math.random() * 80) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
 		});
 	}
 
@@ -5513,6 +5533,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openPettyCash}>
 								<span class="menu-icon">💰</span>
 								<span class="menu-text">{t('nav.pettyCash')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('CHANGE_REQUESTS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openChangeRequests}>
+								<span class="menu-icon">🔄</span>
+								<span class="menu-text">Change Requests</span>
 							</button>
 						</div>
 					{/if}

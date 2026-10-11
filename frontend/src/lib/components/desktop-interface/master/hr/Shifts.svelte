@@ -130,7 +130,7 @@
         source: 'date' | 'weekday' | 'regular' | 'none';
     }
 
-    let activeTab: 'regular' | 'weekday' | 'date' | 'current' = 'current';
+    let activeTab: 'regular' | 'weekday' | 'date' | 'current' | 'logs' = 'current';
     let supabase: any;
     let realtimeChannel: any;
     let loading = false;
@@ -167,6 +167,10 @@
     let editingDateVersionIds: number[] = [];
     let shiftAuditHistory: any[] = [];
     let shiftAuditLoading = false;
+    let allShiftAuditHistory: any[] = [];
+    let shiftLogsLoading = false;
+    let shiftLogsError = '';
+    let shiftLogsSearch = '';
 
     let slotTime12: Array<{
         startHour: string; startMinute: string; startPeriod: string;
@@ -188,7 +192,8 @@
         { id: 'regular', label: 'Regular Shifts', icon: '🕒' },
         { id: 'weekday', label: 'Day-Wise Shifts', icon: '🔁' },
         { id: 'date', label: 'Date-Wise Shifts', icon: '📅' },
-        { id: 'current', label: 'Current Shifts', icon: '✅' }
+        { id: 'current', label: 'Current Shifts', icon: '✅' },
+        { id: 'logs', label: 'Shift Logs', icon: '📋' }
     ];
 
     $: weekdayNames = [
@@ -208,6 +213,12 @@
     $: filteredWeekday = filterRows(weekdayRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
     $: filteredDateWise = filterRows(dateWiseRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
     $: filteredCurrent = filterRows(currentRows, searchQuery, branchFilter, nationalityFilter, statusFilter);
+    $: filteredShiftAuditHistory = allShiftAuditHistory.filter((entry: any) => {
+        const query = shiftLogsSearch.trim().toLowerCase();
+        if (!query) return true;
+        return [entry.employee_id, entry.employee_name, entry.actor_name, entry.action, shiftAuditSourceLabel(entry.table_name)]
+            .some(value => String(value || '').toLowerCase().includes(query));
+    });
 
     $: activeWeekdays = (() => {
         const days: { index: number; name: string }[] = [];
@@ -345,6 +356,7 @@
         else if (activeTab === 'weekday') await loadWeekday();
         else if (activeTab === 'date') await loadDateWise();
         else if (activeTab === 'current') await loadCurrentShifts();
+        else if (activeTab === 'logs') await loadShiftLogs();
     }
 
     async function handleTabChange(tabId: string) {
@@ -677,6 +689,68 @@
         }
     }
 
+    async function loadShiftLogs() {
+        shiftLogsSearch = '';
+        shiftLogsError = '';
+        shiftLogsLoading = true;
+        allShiftAuditHistory = [];
+        try {
+            await initSupabase();
+            const { data, error: auditError } = await supabase
+                .from('hr_shift_audit_log')
+                .select('id, employee_id, table_name, action, old_values, new_values, changed_by, changed_at')
+                .order('changed_at', { ascending: false })
+                .limit(500);
+            if (auditError) throw auditError;
+
+            const rows = data || [];
+            const actorIds = [...new Set(rows.map((row: any) => row.changed_by).filter(Boolean))];
+            const employeeIds = [...new Set(rows.map((row: any) => row.employee_id).filter(Boolean))];
+            const [usersResult, employeesResult] = await Promise.all([
+                actorIds.length ? supabase.from('users').select('id, username').in('id', actorIds) : Promise.resolve({ data: [] }),
+                employeeIds.length ? supabase.from('hr_employee_master').select('id, name_en, name_ar').in('id', employeeIds) : Promise.resolve({ data: [] })
+            ]);
+            const actorNames = Object.fromEntries((usersResult.data || []).map((user: any) => [user.id, user.username]));
+            const employeeNames = Object.fromEntries((employeesResult.data || []).map((employee: any) => [
+                employee.id,
+                $locale === 'ar' ? (employee.name_ar || employee.name_en) : (employee.name_en || employee.name_ar)
+            ]));
+            allShiftAuditHistory = rows.map((row: any) => ({
+                ...row,
+                actor_name: row.changed_by ? (actorNames[row.changed_by] || 'Unknown user') : 'System/Legacy',
+                employee_name: employeeNames[row.employee_id] || row.employee_id || 'Unknown employee'
+            }));
+        } catch (auditError: any) {
+            console.error('Failed to load shift audit log:', auditError);
+            shiftLogsError = auditError?.message || 'Failed to load shift logs.';
+        } finally {
+            shiftLogsLoading = false;
+        }
+    }
+
+    function shiftAuditSourceLabel(tableName: string): string {
+        const labels: Record<string, string> = {
+            hr_regular_shift_versions: 'Regular shift period',
+            hr_regular_shift_slots: 'Regular shift time',
+            hr_special_shift_weekday_versions: 'Day-wise shift period',
+            hr_special_shift_weekday_slots: 'Day-wise shift time',
+            hr_special_shift_date_wise_versions: 'Date-wise shift period',
+            hr_special_shift_date_wise_slots: 'Date-wise shift time'
+        };
+        return labels[tableName] || tableName?.replaceAll('_', ' ') || 'Shift';
+    }
+
+    function shiftAuditValue(value: any): string {
+        if (!value) return '—';
+        const parts: string[] = [];
+        if (value.weekday !== undefined) parts.push(weekdayNames[Number(value.weekday)] || `Day ${value.weekday}`);
+        if (value.date_from) parts.push(`${value.date_from}${value.date_to ? ` → ${value.date_to}` : ' → open'}`);
+        if (value.shift_start_time || value.shift_end_time) parts.push(`${fmt12(value.shift_start_time)} → ${fmt12(value.shift_end_time)}`);
+        if (value.slot_order) parts.push(`Slot ${value.slot_order}`);
+        if (value.working_hours !== undefined) parts.push(`${Number(value.working_hours).toFixed(2)}h`);
+        return parts.length ? parts.join(' · ') : `Record #${value.id || '—'}`;
+    }
+
     function openRegularModal(row: RegularRow) {
         selectedEmployeeId = row.employee_id;
         editingDateVersionIds = [];
@@ -969,6 +1043,7 @@
             </div>
         {:else}
             <!-- Filters -->
+            {#if activeTab !== 'logs'}
             <div class="mb-4 flex gap-3 flex-wrap {mobile ? 'flex-col' : ''}">
                 {#if !mobile}
                     <div class="flex-1 min-w-[150px]">
@@ -1014,6 +1089,7 @@
                     </div>
                 {/if}
             </div>
+            {/if}
 
             {#if activeTab === 'current'}
                 <div class="mb-4 flex items-end gap-3 {mobile ? 'flex-col items-stretch' : ''}">
@@ -1428,6 +1504,45 @@
                     <div class="px-6 py-3 bg-slate-50 border-t text-xs text-slate-600 font-semibold">{$t('hr.shift.showing_employees', { count: filteredCurrent.length })}</div>
                 </div>
               {/if}
+            {:else if activeTab === 'logs'}
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[420px]">
+                    <div class="p-4 border-b border-slate-200 bg-slate-50 flex {mobile ? 'flex-col' : 'items-center'} gap-3">
+                        <div class="flex-1">
+                            <h2 class="text-base font-black text-slate-800">{$locale === 'ar' ? 'سجل تغييرات الورديات' : 'Shift Change Logs'}</h2>
+                            <p class="text-xs text-slate-500 mt-0.5">{$locale === 'ar' ? 'يعرض آخر 500 تغيير مسجل' : 'Showing the latest 500 audited changes'}</p>
+                        </div>
+                        <input class="field-border {mobile ? 'w-full' : 'w-96'} px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" bind:value={shiftLogsSearch} placeholder={$locale === 'ar' ? 'ابحث في سجل الورديات' : 'Search shift logs'} />
+                    </div>
+                    <div class="flex-1 overflow-auto">
+                        {#if shiftLogsLoading}
+                            <div class="h-52 flex items-center justify-center text-slate-500 font-semibold">{$t('common.loading') || 'Loading...'}</div>
+                        {:else if shiftLogsError}
+                            <div class="m-5 rounded-xl bg-red-50 border border-red-200 p-4 text-red-700">{shiftLogsError}</div>
+                        {:else if filteredShiftAuditHistory.length === 0}
+                            <div class="h-52 flex items-center justify-center text-slate-400 font-semibold">{$locale === 'ar' ? 'لا توجد سجلات تغيير مطابقة' : 'No matching shift changes yet'}</div>
+                        {:else}
+                            <table class="w-full border-collapse text-sm">
+                                <thead class="sticky top-0 z-10 bg-slate-100 text-slate-600 uppercase text-[11px] tracking-wide">
+                                    <tr><th class="px-4 py-3 text-left border-b">Date & Time</th><th class="px-4 py-3 text-left border-b">Employee</th><th class="px-4 py-3 text-left border-b">Shift Type</th><th class="px-4 py-3 text-center border-b">Action</th><th class="px-4 py-3 text-left border-b">Before</th><th class="px-4 py-3 text-left border-b">After</th><th class="px-4 py-3 text-left border-b">Changed By</th></tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    {#each filteredShiftAuditHistory as entry}
+                                        <tr class="hover:bg-emerald-50/40 align-top">
+                                            <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600">{new Date(entry.changed_at).toLocaleString($locale === 'ar' ? 'ar-SA' : 'en-US')}</td>
+                                            <td class="px-4 py-3"><div class="font-bold text-slate-800">{entry.employee_name}</div><div class="text-xs text-slate-400">{entry.employee_id}</div></td>
+                                            <td class="px-4 py-3 text-xs text-slate-700">{shiftAuditSourceLabel(entry.table_name)}</td>
+                                            <td class="px-4 py-3 text-center"><span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase {entry.action === 'create' ? 'bg-emerald-100 text-emerald-700' : entry.action === 'delete' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}">{entry.action}</span></td>
+                                            <td class="px-4 py-3 text-xs text-slate-600 min-w-[180px]">{shiftAuditValue(entry.old_values)}</td>
+                                            <td class="px-4 py-3 text-xs text-slate-800 min-w-[180px]">{shiftAuditValue(entry.new_values)}</td>
+                                            <td class="px-4 py-3 text-xs font-semibold text-slate-700">{entry.actor_name}</td>
+                                        </tr>
+                                    {/each}
+                                </tbody>
+                            </table>
+                        {/if}
+                    </div>
+                    <div class="px-6 py-3 bg-slate-50 border-t text-xs text-slate-600 font-semibold">{filteredShiftAuditHistory.length} {$locale === 'ar' ? 'سجل' : 'records'}</div>
+                </div>
             {/if}
         {/if}
     </div>

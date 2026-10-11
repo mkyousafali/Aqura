@@ -108,20 +108,44 @@ function getApplicableShift(
   const dayNum = getWeekdayInSaudi(dateStr);
 
   // Date-wise special shift (highest priority)
-  const dateWise = employeeSpecialShiftsDateWise.get(sId)?.find(s => s.shift_date === dateStr);
+  const dateWise = selectLatestShiftVersion(
+    (employeeSpecialShiftsDateWise.get(sId) || []).filter(s => s.shift_date === dateStr)
+  )[0];
   if (dateWise) return dateWise;
 
-  // Weekday special shift (NO date check - matches EmployeeAnalysisWindow.svelte)
-  const weekdayShift = employeeSpecialShiftsWeekday.get(sId)?.find(s => s.weekday === dayNum);
+  // Weekday special shifts apply only inside their version's effective range.
+  const weekdayShift = selectLatestShiftVersion(
+    (employeeSpecialShiftsWeekday.get(sId) || []).filter(s =>
+      s.weekday === dayNum && isShiftEffectiveOn(s, dateStr)
+    )
+  )[0];
   if (weekdayShift) return weekdayShift;
 
-  // Regular shift — find the version whose date range covers this date
-  const regShifts = employeeShifts.get(sId) || [];
-  const regMatch = regShifts.find(s =>
-    (!s.date_from || dateStr >= s.date_from) &&
-    (!s.date_to || dateStr <= s.date_to)
+  // Regular shift — use the latest version whose date range covers this date.
+  return selectLatestShiftVersion(
+    (employeeShifts.get(sId) || []).filter(s => isShiftEffectiveOn(s, dateStr))
+  )[0] || null;
+}
+
+function isShiftEffectiveOn(shift: any, dateStr: string): boolean {
+  return (!shift.date_from || dateStr >= shift.date_from) &&
+    (!shift.date_to || dateStr <= shift.date_to);
+}
+
+function selectLatestShiftVersion(shifts: any[]): any[] {
+  if (!shifts.length) return [];
+  const latest = shifts.reduce((current, shift) =>
+    (shift.date_from || '') > (current.date_from || '') ||
+    ((shift.date_from || '') === (current.date_from || '') &&
+      Number(shift.version_id || 0) > Number(current.version_id || 0))
+      ? shift
+      : current
   );
-  return regMatch || null;
+  return shifts.filter(shift =>
+    shift.version_id != null && latest.version_id != null
+      ? shift.version_id === latest.version_id
+      : shift === latest
+  );
 }
 
 function isOfficialDayOff(empId: string, dateStr: string, employeeDayOffs: Map<string, any[]>): boolean {
@@ -143,26 +167,10 @@ function getMultiShiftWorkingMins(
   multiShiftDateWise: Map<string, any[]>,
   multiShiftWeekday: Map<string, any[]>
 ): number {
-  const eid = String(empId);
-  const dayNum = getWeekdayInSaudi(dateStr);
-  let totalHours = 0;
-  // Date-wise multi-shifts
-  for (const ms of multiShiftDateWise.get(eid) || []) {
-    if (dateStr >= ms.date_from && dateStr <= ms.date_to) {
-      totalHours += ms.working_hours || 0;
-    }
-  }
-  // Weekday multi-shifts
-  for (const ms of multiShiftWeekday.get(eid) || []) {
-    if (ms.weekday === dayNum) {
-      totalHours += ms.working_hours || 0;
-    }
-  }
-  // Regular multi-shifts
-  for (const ms of multiShiftRegular.get(eid) || []) {
-    totalHours += ms.working_hours || 0;
-  }
-  return Math.round(totalHours * 60);
+  const shifts = getMultiShiftsForDate(
+    empId, dateStr, multiShiftRegular, multiShiftDateWise, multiShiftWeekday
+  );
+  return Math.round(shifts.reduce((total, shift) => total + (shift.working_hours || 0), 0) * 60);
 }
 
 /** Returns all multi-shift slots active for an employee on a given date */
@@ -175,17 +183,21 @@ function getMultiShiftsForDate(
 ): any[] {
   const eid = String(empId);
   const dayNum = getWeekdayInSaudi(dateStr);
-  const results: any[] = [];
-  for (const ms of multiShiftDateWise.get(eid) || []) {
-    if (dateStr >= ms.date_from && dateStr <= ms.date_to) results.push(ms);
-  }
-  for (const ms of multiShiftWeekday.get(eid) || []) {
-    if (ms.weekday === dayNum) results.push(ms);
-  }
-  for (const ms of multiShiftRegular.get(eid) || []) {
-    results.push(ms);
-  }
-  return results;
+  const dateWise = selectLatestShiftVersion(
+    (multiShiftDateWise.get(eid) || []).filter(ms => isShiftEffectiveOn(ms, dateStr))
+  );
+  if (dateWise.length) return dateWise;
+
+  const weekday = selectLatestShiftVersion(
+    (multiShiftWeekday.get(eid) || []).filter(ms =>
+      ms.weekday === dayNum && isShiftEffectiveOn(ms, dateStr)
+    )
+  );
+  if (weekday.length) return weekday;
+
+  return selectLatestShiftVersion(
+    (multiShiftRegular.get(eid) || []).filter(ms => isShiftEffectiveOn(ms, dateStr))
+  );
 }
 
 /**
@@ -746,15 +758,15 @@ Deno.serve(async (req) => {
       if (slots.length === 1) {
         const s = slots[0];
         const list = employeeShifts.get(empId) || [];
-        list.push({ id: empId, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        list.push({ id: empId, version_id: s.version_id, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         employeeShifts.set(empId, list);
       } else {
         const list = multiShiftRegular.get(empId) || [];
-        for (const s of slots) list.push({ employee_id: empId, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        for (const s of slots) list.push({ employee_id: empId, version_id: s.version_id, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         multiShiftRegular.set(empId, list);
         const shiftList = employeeShifts.get(empId) || [];
         const s = slots[0];
-        shiftList.push({ id: empId, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        shiftList.push({ id: empId, version_id: s.version_id, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         employeeShifts.set(empId, shiftList);
       }
     }
@@ -768,11 +780,11 @@ Deno.serve(async (req) => {
       if (slots.length === 1) {
         const s = slots[0];
         const list = employeeSpecialShiftsWeekday.get(empId) || [];
-        list.push({ employee_id: empId, weekday: s.weekday, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        list.push({ employee_id: empId, version_id: s.version_id, weekday: s.weekday, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         employeeSpecialShiftsWeekday.set(empId, list);
       } else {
         const list = multiShiftWeekday.get(empId) || [];
-        for (const s of slots) list.push({ employee_id: empId, weekday: s.weekday, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        for (const s of slots) list.push({ employee_id: empId, version_id: s.version_id, weekday: s.weekday, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, date_from: s.date_from, date_to: s.date_to, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         multiShiftWeekday.set(empId, list);
       }
     }
@@ -786,11 +798,11 @@ Deno.serve(async (req) => {
       if (slots.length === 1) {
         const s = slots[0];
         const list = employeeSpecialShiftsDateWise.get(empId) || [];
-        list.push({ employee_id: empId, shift_date: s.date_from, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        list.push({ employee_id: empId, version_id: s.version_id, shift_date: s.date_from, date_from: s.date_from, date_to: s.date_to, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, is_shift_overlapping_next_day: s.is_shift_overlapping_next_day, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         employeeSpecialShiftsDateWise.set(empId, list);
       } else {
         const list = multiShiftDateWise.get(empId) || [];
-        for (const s of slots) list.push({ employee_id: empId, date_from: s.date_from, date_to: s.date_to, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
+        for (const s of slots) list.push({ employee_id: empId, version_id: s.version_id, date_from: s.date_from, date_to: s.date_to, shift_start_time: s.shift_start_time, shift_end_time: s.shift_end_time, shift_start_buffer: s.shift_start_buffer, shift_end_buffer: s.shift_end_buffer, working_hours: s.working_hours, allowed_late_start_minutes: s.allowed_late_start_minutes || 0, allowed_early_end_minutes: s.allowed_early_end_minutes || 0 });
         multiShiftDateWise.set(empId, list);
       }
     }

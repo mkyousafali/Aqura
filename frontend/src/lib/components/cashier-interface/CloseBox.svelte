@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
+	import { get } from 'svelte/store';
+	import { cashierSessionToken } from '$lib/stores/cashierAuth';
 	import { onMount, onDestroy } from 'svelte';
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
@@ -1471,6 +1473,21 @@
 		}
 
 		try {
+			const sessionToken = get(cashierSessionToken);
+			if (!sessionToken || !operation?.user_id || !branch?.id) {
+				supervisorCodeError = 'Cashier session is unavailable. Reload the POS before closing.';
+				return;
+			}
+			const openResponse = await fetch(`/api/change-requests/inbox?branchId=${encodeURIComponent(branch.id)}`, {
+				cache: 'no-store', headers: { 'x-cashier-user-id': operation.user_id, 'x-cashier-session-token': sessionToken }
+			});
+			const openResult = await openResponse.json();
+			if (!openResponse.ok) throw new Error(openResult.error || 'Could not check open change requests.');
+			if (openResult.length) {
+				const pending = openResult[0];
+				supervisorCodeError = `Counter cannot be closed. Complete or cancel change request ${pending.request_number} (${pending.status}) first.`;
+				return;
+			}
 			// Use stored supervisor user ID from verification
 			const supervisorUserId = verifiedSupervisorUserId;
 			if (!supervisorUserId) {

@@ -41,10 +41,28 @@ export const GET: RequestHandler = async ({ request, url }) => {
     if (error || (receiverError && !safeBoxSchemaUnavailable(receiverError))) throw error || receiverError;
     const activeIds = new Set((activeUsers || []).map(item => item.id));
     const receiverIds = new Set((receivers || []).map(item => item.user_id));
+    const eligibleReceiverIds = employees.map(item => item.user_id).filter(id => id !== userId && activeIds.has(id) &&
+      (safeBoxSchemaUnavailable(receiverError) || receiverIds.has(id)));
+    const { data: openRequests, error: openError } = eligibleReceiverIds.length
+      ? await db.from('aqura_change_requests').select('requested_to_user_id,request_number,status,requested_by_user_id')
+          .in('requested_to_user_id', eligibleReceiverIds).not('status', 'in', '(Completed,Cancelled)')
+      : { data: [], error: null };
+    if (openError) throw openError;
+    const cashierIds = [...new Set((openRequests || []).map(item => item.requested_by_user_id))];
+    const { data: cashiers, error: cashierError } = cashierIds.length
+      ? await db.from('hr_employee_master').select('user_id,name_en,name_ar').eq('is_removed', false).in('user_id', cashierIds)
+      : { data: [], error: null };
+    if (cashierError) throw cashierError;
+    const cashierNames = new Map((cashiers || []).map(item => [item.user_id, item.name_en || item.name_ar || 'another cashier']));
+    const busyByReceiver = new Map((openRequests || []).map(item => [item.requested_to_user_id, {
+      requestNumber: item.request_number, status: item.status,
+      cashierName: cashierNames.get(item.requested_by_user_id) || 'another cashier'
+    }]));
     // The logged-in cashier cannot receive their own change request.
     const users = employees.filter(item => item.user_id !== userId && activeIds.has(item.user_id) &&
       (safeBoxSchemaUnavailable(receiverError) || receiverIds.has(item.user_id)))
-      .map(item => ({ id: item.user_id, name_en: item.name_en, name_ar: item.name_ar }))
+      .map(item => ({ id: item.user_id, name_en: item.name_en, name_ar: item.name_ar,
+        activeRequest: busyByReceiver.get(item.user_id) || null }))
       .sort((a, b) => (a.name_en || a.name_ar || '').localeCompare(b.name_en || b.name_ar || ''))
       .slice(0, 20);
     return json({ users }, { headers: { 'Cache-Control': 'no-store' } });

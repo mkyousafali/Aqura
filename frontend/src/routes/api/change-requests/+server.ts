@@ -63,6 +63,24 @@ export const POST: RequestHandler = async ({ request }) => {
     });
     if (sessionError || session?.valid !== true) return json({ error: 'Cashier session expired' }, { status: 401 });
     if (!await cashierInBranch(db, userId, Number(branchId))) return json({ error: 'Cashier branch mismatch.' }, { status: 403 });
+    const { data: activeOperation, error: operationError } = await db.from('box_operations').select('id')
+      .eq('user_id', userId).eq('branch_id', branchId).eq('status', 'in_use').limit(1).maybeSingle();
+    if (operationError) throw operationError;
+    if (!activeOperation) return json({ error: 'Start an Aqura POS counter operation before creating a change request.' }, { status: 409 });
+    const { data: ownOpen, error: ownOpenError } = await db.from('aqura_change_requests').select('request_number,status')
+      .eq('requested_by_user_id', userId).not('status', 'in', '(Completed,Cancelled)').limit(1).maybeSingle();
+    if (ownOpenError) throw ownOpenError;
+    if (ownOpen) return json({ error: `Complete or cancel your existing request ${ownOpen.request_number} (${ownOpen.status}) before creating a new request.` }, { status: 409 });
+    const { data: receiverOpen, error: receiverOpenError } = await db.from('aqura_change_requests')
+      .select('request_number,status,requested_by_user_id').eq('requested_to_user_id', requestedToUserId)
+      .not('status', 'in', '(Completed,Cancelled)').limit(1).maybeSingle();
+    if (receiverOpenError) throw receiverOpenError;
+    if (receiverOpen) {
+      const { data: existingCashier } = await db.from('hr_employee_master').select('name_en,name_ar')
+        .eq('is_removed', false).eq('user_id', receiverOpen.requested_by_user_id).maybeSingle();
+      const cashierName = existingCashier?.name_en || existingCashier?.name_ar || 'another cashier';
+      return json({ error: `This receiver is handling request ${receiverOpen.request_number} from ${cashierName}. Close that request first.` }, { status: 409 });
+    }
     const [{ data: sender }, { data: recipient }, { data: branch }, { data: permission }, { data: recipientEmployee }] = await Promise.all([
       db.from('users').select('id,status').eq('id', userId).maybeSingle(),
       db.from('users').select('id,status').eq('id', requestedToUserId).maybeSingle(),

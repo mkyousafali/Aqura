@@ -34,7 +34,7 @@
 	const changeDenomKeys = ['d500', 'd200', 'd100', 'd50', 'd20', 'd10', 'd5', 'd2', 'd1', 'd05', 'd025'];
 	let showChangeForm = false;
 	let changeSearch = '';
-	type ChangeUser = { id: string; name_en: string | null; name_ar: string | null };
+	type ChangeUser = { id: string; name_en: string | null; name_ar: string | null; activeRequest?: { requestNumber: string; status: string; cashierName: string } | null };
 	let changeUsers: ChangeUser[] = [];
 	let changeOptionsOpen = false;
 	let changeSearchSequence = 0;
@@ -276,6 +276,13 @@
 	}
 
 	function selectChangeUser(candidate: ChangeUser) {
+		if (candidate.activeRequest) {
+			changeMessage = L(
+				`${changeUserName(candidate)} is handling request ${candidate.activeRequest.requestNumber} from ${candidate.activeRequest.cashierName}. Close that request first.`,
+				`المستلم مشغول بالطلب ${candidate.activeRequest.requestNumber}. يجب إغلاق الطلب أولاً.`
+			);
+			return;
+		}
 		selectedChangeUser = candidate;
 		changeSearch = changeUserName(candidate);
 		changeOptionsOpen = false;
@@ -661,6 +668,7 @@
 	let fullBranch: any = null;
 	let currencySymbolUrl = '/icons/saudi-currency.png';
 	let userHasActiveOperation = false;
+	$: if (!userHasActiveOperation && activePosTab === 'change') activePosTab = 'available';
 
 	// Checklist popup state
 	let showChecklistPopup = false;
@@ -1509,7 +1517,7 @@
 		<button id="pos-tab-available" type="button" role="tab" class:active={activePosTab === 'available'} aria-selected={activePosTab === 'available'} aria-controls="pos-panel-available" on:click={() => activePosTab = 'available'}>{$currentLocale === 'ar' ? 'الصناديق المتاحة' : 'Available Boxes'}</button>
 		<button id="pos-tab-operation" type="button" role="tab" class:active={activePosTab === 'operation'} aria-selected={activePosTab === 'operation'} aria-controls="pos-panel-operation" on:click={() => activePosTab = 'operation'}>{$currentLocale === 'ar' ? 'صندوق العملية' : 'Operation Box'}</button>
 		<button id="pos-tab-manager" type="button" role="tab" class:active={activePosTab === 'manager'} aria-selected={activePosTab === 'manager'} aria-controls="pos-panel-manager" on:click={() => activePosTab = 'manager'}>{$currentLocale === 'ar' ? 'إعداد جهاز الكاشير' : 'Manager Cashier Counter'}</button>
-		<button id="pos-tab-change" type="button" role="tab" class:active={activePosTab === 'change'} aria-selected={activePosTab === 'change'} aria-controls="pos-panel-change" on:click={() => activePosTab = 'change'}>{$currentLocale === 'ar' ? 'طلب فكة' : 'Request for Change'}</button>
+		{#if userHasActiveOperation}<button id="pos-tab-change" type="button" role="tab" class:active={activePosTab === 'change'} aria-selected={activePosTab === 'change'} aria-controls="pos-panel-change" on:click={() => activePosTab = 'change'}>{$currentLocale === 'ar' ? 'طلب فكة' : 'Request for Change'}</button>{/if}
 	</div>
 	<div class="cards-grid">
 		<div id="pos-panel-available" class="blank-card" class:inactive-panel={activePosTab !== 'available'} role="tabpanel" aria-labelledby="pos-tab-available">
@@ -1763,7 +1771,7 @@
 				{#if counterPrinterMessage}<p role="status" class="counter-printer-message">{counterPrinterMessage}</p>{/if}
 			</div>
 		</div>
-		<div id="pos-panel-change" class="blank-card" class:inactive-panel={activePosTab !== 'change'} role="tabpanel" aria-labelledby="pos-tab-change">
+		{#if userHasActiveOperation}<div id="pos-panel-change" class="blank-card" class:inactive-panel={activePosTab !== 'change'} role="tabpanel" aria-labelledby="pos-tab-change">
 			<div class="card-header">
 				<h3>{$currentLocale === 'ar' ? 'طلب فكة' : 'Request for Change'}</h3>
 			</div>
@@ -1778,7 +1786,7 @@
 						<div class="change-user-list" role="listbox" aria-label={L('Available users', 'المستخدمون المتاحون')}>
 							{#each changeUsers as candidate (candidate.id)}
 								<button type="button" role="option" aria-selected={selectedChangeUser?.id === candidate.id}
-									class:selected={selectedChangeUser?.id === candidate.id} on:click={() => selectChangeUser(candidate)}>{changeUserName(candidate)}</button>
+									class:selected={selectedChangeUser?.id === candidate.id} class:disabled={!!candidate.activeRequest} on:click={() => selectChangeUser(candidate)}>{changeUserName(candidate)}{candidate.activeRequest ? ` — Busy: ${candidate.activeRequest.requestNumber} (${candidate.activeRequest.cashierName})` : ''}</button>
 							{/each}
 							{#if !changeUsers.length}<p>{L('No available users found.', 'لم يتم العثور على مستخدمين متاحين.')}</p>{/if}
 						</div>
@@ -1858,7 +1866,7 @@
 				{/if}
 				{#if changeFlowMessage}<p role="status" class="change-message">{changeFlowMessage}</p>{/if}
 			</div>
-		</div>
+		</div>{/if}
 	</div>
 </div>
 
