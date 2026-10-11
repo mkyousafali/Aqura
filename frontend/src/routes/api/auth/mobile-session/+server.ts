@@ -68,7 +68,9 @@ export const POST: RequestHandler = async ({
     if (result.status === 401) {
       recordEmployeeLoginFailure(key);
     }
-    if (result.status === 200 && result.body.success === true && !result.body.otpRequired) clearEmployeeLoginFailures(key);
+    // OTP verification is rate-limited separately; reaching the OTP challenge
+    // proves that the access code was valid and resets this IP-level limiter.
+    if (result.status === 200 && result.body.success === true) clearEmployeeLoginFailures(key);
     return json(result.body, { status: result.status });
   } catch (error) {
     console.error(

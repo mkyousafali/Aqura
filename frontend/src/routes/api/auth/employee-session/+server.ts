@@ -68,7 +68,10 @@ export const POST: RequestHandler = async ({
     if (result.status === 401) {
       recordEmployeeLoginFailure(key);
     }
-    if (result.status === 200 && result.body.success === true && !result.body.otpRequired) clearEmployeeLoginFailures(key);
+    // A valid access code that creates an OTP challenge is already a successful
+    // first authentication step. Do not carry earlier access-code failures into
+    // the OTP stage, which has its own persistent three-attempt policy.
+    if (result.status === 200 && result.body.success === true) clearEmployeeLoginFailures(key);
     return json(result.body, { status: result.status });
   } catch (error) {
     console.error(

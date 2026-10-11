@@ -144,7 +144,10 @@ export const POST: RequestHandler = async ({
         const status = issued?.error === "delivery_limit" || issued?.error === "resend_cooldown" ? 429 : 400;
         return json({ success: false, ...issued, message: issued?.message || (status === 429 ? "Please wait before requesting another OTP." : "OTP delivery failed. Contact an administrator.") }, { status });
       }
-      if (issued.otp_required !== false) return json(issued);
+      if (issued.otp_required !== false) {
+        clearEmployeeLoginFailures(key);
+        return json(issued);
+      }
     }
 
     const authSession = await createSupabaseAuthSession(verifiedUser.id);
