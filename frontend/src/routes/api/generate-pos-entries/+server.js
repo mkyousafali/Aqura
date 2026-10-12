@@ -32,7 +32,7 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
   const receiptDescription = `Cash collected from POS ${posLabel}`;
   entries.push({
     type: 'receipt',
-    form_name: 'CP',
+    form_name: 'MJV',
     description: receiptDescription,
     narration: narrate(receiptDescription),
     debit_account: 'Cash Account',
@@ -55,7 +55,7 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
       const description = 'Transfer card shortfall to POS Cash';
       entries.push({
         type: 'transfer',
-        form_name: 'JV',
+        form_name: 'MJV',
         description,
         narration: narrate(description),
         debit_account: posCashAccount,
@@ -68,7 +68,7 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
       const description = 'Transfer card excess to POS Bank';
       entries.push({
         type: 'transfer',
-        form_name: 'JV',
+        form_name: 'MJV',
         description,
         narration: narrate(description),
         debit_account: 'POS Bank',
@@ -88,7 +88,7 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
       const description = 'Adjust for net excess';
       entries.push({
         type: 'adjustment',
-        form_name: 'JV',
+        form_name: 'MJV',
         description,
         narration: narrate(description),
         debit_account: posCashAccount,
@@ -104,7 +104,7 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
         const description = "Deduct shortage from cashier's salary";
         entries.push({
           type: 'adjustment',
-          form_name: 'JV',
+          form_name: 'MJV',
           description,
           narration: narrate(description),
           debit_account: 'Employee Salary Account',
@@ -116,7 +116,7 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
         const description = 'Adjust for net shortage';
         entries.push({
           type: 'adjustment',
-          form_name: 'JV',
+          form_name: 'MJV',
           description,
           narration: narrate(description),
           debit_account: 'POS Short',
@@ -138,9 +138,26 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
     ? 'POS Bank is a suspense/clearing account. It will only be reconciled to zero once the accountant posts a separate real entry transferring the settled amount from "POS Bank" to the real Bank Account, matched against the original bank statement. This "Entry to Pass" close-out does not perform that final bank reconciliation.'
     : 'No card-side transfer was needed — POS Bank was already balanced for this shift.';
 
+  const mjvLines = entries.flatMap((entry) => [
+    {
+      ledger_account: entry.debit_account,
+      debit: entry.debit_amount,
+      credit: 0,
+      narration: entry.narration
+    },
+    {
+      ledger_account: entry.credit_account,
+      debit: 0,
+      credit: entry.credit_amount,
+      narration: entry.narration
+    }
+  ]);
+
   return {
     diagnosis,
+    form_name: 'MJV',
     entries,
+    mjv_lines: mjvLines,
     final_balances: { pos_cash: 0, pos_bank: 0 },
     employee_charged: employeeCharged,
     employee_charge_amount: round2(employeeChargeAmount),

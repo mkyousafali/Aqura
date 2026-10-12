@@ -220,3 +220,5 @@ aqura-designer-standalone/
 .npm-cache/
 .gradle/
 .android/
+# Local URBAN AI Assistant source (never commit to Aqura)
+/URBAN AI Assistant/

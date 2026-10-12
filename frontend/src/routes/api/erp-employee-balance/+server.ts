@@ -59,7 +59,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const emp = empData.recordset[0];
 
 		// Query 2: Get ledger balance via employee code → ledger code link (uses alias e)
-		const balSql = `SELECT l.LedgerID, l.LedgerName, SUM(d.Debit) as TotalDebit, SUM(d.Credit) as TotalCredit, SUM(d.Debit-d.Credit) as NetBalance FROM Employees e JOIN AccLedgers l ON l.LedgerCode=e.EmployeeCode AND l.BranchID=e.BranchID JOIN AccTransactionMaster m ON m.BranchID=l.BranchID JOIN AccTransactionDetails d ON d.AccTransactionMasterID=m.AccTransactionMasterID AND d.BranchID=m.BranchID AND d.LedgerID=l.LedgerID WHERE e.EmployeeID=${empId} ${joinedBranchFilter} AND m.IsActive='True' GROUP BY l.LedgerID,l.LedgerName`;
+		const balSql = `SELECT l.LedgerID, l.LedgerCode, l.LedgerName, SUM(d.Debit) as TotalDebit, SUM(d.Credit) as TotalCredit, SUM(d.Debit-d.Credit) as NetBalance FROM Employees e JOIN AccLedgers l ON l.LedgerCode=e.EmployeeCode AND l.BranchID=e.BranchID JOIN AccTransactionMaster m ON m.BranchID=l.BranchID JOIN AccTransactionDetails d ON d.AccTransactionMasterID=m.AccTransactionMasterID AND d.BranchID=m.BranchID AND d.LedgerID=l.LedgerID WHERE e.EmployeeID=${empId} ${joinedBranchFilter} AND m.IsActive='True' GROUP BY l.LedgerID,l.LedgerCode,l.LedgerName`;
 
 		const balResp = await fetch(`${baseUrl}/query`, {
 			method: 'POST',
@@ -75,6 +75,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				const row = balData.recordset[0];
 				const net = parseFloat(row.NetBalance) || 0;
 				balance = {
+					ledgerCode: String(row.LedgerCode ?? ''),
 					ledgerName: row.LedgerName,
 					totalDebit: parseFloat(row.TotalDebit) || 0,
 					totalCredit: parseFloat(row.TotalCredit) || 0,

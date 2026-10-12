@@ -5,6 +5,7 @@
 	import { iconUrlMap } from '$lib/stores/iconStore';
 	import IssuePurchaseVoucher from './IssuePurchaseVoucher.svelte';
 	import ClosePurchaseVoucher from './ClosePurchaseVoucher.svelte';
+	import PostMJVTaskDialog from './PostMJVTaskDialog.svelte';
 
 	export let windowId: string;
 	export let operation: any;
@@ -14,6 +15,11 @@
 	// payload visible when this read-only completed window is opened later.
 	let generatedEntries: any = null;
 	let generatedEntriesSource: any = undefined;
+	let employeeErpLedger: any = null;
+	let employeeErpLedgerError = '';
+	let employeeErpLedgerLookupKey = '';
+	let postingLedgerLinks: any[] = [];
+	let postingLedgerLinksBranchId: number | null = null;
 
 	$: if (operation?.ai_generated_entries !== generatedEntriesSource) {
 		generatedEntriesSource = operation?.ai_generated_entries;
@@ -27,8 +33,125 @@
 		}
 	}
 
-	function displayGeneratedAccount(name: string): string {
-		return name === 'Employee Salary Account' ? `${cashierName || 'Cashier'}'s Salary Account` : name;
+	$: {
+		const needsEmployeeLedger = !!generatedEntries?.entries?.some((entry: any) =>
+			entry.debit_account === 'Employee Salary Account'
+			|| entry.credit_account === 'Employee Salary Account'
+		);
+		const cashierUserId = operation?.user_id;
+		const aquraBranchId = operation?.branch_id ?? branch?.id;
+		const lookupKey = needsEmployeeLedger && cashierUserId && aquraBranchId
+			? `${cashierUserId}:${aquraBranchId}`
+			: '';
+		if (lookupKey && lookupKey !== employeeErpLedgerLookupKey) {
+			employeeErpLedgerLookupKey = lookupKey;
+			loadEmployeeErpLedger(cashierUserId, aquraBranchId);
+		}
+	}
+
+	$: {
+		const aquraBranchId = Number(operation?.branch_id ?? branch?.id);
+		if (aquraBranchId > 0 && aquraBranchId !== postingLedgerLinksBranchId) {
+			postingLedgerLinksBranchId = aquraBranchId;
+			loadPostingLedgerLinks(aquraBranchId);
+		}
+	}
+
+	async function loadPostingLedgerLinks(aquraBranchId: number) {
+		const { data, error } = await supabase
+			.from('erp_posting_ledger_links')
+			.select('account_key, pos_number, ledger_code, ledger_name')
+			.eq('branch_id', aquraBranchId);
+		if (error) {
+			console.error('Error loading ERP posting ledger links:', error);
+			postingLedgerLinks = [];
+			return;
+		}
+		postingLedgerLinks = data || [];
+	}
+
+	async function loadEmployeeErpLedger(cashierUserId: string, aquraBranchId: number) {
+		employeeErpLedger = null;
+		employeeErpLedgerError = '';
+		try {
+			const { data: employeeMaster, error: mappingError } = await supabase
+				.from('hr_employee_master')
+				.select('erp_employee_id_mapping')
+				.eq('user_id', cashierUserId)
+				.maybeSingle();
+			if (mappingError) throw mappingError;
+			const erpEmployeeId = employeeMaster?.erp_employee_id_mapping?.[String(aquraBranchId)];
+			if (!erpEmployeeId) throw new Error('Cashier has no ERP employee link for this branch');
+			const response = await fetch('/api/erp-employee-balance', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ branchId: aquraBranchId, erpEmployeeId })
+			});
+			const result = await response.json();
+			if (!response.ok || !result?.success || !result?.balance?.ledgerName) {
+				throw new Error(result?.error || 'ERP employee ledger was not found');
+			}
+			employeeErpLedger = result.balance;
+		} catch (error: any) {
+			employeeErpLedgerError = error?.message || 'ERP employee ledger was not found';
+		}
+	}
+
+	function generatedAccountDetails(name: string): { name: string; code: string } {
+		if (name === 'Employee Salary Account') {
+			if (employeeErpLedger?.ledgerName) {
+				return { name: employeeErpLedger.ledgerName, code: String(employeeErpLedger.ledgerCode || '') };
+			}
+			return { name: employeeErpLedgerError || 'Resolving employee ERP ledger...', code: '' };
+		}
+
+		const normalized = String(name || '').toLowerCase();
+		let accountKey = '';
+		if (normalized.includes('pos bank')) accountKey = 'pos_bank';
+		else if (normalized.includes('pos short')) accountKey = 'pos_short';
+		else if (normalized.includes('pos excess')) accountKey = 'pos_excess';
+		else if (normalized === 'pos cash' || /pos\s*\d+\s*\(cash\)/i.test(name)) accountKey = 'pos_cash';
+		else if (normalized.includes('cash account')) accountKey = 'branch_cash';
+
+		const link = postingLedgerLinks.find((item) =>
+			item.account_key === accountKey
+			&& (accountKey !== 'pos_cash' || Number(item.pos_number) === Number(selectedPosNumber))
+		);
+		return link ? { name: link.ledger_name, code: String(link.ledger_code || '') } : { name, code: '' };
+	}
+
+	function mjvLines(): any[] {
+		if (generatedEntries?.mjv_lines?.length) return generatedEntries.mjv_lines;
+		return (generatedEntries?.entries || []).flatMap((entry: any) => [
+			{ ledger_account: entry.debit_account, debit: entry.debit_amount, credit: 0, narration: entry.narration },
+			{ ledger_account: entry.credit_account, debit: 0, credit: entry.credit_amount, narration: entry.narration }
+		]);
+	}
+
+	let mjvCopied = false;
+	let showPostTask = false;
+	let taskPosted = false;
+
+	function mjvTaskPayload() {
+		return { version: 1, operation_id: operation?.id, box_number: operation?.box_number, pos_number: selectedPosNumber, lines: mjvLines().map((line: any) => { const ledger = generatedAccountDetails(line.ledger_account); return { ledger_name: ledger.name, ledger_code: ledger.code, amount: Number(line.debit || line.credit || 0).toFixed(2), side: Number(line.debit || 0) > 0 ? 'Debit' : 'Credit', narration: line.narration || '' }; }) };
+	}
+
+	function copyMjvPayload() {
+		const lines = mjvLines().map((line: any) => {
+			const ledger = generatedAccountDetails(line.ledger_account);
+			return {
+				ledger_name: ledger.name,
+				ledger_code: ledger.code,
+				amount: Number(line.debit || line.credit || 0).toFixed(2),
+				side: Number(line.debit || 0) > 0 ? 'Debit' : 'Credit',
+				narration: line.narration || ''
+			};
+		});
+		const text = `AQURA_MJV\n${JSON.stringify({ version: 1, lines })}`;
+		navigator.clipboard.writeText(text).then(() => {
+			mjvCopied = true;
+			setTimeout(() => { mjvCopied = false; }, 1500);
+		});
 	}
 
 	let currencySymbolUrl = '/icons/saudi-currency.png';
@@ -2706,28 +2829,21 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			
 			{#if generatedEntries}
 				<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 0.75rem; width: 100%; gap: 0.5rem; margin-bottom: 0.5rem;">
-					<div style="font-weight: 700; color: #3730a3; width: 100%; font-size: 0.8rem;">🤖 AI-Generated Entry to Pass</div>
-					{#each generatedEntries.entries || [] as entry}
-						<div style="padding: 0.6rem; background: {entry.posted ? '#f0fdf4' : 'white'}; border: 2px solid {entry.posted ? '#16a34a' : '#c7d2fe'}; border-radius: 6px; width: 100%; font-size: 0.7rem;">
-							<div style="display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.35rem; color: #3730a3; font-weight: 700;">
-								<span>{#if entry.form_name}{entry.form_name} · {/if}{entry.description}</span>
-								{#if entry.posted}<span style="color: #15803d; white-space: nowrap;">✓ Posted</span>{/if}
-							</div>
-							{#if entry.debit_account || entry.credit_account}
-								<div style="padding-top: 0.3rem; border-top: 1px solid #e0e7ff;"><strong>Dr {displayGeneratedAccount(entry.debit_account)}:</strong> {Number(entry.debit_amount ?? 0).toFixed(2)}</div>
-								<div style="padding-top: 0.2rem;"><strong>Cr {displayGeneratedAccount(entry.credit_account)}:</strong> {Number(entry.credit_amount ?? 0).toFixed(2)}</div>
-							{:else}
-								{#each entry.lines || [] as line}
-									<div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; padding: 0.15rem 0; border-top: 1px solid #e0e7ff;">
-										<span>{displayGeneratedAccount(line.account)}</span>
-										<span>{Number(line.debit || 0) ? `Dr ${Number(line.debit).toFixed(2)}` : ''}</span>
-										<span>{Number(line.credit || 0) ? `Cr ${Number(line.credit).toFixed(2)}` : ''}</span>
-									</div>
-								{/each}
-							{/if}
-							{#if entry.narration}<div style="margin-top: 0.35rem; color: #4338ca; font-style: italic;">{entry.narration}</div>{/if}
-						</div>
-					{/each}
+					<div style="display:flex; align-items:center; justify-content:space-between; width:100%; color:#3730a3; font-weight:700; font-size:0.8rem; gap:0.5rem;">
+						<span><span style="background:#4338ca; color:white; border-radius:4px; padding:0.12rem 0.4rem; margin-right:0.35rem;">MJV</span>Complete POS Closing Entry</span>
+						<span style="display:flex; align-items:center; gap:0.45rem;">
+							{#if generatedEntries.entries?.length && generatedEntries.entries.every((entry: any) => entry.posted)}<span style="color:#15803d;">✓ Posted</span>{/if}
+							<button class="copy-mjv-btn" on:click={copyMjvPayload}>{mjvCopied ? '✓ Copied' : '📋 Copy MJV'}</button>
+							<button class="post-task-btn" on:click={() => showPostTask = true}>{taskPosted ? '✓ Task Posted' : '👤 Post Task'}</button>
+						</span>
+					</div>
+					<div class="mjv-table-wrap">
+						<table class="mjv-table">
+							<thead><tr><th>Ledger Name</th><th>Debit</th><th>Credit</th><th>Narration</th></tr></thead>
+							<tbody>{#each mjvLines() as line}{@const ledger = generatedAccountDetails(line.ledger_account)}<tr><td><span class="ledger-cell"><span class="ledger-name" dir="auto">{ledger.name}</span>{#if ledger.code}<span class="ledger-code" dir="ltr">{ledger.code}</span>{/if}</span></td><td class="amount debit">{Number(line.debit || 0) ? Number(line.debit).toFixed(2) : ''}</td><td class="amount credit">{Number(line.credit || 0) ? Number(line.credit).toFixed(2) : ''}</td><td class="narration">{line.narration || ''}</td></tr>{/each}</tbody>
+							<tfoot><tr><td>Total</td><td class="amount">{mjvLines().reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0).toFixed(2)}</td><td class="amount">{mjvLines().reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0).toFixed(2)}</td><td></td></tr></tfoot>
+						</table>
+					</div>
 					<div style="border-top: 1px solid #a5b4fc; padding-top: 0.4rem; width: 100%; font-size: 0.7rem; color: #3730a3;">
 						<strong>Final POS Cash:</strong> {Number(generatedEntries.final_balances?.pos_cash ?? 0).toFixed(2)} ·
 						<strong>Final POS Bank:</strong> {Number(generatedEntries.final_balances?.pos_bank ?? 0).toFixed(2)}
@@ -3478,6 +3594,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		</div>
 	</div>
 </div>
+
+{#if showPostTask}
+	<PostMJVTaskDialog branchId={Number(operation?.branch_id ?? branch?.id)} payload={mjvTaskPayload()} on:close={() => showPostTask = false} on:posted={() => { showPostTask = false; taskPosted = true; }} />
+{/if}
 
 <style>
 	.close-box-container {
@@ -6172,6 +6292,22 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			gap: 0.2rem !important;
 		}
 	}
+
+	.mjv-table-wrap { width: 100%; overflow-x: auto; border: 1px solid #c7d2fe; border-radius: 6px; }
+	.mjv-table { width: 100%; border-collapse: collapse; background: white; font-size: 0.64rem; }
+	.mjv-table th { background: #e0e7ff; color: #3730a3; text-align: left; padding: 0.4rem; border-bottom: 1px solid #a5b4fc; }
+	.mjv-table td { padding: 0.38rem 0.4rem; border-bottom: 1px solid #e0e7ff; vertical-align: top; }
+	.mjv-table .amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+	.mjv-table .debit { color: #166534; }
+	.mjv-table .credit { color: #9f1239; }
+	.mjv-table .narration { color: #4338ca; font-style: italic; min-width: 180px; }
+	.ledger-cell { display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+	.ledger-name { font-weight: 700; unicode-bidi: plaintext; }
+	.ledger-code { direction: ltr; unicode-bidi: isolate; background: #dbeafe; color: #1e3a8a; border-radius: 3px; padding: 0.08rem 0.25rem; font-weight: 700; white-space: nowrap; }
+	.copy-mjv-btn { border: 1px solid #a5b4fc; border-radius: 4px; background: #eef2ff; color: #4338ca; padding: 0.2rem 0.45rem; font-size: 0.62rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+	.copy-mjv-btn:hover { background: #e0e7ff; }
+	.post-task-btn { border:1px solid #0ea5b7; border-radius:4px; background:#e7f8fb; color:#08788c; padding:0.2rem 0.45rem; font-size:0.62rem; font-weight:700; cursor:pointer; white-space:nowrap; }
+	.mjv-table tfoot td { background: #eef2ff; color: #3730a3; font-weight: 700; border-bottom: 0; }
 </style>
 
 

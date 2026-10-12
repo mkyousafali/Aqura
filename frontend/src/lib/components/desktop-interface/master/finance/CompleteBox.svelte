@@ -9,6 +9,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import IssuePurchaseVoucher from './IssuePurchaseVoucher.svelte';
 	import ClosePurchaseVoucher from './ClosePurchaseVoucher.svelte';
+	import PostMJVTaskDialog from './PostMJVTaskDialog.svelte';
 
 	export let windowId: string;
 	export let operation: any;
@@ -1206,6 +1207,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	let isGeneratingEntries = false;
 	let generatedEntries: any = null;
 	let generateEntriesError: string = '';
+	let employeeErpLedger: any = null;
+	let employeeErpLedgerError = '';
+	let employeeErpLedgerLookupKey = '';
+	let postingLedgerLinks: any[] = [];
+	let postingLedgerLinksBranchId: number | null = null;
 
 	// Load previously-generated entries from box_operations.ai_generated_entries as soon as the
 	// operation carries them, so reopening CompleteBox shows the saved result instead of requiring
@@ -1217,6 +1223,76 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		generatedEntries = typeof operation.ai_generated_entries === 'string'
 			? JSON.parse(operation.ai_generated_entries)
 			: operation.ai_generated_entries;
+	}
+
+	// Resolve the cashier's real ERP ledger only when an generated entry actually
+	// posts to Employee Salary Account. The existing Link ID mapping connects the
+	// Aqura user to an ERP EmployeeID per branch; the balance endpoint then resolves
+	// EmployeeCode -> AccLedgers.LedgerCode/LedgerName.
+	$: {
+		const needsEmployeeLedger = !!generatedEntries?.entries?.some((entry: any) =>
+			entry.debit_account === 'Employee Salary Account'
+			|| entry.credit_account === 'Employee Salary Account'
+		);
+		const cashierUserId = operation?.user_id;
+		const aquraBranchId = operation?.branch_id ?? branch?.id;
+		const lookupKey = needsEmployeeLedger && cashierUserId && aquraBranchId
+			? `${cashierUserId}:${aquraBranchId}`
+			: '';
+		if (lookupKey && lookupKey !== employeeErpLedgerLookupKey) {
+			employeeErpLedgerLookupKey = lookupKey;
+			loadEmployeeErpLedger(cashierUserId, aquraBranchId);
+		}
+	}
+
+	$: {
+		const aquraBranchId = Number(operation?.branch_id ?? branch?.id);
+		if (aquraBranchId > 0 && aquraBranchId !== postingLedgerLinksBranchId) {
+			postingLedgerLinksBranchId = aquraBranchId;
+			loadPostingLedgerLinks(aquraBranchId);
+		}
+	}
+
+	async function loadPostingLedgerLinks(aquraBranchId: number) {
+		const { data, error } = await supabase
+			.from('erp_posting_ledger_links')
+			.select('account_key, pos_number, ledger_code, ledger_name')
+			.eq('branch_id', aquraBranchId);
+		if (error) {
+			console.error('Error loading ERP posting ledger links:', error);
+			postingLedgerLinks = [];
+			return;
+		}
+		postingLedgerLinks = data || [];
+	}
+
+	async function loadEmployeeErpLedger(cashierUserId: string, aquraBranchId: number) {
+		employeeErpLedger = null;
+		employeeErpLedgerError = '';
+		try {
+			const { data: employeeMaster, error: mappingError } = await supabase
+				.from('hr_employee_master')
+				.select('erp_employee_id_mapping')
+				.eq('user_id', cashierUserId)
+				.maybeSingle();
+			if (mappingError) throw mappingError;
+			const erpEmployeeId = employeeMaster?.erp_employee_id_mapping?.[String(aquraBranchId)];
+			if (!erpEmployeeId) {
+				throw new Error('Cashier has no ERP employee link for this branch');
+			}
+			const response = await fetch('/api/erp-employee-balance', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ branchId: aquraBranchId, erpEmployeeId })
+			});
+			const result = await response.json();
+			if (!response.ok || !result?.success || !result?.balance?.ledgerName) {
+				throw new Error(result?.error || 'ERP employee ledger was not found');
+			}
+			employeeErpLedger = result.balance;
+		} catch (error: any) {
+			employeeErpLedgerError = error?.message || 'ERP employee ledger was not found';
+		}
 	}
 
 	async function generatePosEntries() {
@@ -1300,8 +1376,32 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Display "Employee Salary Account" as "<Cashier>'s Salary Account" so it's clear whose
 	// salary is being deducted, without depending on Gemini to format the name consistently.
+	function accountDetails(name: string): { name: string; code: string } {
+		if (name === 'Employee Salary Account') {
+			if (employeeErpLedger?.ledgerName) {
+				return { name: employeeErpLedger.ledgerName, code: String(employeeErpLedger.ledgerCode || '') };
+			}
+			return { name: employeeErpLedgerError || 'Resolving employee ERP ledger...', code: '' };
+		}
+
+		const normalized = String(name || '').toLowerCase();
+		let accountKey = '';
+		if (normalized.includes('pos bank')) accountKey = 'pos_bank';
+		else if (normalized.includes('pos short')) accountKey = 'pos_short';
+		else if (normalized.includes('pos excess')) accountKey = 'pos_excess';
+		else if (normalized === 'pos cash' || /pos\s*\d+\s*\(cash\)/i.test(name)) accountKey = 'pos_cash';
+		else if (normalized.includes('cash account')) accountKey = 'branch_cash';
+
+		const link = postingLedgerLinks.find((item) =>
+			item.account_key === accountKey
+			&& (accountKey !== 'pos_cash' || Number(item.pos_number) === Number(selectedPosNumber))
+		);
+		return link ? { name: link.ledger_name, code: String(link.ledger_code || '') } : { name, code: '' };
+	}
+
 	function accountLabel(name: string): string {
-		return name === 'Employee Salary Account' ? `${cashierName || 'Cashier'}'s Salary Account` : name;
+		const details = accountDetails(name);
+		return details.code ? `[${details.code}] ${details.name}` : details.name;
 	}
 
 	// Per-entry posting status — a plain checkbox on each generated entry card marking whether it's
@@ -1328,7 +1428,68 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		}
 	}
 
+	async function toggleMjvPosted() {
+		if (!generatedEntries?.entries?.length) return;
+		const nextPosted = !generatedEntries.entries.every((entry: any) => !!entry.posted);
+		generatedEntries = {
+			...generatedEntries,
+			posted: nextPosted,
+			entries: generatedEntries.entries.map((entry: any) => ({ ...entry, posted: nextPosted }))
+		};
+		if (operation?.id) {
+			const { error } = await supabase.from('box_operations').update({ ai_generated_entries: generatedEntries }).eq('id', operation.id);
+			if (error) console.error('Error saving MJV posted status:', error);
+		}
+	}
+
+	function mjvLines(): any[] {
+		if (generatedEntries?.mjv_lines?.length) return generatedEntries.mjv_lines;
+		return (generatedEntries?.entries || []).flatMap((entry: any) => [
+			{ ledger_account: entry.debit_account, debit: entry.debit_amount, credit: 0, narration: entry.narration },
+			{ ledger_account: entry.credit_account, debit: 0, credit: entry.credit_amount, narration: entry.narration }
+		]);
+	}
+
+	function copyMjvText() {
+		const lines = mjvLines().map((line: any) => {
+			const ledger = accountDetails(line.ledger_account);
+			return {
+				ledger_name: ledger.name,
+				ledger_code: ledger.code,
+				amount: Number(line.debit || line.credit || 0).toFixed(2),
+				side: Number(line.debit || 0) > 0 ? 'Debit' : 'Credit',
+				narration: line.narration || ''
+			};
+		});
+		const text = `AQURA_MJV\n${JSON.stringify({ version: 1, lines })}`;
+		navigator.clipboard.writeText(text).then(() => {
+			copiedEntryIndex = -1;
+			setTimeout(() => { if (copiedEntryIndex === -1) copiedEntryIndex = null; }, 1500);
+		});
+	}
+
 	let copiedEntryIndex: number | null = null;
+	let showPostTask = false;
+	let taskPosted = false;
+
+	function mjvTaskPayload() {
+		return {
+			version: 1,
+			operation_id: operation?.id,
+			box_number: operation?.box_number,
+			pos_number: selectedPosNumber,
+			lines: mjvLines().map((line: any) => {
+				const ledger = accountDetails(line.ledger_account);
+				return {
+					ledger_name: ledger.name,
+					ledger_code: ledger.code,
+					amount: Number(line.debit || line.credit || 0).toFixed(2),
+					side: Number(line.debit || 0) > 0 ? 'Debit' : 'Credit',
+					narration: line.narration || ''
+				};
+			})
+		};
+	}
 
 	function copyEntryText(entry: any, index: number) {
 		// Copy the narration text only (no form_name/description/Dr/Cr lines, no "Narration:" prefix)
@@ -3478,33 +3639,29 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 		{#if generatedEntries}
 			<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 1rem; width: 100%; gap: 0.75rem;">
-				<div style="font-weight: 700; color: #3730a3; width: 100%; font-size: 1rem;">🤖 AI-Generated Entry to Pass</div>
-				{#each generatedEntries.entries || [] as entry, i}
-					<div style="padding: 0.85rem; background: {entry.posted ? '#f0fdf4' : 'white'}; border: 2px solid {entry.posted ? '#16a34a' : '#c7d2fe'}; border-radius: 8px; box-shadow: 0 2px 6px rgba(67, 56, 202, 0.12); width: 100%; font-size: 0.85rem;">
-						<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem;">
-							<div style="color: #3730a3; font-weight: 700; font-size: 0.95rem;">{#if entry.form_name}<span style="background:#4338ca; color:white; border-radius:4px; padding:0.15rem 0.5rem; margin-right:0.5rem; font-size:0.8rem; font-weight:700;">{entry.form_name}</span>{/if}{entry.description}</div>
-							<div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
-								<label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; font-weight: 700; color: {entry.posted ? '#15803d' : '#6b7280'}; cursor: pointer; white-space: nowrap;">
-									<input type="checkbox" checked={!!entry.posted} on:change={() => toggleEntryPosted(i)} />
-									{entry.posted
-										? ($currentLocale === 'ar' ? '✓ تم الترحيل' : '✓ Posted')
-										: ($currentLocale === 'ar' ? 'تم الترحيل؟' : 'Posted?')}
-								</label>
-								<button
-									style="background: #eef2ff; border: 1px solid #a5b4fc; border-radius: 5px; color: #4338ca; font-size: 0.8rem; font-weight: 600; padding: 0.3rem 0.7rem; cursor: pointer; white-space: nowrap;"
-									on:click={() => copyEntryText(entry, i)}
-								>
-									{copiedEntryIndex === i ? '✅ Copied' : '📋 Copy'}
-								</button>
-							</div>
-						</div>
-						<div style="margin-bottom: 0.25rem;"><strong>Dr {accountLabel(entry.debit_account)}:</strong> {Number(entry.debit_amount).toFixed(2)}</div>
-						<div><strong>Cr {accountLabel(entry.credit_account)}:</strong> {Number(entry.credit_amount).toFixed(2)}</div>
-						{#if entry.narration}
-							<div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed #c7d2fe; color: #4338ca; font-style: italic; font-size: 0.8rem;">{entry.narration}</div>
-						{/if}
+				<div style="display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem;">
+					<div style="font-weight:700; color:#3730a3; font-size:1rem;"><span style="background:#4338ca; color:white; border-radius:4px; padding:0.15rem 0.5rem; margin-right:0.5rem; font-size:0.8rem;">MJV</span>Complete POS Closing Entry</div>
+					<div style="display:flex; align-items:center; gap:0.6rem;">
+						<label style="display:flex; align-items:center; gap:0.3rem; font-size:0.75rem; font-weight:700; color:{generatedEntries.entries?.every((entry: any) => entry.posted) ? '#15803d' : '#6b7280'}; cursor:pointer; white-space:nowrap;">
+							<input type="checkbox" checked={!!generatedEntries.entries?.length && generatedEntries.entries.every((entry: any) => entry.posted)} on:change={toggleMjvPosted} />
+							{generatedEntries.entries?.every((entry: any) => entry.posted) ? '✓ Posted' : 'Posted?'}
+						</label>
+						<button style="background:#eef2ff; border:1px solid #a5b4fc; border-radius:5px; color:#4338ca; font-size:0.8rem; font-weight:600; padding:0.3rem 0.7rem; cursor:pointer;" on:click={copyMjvText}>{copiedEntryIndex === -1 ? '✅ Copied' : '📋 Copy MJV'}</button>
+						<button class="post-task-btn" on:click={() => showPostTask = true}>{taskPosted ? '✓ Task Posted' : '👤 Post Task'}</button>
 					</div>
-				{/each}
+				</div>
+				<div class="mjv-table-wrap">
+					<table class="mjv-table">
+						<thead><tr><th>Ledger Name</th><th>Debit</th><th>Credit</th><th>Narration</th></tr></thead>
+						<tbody>
+							{#each mjvLines() as line}
+								{@const ledger = accountDetails(line.ledger_account)}
+								<tr><td><span class="ledger-cell"><span class="ledger-name" dir="auto">{ledger.name}</span>{#if ledger.code}<span class="ledger-code" dir="ltr">{ledger.code}</span>{/if}</span></td><td class="amount debit">{Number(line.debit || 0) ? Number(line.debit).toFixed(2) : ''}</td><td class="amount credit">{Number(line.credit || 0) ? Number(line.credit).toFixed(2) : ''}</td><td class="narration">{line.narration || ''}</td></tr>
+							{/each}
+						</tbody>
+						<tfoot><tr><td>Total</td><td class="amount">{mjvLines().reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0).toFixed(2)}</td><td class="amount">{mjvLines().reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0).toFixed(2)}</td><td></td></tr></tfoot>
+					</table>
+				</div>
 				<div style="margin-top: 0.25rem; border-top: 1px solid #a5b4fc; padding-top: 0.5rem; width: 100%; font-size: 0.85rem; color: #3730a3; display: flex; flex-direction: column; gap: 0.3rem;">
 					<div><strong>Final POS Cash:</strong> {Number(generatedEntries.final_balances?.pos_cash ?? 0).toFixed(2)} · <strong>Final POS Bank:</strong> {Number(generatedEntries.final_balances?.pos_bank ?? 0).toFixed(2)}</div>
 					{#if generatedEntries.employee_charged}
@@ -4150,7 +4307,12 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	</div>
 </div>
 
+{#if showPostTask}
+	<PostMJVTaskDialog branchId={Number(operation?.branch_id ?? branch?.id)} payload={mjvTaskPayload()} on:close={() => showPostTask = false} on:posted={() => { showPostTask = false; taskPosted = true; }} />
+{/if}
+
 <style>
+	.post-task-btn { background:#e0f7fa; border:1px solid #22a8bd; border-radius:5px; color:#08788c; font-size:0.8rem; font-weight:700; padding:0.3rem 0.7rem; cursor:pointer; }
 	.close-box-container {
 		width: 100%;
 		height: 100%;
@@ -7170,6 +7332,19 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			gap: 0.2rem !important;
 		}
 	}
+
+	.mjv-table-wrap { width: 100%; overflow-x: auto; border: 1px solid #c7d2fe; border-radius: 7px; }
+	.mjv-table { width: 100%; border-collapse: collapse; background: white; font-size: 0.78rem; }
+	.mjv-table th { background: #e0e7ff; color: #3730a3; text-align: left; padding: 0.55rem; border-bottom: 1px solid #a5b4fc; }
+	.mjv-table td { padding: 0.5rem 0.55rem; border-bottom: 1px solid #e0e7ff; vertical-align: top; }
+	.mjv-table .amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+	.mjv-table .debit { color: #166534; }
+	.mjv-table .credit { color: #9f1239; }
+	.mjv-table .narration { color: #4338ca; font-style: italic; min-width: 260px; }
+	.ledger-cell { display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+	.ledger-name { font-weight: 700; unicode-bidi: plaintext; }
+	.ledger-code { direction: ltr; unicode-bidi: isolate; background: #dbeafe; color: #1e3a8a; border-radius: 4px; padding: 0.1rem 0.32rem; font-weight: 700; white-space: nowrap; }
+	.mjv-table tfoot td { background: #eef2ff; color: #3730a3; font-weight: 700; border-bottom: 0; }
 </style>
 
 

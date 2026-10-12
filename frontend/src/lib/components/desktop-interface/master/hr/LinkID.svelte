@@ -774,6 +774,8 @@
 					{:else if erpBalance}
 						<div class="erp-balance" class:balance-dr={erpBalance.direction === 'Dr'} class:balance-cr={erpBalance.direction === 'Cr'}>
 							<div class="erp-balance-title">📊 Ledger Balance — {erpSelectedBranch?.branch_name}</div>
+							<div class="erp-balance-row"><span>Ledger Code:</span><span>{erpBalance.ledgerCode || '—'}</span></div>
+							<div class="erp-balance-row"><span>Ledger Name:</span><span>{erpBalance.ledgerName || '—'}</span></div>
 							<div class="erp-balance-row"><span>Debit:</span><span>{erpBalance.totalDebit.toFixed(2)}</span></div>
 							<div class="erp-balance-row"><span>Credit:</span><span>{erpBalance.totalCredit.toFixed(2)}</span></div>
 							<div class="erp-balance-main">
@@ -817,7 +819,7 @@
 				{:else}
 					<table class="erp-links-table">
 						<thead>
-							<tr><th>Branch</th><th>ERP ID</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Action</th></tr>
+							<tr><th>Branch</th><th>ERP Employee ID</th><th>Ledger Code</th><th>Ledger Name</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Action</th></tr>
 						</thead>
 						<tbody>
 							{#each Object.entries(erpLinkedMap[erpSelectedUserId] || {}) as [branchId, empId]}
@@ -826,6 +828,8 @@
 								<tr>
 									<td>{branchInfo?.branch_name || `Branch ${branchId}`}</td>
 									<td>{empId}</td>
+									<td>{bal?.ledgerCode || (erpLinkedBalancesLoading ? '…' : '—')}</td>
+									<td>{bal?.ledgerName || (erpLinkedBalancesLoading ? '…' : '—')}</td>
 									<td class="num-cell">{bal ? bal.totalDebit.toFixed(2) : (erpLinkedBalancesLoading ? '…' : '—')}</td>
 									<td class="num-cell">{bal ? bal.totalCredit.toFixed(2) : (erpLinkedBalancesLoading ? '…' : '—')}</td>
 									<td class="balance-cell" class:bal-dr={bal?.direction === 'Dr'} class:bal-cr={bal?.direction === 'Cr'}>

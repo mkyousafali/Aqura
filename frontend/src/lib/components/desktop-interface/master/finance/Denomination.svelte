@@ -7,6 +7,7 @@
 	import CompleteBox from './CompleteBox.svelte';
 	import ClosedBoxes from './ClosedBoxes.svelte';
 	import PendingToCloseBoxes from './PendingToCloseBoxes.svelte';
+	import ErpLedgerLinks from './ErpLedgerLinks.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -1226,6 +1227,29 @@
 		setTimeout(() => {
 			loadPendingBoxesCount();
 		}, 500);
+	}
+
+	function openErpLedgerLinks() {
+		if (!selectedBranch) {
+			alert('Please select a branch first.');
+			return;
+		}
+		const branch = branches.find((item) => item.id.toString() === selectedBranch);
+		const branchName = branch?.name_en || branch?.name_ar || `Branch ${selectedBranch}`;
+		const windowIdUnique = `erp-ledger-links-${selectedBranch}-${Date.now()}`;
+		openWindow({
+			id: windowIdUnique,
+			title: `ERP Ledger Links - ${branchName}`,
+			component: ErpLedgerLinks,
+			props: { windowId: windowIdUnique, branchId: Number(selectedBranch), branchName },
+			icon: '🔗',
+			size: { width: 1050, height: 720 },
+			position: { x: 180, y: 90 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
 	}
 
 	// ===== Daily Temp Schedules =====
@@ -3105,6 +3129,16 @@
 						</div>
 					</div>
 
+					<!-- ERP posting ledger mapping button -->
+					<button class="balance-card ledger-links-card" on:click={openErpLedgerLinks} title="Connect Aqura posting accounts to real ERP ledgers">
+						<span class="ledger-links-icon">🔗</span>
+						<span>
+							<strong>ERP Ledger Links</strong>
+							<small>Connect real posting accounts</small>
+						</span>
+						<span class="ledger-links-arrow">›</span>
+					</button>
+
 					<!-- Permission Manager card moved into the App Permissions window
 					     (Controls > Dashboard > Denomination / Complete Box Approvers /
 					     Complete Box Closure tabs) — see
@@ -4286,6 +4320,47 @@
 		display: flex;
 		align-items: stretch;
 		justify-content: center;
+	}
+
+	.ledger-links-card {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		border: 1px solid rgba(14, 165, 183, 0.3);
+		padding: 0.8rem 0.9rem;
+		background: linear-gradient(135deg, #e7f8fb 0%, #ffffff 100%);
+		color: #0b3655;
+		font-family: inherit;
+		text-align: left;
+		cursor: pointer;
+		flex: 0 0 auto;
+	}
+
+	.ledger-links-card:hover {
+		transform: translateY(-2px);
+		border-color: #0ea5b7;
+		box-shadow: 0 8px 12px -2px rgba(14, 165, 183, 0.2);
+	}
+
+	.ledger-links-card strong,
+	.ledger-links-card small {
+		display: block;
+	}
+
+	.ledger-links-card small {
+		margin-top: 0.15rem;
+		color: #5f7d90;
+		font-size: 0.68rem;
+	}
+
+	.ledger-links-icon {
+		font-size: 1.15rem;
+	}
+
+	.ledger-links-arrow {
+		margin-left: auto;
+		font-size: 1.5rem;
+		color: #0ea5b7;
 	}
 
 	.sched-card-stat {
