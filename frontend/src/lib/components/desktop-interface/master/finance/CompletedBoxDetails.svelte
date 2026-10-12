@@ -10,6 +10,27 @@
 	export let operation: any;
 	export let branch: any;
 
+	// Generated in CompleteBox and persisted on box_operations. Keep the saved
+	// payload visible when this read-only completed window is opened later.
+	let generatedEntries: any = null;
+	let generatedEntriesSource: any = undefined;
+
+	$: if (operation?.ai_generated_entries !== generatedEntriesSource) {
+		generatedEntriesSource = operation?.ai_generated_entries;
+		try {
+			generatedEntries = typeof generatedEntriesSource === 'string'
+				? JSON.parse(generatedEntriesSource)
+				: generatedEntriesSource || null;
+		} catch (error) {
+			console.error('Error parsing saved AI-generated entries:', error);
+			generatedEntries = null;
+		}
+	}
+
+	function displayGeneratedAccount(name: string): string {
+		return name === 'Employee Salary Account' ? `${cashierName || 'Cashier'}'s Salary Account` : name;
+	}
+
 	let currencySymbolUrl = '/icons/saudi-currency.png';
 
 	// Parse notes JSON to get names and POS number
@@ -653,7 +674,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		const sameSigns = (cashDiff > 0 && bankDiff > 0) || (cashDiff < 0 && bankDiff < 0);
 		const transferAmount = sameSigns ? Math.min(cashAbs, bankAbs) : bankAbs;
 
-		if (transferAmount > 0.01) {  // Account for floating point rounding
+		if (Math.round(transferAmount * 100) !== 0) {  // Include an exact one-halalah transfer
 			// When both differences have same sign, transfer the smaller to balance the smaller difference
 			if (cashDiff > 0 && bankDiff > 0) {
 				// Both need DR - transfer from cash to bank (reduce the smaller difference)
@@ -2683,6 +2704,44 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				<div style="font-size: 0.75rem; color: white; font-weight: 700; text-align: center; letter-spacing: 0.5px;">📝 Entry to Pass</div>
 			</div>
 			
+			{#if generatedEntries}
+				<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 0.75rem; width: 100%; gap: 0.5rem; margin-bottom: 0.5rem;">
+					<div style="font-weight: 700; color: #3730a3; width: 100%; font-size: 0.8rem;">🤖 AI-Generated Entry to Pass</div>
+					{#each generatedEntries.entries || [] as entry}
+						<div style="padding: 0.6rem; background: {entry.posted ? '#f0fdf4' : 'white'}; border: 2px solid {entry.posted ? '#16a34a' : '#c7d2fe'}; border-radius: 6px; width: 100%; font-size: 0.7rem;">
+							<div style="display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.35rem; color: #3730a3; font-weight: 700;">
+								<span>{#if entry.form_name}{entry.form_name} · {/if}{entry.description}</span>
+								{#if entry.posted}<span style="color: #15803d; white-space: nowrap;">✓ Posted</span>{/if}
+							</div>
+							{#if entry.debit_account || entry.credit_account}
+								<div style="padding-top: 0.3rem; border-top: 1px solid #e0e7ff;"><strong>Dr {displayGeneratedAccount(entry.debit_account)}:</strong> {Number(entry.debit_amount ?? 0).toFixed(2)}</div>
+								<div style="padding-top: 0.2rem;"><strong>Cr {displayGeneratedAccount(entry.credit_account)}:</strong> {Number(entry.credit_amount ?? 0).toFixed(2)}</div>
+							{:else}
+								{#each entry.lines || [] as line}
+									<div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; padding: 0.15rem 0; border-top: 1px solid #e0e7ff;">
+										<span>{displayGeneratedAccount(line.account)}</span>
+										<span>{Number(line.debit || 0) ? `Dr ${Number(line.debit).toFixed(2)}` : ''}</span>
+										<span>{Number(line.credit || 0) ? `Cr ${Number(line.credit).toFixed(2)}` : ''}</span>
+									</div>
+								{/each}
+							{/if}
+							{#if entry.narration}<div style="margin-top: 0.35rem; color: #4338ca; font-style: italic;">{entry.narration}</div>{/if}
+						</div>
+					{/each}
+					<div style="border-top: 1px solid #a5b4fc; padding-top: 0.4rem; width: 100%; font-size: 0.7rem; color: #3730a3;">
+						<strong>Final POS Cash:</strong> {Number(generatedEntries.final_balances?.pos_cash ?? 0).toFixed(2)} ·
+						<strong>Final POS Bank:</strong> {Number(generatedEntries.final_balances?.pos_bank ?? 0).toFixed(2)}
+						{#if generatedEntries.employee_charged}
+							· <strong style="color: #dc2626;">Employee charged:</strong> {Number(generatedEntries.employee_charge_amount ?? 0).toFixed(2)}
+						{:else}
+							· <strong style="color: #15803d;">Employee charged:</strong> No
+						{/if}
+						{#if generatedEntries.notes}<div style="margin-top: 0.3rem;">{generatedEntries.notes}</div>{/if}
+					</div>
+				</div>
+			{/if}
+
+			{#if !generatedEntries}
 {#if entryToPassData.transfers.length > 0}
 				<div class="blank-card" style="background: #fff7ed; border: 2px solid #ea580c; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15); padding: 0.5rem; width: 100%;">
 					<div style="font-weight: 600; color: #ea580c; margin-bottom: 0.3rem; width: 100%;">📤 Transfers:</div>
@@ -2745,6 +2804,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				{/if}
 			</div>
 		</div>
+			{/if}
 
 		<!-- ERP Closing Details Match Card -->
 		{#if erpClosingDetails}

@@ -45,7 +45,10 @@ function buildEntries({ posNumber, cashierName, shiftDate, shiftId, cashDiff, ca
   // direction zeroes POS Bank (skip if the card diff is negligible).
   const cd = round2(cardDiff);
   let bankInvolved = false;
-  if (Math.abs(cd) > 0.01) {
+  // cd is already rounded to two decimals. Every non-zero halalah must be
+  // transferred; otherwise an exact 0.01 card difference is still included in
+  // totalDiff below but POS Bank is never cleared.
+  if (cd !== 0) {
     bankInvolved = true;
     if (cd < 0) {
       // Bank short — pull the shortfall out of POS Cash into POS Bank.

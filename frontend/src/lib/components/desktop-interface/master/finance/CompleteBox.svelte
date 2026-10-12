@@ -1107,7 +1107,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		const sameSigns = (cashDiff > 0 && bankDiff > 0) || (cashDiff < 0 && bankDiff < 0);
 		const transferAmount = sameSigns ? Math.min(cashAbs, bankAbs) : bankAbs;
 
-		if (transferAmount > 0.01) {  // Account for floating point rounding
+		if (Math.round(transferAmount * 100) !== 0) {  // Include an exact one-halalah transfer
 			// When both differences have same sign, transfer the smaller to balance the smaller difference
 			if (cashDiff > 0 && bankDiff > 0) {
 				// Both need DR - transfer from cash to bank (reduce the smaller difference)
