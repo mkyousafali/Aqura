@@ -19,6 +19,7 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Auto Task Manager": "DEFAULT_POSITIONS",
   "Start Receiving": "START_RECEIVING",
   "Receiving Records": "RECEIVING_RECORDS",
+  "Pay to Credit": "PAY_TO_CREDIT",
   "Pending Receiving Records": "PENDING_RECEIVING_RECORDS",
   "Vendor Records": "VENDOR_RECORDS",
   "Flyer Master": "FLYER_MASTER",

@@ -13,6 +13,9 @@
 		pos_number: number | null;
 		status: string;
 		created_at: string;
+		request_type?: string;
+		receiving_record_id?: string | null;
+		request_label?: string | null;
 	}
 
 	let requests: ScanRequest[] = [];
@@ -20,6 +23,7 @@
 	let channel: ReturnType<typeof supabase.channel> | null = null;
 
 	let activeRequestId: string | null = null;
+	let activeRequest: ScanRequest | null = null;
 	let videoEl: HTMLVideoElement;
 	let galleryInput: HTMLInputElement;
 	let stream: MediaStream | null = null;
@@ -64,8 +68,9 @@
 		try {
 			const { data, error } = await supabase
 				.from('pos_scan_requests')
-				.select('id, box_operation_id, branch_id, box_number, pos_number, status, created_at')
+				.select('id, box_operation_id, branch_id, box_number, pos_number, status, created_at, request_type, receiving_record_id, request_label')
 				.eq('requested_by', userId)
+				.eq('request_type', 'pos_reconciliation')
 				.eq('status', 'pending')
 				.order('created_at');
 			if (error) throw error;
@@ -90,6 +95,7 @@
 			}, (payload: any) => {
 				const row = payload.new || payload.old;
 				if (!row) return;
+				if ((row.request_type || 'pos_reconciliation') !== 'pos_reconciliation') return;
 				if (payload.eventType === 'DELETE' || row.status !== 'pending') {
 					requests = requests.filter((r) => r.id !== row.id);
 				} else {
@@ -139,6 +145,7 @@
 
 	function openRequest(req: ScanRequest) {
 		activeRequestId = req.id;
+		activeRequest = req;
 		errorMessage = '';
 		cameraError = '';
 		photoDataUrl = null;
@@ -151,6 +158,7 @@
 	function closeActiveRequest() {
 		stopCamera();
 		activeRequestId = null;
+		activeRequest = null;
 		photoDataUrl = null;
 		activeAmountField = null;
 	}
@@ -165,6 +173,10 @@
 		ctx.drawImage(videoEl, 0, 0);
 		const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 		stopCamera();
+		if (activeRequest?.request_type === 'receiving_bank_slip' || activeRequest?.request_type === 'pay_to_credit_slip') {
+			photoDataUrl = dataUrl;
+			return;
+		}
 		if (activeAmountField) {
 			const field = activeAmountField;
 			activeAmountField = null;
@@ -231,7 +243,9 @@
 			});
 		}
 
-		if (activeAmountField) {
+		if (activeRequest?.request_type === 'pay_to_credit_slip') {
+			photoDataUrl = dataUrl;
+		} else if (activeAmountField) {
 			const field = activeAmountField;
 			activeAmountField = null;
 			await extractAmountForField(field, dataUrl);
@@ -356,10 +370,89 @@
 
 			requests = requests.filter((r) => r.id !== activeRequestId);
 			activeRequestId = null;
+			activeRequest = null;
 			photoDataUrl = null;
 		} catch (e) {
 			console.error('Error saving scan request:', e);
 			errorMessage = $currentLocale === 'ar' ? 'حدث خطأ أثناء الحفظ' : 'Error saving';
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function savePayToCreditSlip() {
+		if (!activeRequestId || !photoDataUrl || saving) return;
+		saving = true;
+		errorMessage = '';
+		try {
+			const photoUrl = await uploadPhoto(activeRequestId);
+			if (!photoUrl) throw new Error('The payment slip photo could not be uploaded.');
+			const { error } = await supabase.from('pos_scan_requests').update({
+				status: 'completed',
+				photo_url: photoUrl,
+				completed_by: $currentUser?.id || null,
+				completed_at: new Date().toISOString(),
+				updated_at: new Date().toISOString()
+			}).eq('id', activeRequestId);
+			if (error) throw error;
+			requests = requests.filter((request) => request.id !== activeRequestId);
+			activeRequestId = null;
+			activeRequest = null;
+			photoDataUrl = null;
+		} catch (e) {
+			console.error('Error uploading Pay to Credit slip:', e);
+			errorMessage = $currentLocale === 'ar' ? 'حدث خطأ أثناء رفع إيصال الدفع' : 'Error uploading payment slip';
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function saveBankSlipRequest() {
+		if (!activeRequestId || !activeRequest?.receiving_record_id || !photoDataUrl || saving) return;
+		saving = true;
+		errorMessage = '';
+		try {
+			const response = await fetch(photoDataUrl);
+			const blob = await response.blob();
+			const extension = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+			const storagePath = `${activeRequest.receiving_record_id}/${crypto.randomUUID()}.${extension}`;
+			const { data: oldSlip, error: oldSlipError } = await supabase
+				.from('receiving_record_bank_slips')
+				.select('storage_path')
+				.eq('receiving_record_id', activeRequest.receiving_record_id)
+				.maybeSingle();
+			if (oldSlipError) throw oldSlipError;
+			const { error: uploadError } = await supabase.storage
+				.from('receiving-bank-slips')
+				.upload(storagePath, blob, { contentType: blob.type, upsert: false });
+			if (uploadError) throw uploadError;
+			const { error: saveError } = await supabase.from('receiving_record_bank_slips').upsert({
+				receiving_record_id: activeRequest.receiving_record_id,
+				storage_path: storagePath,
+				original_file_name: `bank-slip-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`,
+				file_mime_type: blob.type,
+				file_size: blob.size,
+				uploaded_by: $currentUser?.id || null
+			}, { onConflict: 'receiving_record_id' });
+			if (saveError) {
+				await supabase.storage.from('receiving-bank-slips').remove([storagePath]);
+				throw saveError;
+			}
+			const { error: requestError } = await supabase.from('pos_scan_requests').update({
+				status: 'completed', completed_by: $currentUser?.id || null,
+				completed_at: new Date().toISOString(), updated_at: new Date().toISOString()
+			}).eq('id', activeRequestId);
+			if (requestError) throw requestError;
+			if (oldSlip?.storage_path && oldSlip.storage_path !== storagePath) {
+				await supabase.storage.from('receiving-bank-slips').remove([oldSlip.storage_path]);
+			}
+			requests = requests.filter((request) => request.id !== activeRequestId);
+			activeRequestId = null;
+			activeRequest = null;
+			photoDataUrl = null;
+		} catch (e) {
+			console.error('Error saving receiving bank slip request:', e);
+			errorMessage = $currentLocale === 'ar' ? 'حدث خطأ أثناء رفع إيصال البنك' : 'Error uploading bank slip';
 		} finally {
 			saving = false;
 		}
@@ -390,9 +483,15 @@
 					<button class="request-card" on:click={() => openRequest(req)}>
 						<div class="request-card-icon">📷</div>
 						<div class="request-card-info">
+							{#if req.request_type === 'pay_to_credit_slip'}
+								<div class="request-card-title">{$currentLocale === 'ar' ? 'إيصال دفع للمورد' : 'Vendor Payment Slip'} · {req.request_label || ''}</div>
+							{:else if req.request_type === 'receiving_bank_slip'}
+								<div class="request-card-title">{$currentLocale === 'ar' ? 'إيصال بنك' : 'Bank Slip'} · {req.request_label || ''}</div>
+							{:else}
 							<div class="request-card-title">
 								{$currentLocale === 'ar' ? 'صندوق' : 'Box'} {req.box_number ?? '-'}{req.pos_number ? ` · POS ${req.pos_number}` : ''}
 							</div>
+							{/if}
 							<div class="request-card-sub">{new Date(req.created_at).toLocaleString()}</div>
 						</div>
 						<div class="request-card-arrow">{$currentLocale === 'ar' ? '‹' : '›'}</div>
@@ -446,7 +545,15 @@
 				<div class="error-banner">{errorMessage}</div>
 			{/if}
 
-			{#if extracting}
+			{#if activeRequest?.request_type === 'pay_to_credit_slip'}
+				<button class="save-btn" on:click={savePayToCreditSlip} disabled={saving}>
+					{saving ? ($currentLocale === 'ar' ? 'جاري الرفع...' : 'Uploading...') : ($currentLocale === 'ar' ? 'رفع إيصال الدفع' : 'Upload Payment Slip')}
+				</button>
+			{:else if activeRequest?.request_type === 'receiving_bank_slip'}
+				<button class="save-btn" on:click={saveBankSlipRequest} disabled={saving}>
+					{saving ? ($currentLocale === 'ar' ? 'جاري الرفع...' : 'Uploading...') : ($currentLocale === 'ar' ? 'رفع إيصال البنك' : 'Upload Bank Slip')}
+				</button>
+			{:else if extracting}
 				<div class="empty-state">{$currentLocale === 'ar' ? 'جاري استخراج البيانات...' : 'Extracting data...'}</div>
 			{:else}
 				<div class="review-form">

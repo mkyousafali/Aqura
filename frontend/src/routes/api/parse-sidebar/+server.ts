@@ -42,6 +42,7 @@ function prettyButtonName(code: string): string {
 		ERP_ENTRIES: 'ERP Entries',
 		ACTION_FOLLOW_UPS: 'Action Follow-Ups',
 		INTERNAL_EXPENSES: 'Internal Expenses',
+		PAY_TO_CREDIT: 'Pay to Credit',
 		PC_LOCK_GUARD: 'PC Lock Guard',
 		CHANGE_REQUESTS: 'Change Requests'
 	};
@@ -131,7 +132,7 @@ const structure: Record<string, Record<string, string[]>> = {
 		OPERATIONS: [
 			'START_RECEIVING', 'RECEIVING_RECORDS', 'PENDING_RECEIVING_RECORDS',
 			'STOCK_PRODUCT_REQUEST', 'STOCK_ERP_PRODUCTS', 'STOCK_PRODUCT_CLAIM_MANAGER', 'STOCK_EXPIRY_CONTROL',
-			'ACTION_FOLLOW_UPS', 'INTERNAL_EXPENSES'
+			'ACTION_FOLLOW_UPS', 'INTERNAL_EXPENSES', 'PAY_TO_CREDIT'
 		],
 		REPORTS: ['VENDOR_RECORDS']
 	},

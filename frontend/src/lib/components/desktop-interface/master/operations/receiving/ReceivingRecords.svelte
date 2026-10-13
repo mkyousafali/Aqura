@@ -33,6 +33,8 @@
 	let originalBillCheckResult = {}; // record.id -> persisted payload
 	let manualVerified = false; // "Manual Verification" checkbox in the Unmatched section
 	let uploadingExcelId = null;
+	let uploadingBankSlipId = null;
+	let bankSlipsByRecord = {};
 	let generatingCertificateId = null;
 	let updatingBillId = null;
 	let deletingRecordId = null;
@@ -58,6 +60,19 @@
 	// Real-time subscription unsubscribe functions
 	let unsubscribeReceivingRecords = null;
 	let unsubscribePaymentSchedule = null;
+	let bankSlipRequestChannel = null;
+	let bankSlipFileChannel = null;
+	let pendingBankSlipRequests = {};
+	let sendingBankSlipRequestId = null;
+	let showBankSlipViewer = false;
+	let bankSlipViewerUrl = '';
+	let bankSlipViewerName = '';
+	let openingBankSlip = false;
+	let checkingBankSlipId = null;
+	let sendingBankPaymentTaskId = null;
+	let bankPaymentTasksByRecord = {};
+	let sendingCashPaymentTaskId = null;
+	let cashPaymentTasksByRecord = {};
 
 	// Check if current user is master admin
 	$: isMasterAdmin = $currentUser?.isMasterAdmin;
@@ -199,6 +214,8 @@
 		loadReceivingRecords();
 		loadErpCheckCounts();
 		setupRealtimeSubscriptions();
+		setupBankSlipRequestRealtime();
+		setupBankSlipFileRealtime();
 		
 		return () => {
 			if (unsubscribeReceivingRecords) {
@@ -207,8 +224,56 @@
 			if (unsubscribePaymentSchedule) {
 				unsubscribePaymentSchedule();
 			}
+			if (bankSlipRequestChannel) {
+				import('$lib/utils/supabase').then(({ supabase }) => supabase.removeChannel(bankSlipRequestChannel));
+			}
+			if (bankSlipFileChannel) {
+				import('$lib/utils/supabase').then(({ supabase }) => supabase.removeChannel(bankSlipFileChannel));
+			}
 		};
 	});
+
+	async function setupBankSlipRequestRealtime() {
+		if (!$currentUser?.id) return;
+		const { supabase } = await import('$lib/utils/supabase');
+		const { data } = await supabase
+			.from('pos_scan_requests')
+			.select('id, receiving_record_id, status')
+			.eq('requested_by', $currentUser.id)
+			.eq('request_type', 'receiving_bank_slip')
+			.eq('status', 'pending');
+		pendingBankSlipRequests = Object.fromEntries((data || []).map((row) => [String(row.receiving_record_id), row.id]));
+
+		bankSlipRequestChannel = supabase
+			.channel(`receiving-bank-slip-requests-${$currentUser.id}`)
+			.on('postgres_changes', {
+				event: '*', schema: 'public', table: 'pos_scan_requests', filter: `requested_by=eq.${$currentUser.id}`
+			}, async (payload) => {
+				const row = payload.new || payload.old;
+				if (!row || row.request_type !== 'receiving_bank_slip') return;
+				const key = String(row.receiving_record_id);
+				if (row.status === 'pending') pendingBankSlipRequests = { ...pendingBankSlipRequests, [key]: row.id };
+				else {
+					const next = { ...pendingBankSlipRequests };
+					delete next[key];
+					pendingBankSlipRequests = next;
+					if (row.status === 'completed') await loadBankSlips(paginatedRecords.map((record) => record.id));
+				}
+			})
+			.subscribe();
+	}
+
+	async function setupBankSlipFileRealtime() {
+		const { supabase } = await import('$lib/utils/supabase');
+		bankSlipFileChannel = supabase
+			.channel(`receiving-bank-slip-files-${$currentUser?.id || 'user'}`)
+			.on('postgres_changes', {
+				event: '*', schema: 'public', table: 'receiving_record_bank_slips'
+			}, async () => {
+				await loadBankSlips(paginatedRecords.map((record) => record.id));
+			})
+			.subscribe();
+	}
 
 	// Combined issue count, independent of the currently applied filters/pagination. The RPC counts
 	// each receiving record once when either the Original Bill check is a mismatch or the ERP check
@@ -714,6 +779,8 @@
 				return;
 			}
 
+			await loadBankSlips(records.map((record) => record.id));
+
 			// Extract total count from first record (returned by RPC)
 			totalRecords = records[0]?.total_count || records.length;
 			totalPages = Math.ceil(totalRecords / pageSize);
@@ -807,6 +874,7 @@
 			}
 
 			// Fetch details in bulk for archived records
+			await loadBankSlips(records.map((record) => record.id));
 			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
 			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
 			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
@@ -949,6 +1017,212 @@
 	function viewOriginalBill(billUrl) {
 		if (billUrl) {
 			window.open(billUrl, '_blank');
+		}
+	}
+
+	async function loadBankSlips(recordIds) {
+		if (!recordIds?.length) {
+			bankSlipsByRecord = {};
+			bankPaymentTasksByRecord = {};
+			cashPaymentTasksByRecord = {};
+			return;
+		}
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const [{ data, error }, taskResponse] = await Promise.all([
+				supabase.rpc('get_receiving_bank_slips', { p_record_ids: recordIds }),
+				authenticatedFetch('/api/assistant-tasks?receiving_tasks=1')
+			]);
+			if (error) throw error;
+			const grouped = {};
+			(data || []).forEach((slip) => {
+				const key = String(slip.receiving_record_id);
+				if (!grouped[key]) grouped[key] = [];
+				grouped[key].push(slip);
+			});
+			bankSlipsByRecord = grouped;
+			if (taskResponse.ok) {
+				const taskResult = await taskResponse.json();
+				bankPaymentTasksByRecord = Object.fromEntries((taskResult.tasks || []).filter((task) => task.task_type === 'receiving_bank_payment').map((task) => [String(task.source_record_id), task.id]));
+				cashPaymentTasksByRecord = Object.fromEntries((taskResult.tasks || []).filter((task) => task.task_type === 'receiving_cash_payment').map((task) => [String(task.source_record_id), task.id]));
+			}
+		} catch (error) {
+			console.error('Error loading bank slips:', error);
+			bankSlipsByRecord = {};
+		}
+	}
+
+	async function viewBankSlip(slip) {
+		openingBankSlip = true;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.storage
+				.from('receiving-bank-slips')
+				.createSignedUrl(slip.storage_path, 3600);
+			if (error) throw error;
+			bankSlipViewerUrl = data.signedUrl;
+			bankSlipViewerName = slip.original_file_name || 'Bank Slip';
+			showBankSlipViewer = true;
+		} catch (error) {
+			console.error('Error opening bank slip:', error);
+			alert(tFn('receiving.records.bankSlipViewFailed', { error: error?.message || 'Unknown error' }));
+		} finally {
+			openingBankSlip = false;
+		}
+	}
+
+	async function sendBankPaymentTask(record) {
+		if (sendingBankPaymentTaskId === record.id || bankPaymentTasksByRecord[String(record.id)]) return;
+		sendingBankPaymentTaskId = record.id;
+		try {
+			const response = await authenticatedFetch('/api/assistant-tasks', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ task_type: 'receiving_bank_payment', receiving_record_id: record.id })
+			});
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Task creation failed');
+			bankPaymentTasksByRecord = { ...bankPaymentTasksByRecord, [String(record.id)]: result.task.id };
+		} catch (error) {
+			console.error('Error sending Bank Payment task:', error);
+			alert(error?.message || 'Bank Payment task creation failed');
+		} finally {
+			sendingBankPaymentTaskId = null;
+		}
+	}
+
+	async function sendCashPaymentTask(record) {
+		if (sendingCashPaymentTaskId === record.id || cashPaymentTasksByRecord[String(record.id)]) return;
+		sendingCashPaymentTaskId = record.id;
+		try {
+			const response = await authenticatedFetch('/api/assistant-tasks', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ task_type: 'receiving_cash_payment', receiving_record_id: record.id })
+			});
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Task creation failed');
+			cashPaymentTasksByRecord = { ...cashPaymentTasksByRecord, [String(record.id)]: result.task.id };
+		} catch (error) {
+			console.error('Error sending Cash Payment task:', error);
+			alert(error?.message || 'Cash Payment task creation failed');
+		} finally {
+			sendingCashPaymentTaskId = null;
+		}
+	}
+
+	async function checkBankSlip(record) {
+		const slip = bankSlipsByRecord[String(record.id)]?.[0];
+		if (!slip || checkingBankSlipId === record.id) return;
+		checkingBankSlipId = record.id;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data: signed, error: signedError } = await supabase.storage.from('receiving-bank-slips').createSignedUrl(slip.storage_path, 300);
+			if (signedError) throw signedError;
+			const blob = await (await fetch(signed.signedUrl)).blob();
+			const dataUrl = await new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result);
+				reader.onerror = reject;
+				reader.readAsDataURL(blob);
+			});
+			const response = await fetch('/api/scan-request-extract', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ imageBase64: String(dataUrl).split(',')[1], mimeType: blob.type, mode: 'amount' })
+			});
+			const extracted = await response.json();
+			if (!response.ok || extracted.error) throw new Error(extracted.error || 'Amount extraction failed');
+			const slipAmount = Number(extracted.amount || 0);
+			const finalAmount = Number(record.final_bill_amount || 0);
+			const matched = slipAmount > 0 && Math.abs(slipAmount - finalAmount) < 0.005;
+			const checkResult = { status: matched ? 'matched' : 'not_matched', slip_amount: slipAmount, final_amount: finalAmount, checked_at: new Date().toISOString(), checked_by: $currentUser?.id || null };
+			const { error: updateError } = await supabase.from('receiving_record_bank_slips').update({ check_result: checkResult }).eq('id', slip.id);
+			if (updateError) throw updateError;
+			bankSlipsByRecord = { ...bankSlipsByRecord, [String(record.id)]: [{ ...slip, check_result: checkResult }] };
+		} catch (error) {
+			console.error('Error checking bank slip:', error);
+			alert(tFn('receiving.records.bankSlipCheckFailed', { error: error?.message || 'Unknown error' }));
+		} finally {
+			checkingBankSlipId = null;
+		}
+	}
+
+	function closeBankSlipViewer() {
+		showBankSlipViewer = false;
+		bankSlipViewerUrl = '';
+		bankSlipViewerName = '';
+	}
+
+	async function uploadBankSlips(recordId) {
+		const fileInput = document.createElement('input');
+		fileInput.type = 'file';
+		fileInput.accept = '.pdf,.jpg,.jpeg,.png,.webp';
+		fileInput.multiple = false;
+		fileInput.onchange = async (event) => {
+			const file = event.target.files?.[0];
+			if (!file) return;
+			uploadingBankSlipId = recordId;
+			try {
+				const { supabase } = await import('$lib/utils/supabase');
+				if (file.size > 10 * 1024 * 1024) throw new Error(`${file.name}: file exceeds 10 MB`);
+				const oldSlip = bankSlipsByRecord[String(recordId)]?.[0] || null;
+				const extension = file.name.split('.').pop()?.toLowerCase() || 'bin';
+				const storagePath = `${recordId}/${crypto.randomUUID()}.${extension}`;
+				const { error: uploadError } = await supabase.storage.from('receiving-bank-slips').upload(storagePath, file, { contentType: file.type, upsert: false });
+				if (uploadError) throw uploadError;
+				const { error: saveError } = await supabase.from('receiving_record_bank_slips').upsert({
+						receiving_record_id: recordId,
+						storage_path: storagePath,
+						original_file_name: file.name,
+						file_mime_type: file.type || null,
+						file_size: file.size,
+						check_result: null,
+						uploaded_by: $currentUser?.id || null
+					}, { onConflict: 'receiving_record_id' });
+				if (saveError) {
+					await supabase.storage.from('receiving-bank-slips').remove([storagePath]);
+					throw saveError;
+				}
+				if (oldSlip?.storage_path && oldSlip.storage_path !== storagePath) {
+					await supabase.storage.from('receiving-bank-slips').remove([oldSlip.storage_path]);
+				}
+				await loadBankSlips(paginatedRecords.map((record) => record.id));
+			} catch (error) {
+				console.error('Error uploading bank slip:', error);
+				alert(tFn('receiving.records.bankSlipUploadFailed', { error: error?.message || 'Unknown error' }));
+			} finally {
+				uploadingBankSlipId = null;
+			}
+		};
+		fileInput.click();
+	}
+
+	async function sendBankSlipScanRequest(record) {
+		if (!$currentUser?.id || sendingBankSlipRequestId === record.id || pendingBankSlipRequests[String(record.id)]) return;
+		sendingBankSlipRequestId = record.id;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const vendorName = record.vendors?.vendor_name || '';
+			const requestLabel = [record.bill_number ? `Bill ${record.bill_number}` : 'Receiving record', vendorName].filter(Boolean).join(' · ');
+			const { data, error } = await supabase
+				.from('pos_scan_requests')
+				.insert({
+					box_operation_id: null,
+					branch_id: record.branch_id || null,
+					status: 'pending',
+					requested_by: $currentUser.id,
+					request_type: 'receiving_bank_slip',
+					receiving_record_id: record.id,
+					request_label: requestLabel
+				})
+				.select('id')
+				.single();
+			if (error) throw error;
+			pendingBankSlipRequests = { ...pendingBankSlipRequests, [String(record.id)]: data.id };
+		} catch (error) {
+			console.error('Error sending bank slip scan request:', error);
+			alert(tFn('receiving.records.bankSlipRequestFailed', { error: error?.message || 'Unknown error' }));
+		} finally {
+			sendingBankSlipRequestId = null;
 		}
 	}
 
@@ -1425,6 +1699,12 @@
 			return employee?.name_ar || employee?.name_en || employee?.name || record.users?.username || tFn('receiving.records.naText');
 		}
 		return employee?.name_en || employee?.name || record.users?.username || tFn('receiving.records.naText');
+	}
+
+	function canPostPaymentTask(record) {
+		return !!record.pr_excel_file_url &&
+			(originalBillCheckStatus[record.id] || record.original_bill_check_result?.status) === 'matched' &&
+			(erpCheckStatus[record.id] || record.erp_check_result?.status) === 'matched';
 	}
 
 	function translatePaymentMethod(method) {
@@ -2039,6 +2319,7 @@
 							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colCertificate')}</th>
 							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colOriginalBill')}</th>
 							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colPrExcel')}</th>
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colBankSlips')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colBillInfo')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colVendorDetails')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colBranch')}</th>
@@ -2220,6 +2501,35 @@
 							{/if}
 						</td>
 						
+						<td class="px-2 py-2 text-sm text-center min-w-[112px]">
+							{#if record.payment_method?.trim().toLowerCase() === 'bank on delivery'}
+							<div class="flex flex-col items-center gap-1.5">
+								<div class="flex items-center justify-center gap-1.5">
+								{#if bankSlipsByRecord[String(record.id)]?.[0]}
+									<button type="button" class="inline-flex items-center justify-center w-8 h-8 rounded-lg border-0 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-50" on:click={() => viewBankSlip(bankSlipsByRecord[String(record.id)][0])} disabled={openingBankSlip} title={$t('receiving.records.viewBankSlip')}>{openingBankSlip ? '⏳' : '👁'}</button>
+								{/if}
+								<button type="button" class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 cursor-pointer disabled:opacity-50" on:click={() => sendBankSlipScanRequest(record)} disabled={sendingBankSlipRequestId === record.id || !!pendingBankSlipRequests[String(record.id)]} title={pendingBankSlipRequests[String(record.id)] ? $t('receiving.records.waitingMobileSlip') : $t('receiving.records.sendMobileSlipRequest')}>{pendingBankSlipRequests[String(record.id)] ? '⏳' : '📱'}</button>
+								<button type="button" class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer disabled:opacity-50" on:click={() => uploadBankSlips(record.id)} disabled={uploadingBankSlipId === record.id} title={bankSlipsByRecord[String(record.id)]?.length ? $t('receiving.records.updateBankSlip') : $t('receiving.records.uploadBankSlip')}>{uploadingBankSlipId === record.id ? '⏳' : (bankSlipsByRecord[String(record.id)]?.length ? '🔄' : '📎')}</button>
+								</div>
+								{#if bankSlipsByRecord[String(record.id)]?.[0]}
+									{#if bankSlipsByRecord[String(record.id)][0].check_result?.status === 'matched'}
+										<div class="text-[10px] font-bold text-emerald-700">✓ {$t('receiving.records.bankSlipMatched')}</div>
+										{#if canPostPaymentTask(record)}<button type="button" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed" on:click={() => sendBankPaymentTask(record)} disabled={sendingBankPaymentTaskId === record.id || !!bankPaymentTasksByRecord[String(record.id)]} title="Send Bank Payment task to the branch default Entry Task User">{sendingBankPaymentTaskId === record.id ? '⏳ Sending' : (bankPaymentTasksByRecord[String(record.id)] ? '✓ Task Sent' : '➤ Post Task')}</button>{/if}
+									{:else}
+										{#if bankSlipsByRecord[String(record.id)][0].check_result?.status === 'not_matched'}
+											<div class="text-[10px] font-bold text-red-600">✕ {$t('receiving.records.bankSlipNotMatched')}</div>
+										{/if}
+										<button type="button" class="px-2 py-1 text-[10px] font-bold rounded-md border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50" on:click={() => checkBankSlip(record)} disabled={checkingBankSlipId === record.id}>{checkingBankSlipId === record.id ? $t('receiving.records.checkingBankSlip') : (bankSlipsByRecord[String(record.id)][0].check_result ? $t('receiving.records.recheckBankSlip') : $t('receiving.records.checkBankSlip'))}</button>
+									{/if}
+								{/if}
+							</div>
+							{:else if record.payment_method?.trim().toLowerCase() === 'cash on delivery'}
+								{#if canPostPaymentTask(record)}<button type="button" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed" on:click={() => sendCashPaymentTask(record)} disabled={sendingCashPaymentTaskId === record.id || !!cashPaymentTasksByRecord[String(record.id)]} title="Send Cash Payment task to the branch default Entry Task User">{sendingCashPaymentTaskId === record.id ? '⏳ Sending' : (cashPaymentTasksByRecord[String(record.id)] ? '✓ Task Sent' : '➤ Post Task')}</button>{/if}
+							{:else}
+								<span class="text-[10px] font-semibold text-slate-400">{$t('receiving.records.notBankPayment')}</span>
+							{/if}
+						</td>
+
 						<td class="px-3 py-3 text-sm text-slate-700">
 							<div>
 								<div class="font-semibold text-slate-800">#{record.bill_number || $t('receiving.records.naText')}</div>
@@ -2429,6 +2739,24 @@
 		</div>
 	</div>
 </div>
+
+{#if showBankSlipViewer}
+	<div class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-4" role="presentation" on:click={closeBankSlipViewer}>
+		<div class="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-label={$t('receiving.records.viewBankSlip')} on:click|stopPropagation>
+			<div class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+				<div class="min-w-0 truncate font-bold text-slate-800">{bankSlipViewerName}</div>
+				<button type="button" class="ml-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-700 hover:bg-slate-200" on:click={closeBankSlipViewer} aria-label={$t('receiving.records.cancel')}>×</button>
+			</div>
+			<div class="min-h-0 flex-1 bg-slate-100 p-3">
+				{#if isPdfFile(bankSlipViewerName)}
+					<iframe src={bankSlipViewerUrl} title={bankSlipViewerName} class="h-full w-full rounded-lg border-0 bg-white"></iframe>
+				{:else}
+					<img src={bankSlipViewerUrl} alt={bankSlipViewerName} class="h-full w-full object-contain" />
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- ERP Invoice Reference Popup -->
 {#if showErpPopup}

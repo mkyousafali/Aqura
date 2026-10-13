@@ -818,6 +818,8 @@
 		if (path === '/mobile-interface/follow-ups' || path === '/mobile-interface/follow-ups/') return locale === 'ar' ? 'المتابعات' : 'Follow-Ups';
 		if (path === '/mobile-interface/scan-request' || path === '/mobile-interface/scan-request/') return locale === 'ar' ? 'طلبات المسح' : 'Scan Requests';
 		
+		if (path === '/mobile-interface/receiving-bank-slip-requests' || path === '/mobile-interface/receiving-bank-slip-requests/') return locale === 'ar' ? 'طلبات إيصالات البنك' : 'Bank Slip Requests';
+
 		// Sub-pages
 		if (path.startsWith('/mobile-interface/tasks/assign')) return getTranslation('mobile.assignTasks');
 		if (path.startsWith('/mobile-interface/tasks/create')) return getTranslation('mobile.createTask');

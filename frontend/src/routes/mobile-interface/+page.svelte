@@ -21,7 +21,8 @@
 		closedBoxes: 0,
 		inUseBoxes: 0,
 		pendingChecklists: 0,
-		scanRequests: 0
+		scanRequests: 0,
+		bankSlipRequests: 0
 	};
 	let hasAssignedChecklists = false;
 	let expiringProductsCount = 0;
@@ -190,6 +191,7 @@
 			// Load dashboard data from Go backend (combines tasks + punches)
 			await loadDashboardData();
 			await loadScanRequestCount();
+			await loadBankSlipRequestCount();
 			setupScanRequestCountRealtime();
 		}
 		isLoading = false;
@@ -256,12 +258,25 @@
 				.from('pos_scan_requests')
 				.select('id', { count: 'exact', head: true })
 				.eq('requested_by', userId)
+				.eq('request_type', 'pos_reconciliation')
 				.eq('status', 'pending');
 			if (error) throw error;
 			stats.scanRequests = count || 0;
 		} catch (e) {
 			console.error('Error loading scan request count:', e);
 		}
+	}
+
+	async function loadBankSlipRequestCount() {
+		const userId = currentUserData?.id;
+		if (!userId) return;
+		try {
+			const { count, error } = await supabase.from('pos_scan_requests')
+				.select('id', { count: 'exact', head: true }).eq('requested_by', userId)
+				.in('request_type', ['receiving_bank_slip', 'pay_to_credit_slip']).eq('status', 'pending');
+			if (error) throw error;
+			stats.bankSlipRequests = count || 0;
+		} catch (e) { console.error('Error loading bank slip request count:', e); }
 	}
 
 	function setupScanRequestCountRealtime() {
@@ -276,6 +291,7 @@
 				filter: `requested_by=eq.${userId}`
 			}, () => {
 				loadScanRequestCount();
+				loadBankSlipRequestCount();
 			})
 			.subscribe();
 	}
@@ -688,6 +704,14 @@
 				<div class="stat-info">
 					<p>{$localeData.code === 'ar' ? 'طلب مسح' : 'Scan Request'}</p>
 				</div>
+			</div>
+
+			<div class="stat-card blank clickable scan-request-card" on:click={() => goto('/mobile-interface/receiving-bank-slip-requests')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h8M9 17h6"/></svg>
+					{#if stats.bankSlipRequests > 0}<span class="count-badge">{stats.bankSlipRequests}</span>{/if}
+				</div>
+				<div class="stat-info"><p>{$localeData.code === 'ar' ? 'طلبات إيصالات البنك' : 'Bank Slip Requests'}</p></div>
 			</div>
 
 			<div class="stat-card date-time">

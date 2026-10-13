@@ -8,6 +8,7 @@
 	import ClosedBoxes from './ClosedBoxes.svelte';
 	import PendingToCloseBoxes from './PendingToCloseBoxes.svelte';
 	import ErpLedgerLinks from './ErpLedgerLinks.svelte';
+	import ApproverListModal from './ApproverListModal.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 
 	// State variables
@@ -81,6 +82,28 @@
 	let requesters: any[] = [];
 	let users: any[] = [];
 	let savedTransactions: any[] = [];
+	let payToCreditTransactions: any[] = [];
+	let payToCreditSlipUrl = '';
+	let payToCreditSlipTitle = '';
+	let showPayToCreditProcess = false;
+	let processingPayToCredit: any = null;
+	let unpaidVendorBills: any[] = [];
+	let loadingUnpaidVendorBills = false;
+	let processError = '';
+	let pendingApprovalPayment: any = null;
+	let showApproverListModal = false;
+	let splitPayment: any = null;
+	let splitAmount = 0;
+	let splitDate = '';
+	let savingSplit = false;
+	let selectedUnpaidBillIds: string[] = [];
+	let sendingPayToCreditTask = false;
+	let payToCreditTaskSent = false;
+	$: selectedUnpaidBillsTotal = unpaidVendorBills
+		.filter((bill) => selectedUnpaidBillIds.includes(String(bill.id)))
+		.reduce((total, bill) => total + Number(bill.final_bill_amount || bill.bill_amount || 0), 0);
+	$: payToCreditPaidAmount = Number(processingPayToCredit?.extracted_amount || 0);
+	$: selectedBillsExceedPaidAmount = selectedUnpaidBillsTotal > payToCreditPaidAmount + 0.005;
 
 	// Delete confirmation popup
 	let showDeleteConfirmPopup = false;
@@ -551,6 +574,19 @@
 				(payload) => {
 					console.log('📡 Denomination records realtime update:', payload);
 					handleRealtimeUpdate(payload);
+				}
+			)
+			.on(
+				'postgres_changes',
+				{
+					event: '*',
+					schema: 'public',
+					table: 'pos_scan_requests',
+					filter: `branch_id=eq.${selectedBranch}`
+				},
+				async (payload) => {
+					const row: any = payload.new || payload.old;
+					if (row?.request_type === 'pay_to_credit_slip') await loadPayToCreditTransactions();
 				}
 			)
 			.on(
@@ -1727,9 +1763,157 @@
 			if (!error) {
 				savedTransactions = data || [];
 			}
+			await loadPayToCreditTransactions();
 		} catch (error) {
 			console.error('Error loading saved transactions:', error);
 		}
+	}
+
+	async function loadPayToCreditTransactions() {
+		if (!selectedBranch) { payToCreditTransactions = []; return; }
+		const { data, error } = await supabase.from('pos_scan_requests')
+			.select('id,request_label,extracted_amount,payment_account_type,photo_url,created_at,completed_at')
+			.eq('branch_id', parseInt(selectedBranch))
+			.eq('request_type', 'pay_to_credit_slip')
+			.eq('status', 'completed')
+			.not('extracted_amount', 'is', null)
+			.order('created_at', { ascending: false });
+		if (!error) payToCreditTransactions = data || [];
+	}
+
+	function openPayToCreditSlip(transaction: any) {
+		if (!transaction?.photo_url) return;
+		payToCreditSlipUrl = transaction.photo_url;
+		payToCreditSlipTitle = transaction.request_label || 'Payment Slip';
+	}
+
+	function closePayToCreditSlip() {
+		payToCreditSlipUrl = '';
+		payToCreditSlipTitle = '';
+	}
+
+	function payToCreditVendorName(transaction: any) {
+		return String(transaction?.request_label || '').replace(/^Pay to Credit\s*[·Â]*\s*/, '').trim();
+	}
+
+	async function openPayToCreditProcess(transaction: any) {
+		processingPayToCredit = transaction;
+		showPayToCreditProcess = true;
+		unpaidVendorBills = [];
+		selectedUnpaidBillIds = [];
+		payToCreditTaskSent = false;
+		processError = '';
+		splitPayment = null;
+		const vendorName = payToCreditVendorName(transaction);
+		if (!vendorName) { processError = 'Vendor name is missing from this transaction.'; return; }
+		loadingUnpaidVendorBills = true;
+		const { data, error } = await supabase.from('vendor_payment_schedule')
+			.select('*')
+			.eq('branch_id', Number(selectedBranch))
+			.eq('is_paid', false)
+			.ilike('vendor_name', vendorName)
+			.order('due_date', { ascending: true });
+		if (error) processError = error.message;
+		else unpaidVendorBills = data || [];
+		loadingUnpaidVendorBills = false;
+	}
+
+	function closePayToCreditProcess() {
+		showPayToCreditProcess = false;
+		processingPayToCredit = null;
+		unpaidVendorBills = [];
+		selectedUnpaidBillIds = [];
+		payToCreditTaskSent = false;
+		processError = '';
+		splitPayment = null;
+		splitAmount = 0;
+		splitDate = '';
+	}
+
+	function requestBillApproval(payment: any) {
+		pendingApprovalPayment = payment;
+		showApproverListModal = true;
+	}
+
+	function toggleUnpaidBillSelection(billId: string) {
+		const id = String(billId);
+		selectedUnpaidBillIds = selectedUnpaidBillIds.includes(id)
+			? selectedUnpaidBillIds.filter((item) => item !== id)
+			: [...selectedUnpaidBillIds, id];
+	}
+
+	async function sendPayToCreditPaymentTask() {
+		if (!processingPayToCredit?.id || !selectedUnpaidBillIds.length || sendingPayToCreditTask || payToCreditTaskSent) return;
+		sendingPayToCreditTask = true;
+		processError = '';
+		try {
+			const response = await fetch('/api/assistant-tasks', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					task_type: processingPayToCredit.payment_account_type === 'cash' ? 'receiving_cash_payment' : 'receiving_bank_payment',
+					pay_to_credit_transaction_id: processingPayToCredit.id,
+					payment_schedule_ids: selectedUnpaidBillIds
+				})
+			});
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Payment task creation failed');
+			payToCreditTaskSent = true;
+		} catch (taskError: any) {
+			processError = taskError?.message || 'Payment task creation failed';
+		} finally {
+			sendingPayToCreditTask = false;
+		}
+	}
+
+	async function approvalSubmitted() {
+		showApproverListModal = false;
+		pendingApprovalPayment = null;
+		if (processingPayToCredit) await openPayToCreditProcess(processingPayToCredit);
+	}
+
+	function beginBillSplit(payment: any) {
+		splitPayment = payment;
+		splitAmount = Number(processingPayToCredit?.extracted_amount || 0);
+		splitDate = String(processingPayToCredit?.completed_at || processingPayToCredit?.created_at || new Date().toISOString()).slice(0, 10);
+		processError = '';
+	}
+
+	async function saveBillSplit() {
+		if (!splitPayment || !splitDate || savingSplit) return;
+		const amountToSplit = Number(splitAmount);
+		const originalAmount = Number(splitPayment.final_bill_amount);
+		if (!Number.isFinite(amountToSplit) || amountToSplit <= 0 || amountToSplit >= originalAmount) {
+			processError = 'Enter a split amount greater than zero and less than the unpaid bill amount.';
+			return;
+		}
+		savingSplit = true;
+		processError = '';
+		const { error: updateError } = await supabase.from('vendor_payment_schedule')
+			.update({ final_bill_amount: originalAmount - amountToSplit })
+			.eq('id', splitPayment.id);
+		if (updateError) processError = updateError.message;
+		else {
+			const { error: insertError } = await supabase.from('vendor_payment_schedule').insert({
+				bill_number: `SPLIT_${splitPayment.bill_number || ''}`, vendor_id: splitPayment.vendor_id,
+				vendor_name: splitPayment.vendor_name, branch_id: splitPayment.branch_id,
+				branch_name: splitPayment.branch_name, bill_amount: amountToSplit,
+				final_bill_amount: amountToSplit, payment_method: splitPayment.payment_method,
+				bank_name: splitPayment.bank_name, iban: splitPayment.iban, vat_number: splitPayment.vat_number,
+				task_id: splitPayment.task_id, task_assignment_id: splitPayment.task_assignment_id,
+				receiver_user_id: splitPayment.receiver_user_id, accountant_user_id: splitPayment.accountant_user_id,
+				original_bill_url: splitPayment.original_bill_url, receiving_record_id: splitPayment.receiving_record_id,
+				due_date: splitDate, is_paid: false, paid_date: null, approval_status: 'approved',
+				approval_requested_by: splitPayment.approval_requested_by || $currentUser?.id || null,
+				approval_requested_at: splitPayment.approval_requested_at || new Date().toISOString(),
+				approved_by: splitPayment.approved_by || $currentUser?.id || null,
+				approved_at: splitPayment.approved_at || new Date().toISOString(),
+				bill_date: splitPayment.bill_date
+			});
+			if (insertError) processError = insertError.message;
+			else if (processingPayToCredit) await openPayToCreditProcess(processingPayToCredit);
+		}
+		savingSplit = false;
 	}
 
 	async function deleteTransaction(transactionId: string) {
@@ -2824,6 +3008,28 @@
 								<div class="empty-state">No transactions yet</div>
 							{/if}
 						</div>
+						<div class="transactions-table-container" class:hidden={payToCreditTransactions.length === 0}>
+							<div class="readonly-payment-heading">Pay to Credit (View Only — Not Included in Calculations)</div>
+							{#if payToCreditTransactions.length > 0}
+								<table class="transactions-table">
+									<thead><tr><th>Vendor</th><th>Payment Type</th><th>Amount</th><th>Slip</th><th>Date</th><th>Action</th></tr></thead>
+									<tbody>
+										{#each payToCreditTransactions as transaction (transaction.id)}
+											<tr>
+												<td class="entity-cell">{String(transaction.request_label || 'Pay to Credit').replace(/^Pay to Credit\s*[·Â]*\s*/, '') || 'Pay to Credit'}</td>
+												<td><span class="badge badge-vendor">{transaction.payment_account_type || (transaction.photo_url ? 'bank' : 'cash')}</span></td>
+												<td class="amount-cell">{Number(transaction.extracted_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</td>
+												<td>{#if transaction.photo_url}<button type="button" class="slip-view-icon" title="View payment slip" aria-label="View payment slip" on:click={() => openPayToCreditSlip(transaction)}>👁</button>{:else}<span>—</span>{/if}</td>
+												<td class="date-cell">{new Date(transaction.completed_at || transaction.created_at).toLocaleDateString()}</td>
+								<td><button type="button" class="pay-credit-process-btn" on:click={() => openPayToCreditProcess(transaction)}>Process</button></td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<div class="empty-state">No Pay to Credit transactions yet</div>
+							{/if}
+						</div>
 					</div>
 					
 					<!-- Received Section -->
@@ -3374,7 +3580,289 @@
 </div>
 {/if}
 
+{#if payToCreditSlipUrl}
+	<div class="popup-overlay" role="presentation" on:click={closePayToCreditSlip} on:keydown={(event) => event.key === 'Escape' && closePayToCreditSlip()}>
+		<div class="pay-credit-slip-popup" role="dialog" aria-modal="true" aria-label="Payment slip" on:click|stopPropagation>
+			<div class="pay-credit-slip-header">
+				<strong>{payToCreditSlipTitle}</strong>
+				<button type="button" on:click={closePayToCreditSlip} aria-label="Close payment slip">×</button>
+			</div>
+			<div class="pay-credit-slip-body">
+				<img src={payToCreditSlipUrl} alt={payToCreditSlipTitle} />
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showPayToCreditProcess && processingPayToCredit}
+	<div class="popup-overlay" role="presentation" on:click={closePayToCreditProcess} on:keydown={(event) => event.key === 'Escape' && closePayToCreditProcess()}>
+		<div class="pay-credit-process-popup" role="dialog" aria-modal="true" aria-label="Process vendor payment" on:click|stopPropagation>
+			<div class="pay-credit-slip-header">
+				<div><strong>Unpaid Vendor Bills</strong><div class="process-vendor-name">{payToCreditVendorName(processingPayToCredit)}</div></div>
+				<button type="button" on:click={closePayToCreditProcess} aria-label="Close">×</button>
+			</div>
+			<div class="pay-credit-process-body">
+				{#if processError}<div class="process-error">{processError}</div>{/if}
+				{#if loadingUnpaidVendorBills}
+					<div class="empty-state">Loading unpaid bills...</div>
+				{:else if unpaidVendorBills.length === 0}
+					<div class="empty-state">No unpaid bills found for this vendor.</div>
+				{:else}
+					<table class="transactions-table">
+						<thead><tr><th>Select</th><th>Bill No.</th><th>Due Date</th><th>Amount</th><th>Approval</th><th>Action</th></tr></thead>
+						<tbody>
+							{#each unpaidVendorBills as bill (bill.id)}
+								<tr>
+									<td><input type="checkbox" checked={selectedUnpaidBillIds.includes(String(bill.id))} on:change={() => toggleUnpaidBillSelection(bill.id)} aria-label="Select bill {bill.bill_number || ''}" /></td>
+									<td class="entity-cell">{bill.bill_number || '—'}</td>
+									<td class="date-cell">{bill.due_date ? new Date(bill.due_date).toLocaleDateString() : '—'}</td>
+									<td class="amount-cell">{Number(bill.final_bill_amount || bill.bill_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</td>
+									<td>{bill.approval_status === 'approved' ? '✓ Approved' : (bill.approval_status || 'Pending')}</td>
+									<td>
+										{#if bill.approval_status === 'approved'}
+											<button type="button" class="pay-credit-process-btn" on:click={() => beginBillSplit(bill)}>Split</button>
+										{:else}
+											<button type="button" class="approval-request-btn" on:click={() => requestBillApproval(bill)} disabled={bill.approval_status === 'sent_for_approval'}>{bill.approval_status === 'sent_for_approval' ? 'Approval Requested' : 'Send Approval Request'}</button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+					<div class="selected-bills-total">
+						<span>Selected Total</span>
+						<strong>{selectedUnpaidBillsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</strong>
+						{#if !selectedBillsExceedPaidAmount}
+							<button type="button" class="post-assistant-task-btn" on:click={sendPayToCreditPaymentTask} disabled={!selectedUnpaidBillIds.length || sendingPayToCreditTask || payToCreditTaskSent}>{sendingPayToCreditTask ? 'Sending...' : payToCreditTaskSent ? '✓ Task Sent' : 'Post Task'}</button>
+						{/if}
+					</div>
+					{#if selectedBillsExceedPaidAmount}
+						<div class="selected-total-warning">
+							Selected bills exceed the Pay to Credit amount. Paid: {payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR · Selected: {selectedUnpaidBillsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR · Excess: {(selectedUnpaidBillsTotal - payToCreditPaidAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
+						</div>
+					{/if}
+				{/if}
+
+				{#if splitPayment}
+					<div class="process-split-panel">
+						<strong>Split Bill #{splitPayment.bill_number || '—'}</strong>
+						<div class="process-split-fields">
+							<label>Split Amount<input type="number" min="0" step="0.01" bind:value={splitAmount} /></label>
+							<label>Pay to Credit Date<input type="date" bind:value={splitDate} readonly /></label>
+							<button type="button" class="pay-credit-process-btn" on:click={saveBillSplit} disabled={savingSplit}>{savingSplit ? 'Saving...' : 'Save Split'}</button>
+							<button type="button" class="approval-request-btn" on:click={() => splitPayment = null}>Cancel</button>
+						</div>
+					</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showApproverListModal && pendingApprovalPayment}
+	<ApproverListModal
+		bind:isOpen={showApproverListModal}
+		paymentData={pendingApprovalPayment}
+		currentUserId={$currentUser?.id}
+		currentUserName={$currentUser?.username || 'Unknown'}
+		on:submitted={approvalSubmitted}
+		on:close={() => { showApproverListModal = false; pendingApprovalPayment = null; }}
+	/>
+{/if}
+
 <style>
+	.slip-view-icon {
+		width: 34px;
+		height: 34px;
+		border: 0;
+		border-radius: 8px;
+		background: #059669;
+		color: white;
+		font-size: 1rem;
+		cursor: pointer;
+	}
+
+	.pay-credit-process-btn {
+		border: 1px solid #2563eb;
+		border-radius: 8px;
+		background: #2563eb;
+		color: white;
+		padding: 7px 12px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.pay-credit-process-popup {
+		width: min(1050px, 94vw);
+		max-height: 88vh;
+		display: flex;
+		flex-direction: column;
+		background: white;
+		border-radius: 14px;
+		overflow: hidden;
+		box-shadow: 0 24px 70px rgba(15, 23, 42, 0.35);
+	}
+
+	.pay-credit-process-body {
+		padding: 16px;
+		overflow: auto;
+	}
+
+	.process-vendor-name {
+		margin-top: 3px;
+		font-size: 0.8rem;
+		font-weight: 500;
+		color: #64748b;
+	}
+
+	.process-error {
+		margin-bottom: 12px;
+		padding: 10px 12px;
+		border: 1px solid #fecaca;
+		border-radius: 8px;
+		background: #fef2f2;
+		color: #b91c1c;
+	}
+
+	.approval-request-btn {
+		border: 1px solid #d97706;
+		border-radius: 8px;
+		background: #fffbeb;
+		color: #b45309;
+		padding: 7px 12px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.approval-request-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.process-split-panel {
+		margin-top: 16px;
+		padding: 14px;
+		border: 1px solid #bfdbfe;
+		border-radius: 10px;
+		background: #eff6ff;
+	}
+
+	.selected-bills-total {
+		display: flex;
+		justify-content: flex-end;
+		align-items: center;
+		gap: 14px;
+		padding: 12px 14px;
+		border: 1px solid #bbf7d0;
+		border-top: 0;
+		border-radius: 0 0 10px 10px;
+		background: #f0fdf4;
+		color: #166534;
+		font-size: 0.9rem;
+	}
+
+	.post-assistant-task-btn {
+		margin-left: 6px;
+		border: 0;
+		border-radius: 8px;
+		background: #4f46e5;
+		color: white;
+		padding: 8px 14px;
+		font-size: 0.8rem;
+		font-weight: 800;
+		cursor: pointer;
+	}
+
+	.post-assistant-task-btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.selected-total-warning {
+		padding: 10px 14px;
+		border: 1px solid #fecaca;
+		border-top: 0;
+		border-radius: 0 0 10px 10px;
+		background: #fef2f2;
+		color: #b91c1c;
+		font-size: 0.8rem;
+		font-weight: 700;
+		text-align: right;
+	}
+
+	.process-split-fields {
+		margin-top: 10px;
+		display: flex;
+		align-items: end;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+
+	.process-split-fields label {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.process-split-fields input {
+		min-width: 180px;
+		padding: 8px 10px;
+		border: 1px solid #cbd5e1;
+		border-radius: 8px;
+		background: white;
+	}
+
+	.pay-credit-slip-popup {
+		width: min(900px, 92vw);
+		height: min(760px, 88vh);
+		display: flex;
+		flex-direction: column;
+		background: white;
+		border-radius: 14px;
+		overflow: hidden;
+		box-shadow: 0 24px 70px rgba(15, 23, 42, 0.35);
+	}
+
+	.pay-credit-slip-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 16px;
+		border-bottom: 1px solid #e2e8f0;
+		color: #1e293b;
+	}
+
+	.pay-credit-slip-header button {
+		width: 34px;
+		height: 34px;
+		border: 0;
+		border-radius: 8px;
+		background: #f1f5f9;
+		font-size: 1.4rem;
+		cursor: pointer;
+	}
+
+	.pay-credit-slip-body {
+		min-height: 0;
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 16px;
+		background: #f8fafc;
+	}
+
+	.pay-credit-slip-body img {
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		border-radius: 8px;
+	}
 	.denomination-load-state {
 		min-height: 240px;
 		display: flex;
@@ -6020,6 +6508,15 @@
 		max-height: 210px;
 		flex: 1;
 		min-height: 0;
+	}
+
+	.readonly-payment-heading {
+		padding: 0.75rem 1rem;
+		background: #eff6ff;
+		border-bottom: 1px solid #bfdbfe;
+		color: #1d4ed8;
+		font-size: 0.78rem;
+		font-weight: 700;
 	}
 
 	.transactions-table {
