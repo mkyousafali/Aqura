@@ -99,6 +99,10 @@
 	let selectedUnpaidBillIds: string[] = [];
 	let sendingPayToCreditTask = false;
 	let payToCreditTaskSent = false;
+	let payToCreditApplyAmount = '';
+	let payToCreditAutoPlan: any = null;
+	let applyingPayToCreditAmount = false;
+	let payToCreditApplyMessage = '';
 	$: selectedUnpaidBillsTotal = unpaidVendorBills
 		.filter((bill) => selectedUnpaidBillIds.includes(String(bill.id)))
 		.reduce((total, bill) => total + Number(bill.final_bill_amount || bill.bill_amount || 0), 0);
@@ -1802,6 +1806,9 @@
 		unpaidVendorBills = [];
 		selectedUnpaidBillIds = [];
 		payToCreditTaskSent = false;
+		payToCreditApplyAmount = String(Number(transaction?.extracted_amount || 0) || '');
+		payToCreditAutoPlan = null;
+		payToCreditApplyMessage = '';
 		processError = '';
 		splitPayment = null;
 		const vendorName = payToCreditVendorName(transaction);
@@ -1824,6 +1831,9 @@
 		unpaidVendorBills = [];
 		selectedUnpaidBillIds = [];
 		payToCreditTaskSent = false;
+		payToCreditApplyAmount = '';
+		payToCreditAutoPlan = null;
+		payToCreditApplyMessage = '';
 		processError = '';
 		splitPayment = null;
 		splitAmount = 0;
@@ -1837,9 +1847,96 @@
 
 	function toggleUnpaidBillSelection(billId: string) {
 		const id = String(billId);
+		payToCreditAutoPlan = null;
+		payToCreditApplyMessage = '';
+		payToCreditTaskSent = false;
 		selectedUnpaidBillIds = selectedUnpaidBillIds.includes(id)
 			? selectedUnpaidBillIds.filter((item) => item !== id)
 			: [...selectedUnpaidBillIds, id];
+	}
+
+	function preparePayToCreditAutoPlan() {
+		payToCreditAutoPlan = null;
+		payToCreditApplyMessage = '';
+		payToCreditTaskSent = false;
+		processError = '';
+		const target = Number(payToCreditApplyAmount);
+		const targetCents = Math.round(target * 100);
+		if (!Number.isFinite(target) || target <= 0 || Math.abs(target * 100 - targetCents) > 0.000001) {
+			selectedUnpaidBillIds = [];
+			processError = 'Enter a valid amount with up to two decimal places.';
+			return;
+		}
+		if (targetCents > Math.round(payToCreditPaidAmount * 100)) {
+			selectedUnpaidBillIds = [];
+			processError = `Amount cannot exceed the Pay to Credit amount of ${payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.`;
+			return;
+		}
+		const candidates = unpaidVendorBills.filter((bill) => bill.approval_status === 'approved');
+		const availableCents = candidates.reduce((sum, bill) => sum + Math.round(Number(bill.final_bill_amount || bill.bill_amount || 0) * 100), 0);
+		if (targetCents > availableCents) {
+			selectedUnpaidBillIds = candidates.map((bill) => String(bill.id));
+			processError = `Approved unpaid balance is ${(availableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.`;
+			return;
+		}
+		let remainingCents = targetCents;
+		const fullBills: any[] = [];
+		let partialBill: any = null;
+		for (const bill of candidates) {
+			const billCents = Math.round(Number(bill.final_bill_amount || bill.bill_amount || 0) * 100);
+			if (billCents <= remainingCents) {
+				fullBills.push(bill);
+				remainingCents -= billCents;
+			} else if (remainingCents > 0) {
+				partialBill = bill;
+				break;
+			}
+			if (remainingCents === 0) break;
+		}
+		selectedUnpaidBillIds = fullBills.map((bill) => String(bill.id));
+		payToCreditAutoPlan = {
+			targetAmount: targetCents / 100,
+			fullBills,
+			fullTotal: fullBills.reduce((sum, bill) => sum + Number(bill.final_bill_amount || bill.bill_amount || 0), 0),
+			partialBill,
+			partialAmount: remainingCents / 100
+		};
+	}
+
+	async function confirmPayToCreditAutoPlan() {
+		if (!payToCreditAutoPlan || applyingPayToCreditAmount || !processingPayToCredit) return;
+		const plan = payToCreditAutoPlan;
+		applyingPayToCreditAmount = true;
+		processError = '';
+		payToCreditApplyMessage = '';
+		try {
+			const selectedIds = plan.fullBills.map((bill: any) => String(bill.id));
+			if (plan.partialBill && plan.partialAmount > 0) {
+				const paymentDate = String(processingPayToCredit.completed_at || processingPayToCredit.created_at || new Date().toISOString()).slice(0, 10);
+				const expectedAmount = Number(plan.partialBill.final_bill_amount || plan.partialBill.bill_amount || 0);
+				const { data, error } = await supabase.rpc('denomination_split_vendor_payment', {
+					p_id: String(plan.partialBill.id), p_amount: plan.partialAmount,
+					p_date: paymentDate, p_expected_amount: expectedAmount
+				});
+				if (error) throw error;
+				const splitId = String(data?.source_id || '');
+				if (!splitId) throw new Error('The split was created but its new record was not returned.');
+				selectedIds.push(splitId);
+				const vendorName = payToCreditVendorName(processingPayToCredit);
+				const { data: refreshedBills, error: refreshError } = await supabase.from('vendor_payment_schedule')
+					.select('*').eq('branch_id', Number(selectedBranch)).eq('is_paid', false)
+					.ilike('vendor_name', vendorName).order('due_date', { ascending: true });
+				if (refreshError) throw refreshError;
+				unpaidVendorBills = refreshedBills || [];
+			}
+			selectedUnpaidBillIds = selectedIds;
+			payToCreditAutoPlan = null;
+			payToCreditApplyMessage = `${Number(plan.targetAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR selected (${selectedIds.length} ${selectedIds.length === 1 ? 'bill' : 'bills'}).`;
+		} catch (autoError: any) {
+			processError = autoError?.message || 'Unable to apply this amount.';
+		} finally {
+			applyingPayToCreditAmount = false;
+		}
 	}
 
 	async function sendPayToCreditPaymentTask() {
@@ -1889,30 +1986,12 @@
 		}
 		savingSplit = true;
 		processError = '';
-		const { error: updateError } = await supabase.from('vendor_payment_schedule')
-			.update({ final_bill_amount: originalAmount - amountToSplit })
-			.eq('id', splitPayment.id);
-		if (updateError) processError = updateError.message;
-		else {
-			const { error: insertError } = await supabase.from('vendor_payment_schedule').insert({
-				bill_number: `SPLIT_${splitPayment.bill_number || ''}`, vendor_id: splitPayment.vendor_id,
-				vendor_name: splitPayment.vendor_name, branch_id: splitPayment.branch_id,
-				branch_name: splitPayment.branch_name, bill_amount: amountToSplit,
-				final_bill_amount: amountToSplit, payment_method: splitPayment.payment_method,
-				bank_name: splitPayment.bank_name, iban: splitPayment.iban, vat_number: splitPayment.vat_number,
-				task_id: splitPayment.task_id, task_assignment_id: splitPayment.task_assignment_id,
-				receiver_user_id: splitPayment.receiver_user_id, accountant_user_id: splitPayment.accountant_user_id,
-				original_bill_url: splitPayment.original_bill_url, receiving_record_id: splitPayment.receiving_record_id,
-				due_date: splitDate, is_paid: false, paid_date: null, approval_status: 'approved',
-				approval_requested_by: splitPayment.approval_requested_by || $currentUser?.id || null,
-				approval_requested_at: splitPayment.approval_requested_at || new Date().toISOString(),
-				approved_by: splitPayment.approved_by || $currentUser?.id || null,
-				approved_at: splitPayment.approved_at || new Date().toISOString(),
-				bill_date: splitPayment.bill_date
-			});
-			if (insertError) processError = insertError.message;
-			else if (processingPayToCredit) await openPayToCreditProcess(processingPayToCredit);
-		}
+		const { error: splitError } = await supabase.rpc('denomination_split_vendor_payment', {
+			p_id: String(splitPayment.id), p_amount: amountToSplit,
+			p_date: splitDate, p_expected_amount: originalAmount
+		});
+		if (splitError) processError = splitError.message;
+		else if (processingPayToCredit) await openPayToCreditProcess(processingPayToCredit);
 		savingSplit = false;
 	}
 
@@ -3608,6 +3687,35 @@
 				{:else if unpaidVendorBills.length === 0}
 					<div class="empty-state">No unpaid bills found for this vendor.</div>
 				{:else}
+					<div class="pay-credit-auto-bar">
+						<label>
+							Amount to apply (SAR)
+							<input type="number" min="0.01" step="0.01" bind:value={payToCreditApplyAmount}
+								on:input={() => { payToCreditAutoPlan = null; payToCreditApplyMessage = ''; selectedUnpaidBillIds = []; payToCreditTaskSent = false; }}
+								disabled={applyingPayToCreditAmount || sendingPayToCreditTask} placeholder="0.00" />
+						</label>
+						<button type="button" class="pay-credit-process-btn" on:click={preparePayToCreditAutoPlan}
+							disabled={applyingPayToCreditAmount || sendingPayToCreditTask || !payToCreditApplyAmount}>Apply</button>
+						<span>Pay to Credit: <strong>{payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</strong></span>
+					</div>
+					{#if payToCreditAutoPlan}
+						<div class="pay-credit-auto-confirm">
+							<strong>Apply {Number(payToCreditAutoPlan.targetAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR to these bills?</strong>
+							<p>
+								{payToCreditAutoPlan.fullBills.length} full {payToCreditAutoPlan.fullBills.length === 1 ? 'bill' : 'bills'}: {Number(payToCreditAutoPlan.fullTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.
+								{#if payToCreditAutoPlan.partialBill}
+									Split {Number(payToCreditAutoPlan.partialAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR from bill {payToCreditAutoPlan.partialBill.bill_number || '—'}; the remaining {(Number(payToCreditAutoPlan.partialBill.final_bill_amount || payToCreditAutoPlan.partialBill.bill_amount || 0) - Number(payToCreditAutoPlan.partialAmount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR stays on the original bill.
+								{:else}
+									No split is required.
+								{/if}
+							</p>
+							<div class="pay-credit-auto-actions">
+								<button type="button" class="pay-credit-auto-confirm-btn" on:click={confirmPayToCreditAutoPlan} disabled={applyingPayToCreditAmount}>{applyingPayToCreditAmount ? 'Processing...' : 'Yes'}</button>
+								<button type="button" class="approval-request-btn" on:click={() => { payToCreditAutoPlan = null; selectedUnpaidBillIds = []; }} disabled={applyingPayToCreditAmount}>Cancel</button>
+							</div>
+						</div>
+					{/if}
+					{#if payToCreditApplyMessage}<div class="pay-credit-apply-message">{payToCreditApplyMessage}</div>{/if}
 					<table class="transactions-table">
 						<thead><tr><th>Select</th><th>Bill No.</th><th>Due Date</th><th>Amount</th><th>Approval</th><th>Action</th></tr></thead>
 						<tbody>
@@ -3633,7 +3741,7 @@
 						<span>Selected Total</span>
 						<strong>{selectedUnpaidBillsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</strong>
 						{#if !selectedBillsExceedPaidAmount}
-							<button type="button" class="post-assistant-task-btn" on:click={sendPayToCreditPaymentTask} disabled={!selectedUnpaidBillIds.length || sendingPayToCreditTask || payToCreditTaskSent}>{sendingPayToCreditTask ? 'Sending...' : payToCreditTaskSent ? '✓ Task Sent' : 'Post Task'}</button>
+							<button type="button" class="post-assistant-task-btn" on:click={sendPayToCreditPaymentTask} disabled={!selectedUnpaidBillIds.length || sendingPayToCreditTask || payToCreditTaskSent || applyingPayToCreditAmount || !!payToCreditAutoPlan}>{sendingPayToCreditTask ? 'Sending...' : payToCreditTaskSent ? '✓ Task Sent' : 'Post Task'}</button>
 						{/if}
 					</div>
 					{#if selectedBillsExceedPaidAmount}
@@ -3707,6 +3815,95 @@
 	.pay-credit-process-body {
 		padding: 16px;
 		overflow: auto;
+	}
+
+	.pay-credit-auto-bar {
+		display: flex;
+		align-items: end;
+		gap: 10px;
+		flex-wrap: wrap;
+		margin-bottom: 12px;
+		padding: 10px 12px;
+		border: 1px solid #bfdbfe;
+		border-radius: 10px;
+		background: #eff6ff;
+		color: #334155;
+		font-size: 0.82rem;
+	}
+
+	.pay-credit-auto-bar label {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		font-weight: 700;
+	}
+
+	.pay-credit-auto-bar input {
+		width: 170px;
+		padding: 8px 10px;
+		border: 1px solid #cbd5e1;
+		border-radius: 8px;
+		background: white;
+		-moz-appearance: textfield;
+	}
+
+	.pay-credit-auto-bar input::-webkit-inner-spin-button,
+	.pay-credit-auto-bar input::-webkit-outer-spin-button {
+		margin: 0;
+		-webkit-appearance: none;
+	}
+
+	.pay-credit-auto-bar > span {
+		margin-left: auto;
+		align-self: center;
+	}
+
+	.pay-credit-auto-confirm {
+		margin-bottom: 12px;
+		padding: 12px 14px;
+		border: 1px solid #93c5fd;
+		border-radius: 10px;
+		background: #dbeafe;
+		color: #1e3a8a;
+		font-size: 0.84rem;
+	}
+
+	.pay-credit-auto-confirm p {
+		margin: 6px 0 0;
+		color: #334155;
+	}
+
+	.pay-credit-auto-actions {
+		display: flex;
+		gap: 8px;
+		margin-top: 10px;
+	}
+
+	.pay-credit-auto-confirm-btn {
+		border: 0;
+		border-radius: 8px;
+		background: #16a34a;
+		color: white;
+		padding: 7px 14px;
+		font-size: 0.8rem;
+		font-weight: 800;
+		cursor: pointer;
+	}
+
+	.pay-credit-auto-confirm-btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.pay-credit-apply-message {
+		margin-bottom: 12px;
+		padding: 9px 12px;
+		border: 1px solid #bbf7d0;
+		border-radius: 8px;
+		background: #f0fdf4;
+		color: #166534;
+		font-size: 0.82rem;
+		font-weight: 700;
 	}
 
 	.process-vendor-name {
