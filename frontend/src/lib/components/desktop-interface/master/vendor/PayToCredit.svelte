@@ -27,21 +27,38 @@
 	let editingAmount = '';
 	let savingEditedAmount = false;
 	let savingCashTransaction = false;
-	$: canChangeBranch = !!($currentUser?.isMasterAdmin || $currentUser?.isAdmin);
+	$: canChangeBranch = !!$currentUser?.isMasterAdmin;
 	$: filteredVendorLedgers = vendorSearch.trim()
 		? vendorLedgers.filter((vendor) => `${vendor.vendor_name || ''} ${vendor.erp_vendor_id || ''}`.toLowerCase().includes(vendorSearch.trim().toLowerCase())).slice(0, 50)
 		: [];
 
+	function loggedUserBranchId(): number | null {
+		const branchId = Number($currentUser?.branch_id);
+		return Number.isInteger(branchId) && branchId > 0 ? branchId : null;
+	}
+
+	function permittedBranchId(): number | null {
+		if (!$currentUser?.isMasterAdmin) return loggedUserBranchId();
+		const branchId = Number(selectedBranchId);
+		return Number.isInteger(branchId) && branchId > 0 ? branchId : null;
+	}
+
 	onMount(async () => {
-		selectedBranchId = $currentUser?.branch_id ? String($currentUser.branch_id) : '';
-		const { data, error: loadError } = await supabase
+		const ownBranchId = loggedUserBranchId();
+		selectedBranchId = ownBranchId ? String(ownBranchId) : '';
+		let branchQuery = supabase
 			.from('branches')
 			.select('id,name_en,name_ar,location_en,location_ar')
 			.order('name_en');
+		if ($currentUser?.isMasterAdmin) branchQuery = branchQuery.eq('is_active', true);
+		else branchQuery = branchQuery.eq('id', ownBranchId ?? -1);
+		const { data, error: loadError } = await branchQuery;
 		if (loadError) error = loadError.message;
 		else branches = data || [];
+		if (!$currentUser?.isMasterAdmin) selectedBranchId = ownBranchId ? String(ownBranchId) : '';
+		else if (!branches.some((branch) => Number(branch.id) === ownBranchId)) selectedBranchId = '';
 		loading = false;
-		if (selectedBranchId) await loadVendorLedgers();
+		if (permittedBranchId()) await loadVendorLedgers();
 		await loadEditPermissions();
 		await loadTransactions();
 		setupPayToCreditRealtime();
@@ -71,12 +88,16 @@
 	async function loadTransactions() {
 		if (!$currentUser?.id) { loadingTransactions = false; return; }
 		loadingTransactions = true;
-		const { data, error: transactionError } = await supabase.from('pos_scan_requests')
+		let transactionQuery = supabase.from('pos_scan_requests')
 			.select('id,status,photo_url,request_label,created_at,completed_at,branch_id,extracted_amount,payment_account_type')
 			.eq('requested_by', $currentUser.id)
 			.eq('request_type', 'pay_to_credit_slip')
 			.in('status', ['pending', 'completed'])
 			.order('created_at', { ascending: false });
+		if (!$currentUser?.isMasterAdmin) {
+			transactionQuery = transactionQuery.eq('branch_id', loggedUserBranchId() ?? -1);
+		}
+		const { data, error: transactionError } = await transactionQuery;
 		if (transactionError) error = transactionError.message;
 		else transactions = data || [];
 		loadingTransactions = false;
@@ -91,7 +112,10 @@
 	}
 
 	function canEditTransaction(transaction: any) {
-		return !!($currentUser?.isMasterAdmin || $currentUser?.isAdmin || entryTaskBranchIds.has(Number(transaction.branch_id)));
+		if ($currentUser?.isMasterAdmin) return true;
+		const transactionBranchId = Number(transaction.branch_id);
+		if (transactionBranchId !== loggedUserBranchId()) return false;
+		return !!($currentUser?.isAdmin || entryTaskBranchIds.has(transactionBranchId));
 	}
 
 	function beginEditAmount(transaction: any) {
@@ -125,13 +149,14 @@
 	}
 
 	async function saveCashTransaction() {
-		if (!$currentUser?.id || !selectedBranchId || selectedVendorLedgerId === null || savingCashTransaction) return;
+		const branchId = permittedBranchId();
+		if (!$currentUser?.id || !branchId || selectedVendorLedgerId === null || savingCashTransaction) return;
 		const cashAmount = Number(amount);
 		if (!Number.isFinite(cashAmount) || cashAmount <= 0) return;
 		savingCashTransaction = true;
 		error = '';
 		const values = {
-			branch_id: Number(selectedBranchId), requested_by: $currentUser.id,
+			branch_id: branchId, requested_by: $currentUser.id,
 			request_type: 'pay_to_credit_slip', payment_account_type: 'cash',
 			request_label: `Pay to Credit · ${vendorSearch}`, status: 'completed',
 			extracted_amount: cashAmount, completed_by: $currentUser.id,
@@ -167,12 +192,13 @@
 	}
 
 	async function sendScanRequest() {
-		if (!$currentUser?.id || !selectedBranchId || selectedVendorLedgerId === null || sendingScanRequest) return;
+		const branchId = permittedBranchId();
+		if (!$currentUser?.id || !branchId || selectedVendorLedgerId === null || sendingScanRequest) return;
 		sendingScanRequest = true;
 		error = '';
 		try {
 			const { data, error: requestError } = await supabase.from('pos_scan_requests').insert({
-				box_operation_id: null, receiving_record_id: null, branch_id: Number(selectedBranchId),
+				box_operation_id: null, receiving_record_id: null, branch_id: branchId,
 				requested_by: $currentUser.id, request_type: 'pay_to_credit_slip', payment_account_type: 'bank', status: 'pending',
 				request_label: `Pay to Credit · ${vendorSearch}`
 			}).select('id,status,photo_url,request_label,created_at').single();
@@ -218,19 +244,21 @@
 	}
 
 	async function loadVendorLedgers() {
+		const branchId = permittedBranchId();
+		if (!$currentUser?.isMasterAdmin) selectedBranchId = branchId ? String(branchId) : '';
 		vendorLedgers = [];
 		vendorSearch = '';
 		selectedVendorLedgerId = null;
 		scanRequest = null;
 		amount = '';
-		if (!selectedBranchId) return;
+		if (!branchId) return;
 		loadingVendors = true;
 		error = '';
 		try {
 			const { data: connection, error: connectionError } = await supabase
 				.from('erp_connections')
 				.select('erp_branch_id')
-				.eq('branch_id', Number(selectedBranchId))
+				.eq('branch_id', branchId)
 				.eq('is_active', true)
 				.maybeSingle();
 			if (connectionError) throw connectionError;
@@ -244,7 +272,7 @@
 			`;
 			const response = await authenticatedFetch('/api/erp-products', {
 				method: 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'query', branchId: Number(selectedBranchId), sql })
+				body: JSON.stringify({ action: 'query', branchId, sql })
 			});
 			const result = await response.json();
 			if (!response.ok || !result.success) throw new Error(result.error || 'Failed to load vendor ledgers from Polosys.');

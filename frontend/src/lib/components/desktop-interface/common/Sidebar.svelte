@@ -111,6 +111,7 @@
 	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
 	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
 	import AIAgentTasks from '$lib/components/desktop-interface/settings/AIAgentTasks.svelte';
+	import PendingScanRequests from '$lib/components/desktop-interface/settings/PendingScanRequests.svelte';
 	import SidebarAnimationManager from '$lib/components/desktop-interface/settings/SidebarAnimationManager.svelte';
 	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
 	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
@@ -513,11 +514,15 @@
 
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const { data: permissions, error } = await supabase
-				.from('button_permissions')
-				.select('button_code')
-				.eq('user_id', $currentUser.id)
-				.eq('is_enabled', true);
+			const [{ data: permissions, error }, { data: entryTaskAssignments, error: entryTaskError }] = await Promise.all([
+				supabase.from('button_permissions')
+					.select('button_code')
+					.eq('user_id', $currentUser.id)
+					.eq('is_enabled', true),
+				supabase.from('branch_default_positions')
+					.select('branch_id')
+					.or(`entry_task_user_id.eq.${$currentUser.id},inventory_manager_user_id.eq.${$currentUser.id}`)
+			]);
 
 			if (error) {
 				console.error('❌ [Sidebar] Error fetching button permissions:', error);
@@ -525,6 +530,8 @@
 			} else {
 				allowedButtonCodes = new Set((permissions || []).map(p => p.button_code));
 			}
+			if (entryTaskError) console.error('[Sidebar] Error checking Entry Task assignment:', entryTaskError);
+			else if (entryTaskAssignments?.length) allowedButtonCodes.add('PAY_TO_CREDIT');
 			buttonPermissionsLoaded = true;
 		} catch (err) {
 			console.error('❌ [Sidebar] Error loading button permissions:', err);
@@ -2151,6 +2158,26 @@ function openApprovalCenter() {
 			component: AIAgentTasks,
 			componentName: 'AIAgentTasks',
 			icon: '🤖',
+			size: { width: 1250, height: 760 },
+			position: { x: 130 + (Math.random() * 100), y: 80 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllSubsections();
+	}
+
+	function openPendingScanRequests() {
+		const windowId = generateWindowId('pending-scan-requests');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${t('nav.pendingScanRequests') || 'Pending Scan Requests'} #${instanceNumber}`,
+			component: PendingScanRequests,
+			componentName: 'PendingScanRequests',
+			icon: '📷',
 			size: { width: 1250, height: 760 },
 			position: { x: 130 + (Math.random() * 100), y: 80 + (Math.random() * 100) },
 			resizable: true,
@@ -6906,6 +6933,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openAIAgentTasks}>
 								<span class="menu-icon">🤖</span>
 								<span class="menu-text">{t('nav.aiAgentTasks') || 'AI Agent Tasks'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if $currentUser?.isMasterAdmin}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPendingScanRequests}>
+								<span class="menu-icon">📷</span>
+								<span class="menu-text">{t('nav.pendingScanRequests') || 'Pending Scan Requests'}</span>
 							</button>
 						</div>
 					{/if}

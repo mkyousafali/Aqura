@@ -4,6 +4,7 @@ import { databaseClient, requireBreakUser } from '$lib/server/breakRegisterAuth'
 
 type AuditRow = {
   id: string; at: string; branchId: number; userId: string; userNameEn: string; userNameAr: string;
+  requestedByNameEn: string; requestedByNameAr: string; requestedToNameEn: string; requestedToNameAr: string;
   branchNameEn: string; branchNameAr: string; action: string; reason: string;
   requestId: string; requestNumber: string; printer: string; printStatus: string; posCounter: string; posNumber: string;
   amount: number | null; status: string; details: Record<string, unknown>;
@@ -92,6 +93,35 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
         { headers: { 'Cache-Control': 'no-store' } });
     }
 
+    if (mode === 'action-branches') {
+      const from = url.searchParams.get('from') || '';
+      const to = url.searchParams.get('to') || '';
+      if (!validDate(from) || !validDate(to) || !from || !to || from > to) {
+        return json({ error: 'Invalid date range.' }, { status: 400 });
+      }
+      const fromBoundary = new Date(`${from}T00:00:00+03:00`).toISOString();
+      const toBoundary = new Date(Date.parse(`${to}T00:00:00+03:00`) + 86400000).toISOString();
+      const [{ data: prints, error: printError }, { data: operations, error: operationError }, { data: requests, error: requestError }] = await Promise.all([
+        db.from('aqura_pos_print_actions').select('branch_id,action_type,source,created_at')
+          .gte('created_at', fromBoundary).lt('created_at', toBoundary).limit(sourceLimit),
+        db.from('aqura_safe_box_operations').select('branch_id,created_at,opened_at,completed_at').limit(sourceLimit),
+        db.from('aqura_change_requests').select('branch_id,created_at,requested_at,received_at,safe_box_printed_at,processed_at,cashier_confirmed_at,completed_at').limit(sourceLimit)
+      ]);
+      if (printError || operationError || requestError) throw printError || operationError || requestError;
+      const inPeriod = (...values: unknown[]) => values.some((value) => {
+        if (!value) return false;
+        const day = new Date(new Date(String(value)).getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        return day >= from && day <= to;
+      });
+      const branchIdsWithActions = new Set<number>();
+      for (const row of prints || []) if (isSafePrint(row)) branchIdsWithActions.add(Number(row.branch_id));
+      for (const row of operations || []) if (inPeriod(row.created_at, row.opened_at, row.completed_at)) branchIdsWithActions.add(Number(row.branch_id));
+      for (const row of requests || []) if (inPeriod(row.created_at, row.requested_at, row.received_at, row.safe_box_printed_at,
+        row.processed_at, row.cashier_confirmed_at, row.completed_at)) branchIdsWithActions.add(Number(row.branch_id));
+      return json({ branches: allowedBranches.filter(branch => branchIdsWithActions.has(Number(branch.id))) },
+        { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const kind = url.searchParams.get('kind');
     if (kind !== 'safeBox' && kind !== 'cashier') return json({ error: 'Invalid report tab.' }, { status: 400 });
     const from = url.searchParams.get('from') || '';
@@ -134,11 +164,13 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
     const operationAmountById = new Map(operations.rows.map(o => [o.id, number(o.total_amount)] as const));
 
     const requestRows = requests.rows;
-    const requestIds = [...new Set([...prints.rows.map(p => p.request_id), ...requestRows.map(r => r.id)].filter(Boolean))];
-    const requestNumberById = new Map<string, string>();
-    const requestAmountById = new Map<string, number | null>();
-    for (let start = 0; start < requestIds.length; start += 100) {
-      const { data, error } = await db.from('aqura_change_requests').select('id,request_number,total_amount,withdrawal_total').in('id', requestIds.slice(start, start + 100));
+    const relevantPrintRows = prints.rows.filter(p => kind === 'safeBox' ? isSafePrint(p) : !isSafePrint(p));
+    const requestNumberById = new Map<string, string>(requestRows.map(r => [r.id, r.request_number || r.id]));
+    const requestAmountById = new Map<string, number | null>(requestRows.map(r => [r.id, number(r.withdrawal_total ?? r.total_amount)]));
+    const missingRequestIds = [...new Set(relevantPrintRows.map(p => p.request_id)
+      .filter((id): id is string => Boolean(id) && !requestNumberById.has(id)))];
+    for (let start = 0; start < missingRequestIds.length; start += 100) {
+      const { data, error } = await db.from('aqura_change_requests').select('id,request_number,total_amount,withdrawal_total').in('id', missingRequestIds.slice(start, start + 100));
       if (error) throw error;
       for (const item of data || []) {
         requestNumberById.set(item.id, item.request_number || item.id);
@@ -149,7 +181,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
     const branchById = new Map((branches || []).map(b => [Number(b.id), b] as const));
     const employeeById = new Map((employees || []).map(e => [e.user_id, e] as const));
     const userIds = [...new Set([
-      ...prints.rows.map(p => p.user_id), ...operations.rows.map(o => o.user_id),
+      ...relevantPrintRows.map(p => p.user_id), ...operations.rows.map(o => o.user_id),
       ...requestRows.flatMap(r => [r.requested_by_user_id, r.requested_to_user_id])
     ].filter(Boolean))];
     const usernameById = new Map<string, string>();
@@ -164,6 +196,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
       const fallback = usernameById.get(rowUser) || rowUser;
       return { id, at, branchId: Number(rowBranch), userId: rowUser,
         userNameEn: e?.name_en || fallback, userNameAr: e?.name_ar || e?.name_en || fallback,
+        requestedByNameEn: '', requestedByNameAr: '', requestedToNameEn: '', requestedToNameAr: '',
         branchNameEn: b?.name_en || `Branch ${rowBranch}`, branchNameAr: b?.name_ar || b?.name_en || `Branch ${rowBranch}`,
         action: '', reason: '', requestId: '', requestNumber: '', printer: '', printStatus: '', posCounter: '', posNumber: '',
         amount: null, status: '', details: {} };
@@ -172,7 +205,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
     const rows: AuditRow[] = [];
     const requestPrints = new Map<string, any[]>();
     const operationPrints = new Map<string, any[]>();
-    for (const p of prints.rows) {
+    for (const p of relevantPrintRows) {
       if (p.request_id) {
         const linked = requestPrints.get(p.request_id) || [];
         linked.push(p);
@@ -278,7 +311,15 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
         if (!latestStage) continue;
         const r = common(`request:${q.id}`, latestStage[1] || q.created_at, q.branch_id,
           q.requested_to_user_id || q.requested_by_user_id);
+        const requestedByEmployee = employeeById.get(q.requested_by_user_id);
+        const requestedToEmployee = employeeById.get(q.requested_to_user_id);
+        const requestedByFallback = usernameById.get(q.requested_by_user_id) || q.requested_by_user_id || '';
+        const requestedToFallback = usernameById.get(q.requested_to_user_id) || q.requested_to_user_id || '';
         Object.assign(r, { action: 'Safe Box Request', reason: 'Request for Change', requestId: q.id,
+          requestedByNameEn: requestedByEmployee?.name_en || requestedByFallback,
+          requestedByNameAr: requestedByEmployee?.name_ar || requestedByEmployee?.name_en || requestedByFallback,
+          requestedToNameEn: requestedToEmployee?.name_en || requestedToFallback,
+          requestedToNameAr: requestedToEmployee?.name_ar || requestedToEmployee?.name_en || requestedToFallback,
           requestNumber: q.request_number || q.id, printer: q.safe_box_printer_name || latestSafePrint?.printer_name || '',
           printStatus: latestSafePrint?.print_status || (q.safe_box_printed_at ? 'success' : ''),
           amount: number(q.withdrawal_total ?? q.total_amount), status: q.status || latestStage[5], details: {
@@ -298,29 +339,38 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
       }
     }
 
-    const filtered = rows.filter(row => {
+    const periodRows = rows.filter(row => {
       const day = row.at ? new Date(new Date(row.at).getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10) : '';
       if ((from && day < from) || (to && day > to)) return false;
+      return true;
+    });
+    const filtered = periodRows.filter(row => {
       if (userId && row.userId !== userId && row.details.requestedByUserId !== userId &&
         row.details.assignedToUserId !== userId) return false;
       if (action && row.action !== action) return false;
       if (status && row.status !== status && row.printStatus !== status) return false;
       if (search && ![row.action, row.reason, row.requestNumber, row.printer, row.status,
-        row.userNameEn, row.userNameAr, row.branchNameEn, row.branchNameAr, row.amount?.toString() || '']
+        row.userNameEn, row.userNameAr, row.requestedByNameEn, row.requestedByNameAr,
+        row.requestedToNameEn, row.requestedToNameAr, row.branchNameEn, row.branchNameAr, row.amount?.toString() || '']
         .some(value => value.toLowerCase().includes(search))) return false;
       return true;
     }).sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
-    const actions = [...new Set(rows.map(row => row.action))].sort();
-    const statuses = [...new Set(rows.flatMap(row => [row.status, row.printStatus]).filter(Boolean))].sort();
-    const reportUsers = [...new Map(rows.map(row => [`${row.userId}:${row.branchId}`, {
+    const actions = [...new Set(periodRows.map(row => row.action))].sort();
+    const statuses = [...new Set(periodRows.flatMap(row => [row.status, row.printStatus]).filter(Boolean))].sort();
+    const reportUsers = [...new Map(periodRows.map(row => [`${row.userId}:${row.branchId}`, {
       id: row.userId, nameEn: row.userNameEn, nameAr: row.userNameAr, branchId: row.branchId
     }] as const)).values()];
+    const reportBranches = [...new Set(periodRows.map(row => row.branchId))]
+      .map(id => branchById.get(Number(id))).filter(Boolean);
     return json({ rows: filtered.slice(page * pageSize, (page + 1) * pageSize), total: filtered.length,
-      page, pageSize, actions, statuses, reportUsers,
+      page, pageSize, actions, statuses, reportUsers, reportBranches,
       truncated: prints.truncated || operations.truncated || requests.truncated },
       { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Drawer action audit report failed:', error);
-    return json({ error: error instanceof Error ? error.message : 'Could not load audit report.' }, { status: 500 });
+    const databaseError = error as { message?: string; details?: string; hint?: string; code?: string } | null;
+    const message = error instanceof Error ? error.message :
+      databaseError?.message || databaseError?.details || databaseError?.hint || databaseError?.code || 'Could not load audit report.';
+    return json({ error: message }, { status: 500 });
   }
 };

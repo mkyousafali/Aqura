@@ -551,12 +551,17 @@
 				// Master admin gets every button in the catalog
 				allowedCodes = new Set(catalogButtons.map(b => b.code));
 			} else {
-				const { data: permissions } = await supabase
-					.from('button_permissions')
-					.select('button_code')
-					.eq('user_id', $currentUser.id)
-					.eq('is_enabled', true);
+				const [{ data: permissions }, { data: entryTaskAssignments }] = await Promise.all([
+					supabase.from('button_permissions')
+						.select('button_code')
+						.eq('user_id', $currentUser.id)
+						.eq('is_enabled', true),
+					supabase.from('branch_default_positions')
+						.select('branch_id')
+						.or(`entry_task_user_id.eq.${$currentUser.id},inventory_manager_user_id.eq.${$currentUser.id}`)
+				]);
 				allowedCodes = new Set((permissions || []).map(p => p.button_code));
+				if (entryTaskAssignments?.length) allowedCodes.add('PAY_TO_CREDIT');
 			}
 
 			// Pre-check buttons that are already favorites

@@ -22,6 +22,18 @@ async function canManageAiTasks(secureDb: ReturnType<typeof db>, actor: { id: st
 	return data?.is_enabled === true;
 }
 
+async function canPostReceivingPaymentTask(
+	secureDb: ReturnType<typeof db>,
+	actor: { id: string; isMasterAdmin: boolean },
+	branchId: number
+) {
+	if (actor.isMasterAdmin) return true;
+	const { data, error } = await secureDb.from('branch_default_positions')
+		.select('entry_task_user_id').eq('branch_id', branchId).maybeSingle();
+	if (error) throw error;
+	return String(data?.entry_task_user_id || '') === actor.id;
+}
+
 export const GET: RequestHandler = async ({ cookies, url }) => {
 	try {
 		const user = await requireBreakUser(cookies, 'desktop');
@@ -186,6 +198,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 					.select('id,branch_id,request_type,request_label,extracted_amount,payment_account_type,status')
 					.eq('id', transactionId).maybeSingle();
 				if (transactionError || !transaction || transaction.request_type !== 'pay_to_credit_slip') return json({ success: false, error: 'Pay to Credit transaction was not found' }, { status: 404 });
+				if (!await canPostReceivingPaymentTask(secureDb, actor, Number(transaction.branch_id))) {
+					return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
+				}
 				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule')
 					.select('id,bill_number,vendor_name,final_bill_amount,bill_amount,is_paid,branch_id')
 					.in('id', selectedBillIds)
@@ -239,6 +254,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				.select('id,branch_id,vendor_id,user_id,bill_number,final_bill_amount,bill_amount,payment_method,pr_excel_file_url,erp_check_result,original_bill_check_result')
 				.eq('id', body.receiving_record_id).maybeSingle();
 			if (recordError || !record) return json({ success: false, error: 'Receiving record was not found' }, { status: 404 });
+			if (!await canPostReceivingPaymentTask(secureDb, actor, Number(record.branch_id))) {
+				return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
+			}
 			if (String(record.payment_method || '').trim().toLowerCase() !== 'bank on delivery') return json({ success: false, error: 'Only Bank on Delivery records can create a Bank Payment task' }, { status: 400 });
 			if (!record.pr_excel_file_url) return json({ success: false, error: 'PR Excel must be uploaded before posting a payment task' }, { status: 400 });
 			if (record.original_bill_check_result?.status !== 'matched') return json({ success: false, error: 'The original bill check must be matched before posting a payment task' }, { status: 400 });
@@ -289,6 +307,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 					.select('id,branch_id,request_type,extracted_amount,payment_account_type')
 					.eq('id', transactionId).maybeSingle();
 				if (transactionError || !transaction || transaction.request_type !== 'pay_to_credit_slip') return json({ success: false, error: 'Pay to Credit transaction was not found' }, { status: 404 });
+				if (!await canPostReceivingPaymentTask(secureDb, actor, Number(transaction.branch_id))) {
+					return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
+				}
 				if (transaction.payment_account_type !== 'cash') return json({ success: false, error: 'This Pay to Credit transaction is not a cash payment' }, { status: 400 });
 				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule')
 					.select('id,bill_number,vendor_name,final_bill_amount,bill_amount,is_paid,branch_id')
@@ -332,6 +353,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				.select('id,branch_id,vendor_id,user_id,bill_number,final_bill_amount,bill_amount,payment_method,pr_excel_file_url,erp_check_result,original_bill_check_result')
 				.eq('id', body.receiving_record_id).maybeSingle();
 			if (recordError || !record) return json({ success: false, error: 'Receiving record was not found' }, { status: 404 });
+			if (!await canPostReceivingPaymentTask(secureDb, actor, Number(record.branch_id))) {
+				return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
+			}
 			if (String(record.payment_method || '').trim().toLowerCase() !== 'cash on delivery') return json({ success: false, error: 'Only Cash on Delivery records can create a Cash Payment task' }, { status: 400 });
 			if (!record.pr_excel_file_url) return json({ success: false, error: 'PR Excel must be uploaded before posting a payment task' }, { status: 400 });
 			if (record.original_bill_check_result?.status !== 'matched') return json({ success: false, error: 'The original bill check must be matched before posting a payment task' }, { status: 400 });

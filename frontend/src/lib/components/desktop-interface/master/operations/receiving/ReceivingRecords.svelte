@@ -50,6 +50,15 @@
 	let billDateFrom = '';
 	let billDateTo = '';
 	let selectedDueFilter = ''; // Filter by due date ('' = all, '7', '15', '30')
+	function riyadhCalendarDate(offsetDays = 0) {
+		return new Intl.DateTimeFormat('en-CA', {
+			timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit'
+		}).format(new Date(Date.now() + offsetDays * 86400000));
+	}
+	// Initial record window: today plus the previous five Riyadh calendar days.
+	let receivedDateMode = 'recent';
+	let receivedDateFrom = riyadhCalendarDate(-5);
+	let receivedDateTo = riyadhCalendarDate();
 
 	// Pagination state (disabled UI but optimized loading)
 	let currentPage = 1;
@@ -73,6 +82,7 @@
 	let bankPaymentTasksByRecord = {};
 	let sendingCashPaymentTaskId = null;
 	let cashPaymentTasksByRecord = {};
+	let entryTaskPostingBranchIds = new Set();
 
 	// Check if current user is master admin
 	$: isMasterAdmin = $currentUser?.isMasterAdmin;
@@ -209,15 +219,27 @@
 	const PAYMENT_METHODS = ['Cash on Delivery', 'Bank on Delivery', 'Cash Credit', 'Bank Credit'];
 
 	onMount(() => {
-		loadBranches();
-		loadErpConnections();
-		loadReceivingRecords();
-		loadErpCheckCounts();
-		setupRealtimeSubscriptions();
-		setupBankSlipRequestRealtime();
-		setupBankSlipFileRealtime();
+		let disposed = false;
+		// Resolve and select the signed-in user's branch before the first records RPC.
+		// Master Admin keeps the branch selector available; other users are always
+		// restricted to their own branch in both the UI and the query parameters.
+		void (async () => {
+			await loadBranches();
+			if (disposed) return;
+			await Promise.all([
+				loadErpConnections(),
+				loadEntryTaskPostingPermissions(),
+				loadReceivingRecords(),
+				loadErpCheckCounts()
+			]);
+			if (disposed) return;
+			setupRealtimeSubscriptions();
+			setupBankSlipRequestRealtime();
+			setupBankSlipFileRealtime();
+		})();
 		
 		return () => {
+			disposed = true;
 			if (unsubscribeReceivingRecords) {
 				unsubscribeReceivingRecords();
 			}
@@ -232,6 +254,39 @@
 			}
 		};
 	});
+
+	function loggedUserBranchId() {
+		const branchId = Number($currentUser?.branch_id);
+		return Number.isInteger(branchId) && branchId > 0 ? branchId : null;
+	}
+
+	function effectiveBranchId() {
+		if (!$currentUser?.isMasterAdmin) {
+			// -1 safely returns no rows if a non-master account has no assigned branch;
+			// it must never fall back to the RPC's all-branches behaviour.
+			return String(loggedUserBranchId() ?? -1);
+		}
+		const selected = Number(selectedBranchFilter);
+		return Number.isInteger(selected) && selected > 0 ? String(selected) : null;
+	}
+
+	async function loadEntryTaskPostingPermissions() {
+		if (!$currentUser?.id || $currentUser?.isMasterAdmin) {
+			entryTaskPostingBranchIds = new Set();
+			return;
+		}
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.from('branch_default_positions')
+				.select('branch_id')
+				.eq('entry_task_user_id', $currentUser.id);
+			if (error) throw error;
+			entryTaskPostingBranchIds = new Set((data || []).map((row) => Number(row.branch_id)));
+		} catch (error) {
+			console.error('Error loading Entry Task posting permission:', error);
+			entryTaskPostingBranchIds = new Set();
+		}
+	}
 
 	async function setupBankSlipRequestRealtime() {
 		if (!$currentUser?.id) return;
@@ -281,10 +336,21 @@
 	async function loadErpCheckCounts() {
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase.rpc('get_receiving_records_with_details', {
+			const issueParams = {
 				p_limit: 1,
+				p_branch_id: effectiveBranchId(),
 				p_erp_check_status_filter: 'issues'
-			});
+			};
+			if (receivedDateFrom) issueParams.p_received_date_from = receivedDateFrom;
+			if (receivedDateTo) issueParams.p_received_date_to = receivedDateTo;
+			let { data, error } = await supabase.rpc('get_receiving_records_with_details', issueParams);
+			if (error?.code === 'PGRST202') {
+				({ data, error } = await supabase.rpc('get_receiving_records_with_details', {
+					p_limit: 1,
+					p_branch_id: effectiveBranchId(),
+					p_erp_check_status_filter: 'issues'
+				}));
+			}
 			if (error) throw error;
 			checkIssueCount = data?.[0]?.total_count || 0;
 		} catch (err) {
@@ -323,7 +389,7 @@
 								.rpc('get_receiving_records_with_details', {
 									p_limit: 500,
 									p_offset: 0,
-									p_branch_id: null,
+									p_branch_id: effectiveBranchId(),
 									p_vendor_search: null,
 									p_pr_excel_filter: null,
 									p_erp_ref_filter: null
@@ -477,13 +543,26 @@
 	async function loadBranches() {
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
-			const { data, error } = await supabase
+			let query = supabase
 				.from('branches')
 				.select('id, name_en, name_ar, location_en, location_ar')
 				.eq('is_active', true)
 				.order('name_en');
+			const ownBranchId = loggedUserBranchId();
+			if (!$currentUser?.isMasterAdmin) {
+				if (!ownBranchId) {
+					branches = [];
+					selectedBranchFilter = '';
+					return;
+				}
+				query = query.eq('id', ownBranchId);
+			}
+			const { data, error } = await query;
 			if (!error && data) {
 				branches = data;
+				if (ownBranchId && data.some((branch) => Number(branch.id) === ownBranchId)) {
+					selectedBranchFilter = String(ownBranchId);
+				}
 			}
 		} catch (err) {
 			console.error('Error loading branches:', err);
@@ -672,9 +751,9 @@
 			
 			console.log('📋 Starting RPC-based receiving records load (500 per page)...');
 			
-			// Reset loaded records and filters
+			// Reset loaded records and non-branch filters. The branch was resolved
+			// before this call and must remain selected for the initial RPC.
 			allLoadedRecords = [];
-			selectedBranchFilter = '';
 			selectedPrExcelFilter = '';
 			vendorSearchTerm = '';
 			selectedErpRefFilter = '';
@@ -709,11 +788,13 @@
 			const rpcParams = {
 				p_limit: pageSize,
 				p_offset: startIdx,
-				p_branch_id: selectedBranchFilter || null,
+				p_branch_id: effectiveBranchId(),
 				p_vendor_search: vendorSearchTerm?.trim() || null,
 				p_pr_excel_filter: selectedPrExcelFilter || null,
 				p_erp_ref_filter: selectedErpRefFilter || null
 			};
+			if (receivedDateFrom) rpcParams.p_received_date_from = receivedDateFrom;
+			if (receivedDateTo) rpcParams.p_received_date_to = receivedDateTo;
 			const erpReferenceSearch = erpReferenceSearchTerm?.trim();
 			if (erpReferenceSearch) {
 				rpcParams.p_erp_reference_search = erpReferenceSearch;
@@ -729,7 +810,7 @@
 				if (billDateTo) rpcParams.p_bill_date_to = billDateTo;
 			}
 			const hasEnhancedFilters = Boolean(
-				erpReferenceSearch || rpcParams.p_bill_date_from || rpcParams.p_bill_date_to || erpCheckStatusFilter
+				receivedDateFrom || receivedDateTo || erpReferenceSearch || rpcParams.p_bill_date_from || rpcParams.p_bill_date_to || erpCheckStatusFilter
 			);
 
 			console.log(`📄 Loading page ${pageNum} via RPC (offset: ${startIdx}, limit: ${pageSize}, filters: ${JSON.stringify(rpcParams)})...`);
@@ -746,6 +827,8 @@
 				delete legacyParams.p_erp_reference_search;
 				delete legacyParams.p_bill_date_from;
 				delete legacyParams.p_bill_date_to;
+				delete legacyParams.p_received_date_from;
+				delete legacyParams.p_received_date_to;
 				delete legacyParams.p_erp_check_status_filter;
 				const legacyResult = await supabase.rpc('get_receiving_records_with_details', legacyParams);
 				const fallbackMatches = legacyResult.data?.filter((record) =>
@@ -753,6 +836,8 @@
 						.toLowerCase().includes(erpReferenceSearch.toLowerCase())) &&
 					(!rpcParams.p_bill_date_from || record.bill_date >= rpcParams.p_bill_date_from) &&
 					(!rpcParams.p_bill_date_to || record.bill_date <= rpcParams.p_bill_date_to) &&
+					(!receivedDateFrom || riyadhCalendarDateForValue(record.created_at) >= receivedDateFrom) &&
+					(!receivedDateTo || riyadhCalendarDateForValue(record.created_at) <= receivedDateTo) &&
 					(!erpCheckStatusFilter || erpCheckStatusFilter !== 'issues' ||
 						record.original_bill_check_result?.status === 'mismatch' ||
 						['mismatch', 'not_found'].includes(record.erp_check_result?.status))
@@ -851,6 +936,12 @@
 			receivingRecords = [];
 			paginatedRecords = [];
 		}
+	}
+
+	function riyadhCalendarDateForValue(value) {
+		return new Intl.DateTimeFormat('en-CA', {
+			timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit'
+		}).format(new Date(value));
 	}
 
 	// Load archived records on-demand
@@ -970,6 +1061,23 @@
 		reloadWithFilters();
 	}
 
+	function onBranchFilterChange() {
+		reloadWithFilters();
+		loadErpCheckCounts();
+	}
+
+	function onReceivedDateModeChange() {
+		if (receivedDateMode === 'recent') {
+			receivedDateFrom = riyadhCalendarDate(-5);
+			receivedDateTo = riyadhCalendarDate();
+		} else {
+			receivedDateFrom = '';
+			receivedDateTo = '';
+		}
+		reloadWithFilters();
+		loadErpCheckCounts();
+	}
+
 	// Called by on:input on vendor search (debounced)
 	function onVendorSearchInput() {
 		if (vendorSearchTimer) clearTimeout(vendorSearchTimer);
@@ -1072,7 +1180,7 @@
 	}
 
 	async function sendBankPaymentTask(record) {
-		if (sendingBankPaymentTaskId === record.id || bankPaymentTasksByRecord[String(record.id)]) return;
+		if (!canPostPaymentTask(record) || sendingBankPaymentTaskId === record.id || bankPaymentTasksByRecord[String(record.id)]) return;
 		sendingBankPaymentTaskId = record.id;
 		try {
 			const response = await authenticatedFetch('/api/assistant-tasks', {
@@ -1092,7 +1200,7 @@
 	}
 
 	async function sendCashPaymentTask(record) {
-		if (sendingCashPaymentTaskId === record.id || cashPaymentTasksByRecord[String(record.id)]) return;
+		if (!canPostPaymentTask(record) || sendingCashPaymentTaskId === record.id || cashPaymentTasksByRecord[String(record.id)]) return;
 		sendingCashPaymentTaskId = record.id;
 		try {
 			const response = await authenticatedFetch('/api/assistant-tasks', {
@@ -1702,7 +1810,8 @@
 	}
 
 	function canPostPaymentTask(record) {
-		return !!record.pr_excel_file_url &&
+		const hasPostingPermission = $currentUser?.isMasterAdmin || entryTaskPostingBranchIds.has(Number(record.branch_id));
+		return hasPostingPermission && !!record.pr_excel_file_url &&
 			(originalBillCheckStatus[record.id] || record.original_bill_check_result?.status) === 'matched' &&
 			(erpCheckStatus[record.id] || record.erp_check_result?.status) === 'matched';
 	}
@@ -2186,11 +2295,11 @@
 
 	<!-- Filter Controls -->
 	<div class="px-8 pt-6">
-		<div class="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 items-start">
+		<div class="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 items-start">
 			<div class="min-w-0">
 				<label for="branch-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.dashboard.filterByBranch')}</label>
-				<select id="branch-filter" bind:value={selectedBranchFilter} on:change={onFilterChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
-					<option value="">{$t('receiving.dashboard.allBranches')}</option>
+				<select id="branch-filter" bind:value={selectedBranchFilter} on:change={onBranchFilterChange} disabled={!isMasterAdmin} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all disabled:opacity-70 disabled:cursor-not-allowed">
+					{#if isMasterAdmin}<option value="">{$t('receiving.dashboard.allBranches')}</option>{/if}
 					{#each branches as branch}
 						<option value={branch.id}>
 							{$currentLocale === 'ar' ? (branch.name_ar || branch.name_en) : branch.name_en}
@@ -2198,6 +2307,13 @@
 							{$currentLocale === 'ar' ? (branch.location_ar || branch.location_en) : branch.location_en}
 						</option>
 					{/each}
+				</select>
+			</div>
+			<div class="min-w-0">
+				<label for="received-date-filter" class="block mb-2 text-xs font-bold uppercase tracking-wide text-slate-600">{$t('receiving.records.receivedDateFilter')}</label>
+				<select id="received-date-filter" bind:value={receivedDateMode} on:change={onReceivedDateModeChange} class="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white/80 backdrop-blur-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+					<option value="recent">{$t('receiving.records.lastFiveDaysPlusToday')}</option>
+					<option value="all">{$t('receiving.records.allReceivedDates')}</option>
 				</select>
 			</div>
 			<div class="min-w-0">

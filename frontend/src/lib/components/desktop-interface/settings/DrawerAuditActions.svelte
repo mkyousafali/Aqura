@@ -9,6 +9,7 @@
   type User = { id: string; nameEn: string; nameAr: string; branchId: number };
   type Row = {
     id: string; at: string; branchId: number; userId: string; userNameEn: string; userNameAr: string;
+    requestedByNameEn: string; requestedByNameAr: string; requestedToNameEn: string; requestedToNameAr: string;
     branchNameEn: string; branchNameAr: string; action: string; reason: string;
     requestId: string; requestNumber: string; printer: string; printStatus: string; posCounter: string; posNumber: string;
     amount: number | null; status: string; details: Record<string, unknown>;
@@ -28,8 +29,13 @@
   let users: User[] = [];
   let actions: string[] = [];
   let statuses: string[] = [];
-  let from = '';
-  let to = '';
+  function riyadhDate(offsetDays = 0) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date(Date.now() + offsetDays * 86400000));
+  }
+  let from = kind === 'safeBox' ? riyadhDate(-1) : '';
+  let to = kind === 'safeBox' ? riyadhDate() : '';
   let branchId = '';
   let userId = '';
   let action = '';
@@ -58,8 +64,25 @@
       users = data.users || [];
       if (lockedBranchId != null) branchId = String(lockedBranchId);
       else if (branches.length === 1) branchId = String(branches[0].id);
+      if (kind === 'safeBox' && lockedBranchId == null) {
+        branchId = '';
+        await loadPeriodBranches();
+      }
       await loadRows();
     } catch (cause) { error = cause instanceof Error ? cause.message : 'Could not load report filters.'; }
+  }
+
+  async function loadPeriodBranches() {
+    if (kind !== 'safeBox' || lockedBranchId != null) return;
+    const params = new URLSearchParams({ mode: 'action-branches', from, to });
+    const response = await fetch(`/api/drawer-action-audit?${params}`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load branches with actions.');
+    branches = data.branches || [];
+    if (branchId && !branches.some(item => String(item.id) === branchId)) {
+      branchId = '';
+      userId = '';
+    }
   }
 
   async function loadRows() {
@@ -93,14 +116,34 @@
   }
 
   function applyFilters() { page = 0; void loadRows(); }
+  async function dateChanged() {
+    if (kind === 'safeBox' && lockedBranchId == null) {
+      branchId = '';
+      userId = '';
+      page = 0;
+      try {
+        await loadPeriodBranches();
+      } catch (cause) {
+        branches = [];
+        error = cause instanceof Error ? cause.message : 'Could not load branches with actions.';
+      }
+    }
+    applyFilters();
+  }
   function searchChanged() { clearTimeout(searchTimer); searchTimer = setTimeout(applyFilters, 350); }
   function resetFilters() {
-    from = ''; to = ''; branchId = lockedBranchId != null ? String(lockedBranchId) : ''; userId = ''; action = ''; status = ''; search = '';
-    clearTimeout(searchTimer); applyFilters();
+    from = kind === 'safeBox' ? riyadhDate(-1) : '';
+    to = kind === 'safeBox' ? riyadhDate() : '';
+    branchId = lockedBranchId != null ? String(lockedBranchId) : ''; userId = ''; action = ''; status = ''; search = '';
+    clearTimeout(searchTimer);
+    if (kind === 'safeBox' && lockedBranchId == null) void dateChanged();
+    else applyFilters();
   }
   function branchChanged() { userId = ''; applyFilters(); }
   function movePage(next: number) { page = next; void loadRows(); }
   function person(row: Row) { return $currentLocale === 'ar' ? row.userNameAr : row.userNameEn; }
+  function requestedBy(row: Row) { return ($currentLocale === 'ar' ? row.requestedByNameAr : row.requestedByNameEn) || '—'; }
+  function requestedTo(row: Row) { return ($currentLocale === 'ar' ? row.requestedToNameAr : row.requestedToNameEn) || '—'; }
   function branch(row: Row) { return $currentLocale === 'ar' ? row.branchNameAr : row.branchNameEn; }
   function userLabel(user: User) { return ($currentLocale === 'ar' ? user.nameAr || user.nameEn : user.nameEn || user.nameAr) || user.id; }
   function branchLabel(item: Branch) { return ($currentLocale === 'ar' ? item.name_ar || item.name_en : item.name_en || item.name_ar) || `Branch ${item.id}`; }
@@ -131,10 +174,10 @@
 
 <div class="audit-report">
   <div class="audit-filters">
-    <label>From Date<input type="date" bind:value={from} on:change={applyFilters} /></label>
-    <label>To Date<input type="date" bind:value={to} on:change={applyFilters} /></label>
-    <label>Branch<select bind:value={branchId} on:change={branchChanged} disabled={lockedBranchId != null || branches.length <= 1}>
-      {#if lockedBranchId == null}<option value="">All permitted branches</option>{/if}
+    <label>From Date<input type="date" bind:value={from} on:change={dateChanged} /></label>
+    <label>To Date<input type="date" bind:value={to} on:change={dateChanged} /></label>
+    <label>Branch<select bind:value={branchId} on:change={branchChanged} disabled={lockedBranchId != null}>
+      {#if lockedBranchId == null}<option value="">{kind === 'safeBox' ? 'All branches with actions' : 'All permitted branches'}</option>{/if}
       {#each branches as item}<option value={item.id}>{branchLabel(item)}</option>{/each}
     </select></label>
     <label>User<select bind:value={userId} on:change={applyFilters}>
@@ -158,12 +201,12 @@
   <div class="audit-summary"><span>{loading ? 'Loading actions…' : `${total.toLocaleString()} actions`}</span><span>Times shown in Saudi Arabia time</span></div>
   <div class="audit-table-wrap">
     <table class="audit-table">
-      <thead><tr><th>Date</th><th>Time</th><th>Branch</th><th>User</th><th>Action</th><th>Reason</th><th>Request ID</th><th>Printer</th><th>Print Status</th>{#if kind === 'safeBox'}<th>Amount</th>{:else}<th>POS Counter</th><th>POS Number</th>{/if}<th>Status</th><th>Details</th></tr></thead>
+      <thead><tr><th>Date</th><th>Time</th><th>Branch</th><th>Action User</th>{#if kind === 'safeBox'}<th>Requested By</th><th>Requested To</th>{/if}<th>Action</th><th>Reason</th><th>Request ID</th><th>Printer</th><th>Print Status</th>{#if kind === 'safeBox'}<th>Amount</th>{:else}<th>POS Counter</th><th>POS Number</th>{/if}<th>Status</th><th>Details</th></tr></thead>
       <tbody>
         {#each rows as row (row.id)}
-          <tr><td>{datePart(row.at)}</td><td>{timePart(row.at)}</td><td>{branch(row)}</td><td>{person(row)}</td><td class="action-name">{row.action}</td><td>{row.reason || '—'}</td><td title={row.requestId}>{row.requestNumber || '—'}</td><td>{row.printer || '—'}</td><td>{row.printStatus || '—'}</td>{#if kind === 'safeBox'}<td>{money(row.amount)}</td>{:else}<td>{row.posCounter || '—'}</td><td>{row.posNumber || '—'}</td>{/if}<td><span class="report-status">{row.status || '—'}</span></td><td><button type="button" class="details-button" aria-expanded={expandedId === row.id} on:click={() => (expandedId = expandedId === row.id ? '' : row.id)}>{expandedId === row.id ? 'Hide Details' : 'View Details'}</button></td></tr>
+          <tr><td>{datePart(row.at)}</td><td>{timePart(row.at)}</td><td>{branch(row)}</td><td>{person(row)}</td>{#if kind === 'safeBox'}<td>{requestedBy(row)}</td><td>{requestedTo(row)}</td>{/if}<td class="action-name">{row.action}</td><td>{row.reason || '—'}</td><td title={row.requestId}>{row.requestNumber || '—'}</td><td>{row.printer || '—'}</td><td>{row.printStatus || '—'}</td>{#if kind === 'safeBox'}<td>{money(row.amount)}</td>{:else}<td>{row.posCounter || '—'}</td><td>{row.posNumber || '—'}</td>{/if}<td><span class="report-status">{row.status || '—'}</span></td><td><button type="button" class="details-button" aria-expanded={expandedId === row.id} on:click={() => (expandedId = expandedId === row.id ? '' : row.id)}>{expandedId === row.id ? 'Hide Details' : 'View Details'}</button></td></tr>
           {#if expandedId === row.id}
-            <tr class="details-row"><td colspan={kind === 'safeBox' ? 12 : 13}>
+            <tr class="details-row"><td colspan={kind === 'safeBox' ? 14 : 13}>
               <div class="details-grid">
                 {#each Object.entries(row.details).filter(([, value]) => value !== null && value !== undefined && value !== '') as [key, value]}
                   <div class="detail-item"><strong>{detailLabel(key)}</strong>
@@ -181,7 +224,7 @@
             </td></tr>
           {/if}
         {:else}
-          {#if !loading && !error}<tr><td class="empty-row" colspan={kind === 'safeBox' ? 12 : 13}>No actions match these filters.</td></tr>{/if}
+          {#if !loading && !error}<tr><td class="empty-row" colspan={kind === 'safeBox' ? 14 : 13}>No actions match these filters.</td></tr>{/if}
         {/each}
       </tbody>
     </table>
