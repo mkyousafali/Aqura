@@ -2525,6 +2525,8 @@
 							</div>
 							{:else if record.payment_method?.trim().toLowerCase() === 'cash on delivery'}
 								{#if canPostPaymentTask(record)}<button type="button" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed" on:click={() => sendCashPaymentTask(record)} disabled={sendingCashPaymentTaskId === record.id || !!cashPaymentTasksByRecord[String(record.id)]} title="Send Cash Payment task to the branch default Entry Task User">{sendingCashPaymentTaskId === record.id ? '⏳ Sending' : (cashPaymentTasksByRecord[String(record.id)] ? '✓ Task Sent' : '➤ Post Task')}</button>{/if}
+							{:else if ['bank credit', 'cash credit'].includes(record.payment_method?.trim().toLowerCase())}
+								<span class="text-[10px] font-bold text-emerald-700">Credit</span>
 							{:else}
 								<span class="text-[10px] font-semibold text-slate-400">{$t('receiving.records.notBankPayment')}</span>
 							{/if}

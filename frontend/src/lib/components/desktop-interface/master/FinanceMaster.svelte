@@ -4,6 +4,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import PaymentManager from '$lib/components/desktop-interface/master/finance/PaymentManager.svelte';
 	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
 	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
+	import BankPaymentPlanner from '$lib/components/desktop-interface/master/finance/BankPaymentPlanner.svelte';
 
 	// Generate unique window ID using timestamp and random number
 	function generateWindowId(type) {
@@ -31,6 +32,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			title: 'Day Budget Planner',
 			description: 'Plan daily budget and reschedule payments',
 			icon: '📊',
+			color: 'green'
+		},
+		{
+			id: 'bank-payment-planner',
+			title: 'Bank Payment Planner',
+			description: 'Plan and manage bank payments',
+			icon: '🏦',
 			color: 'green'
 		}
 	];
@@ -84,6 +92,22 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 				position: { 
 					x: 160 + (Math.random() * 100),
 					y: 160 + (Math.random() * 100) 
+				},
+				resizable: true,
+				minimizable: true,
+				maximizable: true,
+				closable: true
+			});
+		} else if (financeOperation.id === 'bank-payment-planner') {
+			openWindow({
+				id: windowId,
+				title: `Bank Payment Planner #${instanceNumber}`,
+				component: BankPaymentPlanner,
+				icon: financeOperation.icon,
+				size: { width: 1400, height: 900 },
+				position: {
+					x: 180 + (Math.random() * 100),
+					y: 180 + (Math.random() * 100)
 				},
 				resizable: true,
 				minimizable: true,

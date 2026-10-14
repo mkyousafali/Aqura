@@ -8,9 +8,55 @@ function db() {
 	return createClient(env.VITE_SUPABASE_URL || '', env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '');
 }
 
+async function canUseBankPlanner(secureDb: ReturnType<typeof db>, actor: { id: string; isMasterAdmin: boolean }) {
+	if (actor.isMasterAdmin) return true;
+	const { data } = await secureDb.from('button_permissions').select('is_enabled')
+		.eq('user_id', actor.id).eq('button_code', 'BANK_PAYMENT_PLANNER').eq('is_enabled', true).maybeSingle();
+	return data?.is_enabled === true;
+}
+
+async function canManageAiTasks(secureDb: ReturnType<typeof db>, actor: { id: string; isMasterAdmin: boolean }) {
+	if (actor.isMasterAdmin) return true;
+	const { data } = await secureDb.from('button_permissions').select('is_enabled')
+		.eq('user_id', actor.id).eq('button_code', 'AI_AGENT_TASKS').eq('is_enabled', true).maybeSingle();
+	return data?.is_enabled === true;
+}
+
 export const GET: RequestHandler = async ({ cookies, url }) => {
 	try {
 		const user = await requireBreakUser(cookies, 'desktop');
+		if (url.searchParams.get('manage_ai_tasks') === '1') {
+			const secureDb = databaseClient();
+			if (!await canManageAiTasks(secureDb, user)) return json({ success: false, error: 'AI Agent Tasks permission required' }, { status: 403 });
+			const { data: tasks, error } = await secureDb.from('assistant_workflow_tasks').select('*')
+				.in('status', ['pending', 'failed']).order('created_at', { ascending: false });
+			if (error) throw error;
+			const branchIds = [...new Set((tasks || []).map((task) => Number(task.branch_id)).filter(Number.isFinite))];
+			const userIds = [...new Set((tasks || []).map((task) => String(task.assigned_to || '')).filter(Boolean))];
+			const [{ data: branches }, { data: users }] = await Promise.all([
+				branchIds.length ? secureDb.from('branches').select('id,name_en,location_en').in('id', branchIds) : Promise.resolve({ data: [] }),
+				userIds.length ? secureDb.from('users').select('id,username').in('id', userIds) : Promise.resolve({ data: [] })
+			]);
+			const branchById = new Map((branches || []).map((branch) => [Number(branch.id), branch]));
+			const userById = new Map((users || []).map((assignedUser) => [String(assignedUser.id), assignedUser.username]));
+			return json({ success: true, tasks: (tasks || []).map((task) => ({
+				...task,
+				branch_name: branchById.get(Number(task.branch_id))?.location_en || branchById.get(Number(task.branch_id))?.name_en || `Branch ${task.branch_id}`,
+				assigned_to_name: userById.get(String(task.assigned_to)) || String(task.assigned_to)
+			})) });
+		}
+		const bankPlannerDate = url.searchParams.get('bank_planner_date');
+		if (bankPlannerDate) {
+			const secureDb = databaseClient();
+			if (!await canUseBankPlanner(secureDb, user)) return json({ success: false, error: 'Bank Payment Planner permission required' }, { status: 403 });
+			const { data: schedule } = await secureDb.from('bank_payment_planner_schedules').select('id').eq('schedule_date', bankPlannerDate).maybeSingle();
+			if (!schedule) return json({ success: true, tasks: [] });
+			const { data, error } = await secureDb.from('assistant_workflow_tasks')
+				.select('id,task_type,status,payload,workflow_key')
+				.eq('source_record_id', schedule.id).in('task_type', ['bank_planner_bp', 'bank_planner_jv']);
+			if (error) throw error;
+			return json({ success: true, tasks: data || [] });
+		}
 		if (url.searchParams.get('receiving_tasks') === '1') {
 			const { data, error } = await db().from('assistant_workflow_tasks')
 				.select('id,task_type,source_record_id,status,payload')
@@ -37,6 +83,99 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const body = await request.json();
 		const branchId = Number(body.branch_id);
 		const secureDb = databaseClient();
+
+		if (body.task_type === 'bank_payment_planner') {
+			if (!await canUseBankPlanner(secureDb, actor)) return json({ success: false, error: 'Bank Payment Planner permission required' }, { status: 403 });
+			const scheduleDate = String(body.schedule_date || '');
+			const vendorId = String(body.vendor_id || '').trim();
+			const entries = Array.isArray(body.entries) ? body.entries : [];
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduleDate) || !vendorId || !entries.length || entries.length > 25) {
+				return json({ success: false, error: 'Invalid Bank Payment Planner task request' }, { status: 400 });
+			}
+			const { data: schedule, error: scheduleError } = await secureDb.from('bank_payment_planner_schedules')
+				.select('id').eq('schedule_date', scheduleDate).maybeSingle();
+			if (scheduleError || !schedule) return json({ success: false, error: 'The payment schedule was not found' }, { status: 404 });
+			const { data: items, error: itemsError } = await secureDb.from('bank_payment_planner_schedule_items')
+				.select('id,source_type,source_id,source_branch_id,vendor_id,vendor_name,branch_location,bill_number,amount,approval_status,paid_from_branch_id,bank_ledger_id,bank_ledger_name')
+				.eq('schedule_id', schedule.id).eq('vendor_id', vendorId);
+			if (itemsError) throw itemsError;
+			if (!items?.length) return json({ success: false, error: 'The scheduled vendor was not found' }, { status: 404 });
+			if (items.some((item) => String(item.approval_status || '').toLowerCase() !== 'approved')) {
+				return json({ success: false, error: 'All scheduled records must be approved before posting tasks' }, { status: 400 });
+			}
+			const paidFromBranchId = Number(items[0].paid_from_branch_id);
+			const bankLedgerId = Number(items[0].bank_ledger_id);
+			const bankLedgerName = String(items[0].bank_ledger_name || '').trim();
+			if (!Number.isFinite(paidFromBranchId) || !Number.isFinite(bankLedgerId) || !bankLedgerName
+				|| items.some((item) => Number(item.paid_from_branch_id) !== paidFromBranchId || Number(item.bank_ledger_id) !== bankLedgerId)) {
+				return json({ success: false, error: 'Select one paying branch and bank account before posting tasks' }, { status: 400 });
+			}
+			const scheduleAmount = items.reduce((total, item) => total + Number(item.amount || 0), 0);
+			const bpEntries = entries.filter((entry: any) => entry.type === 'bp');
+			if (bpEntries.length !== 1 || Number(bpEntries[0].postingBranchId) !== paidFromBranchId
+				|| Math.abs(Number(bpEntries[0].amount) - scheduleAmount) > 0.005
+				|| Number(bpEntries[0].creditLedger?.id) !== bankLedgerId
+				|| String(bpEntries[0].creditLedger?.name || '').trim() !== bankLedgerName
+				|| String(bpEntries[0].debitLedger?.code || '').trim() !== vendorId) {
+				return json({ success: false, error: 'The planned BP no longer matches the saved schedule' }, { status: 400 });
+			}
+			const allowedBranches = new Set([paidFromBranchId, ...items.map((item) => Number(item.source_branch_id))]);
+			for (const entry of entries) {
+				const amount = Number(entry.amount);
+				if (!['bp', 'jv'].includes(entry.type) || !allowedBranches.has(Number(entry.postingBranchId)) || !(amount > 0)
+					|| !String(entry.debitLedger?.name || '').trim() || !String(entry.creditLedger?.name || '').trim()
+					|| !String(entry.narration || '').trim() || !String(entry.entry || '').trim()) {
+					return json({ success: false, error: 'One or more planned ERP entries are invalid' }, { status: 400 });
+				}
+			}
+			const workflowKeys = entries.map((entry: any) => `bank-planner:${schedule.id}:${vendorId}:${String(entry.entry).trim()}`);
+			const { data: existing } = await secureDb.from('assistant_workflow_tasks').select('workflow_key').in('workflow_key', workflowKeys);
+			if (existing?.length) return json({ success: false, error: 'Posting tasks already exist for this scheduled vendor' }, { status: 409 });
+
+			const postingBranchIds = [...new Set(entries.map((entry: any) => Number(entry.postingBranchId)))];
+			const { data: defaults, error: defaultsError } = await secureDb.from('branch_default_positions')
+				.select('branch_id,entry_task_user_id').in('branch_id', postingBranchIds);
+			if (defaultsError) throw defaultsError;
+			const assigneeByBranch = new Map((defaults || []).map((row) => [Number(row.branch_id), row.entry_task_user_id]));
+			for (const postingBranchId of postingBranchIds) {
+				const assignedTo = assigneeByBranch.get(postingBranchId);
+				if (!assignedTo) return json({ success: false, error: `No default Entry Task User is configured for branch ${postingBranchId}` }, { status: 400 });
+				const { data: employee } = await secureDb.from('hr_employee_master').select('user_id')
+					.eq('is_removed', false).eq('user_id', assignedTo).eq('current_branch_id', postingBranchId).maybeSingle();
+				if (!employee) return json({ success: false, error: `The default Entry Task User is not active in branch ${postingBranchId}` }, { status: 400 });
+			}
+			const vendorName = String(items[0].vendor_name || vendorId);
+			const billNumbers = items.map((item) => `${item.bill_number || `${item.source_type}-${item.source_id}`} (${item.branch_location || 'Unknown branch'})`).join(', ');
+			const taskRows = entries.map((entry: any, index: number) => {
+				const amount = Number(entry.amount).toFixed(2);
+				const isBp = entry.type === 'bp';
+				return {
+					task_type: isBp ? 'bank_planner_bp' : 'bank_planner_jv',
+					title: `${isBp ? 'Bank Payment' : 'Inter-branch JV'} - ${vendorName} - ${scheduleDate}`,
+					branch_id: Number(entry.postingBranchId), assigned_to: assigneeByBranch.get(Number(entry.postingBranchId)),
+					created_by: actor.id, source_record_id: schedule.id, workflow_key: workflowKeys[index], status: 'pending',
+					payload: {
+						schedule_date: scheduleDate, vendor_id: vendorId, vendor_name: vendorName,
+						entry: entry.entry, bill_number: billNumbers, amount, narration: String(entry.narration),
+						...(isBp ? {
+							bank_account_id: bankLedgerId, bank_account: bankLedgerName,
+							ledger_code: String(entry.debitLedger.code), ledger_name: String(entry.debitLedger.name)
+						} : {
+							lines: [
+								{ ledger_name: String(entry.debitLedger.name), amount, side: 'Debit', narration: String(entry.narration) },
+								{ ledger_name: String(entry.creditLedger.name), amount, side: 'Credit', narration: String(entry.narration) }
+							]
+						})
+					}
+				};
+			});
+			const { data, error } = await secureDb.from('assistant_workflow_tasks').insert(taskRows).select();
+			if (error) {
+				if (error.code === '23505') return json({ success: false, error: 'Posting tasks already exist for this scheduled vendor' }, { status: 409 });
+				throw error;
+			}
+			return json({ success: true, tasks: data || [] });
+		}
 
 		if (body.task_type === 'receiving_bank_payment') {
 			if (body.pay_to_credit_transaction_id) {
@@ -249,6 +388,23 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ success: true, task: data });
 	} catch (error: any) {
 		return json({ success: false, error: error.message || 'Task creation failed' }, { status: 400 });
+	}
+};
+
+export const DELETE: RequestHandler = async ({ request, cookies }) => {
+	try {
+		const actor = await requireBreakUser(cookies, 'desktop');
+		const secureDb = databaseClient();
+		if (!await canManageAiTasks(secureDb, actor)) return json({ success: false, error: 'AI Agent Tasks permission required' }, { status: 403 });
+		const body = await request.json();
+		if (!body.id) return json({ success: false, error: 'Task ID is required' }, { status: 400 });
+		const { data, error } = await secureDb.from('assistant_workflow_tasks').delete()
+			.eq('id', body.id).in('status', ['pending', 'failed']).select('id').maybeSingle();
+		if (error) throw error;
+		if (!data) return json({ success: false, error: 'Only pending or failed AI tasks can be deleted' }, { status: 409 });
+		return json({ success: true, id: data.id });
+	} catch (error: any) {
+		return json({ success: false, error: error.message || 'Task deletion failed' }, { status: 400 });
 	}
 };
 

@@ -40,6 +40,8 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Coupon Reports": "COUPON_REPORTS",
   "Expense Manager": "EXPENSE_MANAGER",
   "Day Budget Planner": "DAY_BUDGET_PLANNER",
+  "Bank Payment Planner": "BANK_PAYMENT_PLANNER",
+  "AI Agent Tasks": "AI_AGENT_TASKS",
   "Monthly Manager": "MONTHLY_MANAGER",
   "Paid Manager": "PAID_MANAGER",
   "Expense Tracker": "EXPENSE_TRACKER",

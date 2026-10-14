@@ -4,6 +4,9 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
+	export let plannerTitle = 'Day Budget Planner';
+	export let plannerSubtitle = 'Plan and manage daily cash flow';
+
 	// Component state
 	let isLoading = false;
 	let selectedDate = '';
@@ -1177,8 +1180,8 @@
 			<div class="flex items-center gap-3 flex-shrink-0">
 				<span class="text-2xl">📊</span>
 				<div>
-					<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">Day Budget Planner</h2>
-					<p class="text-[10px] text-slate-500">Plan and manage daily cash flow</p>
+					<h2 class="text-base font-black text-slate-800 uppercase tracking-wide">{plannerTitle}</h2>
+					<p class="text-[10px] text-slate-500">{plannerSubtitle}</p>
 				</div>
 			</div>
 

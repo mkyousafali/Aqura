@@ -40,6 +40,7 @@
 	import InterfaceAccessManager from '$lib/components/desktop-interface/settings/InterfaceAccessManager.svelte';
 	import SupportAppAccess from '$lib/components/desktop-interface/settings/SupportAppAccess.svelte';
 	import DefaultEntryTaskUsers from '$lib/components/desktop-interface/settings/DefaultEntryTaskUsers.svelte';
+	import DefaultAccountsOtherBranches from '$lib/components/desktop-interface/settings/DefaultAccountsOtherBranches.svelte';
 	import SafeBoxControl from '$lib/components/desktop-interface/settings/SafeBoxControl.svelte';
 	import BreakPermissionManager from '$lib/components/desktop-interface/master/hr/BreakPermissionManager.svelte';
 	import DenominationPermissionManager from '$lib/components/desktop-interface/master/finance/DenominationPermissionManager.svelte';
@@ -56,6 +57,7 @@
 		| 'approval'
 		| 'defaultIncidentUsers'
 		| 'defaultEntryTaskUsers'
+		| 'defaultAccountsOtherBranches'
 		| 'interface'
 		| 'breakRegister'
 		| 'denomination'
@@ -126,6 +128,7 @@
 		{ id: 'salaryStatement', icon: '💰', labelKey: 'nav.salaryStatement', fallback: 'Salary Statement', locked: !isMasterAdmin, group: 'approvals' },
 		{ id: 'defaultIncidentUsers', icon: '🚨', labelKey: 'nav.incidentManager', fallback: 'Incident Manager', locked: !isMasterAdmin, group: 'defaults' },
 		{ id: 'defaultEntryTaskUsers', icon: '🧾', labelKey: 'nav.defaultEntryTaskUsers', fallback: 'Default Entry Task Users', locked: !isMasterAdmin, group: 'defaults' },
+		{ id: 'defaultAccountsOtherBranches', icon: '🏦', labelKey: 'nav.defaultAccountsOtherBranches', fallback: 'Default Accounts of Other Branches', locked: !isMasterAdmin, group: 'defaults' },
 		{ id: 'branchDefaultPositions', icon: '👥', labelKey: 'nav.branchDefaultPositions', fallback: 'Branch Default Positions', locked: !isMasterAdmin, group: 'defaults' },
 		{ id: 'buttonAccess', icon: '🔘', labelKey: 'nav.buttonAccessControl', fallback: 'Button Access Control', locked: !canButtonAccess, group: 'access' },
 		{ id: 'interface', icon: '🖥️', labelKey: 'nav.interfaceAccess', fallback: 'Interface Permissions', locked: !canInterfaceAccess, group: 'access' },
@@ -201,6 +204,9 @@
 		{/if}
 		{#if activeTab === 'defaultEntryTaskUsers' && isMasterAdmin}
 			<DefaultEntryTaskUsers />
+		{/if}
+		{#if activeTab === 'defaultAccountsOtherBranches' && isMasterAdmin}
+			<DefaultAccountsOtherBranches />
 		{/if}
 		{#if activeTab === 'interface' && canInterfaceAccess}
 			<InterfaceAccessManager />
