@@ -378,7 +378,7 @@
 			// Check for duplicate bills before saving
 			console.log('Checking for duplicate payment schedules...');
 			const { data: existingRecords, error: duplicateError } = await supabase
-				.from('vendor_payment_schedule')
+				.from('vendor_payment_schedule_with_vendor')
 				.select('id, bill_number, bill_amount, created_at, vendor_name, branch_name')
 				.eq('vendor_id', selectedVendor.erp_vendor_id.toString()) // Use vendor_id and convert to string
 				.eq('branch_id', selectedBranch.id)
@@ -415,8 +415,7 @@
 				.from('vendor_payment_schedule')
 				.insert({
 					bill_number: manualForm.bill_number,
-					vendor_id: selectedVendor.erp_vendor_id.toString(), // Use vendor_id and convert to string
-					vendor_name: selectedVendor.vendor_name,
+					vendor_id: selectedVendor.erp_vendor_id,
 					branch_id: selectedBranch.id,
 					branch_name: selectedBranch.name_en,
 				bill_date: manualForm.bill_date,

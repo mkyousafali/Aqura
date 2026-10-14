@@ -156,7 +156,7 @@
 			const selectedDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
 
 			const { data: scheduleData, error } = await supabase
-				.from('vendor_payment_schedule')
+				.from('vendor_payment_schedule_with_vendor')
 				.select('*')
 				.eq('due_date', selectedDate)
 				.limit(5000);
@@ -389,7 +389,6 @@
 				.insert({
 					bill_number: splitBillNumber,
 					vendor_id: splitPayment.vendor_id,
-					vendor_name: splitPayment.vendor_name,
 					branch_id: splitPayment.branch_id,
 					branch_name: splitPayment.branch_name,
 					bill_amount: splitAmount,

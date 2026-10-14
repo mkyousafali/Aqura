@@ -381,7 +381,7 @@
 
 			// Fetch only current month records (much faster)
 			const { data: scheduleData, error } = await supabase
-				.from('vendor_payment_schedule')
+				.from('vendor_payment_schedule_with_vendor')
 				.select(`
 					*,
 					receiving_records!receiving_record_id (
@@ -1082,7 +1082,6 @@
 					receiving_record_id: originalPayment.receiving_record_id, // Keep same receiving_record_id for traceability
 					bill_number: originalPayment.bill_number + '-SPLIT',
 					vendor_id: originalPayment.vendor_id,
-					vendor_name: originalPayment.vendor_name,
 					branch_id: originalPayment.branch_id,
 					branch_name: originalPayment.branch_name,
 					bill_date: originalPayment.bill_date,
@@ -1121,7 +1120,7 @@
 			if (isPaid) {
 				// First, get the payment details with receiving record information
 				const { data: paymentData, error: paymentError } = await supabase
-					.from('vendor_payment_schedule')
+					.from('vendor_payment_schedule_with_vendor')
 					.select(`
 						*,
 						receiving_records!receiving_record_id (

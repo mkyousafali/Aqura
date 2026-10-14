@@ -1814,7 +1814,7 @@
 		const vendorName = payToCreditVendorName(transaction);
 		if (!vendorName) { processError = 'Vendor name is missing from this transaction.'; return; }
 		loadingUnpaidVendorBills = true;
-		const { data, error } = await supabase.from('vendor_payment_schedule')
+		const { data, error } = await supabase.from('vendor_payment_schedule_with_vendor')
 			.select('*')
 			.eq('branch_id', Number(selectedBranch))
 			.eq('is_paid', false)
@@ -1923,7 +1923,7 @@
 				if (!splitId) throw new Error('The split was created but its new record was not returned.');
 				selectedIds.push(splitId);
 				const vendorName = payToCreditVendorName(processingPayToCredit);
-				const { data: refreshedBills, error: refreshError } = await supabase.from('vendor_payment_schedule')
+				const { data: refreshedBills, error: refreshError } = await supabase.from('vendor_payment_schedule_with_vendor')
 					.select('*').eq('branch_id', Number(selectedBranch)).eq('is_paid', false)
 					.ilike('vendor_name', vendorName).order('due_date', { ascending: true });
 				if (refreshError) throw refreshError;

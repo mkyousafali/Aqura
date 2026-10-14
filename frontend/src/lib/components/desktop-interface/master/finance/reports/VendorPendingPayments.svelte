@@ -472,7 +472,7 @@
 				const from = page * pageSize;
 				const to = from + pageSize - 1;
 				const { data, error, count } = await supabase
-					.from('vendor_payment_schedule')
+					.from('vendor_payment_schedule_with_vendor')
 					.select('vendor_id, vendor_name', { count: 'exact' })
 					.range(from, to);
 				if (error) throw error;
@@ -510,7 +510,7 @@
 			const vendorIdInt = parseInt(selectedVendorId);
 			const [paymentResult, expenseResult] = await Promise.all([
 				supabase
-					.from('vendor_payment_schedule')
+					.from('vendor_payment_schedule_with_vendor')
 					.select(`*, branches!branch_id (name_en, name_ar)`)
 					.eq('vendor_id', selectedVendorId)
 					.order('due_date', { ascending: true }),

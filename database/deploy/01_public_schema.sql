@@ -1945,7 +1945,6 @@ CREATE FUNCTION public.auto_create_payment_schedule() RETURNS trigger
 DECLARE
     schedule_date TIMESTAMPTZ;
     existing_schedule_id UUID;
-    v_vendor_name TEXT;
     v_branch_name TEXT;
     v_final_amount NUMERIC;
 BEGIN
@@ -1961,12 +1960,6 @@ BEGIN
         
         -- Only create if it doesn't exist
         IF existing_schedule_id IS NULL THEN
-            -- Get vendor name from vendors table
-            SELECT vendor_name INTO v_vendor_name
-            FROM vendors
-            WHERE erp_vendor_id = NEW.vendor_id
-            LIMIT 1;
-            
             -- Get branch name from branches table
             SELECT name_en INTO v_branch_name
             FROM branches
@@ -1994,7 +1987,6 @@ BEGIN
                 receiving_record_id,
                 bill_number,
                 vendor_id,
-                vendor_name,
                 branch_id,
                 branch_name,
                 bill_date,
@@ -2017,8 +2009,7 @@ BEGIN
             ) VALUES (
                 NEW.id,
                 NEW.bill_number,
-                NEW.vendor_id::text,  -- Cast integer to text
-                v_vendor_name,
+                NEW.vendor_id,
                 NEW.branch_id,
                 v_branch_name,
                 NEW.bill_date,
@@ -16171,14 +16162,15 @@ CREATE FUNCTION public.get_paid_vendor_payments(p_date_from date, p_date_to date
     SET search_path TO 'public'
     AS $$
   SELECT
-    v.id, v.bill_number, v.vendor_name, v.final_bill_amount,
-    v.bill_date, v.branch_id, v.payment_method, v.bank_name, v.iban,
-    v.is_paid, v.paid_date, v.due_date, v.payment_reference
-  FROM vendor_payment_schedule v
-  WHERE v.is_paid = true
-    AND v.due_date >= p_date_from
-    AND v.due_date <= p_date_to
-  ORDER BY v.due_date DESC;
+    s.id, s.bill_number, v.vendor_name::character varying, s.final_bill_amount,
+    s.bill_date, s.branch_id, s.payment_method, s.bank_name, s.iban,
+    s.is_paid, s.paid_date, s.due_date, s.payment_reference
+  FROM vendor_payment_schedule s
+  JOIN vendors v ON v.erp_vendor_id = s.vendor_id AND v.branch_id = s.branch_id
+  WHERE s.is_paid = true
+    AND s.due_date >= p_date_from
+    AND s.due_date <= p_date_to
+  ORDER BY s.due_date DESC;
 $$;
 
 
@@ -18783,11 +18775,11 @@ BEGIN
   FROM expense_scheduler
   WHERE vendor_id IS NOT NULL;
 
-  -- 3. Get distinct vendors by vendor_id only (deduplicated), prefer vps name
+  -- 3. Get distinct vendors by vendor_id only (deduplicated), prefer vendor master name
   WITH all_vendors AS (
-    SELECT vendor_id::text AS vid, vendor_name AS vname, 1 AS priority
-    FROM vendor_payment_schedule
-    WHERE vendor_id IS NOT NULL AND vendor_name IS NOT NULL
+    SELECT s.vendor_id::text AS vid, v.vendor_name AS vname, 1 AS priority
+    FROM vendor_payment_schedule s
+    JOIN vendors v ON v.erp_vendor_id = s.vendor_id AND v.branch_id = s.branch_id
     UNION ALL
     SELECT vendor_id::text AS vid, vendor_name AS vname, 2 AS priority
     FROM expense_scheduler
@@ -18941,18 +18933,23 @@ CREATE FUNCTION public.get_vendors_with_unpaid_balances() RETURNS TABLE(vendor_i
     LANGUAGE sql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+  WITH normalized_payments AS (
+    SELECT s.*, v.vendor_name
+    FROM vendor_payment_schedule s
+    JOIN vendors v ON v.erp_vendor_id = s.vendor_id AND v.branch_id = s.branch_id
+  )
   SELECT 
-    COALESCE(vps.vendor_id, es.vendor_id::text) AS vendor_id,
+    COALESCE(vps.vendor_id::text, es.vendor_id::text) AS vendor_id,
     COALESCE(vps.vendor_name, es.vendor_name) AS vendor_name,
     COALESCE(SUM(CASE WHEN vps.is_paid = false THEN vps.final_bill_amount ELSE 0 END), 0) AS unpaid_payments,
     COALESCE(SUM(CASE WHEN es.is_paid = false THEN es.amount ELSE 0 END), 0) AS unpaid_expenses,
     COALESCE(SUM(CASE WHEN vps.is_paid = false THEN vps.final_bill_amount ELSE 0 END), 0) +
     COALESCE(SUM(CASE WHEN es.is_paid = false THEN es.amount ELSE 0 END), 0) AS total_unpaid
-  FROM vendor_payment_schedule vps
+  FROM normalized_payments vps
   FULL OUTER JOIN expense_scheduler es 
-    ON vps.vendor_id::integer = es.vendor_id AND vps.vendor_name = es.vendor_name
+    ON vps.vendor_id = es.vendor_id AND vps.vendor_name = es.vendor_name
   WHERE vps.vendor_id IS NOT NULL OR es.vendor_id IS NOT NULL
-  GROUP BY COALESCE(vps.vendor_id, es.vendor_id::text), COALESCE(vps.vendor_name, es.vendor_name)
+  GROUP BY COALESCE(vps.vendor_id::text, es.vendor_id::text), COALESCE(vps.vendor_name, es.vendor_name)
   ORDER BY total_unpaid DESC;
 $$;
 
@@ -40199,9 +40196,8 @@ CREATE TABLE public.vendor_payment_schedule (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     receiving_record_id uuid,
     bill_number character varying(255),
-    vendor_id character varying(255),
-    vendor_name character varying(255),
-    branch_id integer,
+    vendor_id integer NOT NULL,
+    branch_id integer NOT NULL,
     branch_name character varying(255),
     bill_date date,
     bill_amount numeric(15,2),
@@ -40266,6 +40262,18 @@ CREATE TABLE public.vendor_payment_schedule (
 --
 
 COMMENT ON TABLE public.vendor_payment_schedule IS 'Schedule and track vendor payments';
+
+
+--
+-- Name: vendor_payment_schedule_with_vendor; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vendor_payment_schedule_with_vendor
+WITH (security_invoker='true') AS
+ SELECT s.*,
+    v.vendor_name
+   FROM (public.vendor_payment_schedule s
+     JOIN public.vendors v ON (((v.erp_vendor_id = s.vendor_id) AND (v.branch_id = s.branch_id))));
 
 
 --
@@ -54874,6 +54882,14 @@ ALTER TABLE ONLY public.vendor_payment_schedule
 
 ALTER TABLE ONLY public.vendor_payment_schedule
     ADD CONSTRAINT vendor_payment_schedule_branch_id_fkey FOREIGN KEY (branch_id) REFERENCES public.branches(id);
+
+
+--
+-- Name: vendor_payment_schedule vendor_payment_schedule_vendor_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vendor_payment_schedule
+    ADD CONSTRAINT vendor_payment_schedule_vendor_fkey FOREIGN KEY (vendor_id, branch_id) REFERENCES public.vendors(erp_vendor_id, branch_id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
@@ -72196,6 +72212,16 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.vendor_payment_schedule TO ano
 GRANT SELECT ON TABLE public.vendor_payment_schedule TO authenticated;
 GRANT ALL ON TABLE public.vendor_payment_schedule TO service_role;
 GRANT SELECT ON TABLE public.vendor_payment_schedule TO replication_user;
+
+
+--
+-- Name: TABLE vendor_payment_schedule_with_vendor; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.vendor_payment_schedule_with_vendor TO anon;
+GRANT SELECT ON TABLE public.vendor_payment_schedule_with_vendor TO authenticated;
+GRANT SELECT ON TABLE public.vendor_payment_schedule_with_vendor TO service_role;
+GRANT SELECT ON TABLE public.vendor_payment_schedule_with_vendor TO replication_user;
 
 
 --

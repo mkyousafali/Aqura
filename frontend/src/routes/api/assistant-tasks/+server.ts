@@ -201,7 +201,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				if (!await canPostReceivingPaymentTask(secureDb, actor, Number(transaction.branch_id))) {
 					return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
 				}
-				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule')
+				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule_with_vendor')
 					.select('id,bill_number,vendor_name,final_bill_amount,bill_amount,is_paid,branch_id')
 					.in('id', selectedBillIds)
 					.eq('branch_id', transaction.branch_id)
@@ -311,7 +311,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 					return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
 				}
 				if (transaction.payment_account_type !== 'cash') return json({ success: false, error: 'This Pay to Credit transaction is not a cash payment' }, { status: 400 });
-				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule')
+				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule_with_vendor')
 					.select('id,bill_number,vendor_name,final_bill_amount,bill_amount,is_paid,branch_id')
 					.in('id', selectedBillIds).eq('branch_id', transaction.branch_id).eq('is_paid', false);
 				if (billsError) throw billsError;

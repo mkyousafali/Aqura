@@ -816,7 +816,7 @@
 		try {
 			// Load vendor payments for the date range
 			const { data: vendorData, error: vendorError } = await supabase
-				.from('vendor_payment_schedule')
+				.from('vendor_payment_schedule_with_vendor')
 				.select('*')
 				.gte('due_date', dateRangeStart)
 				.lte('due_date', dateRangeEnd)
@@ -870,7 +870,7 @@
 	async function loadVendorPayments() {
 		try {
 			const { data, error } = await supabase
-				.from('vendor_payment_schedule')
+				.from('vendor_payment_schedule_with_vendor')
 				.select('*')
 				.eq('due_date', selectedDate)
 				.eq('is_paid', false)
@@ -938,7 +938,7 @@
 	async function loadNonApprovedPayments() {
 		try {
 			const { data, error } = await supabase
-				.from('vendor_payment_schedule')
+				.from('vendor_payment_schedule_with_vendor')
 				.select('id, vendor_name, bill_amount, final_bill_amount, due_date, approval_status')
 				.eq('due_date', selectedDate)
 				.eq('is_paid', false)
@@ -1069,7 +1069,6 @@
 					.insert({
 						bill_number: splitItem.bill_number + '-SPLIT',
 						vendor_id: splitItem.vendor_id,
-						vendor_name: splitItem.vendor_name,
 						branch_id: splitItem.branch_id,
 						branch_name: splitItem.branch_name,
 						bill_date: splitItem.bill_date,

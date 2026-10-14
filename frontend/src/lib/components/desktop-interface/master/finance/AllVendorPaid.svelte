@@ -114,7 +114,7 @@
 				const to = from + pageSize - 1;
 
 				const { data, error } = await supabase
-					.from('vendor_payment_schedule')
+					.from('vendor_payment_schedule_with_vendor')
 					.select('id, bill_number, vendor_name, vendor_id, final_bill_amount, paid_date, branch_id, payment_method, payment_reference')
 					.eq('is_paid', true)
 					.order('paid_date', { ascending: false })

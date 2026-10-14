@@ -1035,7 +1035,7 @@ async function loadHistoricalData() {
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Approve vendor payment
 				const { data: paymentData, error: fetchError } = await supabase
-					.from('vendor_payment_schedule')
+					.from('vendor_payment_schedule_with_vendor')
 					.select('*')
 					.eq('id', requisitionId)
 					.single();
@@ -1335,7 +1335,7 @@ async function loadHistoricalData() {
 			} else if (selectedRequisition.item_type === 'vendor_payment') {
 				// Reject vendor payment
 				const { data: paymentData, error: fetchError } = await supabase
-					.from('vendor_payment_schedule')
+					.from('vendor_payment_schedule_with_vendor')
 					.select('*')
 					.eq('id', requisitionId)
 					.single();

@@ -47,7 +47,7 @@ serve(async (req) => {
         .lte('created_at', dayEnd),
 
       // 3. Paid vendor bills — use updated_at (when payment was actually recorded)
-      supabase.from('vendor_payment_schedule')
+      supabase.from('vendor_payment_schedule_with_vendor')
         .select('vendor_name, final_bill_amount, payment_method, branch_id, branch_name')
         .eq('is_paid', true)
         .gte('updated_at', dayStart)

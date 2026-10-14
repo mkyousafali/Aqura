@@ -114,7 +114,7 @@
 		vendorLoadingPercent = 25;
 
 		const { data: vendorPayments, error: vendorError } = await supabase
-			.from('vendor_payment_schedule')
+			.from('vendor_payment_schedule_with_vendor')
 			.select('id, vendor_name, final_bill_amount, due_date, is_paid, bill_date, branch_id, payment_method')
 			.lte('due_date', dueDateLimit)
 			.eq('is_paid', false)

@@ -2200,7 +2200,6 @@
 				bill_date: recordUpdate.bill_date,
 				branch_id: recordUpdate.branch_id,
 				vendor_id: recordUpdate.vendor_id,
-				vendor_name: selectedVendor?.vendor_name || null,
 				vat_number: selectedVendor?.vat_number || null,
 				payment_method: recordUpdate.payment_method,
 				bank_name: recordUpdate.bank_name,
