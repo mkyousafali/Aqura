@@ -2,8 +2,6 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
-const PILOT_BRANCH_IDS = new Set([1, 3])
-
 type ErpSupplier = {
   PartyCode?: unknown
   PartyName?: unknown
@@ -48,17 +46,15 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}))
     const branchId = Number(body.branchId)
-    if (!PILOT_BRANCH_IDS.has(branchId)) {
-      return jsonResponse({
-        success: false,
-        error: 'Pilot synchronization is restricted to Aqura Branches 1 and 3',
-      }, 400)
+    const syncMode = body.syncMode === 'auto' ? 'auto' : 'manual'
+    if (!Number.isSafeInteger(branchId) || branchId <= 0) {
+      return jsonResponse({ success: false, error: 'A valid branchId is required' }, 400)
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey)
     const { data: connection, error: connectionError } = await supabase
       .from('erp_connections')
-      .select('branch_id,erp_branch_id,tunnel_url,bridge_api_secret')
+      .select('branch_id,erp_branch_id,tunnel_url,bridge_api_secret,vendor_sync_enabled,vendor_auto_sync_enabled')
       .eq('branch_id', branchId)
       .eq('is_active', true)
       .maybeSingle()
@@ -66,6 +62,12 @@ serve(async (req) => {
     if (connectionError) throw connectionError
     if (!connection?.tunnel_url || !connection?.bridge_api_secret || !connection?.erp_branch_id) {
       return jsonResponse({ success: false, error: 'No active ERP tunnel is configured' }, 404)
+    }
+    if (!connection.vendor_sync_enabled) {
+      return jsonResponse({ success: false, error: 'Vendor synchronization is disabled for this branch' }, 403)
+    }
+    if (syncMode === 'auto' && !connection.vendor_auto_sync_enabled) {
+      return jsonResponse({ success: false, error: 'Automatic vendor synchronization is disabled for this branch' }, 403)
     }
 
     const erpBranchId = Number(connection.erp_branch_id)
@@ -208,10 +210,22 @@ serve(async (req) => {
       if (failed?.error) throw failed.error
     }
 
+    const syncedAt = new Date().toISOString()
+    if (syncMode === 'auto') {
+      const { error: timestampError } = await supabase
+        .from('erp_connections')
+        .update({ vendor_last_auto_sync_at: syncedAt })
+        .eq('branch_id', branchId)
+        .eq('is_active', true)
+      if (timestampError) throw timestampError
+    }
+
     return jsonResponse({
       success: true,
       branchId,
       erpBranchId,
+      syncMode,
+      syncedAt,
       erpRows: suppliers.length,
       validSuppliers: valid.size,
       inserted,

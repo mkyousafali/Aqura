@@ -2,6 +2,8 @@
 	import { onMount, tick } from 'svelte';
 	import { t, locale } from '$lib/i18n';
 	import { supabase } from '$lib/utils/supabase';
+	import { currentUser } from '$lib/utils/persistentAuth';
+	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
 	import EditVendor from './EditVendor.svelte';
@@ -28,12 +30,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	let isLoading = true;
 	let error = null;
 	let loadingProgress = 0; // Track loading progress
+	let activeView = 'vendors';
+	let syncBranches = [];
+	let syncBranchesLoading = false;
+	let syncBranchesError = '';
+	let updatingSyncSetting = '';
+	let syncingBranchId = null;
+	let syncMessages = {};
 
 	// Branch filtering
 	let branches = [];
 	let selectedBranch = '';
 	let loadingBranches = false;
-	let branchFilterMode = 'all'; // 'all', 'branch', 'unassigned'
 
 	// Column visibility management
 	let showColumnSelector = false;
@@ -99,32 +107,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		{ key: 'actions', label: t('vendorManagement.actions') }
 	];
 
-	// Load vendor data on component mount
-	// Reactive statements
-	$: if (branchFilterMode === 'all') {
-		selectedBranch = null;
-		loadVendors();
-	} else if (branchFilterMode === 'unassigned') {
-		selectedBranch = null;
-		loadVendors();
-	} else if (branchFilterMode === 'branch') {
-		// Reset vendors when switching to branch mode
-		if (!selectedBranch) {
-			vendors = [];
-			filteredVendors = [];
-			totalVendors = 0;
-		} else {
-			loadVendors();
-		}
-	}
-
-	// Load vendors when branch selection changes (only for branch mode)
-	$: if (branchFilterMode === 'branch' && selectedBranch) {
-		loadVendors();
+	function loggedUserBranchId() {
+		const branchId = Number($currentUser?.branch_id);
+		return Number.isInteger(branchId) && branchId > 0 ? branchId : null;
 	}
 
 	onMount(async () => {
 		await loadBranches();
+		if (!$currentUser?.isMasterAdmin) {
+			selectedBranch = String(loggedUserBranchId() ?? -1);
+		}
 		await loadVendors();
 	});
 
@@ -147,6 +139,99 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		}
 	}
 
+	async function openSyncView() {
+		activeView = 'sync';
+		await loadSyncBranches();
+	}
+
+	async function loadSyncBranches() {
+		syncBranchesLoading = true;
+		syncBranchesError = '';
+		try {
+			const { data, error } = await supabase
+				.from('erp_connections')
+				.select('branch_id,branch_name,erp_branch_id,database_name,tunnel_url,updated_at,vendor_sync_enabled,vendor_auto_sync_enabled,vendor_last_auto_sync_at')
+				.eq('is_active', true)
+				.not('tunnel_url', 'is', null)
+				.order('branch_name');
+
+			if (error) throw error;
+			const activeBranchIds = new Set(branches.map((branch) => Number(branch.id)));
+			syncBranches = (data || []).filter((connection) =>
+				activeBranchIds.has(Number(connection.branch_id)) && String(connection.tunnel_url || '').trim()
+			);
+		} catch (loadError) {
+			console.error('Error loading vendor sync branches:', loadError);
+			syncBranchesError = loadError?.message || 'Could not load configured ERP tunnels.';
+			syncBranches = [];
+		} finally {
+			syncBranchesLoading = false;
+		}
+	}
+
+	async function updateSyncSetting(connection, field, enabled) {
+		if (!$currentUser?.isMasterAdmin) return;
+		if (!['vendor_sync_enabled', 'vendor_auto_sync_enabled'].includes(field)) return;
+
+		const updateKey = `${connection.branch_id}:${field}`;
+		updatingSyncSetting = updateKey;
+		syncBranchesError = '';
+		try {
+			const response = await authenticatedFetch('/api/vendor-sync', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'toggle',
+					branchId: connection.branch_id,
+					setting: field === 'vendor_sync_enabled' ? 'sync' : 'auto',
+					enabled
+				})
+			});
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Could not update the sync setting.');
+			syncBranches = syncBranches.map((row) =>
+				Number(row.branch_id) === Number(connection.branch_id)
+					? {
+						...row,
+						[field]: enabled,
+						...(field === 'vendor_sync_enabled' && !enabled ? { vendor_auto_sync_enabled: false } : {}),
+						updated_at: new Date().toISOString()
+					}
+					: row
+			);
+		} catch (updateError) {
+			console.error('Error updating vendor sync setting:', updateError);
+			syncBranchesError = updateError?.message || 'Could not update the sync setting.';
+		} finally {
+			updatingSyncSetting = '';
+		}
+	}
+
+	async function runManualVendorSync(connection) {
+		if (!connection.vendor_sync_enabled || syncingBranchId !== null) return;
+		syncingBranchId = connection.branch_id;
+		syncMessages = { ...syncMessages, [connection.branch_id]: 'Synchronizing…' };
+		try {
+			const response = await authenticatedFetch('/api/vendor-sync', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'sync', branchId: connection.branch_id })
+			});
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Vendor synchronization failed.');
+			syncMessages = {
+				...syncMessages,
+				[connection.branch_id]: `Completed: ${result.inserted || 0} added, ${result.namesUpdated || 0} names updated, ${result.vatsUpdated || 0} VAT updated`
+			};
+			await loadVendors();
+		} catch (syncError) {
+			console.error('Manual vendor synchronization failed:', syncError);
+			syncMessages = { ...syncMessages, [connection.branch_id]: syncError?.message || 'Vendor synchronization failed.' };
+		} finally {
+			syncingBranchId = null;
+		}
+	}
+
 	// Load vendors from database using a dedicated RPC for faster loading
 	async function loadVendors() {
 		try {
@@ -154,21 +239,16 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			error = null;
 			loadingProgress = 0;
 
-			if (branchFilterMode === 'branch' && !selectedBranch) {
-				vendors = [];
-				filteredVendors = [];
-				displayedVendors = [];
-				totalVendors = 0;
-				isLoading = false;
-				return;
-			}
-
-			const branchId = branchFilterMode === 'branch' ? selectedBranch ?? null : null;
+			const ownBranchId = loggedUserBranchId();
+			const branchId = $currentUser?.isMasterAdmin
+				? (selectedBranch || null)
+				: String(ownBranchId ?? -1);
+			const mode = branchId ? 'branch' : 'all';
 			const searchTerm = searchQuery?.trim() || null;
 
 			const { data, error: rpcError } = await supabase.rpc('get_vendor_management_list', {
 				p_branch_id: branchId,
-				p_mode: branchFilterMode,
+				p_mode: mode,
 				p_search: searchTerm
 			});
 
@@ -587,11 +667,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 </script>
 
 <div class="manage-vendor">
+	<div class="vendor-tabs" role="tablist" aria-label="Vendor management views">
+		<button type="button" class:active={activeView === 'vendors'} on:click={() => activeView = 'vendors'}>
+			Manage Vendors
+		</button>
+		<button type="button" class:active={activeView === 'sync'} on:click={openSyncView}>
+			Manage Sync
+		</button>
+	</div>
+
+	{#if activeView === 'vendors'}
 	<!-- Unified Top Control Card -->
 	<div class="top-controls-card">
-		<button class="create-btn" on:click={openCreateVendor}>
-			➕ {t('admin.createVendor')}
-		</button>
 		<button class="refresh-btn" on:click={refreshData} disabled={isLoading}>
 			🔄 {t('common.refresh')}
 		</button>
@@ -599,32 +686,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		<div class="v-divider"></div>
 
 		<div class="filter-group">
-			<label class="filter-chip" class:chip-active={branchFilterMode === 'all'}>
-				<input type="radio" bind:group={branchFilterMode} value="all" />
-				<span>{t('vendorManagement.allVendors', { count: totalVendors })}</span>
-			</label>
-			<label class="filter-chip" class:chip-active={branchFilterMode === 'branch'}>
-				<input type="radio" bind:group={branchFilterMode} value="branch" />
-				<span>{t('vendorManagement.byBranch')}</span>
-			</label>
-			<label class="filter-chip" class:chip-active={branchFilterMode === 'unassigned'}>
-				<input type="radio" bind:group={branchFilterMode} value="unassigned" />
-				<span>{t('vendorManagement.unassignedVendors')}</span>
-			</label>
-			{#if branchFilterMode === 'branch'}
-				{#if loadingBranches}
-					<span class="loading-hint">{t('vendorManagement.loadingBranches')}</span>
-				{:else}
-					<select bind:value={selectedBranch} class="branch-select">
-						<option value="">{t('vendorManagement.chooseBranch')}</option>
-						{#each branches as branch}
-							<option value={branch.id}>
-								{branch.name_en} ({branch.name_ar}) - {branch.location_en}
-							</option>
-						{/each}
-					</select>
+			<label for="vendor-branch-filter">{t('vendorManagement.branch')}</label>
+			<select
+				id="vendor-branch-filter"
+				bind:value={selectedBranch}
+				class="branch-select"
+				disabled={loadingBranches || !$currentUser?.isMasterAdmin}
+				on:change={loadVendors}
+			>
+				{#if $currentUser?.isMasterAdmin}
+					<option value="">{t('vendorManagement.allVendors', { count: totalVendors })}</option>
 				{/if}
-			{/if}
+				{#each branches as branch}
+					<option value={String(branch.id)}>
+						{branch.name_en} ({branch.name_ar}) - {branch.location_en}
+					</option>
+				{/each}
+			</select>
 		</div>
 
 		<div class="v-divider"></div>
@@ -669,16 +747,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	<!-- Status bar -->
 	<div class="status-bar">
-		{#if branchFilterMode === 'branch' && !selectedBranch}
-			<span>{t('vendorManagement.selectBranchHint')}</span>
-		{:else}
-			<span>
-				{t('vendorManagement.showingVendors', { shown: displayedVendors.length, total: filteredVendors.length })}
-				{#if filteredVendors.length < totalVendors}
-					&nbsp;({t('vendorManagement.filteredFrom', { total: totalVendors })})
-				{/if}
-			</span>
-		{/if}
+		<span>
+			{t('vendorManagement.showingVendors', { shown: displayedVendors.length, total: filteredVendors.length })}
+			{#if filteredVendors.length < totalVendors}
+				&nbsp;({t('vendorManagement.filteredFrom', { total: totalVendors })})
+			{/if}
+		</span>
 	</div>
 
 	<!-- Table Section -->
@@ -1043,6 +1117,90 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			</div>
 		{/if}
 	</div>
+	{:else}
+		<div class="sync-panel">
+			<div class="sync-panel-header">
+				<div>
+					<h2>Manage Sync</h2>
+					<p>Active branches with a configured ERP tunnel</p>
+				</div>
+				<button type="button" class="refresh-btn" on:click={loadSyncBranches} disabled={syncBranchesLoading}>
+					🔄 Refresh
+				</button>
+			</div>
+
+			{#if syncBranchesError}
+				<div class="sync-message sync-error">{syncBranchesError}</div>
+			{:else if syncBranchesLoading}
+				<div class="sync-message">Loading configured branches…</div>
+			{:else if syncBranches.length === 0}
+				<div class="sync-message">No active branches have a configured ERP tunnel.</div>
+			{:else}
+				<div class="sync-table-wrap">
+					<table class="sync-table">
+						<thead>
+							<tr>
+								<th>Branch</th>
+								<th>ERP Branch ID</th>
+								<th>Database</th>
+								<th>Tunnel</th>
+								<th>Sync Enabled</th>
+								<th>Auto Sync Enabled</th>
+								<th>Manual Sync</th>
+								<th>Last Auto Sync</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each syncBranches as connection}
+								<tr>
+									<td>{connection.branch_name}</td>
+									<td>{connection.erp_branch_id ?? '—'}</td>
+									<td>{connection.database_name}</td>
+									<td><span class="tunnel-ready">Configured</span></td>
+									<td>
+										<label class="electric-switch" aria-label={`Manual vendor sync for ${connection.branch_name}`}>
+											<input
+												type="checkbox"
+												checked={connection.vendor_sync_enabled}
+												disabled={!$currentUser?.isMasterAdmin || updatingSyncSetting === `${connection.branch_id}:vendor_sync_enabled`}
+												on:change={(event) => updateSyncSetting(connection, 'vendor_sync_enabled', event.currentTarget.checked)}
+											/>
+											<span class="switch-slider"></span>
+										</label>
+									</td>
+									<td>
+										<label class="electric-switch" aria-label={`Automatic vendor sync for ${connection.branch_name}`}>
+											<input
+												type="checkbox"
+												checked={connection.vendor_auto_sync_enabled}
+												disabled={!$currentUser?.isMasterAdmin || !connection.vendor_sync_enabled || updatingSyncSetting === `${connection.branch_id}:vendor_auto_sync_enabled`}
+												on:change={(event) => updateSyncSetting(connection, 'vendor_auto_sync_enabled', event.currentTarget.checked)}
+											/>
+											<span class="switch-slider"></span>
+										</label>
+									</td>
+									<td>
+										<button
+											type="button"
+											class="manual-sync-btn"
+											disabled={!connection.vendor_sync_enabled || syncingBranchId !== null}
+											on:click={() => runManualVendorSync(connection)}
+										>
+											{syncingBranchId === connection.branch_id ? 'Syncing…' : 'Sync Now'}
+										</button>
+										{#if syncMessages[connection.branch_id]}
+											<div class="sync-result">{syncMessages[connection.branch_id]}</div>
+										{/if}
+									</td>
+									<td>{connection.vendor_last_auto_sync_at ? new Date(connection.vendor_last_auto_sync_at).toLocaleString() : 'Never'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -1056,6 +1214,179 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		flex-direction: column;
 		gap: 0.55rem;
 		font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+	}
+
+	.vendor-tabs {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		flex: 0 0 auto;
+	}
+
+	.vendor-tabs button {
+		border: 1px solid #bfdbfe;
+		border-radius: 0.5rem;
+		background: rgba(255, 255, 255, 0.8);
+		color: #334155;
+		font-weight: 700;
+		padding: 0.5rem 0.9rem;
+		cursor: pointer;
+	}
+
+	.vendor-tabs button.active {
+		background: #2563eb;
+		border-color: #2563eb;
+		color: white;
+	}
+
+	.sync-panel {
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+		border: 1px solid rgba(191, 219, 254, 0.9);
+		border-radius: 0.75rem;
+		background: rgba(255, 255, 255, 0.76);
+		color: #334155;
+		padding: 1rem;
+	}
+
+	.sync-panel-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.sync-panel-header h2 {
+		margin: 0 0 0.2rem;
+	}
+
+	.sync-panel-header p {
+		margin: 0;
+		color: #64748b;
+	}
+
+	.sync-message {
+		padding: 2rem;
+		text-align: center;
+		color: #64748b;
+	}
+
+	.sync-error {
+		color: #b91c1c;
+		background: #fef2f2;
+		border-radius: 0.5rem;
+	}
+
+	.sync-table-wrap {
+		overflow: auto;
+		border: 1px solid #dbeafe;
+		border-radius: 0.6rem;
+	}
+
+	.sync-table {
+		width: 100%;
+		border-collapse: collapse;
+		background: white;
+	}
+
+	.sync-table th,
+	.sync-table td {
+		padding: 0.7rem 0.8rem;
+		border-bottom: 1px solid #e2e8f0;
+		text-align: left;
+		font-size: 0.82rem;
+	}
+
+	.sync-table th {
+		background: #eff6ff;
+		color: #334155;
+		font-weight: 700;
+	}
+
+	.tunnel-ready {
+		display: inline-block;
+		padding: 0.2rem 0.5rem;
+		border-radius: 999px;
+		background: #dcfce7;
+		color: #166534;
+		font-weight: 700;
+	}
+
+	.electric-switch {
+		position: relative;
+		display: inline-block;
+		width: 42px;
+		height: 23px;
+	}
+
+	.electric-switch input {
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+
+	.switch-slider {
+		position: absolute;
+		inset: 0;
+		border-radius: 999px;
+		background: #cbd5e1;
+		cursor: pointer;
+		transition: 0.2s;
+	}
+
+	.switch-slider::before {
+		content: '';
+		position: absolute;
+		width: 17px;
+		height: 17px;
+		left: 3px;
+		top: 3px;
+		border-radius: 50%;
+		background: white;
+		box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+		transition: 0.2s;
+	}
+
+	.electric-switch input:checked + .switch-slider {
+		background: #16a34a;
+	}
+
+	.electric-switch input:checked + .switch-slider::before {
+		transform: translateX(19px);
+	}
+
+	.electric-switch input:disabled + .switch-slider {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.manual-sync-btn {
+		border: 1px solid #2563eb;
+		border-radius: 0.45rem;
+		background: #2563eb;
+		color: white;
+		font-size: 0.78rem;
+		font-weight: 700;
+		padding: 0.38rem 0.65rem;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.manual-sync-btn:disabled {
+		border-color: #cbd5e1;
+		background: #e2e8f0;
+		color: #94a3b8;
+		cursor: not-allowed;
+	}
+
+	.sync-result {
+		max-width: 220px;
+		margin-top: 0.3rem;
+		font-size: 0.7rem;
+		line-height: 1.3;
+		color: #475569;
 	}
 
 	/* ===================== TOP CONTROL CARD ===================== */

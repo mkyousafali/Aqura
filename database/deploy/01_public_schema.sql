@@ -26461,6 +26461,23 @@ $$;
 
 
 --
+-- Name: enforce_vendor_sync_switches(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_vendor_sync_switches() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+begin
+  if new.vendor_sync_enabled is not true then
+    new.vendor_auto_sync_enabled := false;
+  end if;
+  return new;
+end;
+$$;
+
+
+--
 -- Name: update_erp_daily_sales_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -33199,7 +33216,10 @@ CREATE TABLE public.erp_connections (
     erp_branch_id integer,
     tunnel_url text,
     loyalty_database_name text,
-    bridge_api_secret text
+    bridge_api_secret text,
+    vendor_sync_enabled boolean DEFAULT false NOT NULL,
+    vendor_auto_sync_enabled boolean DEFAULT false NOT NULL,
+    vendor_last_auto_sync_at timestamp with time zone
 );
 
 
@@ -33222,6 +33242,27 @@ COMMENT ON COLUMN public.erp_connections.tunnel_url IS 'Cloudflare Tunnel URL fo
 --
 
 COMMENT ON COLUMN public.erp_connections.bridge_api_secret IS 'Per-branch shared secret for the ERP bridge x-api-secret header. Replaces the hardcoded aqura-erp-bridge-2026 constant (AQ-SEC-003).';
+
+
+--
+-- Name: COLUMN erp_connections.vendor_sync_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.erp_connections.vendor_sync_enabled IS 'Allows manual ERP vendor synchronization for this branch.';
+
+
+--
+-- Name: COLUMN erp_connections.vendor_auto_sync_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.erp_connections.vendor_auto_sync_enabled IS 'Allows scheduled ERP vendor synchronization for this branch.';
+
+
+--
+-- Name: COLUMN erp_connections.vendor_last_auto_sync_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.erp_connections.vendor_last_auto_sync_at IS 'Most recent successful scheduled ERP vendor synchronization for this branch.';
 
 
 --
@@ -51538,6 +51579,13 @@ CREATE TRIGGER update_customer_app_media_timestamp BEFORE UPDATE ON public.custo
 --
 
 CREATE TRIGGER update_erp_connections_updated_at BEFORE UPDATE ON public.erp_connections FOR EACH ROW EXECUTE FUNCTION public.update_erp_connections_updated_at();
+
+
+--
+-- Name: erp_connections enforce_vendor_sync_switches; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER enforce_vendor_sync_switches BEFORE INSERT OR UPDATE OF vendor_sync_enabled, vendor_auto_sync_enabled ON public.erp_connections FOR EACH ROW EXECUTE FUNCTION public.enforce_vendor_sync_switches();
 
 
 --
