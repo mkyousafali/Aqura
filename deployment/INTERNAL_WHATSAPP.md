@@ -104,6 +104,12 @@ These UI checks control visibility only. Backend features that expose protected 
 
 ## Existing employee assistant features
 
+### Semantic intent routing
+
+Free-text internal requests are classified by Gemini into a small, structured tool intent before the general conversational reply runs. The classifier understands spelling/grammar mistakes, indirect wording, and Arabic or English; it does not depend on a fixed list of exact phrases. Current secured intents are own attendance today, own shift/schedule, assigned-employee attendance, and sales report. Interactive replies and active multi-step states remain deterministic.
+
+The classifier may choose a tool, language, and written employee name only. It cannot return operational facts or grant access. Each selected tool independently rechecks the sender, permission, branch scope, and authoritative Aqura/ERP data before replying. If classification is unavailable, the existing deterministic intent handlers remain as a fallback.
+
 ### Aqura Companion / مرافق أكورا
 
 Internal AI settings are separate from customer AI settings. The configured internal assistant name is:

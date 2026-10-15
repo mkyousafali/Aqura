@@ -504,6 +504,36 @@ async function handleIncomingMessage(
         if (handled) return;
       }
       if (isInternalAccount) {
+        const semanticIntent = await classifyInternalAssistantIntent(
+          supabase, conversationId, content,
+          typeof buttonReplyId === "string" ? buttonReplyId : ""
+        );
+        if (semanticIntent?.intent === "self_attendance_today") {
+          await sendInternalShiftDetails(supabase, conversationId, senderPhone, saudiDateString(), semanticIntent.language === "ar");
+          return;
+        }
+        if (semanticIntent?.intent === "self_shift") {
+          const handled = await tryInternalShiftAssistant(
+            supabase, conversationId, senderPhone,
+            semanticIntent.language === "ar" ? "ورديتي" : "my shift", ""
+          );
+          if (handled) return;
+        }
+        if (semanticIntent?.intent === "employee_attendance") {
+          const handled = await tryInternalAttendanceAssistant(
+            supabase, conversationId, senderPhone,
+            semanticIntent.employee_name || content, "", true,
+            semanticIntent.language === "ar"
+          );
+          if (handled) return;
+        }
+        if (semanticIntent?.intent === "sales_report") {
+          const handled = await tryInternalSalesAssistant(
+            supabase, conversationId, senderPhone,
+            semanticIntent.language === "ar" ? "تقرير المبيعات" : "sales report", ""
+          );
+          if (handled) return;
+        }
         const attendanceHandled = await tryInternalAttendanceAssistant(
           supabase, conversationId, senderPhone, content,
           typeof buttonReplyId === "string" ? buttonReplyId : ""
@@ -626,6 +656,53 @@ async function clearInternalAssistantState(supabase: any, conversationId: string
   await supabase.from("wa_internal_assistant_state").delete().eq("conversation_id", conversationId);
 }
 
+async function classifyInternalAssistantIntent(
+  supabase: any, conversationId: string, content: string, buttonReplyId: string,
+): Promise<{ intent: string; employee_name: string; language: "ar" | "en" } | null> {
+  if (buttonReplyId || !String(content || "").trim()) return null;
+  const { data: state } = await supabase.from("wa_internal_assistant_state")
+    .select("updated_at").eq("conversation_id", conversationId).maybeSingle();
+  if (state && Date.now() - new Date(state.updated_at).getTime() < 15 * 60 * 1000) return null;
+  try {
+    const { data: keyRow } = await supabase.from("system_api_keys").select("api_key")
+      .eq("service_name", "google_gemini").eq("is_active", true).limit(1).maybeSingle();
+    if (!keyRow?.api_key) return null;
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keyRow.api_key}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: `Classify this message from an employee using Aqura's internal WhatsApp assistant.
+Understand intent semantically despite spelling mistakes, grammar mistakes, slang, abbreviations, Arabic dialect, or indirect wording.
+
+Available intents:
+- self_attendance_today: asks for the sender's own attendance, arrival, check-in, or attendance status today.
+- self_shift: asks for the sender's own shift, schedule, working time, or duty details. Use this when no explicit today-attendance request exists.
+- employee_attendance: asks whether another named employee arrived, attended, checked in, or is at work today.
+- sales_report: asks for sales, net sales, or a sales report.
+- none: anything else.
+
+For employee_attendance, extract only the colleague's written name into employee_name. Do not invent a name.
+Set language to ar when the request is Arabic, otherwise en.
+
+Message: ${JSON.stringify(String(content))}` }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 100, thinkingConfig: { thinkingBudget: 0 },
+          responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: {
+            intent: { type: "STRING", enum: ["self_attendance_today", "self_shift", "employee_attendance", "sales_report", "none"] },
+            employee_name: { type: "STRING" }, language: { type: "STRING", enum: ["ar", "en"] },
+          }, required: ["intent", "employee_name", "language"] } },
+      }) },
+    );
+    if (!response.ok) return null;
+    const result = await response.json();
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const parsed = JSON.parse(text);
+    if (!["self_attendance_today", "self_shift", "employee_attendance", "sales_report"].includes(parsed.intent)) return null;
+    return { intent: parsed.intent, employee_name: String(parsed.employee_name || "").trim(), language: parsed.language === "ar" ? "ar" : "en" };
+  } catch (error) {
+    console.warn("Internal assistant intent classification failed; using deterministic fallback:", error);
+    return null;
+  }
+}
+
 function normalizeEmployeeName(value: string): string {
   return String(value || "").toLocaleLowerCase().normalize("NFKD")
     .replace(/[\u064B-\u065F\u0670]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه")
@@ -715,8 +792,9 @@ async function sendAttendanceEmployeeList(
 
 async function tryInternalAttendanceAssistant(
   supabase: any, conversationId: string, senderPhone: string, content: string, buttonReplyId: string,
+  forceIntent = false, forcedArabic?: boolean,
 ): Promise<boolean> {
-  let isArabic = isArabicText(content);
+  let isArabic = forcedArabic ?? isArabicText(content);
   const attendanceIntent = /\b(arriv(?:e|ed|al|ing)|attendance|attended|checked?\s*in|come|came|coming|at\s*work|working\s*today|present)\b/i.test(content) ||
     /(حضر|حضور|وصل|وصلت|داوم|بصم|البصمه|البصمة)/.test(content);
   const { data: state } = await supabase.from("wa_internal_assistant_state")
@@ -749,7 +827,7 @@ async function tryInternalAttendanceAssistant(
     await sendAttendanceEmployeeList(supabase, conversationId, senderPhone, ordered, isArabic, Number(state.context?.page || 0) + 1);
     return true;
   }
-  if (!attendanceIntent) return false;
+  if (!forceIntent && !attendanceIntent) return false;
 
   const permitted = await getPermittedAttendanceEmployees(supabase, senderPhone);
   if (!permitted) {
