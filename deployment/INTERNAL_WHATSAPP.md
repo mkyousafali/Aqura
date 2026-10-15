@@ -119,6 +119,8 @@ Internal AI settings are separate from customer AI settings. The configured inte
 
 The internal AI configuration includes employee-support knowledge, internal escalation rules, privacy boundaries, and internal training examples. Customer links, offers, services, and customer complaint configuration are hidden from the internal AI settings screen.
 
+Arabic replies use professional, clear Arabic with a light Saudi tone. Context-appropriate expressions such as `حياك الله`, `أبشر`, `الله يعافيك`, and `إن شاء الله` may be used naturally, but not mechanically in every reply. Wording remains gender-neutral and avoids heavy slang. Quran/Hadith quotations, religious rulings, and religious advice are excluded. Serious access, complaint, disciplinary, emergency, privacy, and failure messages remain respectful and direct without cheerful expressions. This rule applies only to Internal WhatsApp; English and customer WhatsApp behavior remain unchanged.
+
 ### Shift and attendance self-service
 
 When an employee asks about their shift, the webhook sends three WhatsApp quick replies:

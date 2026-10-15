@@ -816,7 +816,7 @@ async function askInternalEmployeeDate(
   });
   await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
     type: "interactive", interactive: { type: "button",
-      body: { text: isArabic ? "اختر التاريخ المطلوب." : "Choose the required date." },
+      body: { text: isArabic ? "حياك الله، اختر التاريخ المطلوب." : "Choose the required date." },
       action: { buttons: [
         { type: "reply", reply: { id: "internal_employee_date_today", title: isArabic ? "اليوم" : "Today" } },
         { type: "reply", reply: { id: "internal_employee_date_yesterday", title: isArabic ? "أمس" : "Yesterday" } },
@@ -985,7 +985,7 @@ async function sendInternalEmployeeAttendance(
       return isArabic ? `الوردية ${index + 1} (${shift}): لم يحضر` : `Shift ${index + 1} (${shift}): Did not arrive`;
     });
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body:
-      `${isArabic ? (queryKind === "shift" ? "وردية" : "حضور") : (queryKind === "shift" ? "Shift" : "Attendance")}: ${name}\n${date}\n${lines.join("\n")}` } }, "ai_bot");
+      `${isArabic ? (queryKind === "shift" ? "وردية" : "حضور") : (queryKind === "shift" ? "Shift" : "Attendance")}: ${name}\n${date}\n${lines.join("\n")}${isArabic ? "\n\nالله يعافيك." : ""}` } }, "ai_bot");
   } catch (error) {
     console.error("Internal employee attendance query error:", error);
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body: isArabic
@@ -1089,7 +1089,7 @@ async function tryInternalSalesAssistant(
   await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
     type: "interactive", interactive: {
       type: "button",
-      body: { text: isArabic ? "لأي تاريخ تريد تقرير صافي المبيعات؟" : "Which date would you like the net sales report for?" },
+      body: { text: isArabic ? "أبشر، لأي تاريخ تريد تقرير صافي المبيعات؟" : "Which date would you like the net sales report for?" },
       action: { buttons: [
         { type: "reply", reply: { id: "internal_sales_today", title: isArabic ? "اليوم" : "Today" } },
         { type: "reply", reply: { id: "internal_sales_yesterday", title: isArabic ? "أمس" : "Yesterday" } },
@@ -1163,7 +1163,7 @@ async function sendInternalSalesReport(
       : `${row.name}: ${isArabic ? "غير متاح" : "Unavailable"}`);
     if (context.user.is_master_admin)
       lines.push(`${isArabic ? "الإجمالي المتاح" : "Available total"}: ${currency(availableTotal)} ${isArabic ? "ر.س" : "SAR"}`);
-    const body = `${isArabic ? "📊 تقرير صافي المبيعات" : "📊 Net Sales Report"}\n${displaySalesDate(date)}\n\n${lines.join("\n")}`;
+    const body = `${isArabic ? "📊 تقرير صافي المبيعات" : "📊 Net Sales Report"}\n${displaySalesDate(date)}\n\n${lines.join("\n")}${isArabic ? "\n\nالله يعافيك." : ""}`;
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body } }, "ai_bot");
   } catch (error) {
     console.error("Internal sales report error:", error);
@@ -1212,7 +1212,7 @@ async function tryInternalShiftAssistant(
     type: "interactive",
     interactive: {
       type: "button",
-      body: { text: isArabic ? "لأي يوم تريد معرفة تفاصيل دوامك؟" : "Which day would you like your shift details for?" },
+      body: { text: isArabic ? "حياك الله، لأي يوم تريد معرفة تفاصيل دوامك؟" : "Which day would you like your shift details for?" },
       action: { buttons: [
         { type: "reply", reply: { id: "internal_shift_today", title: isArabic ? "اليوم" : "Today" } },
         { type: "reply", reply: { id: "internal_shift_tomorrow", title: isArabic ? "غداً" : "Tomorrow" } },
@@ -1280,6 +1280,7 @@ async function sendInternalShiftDetails(
         body += `\nCheck-in: ${time(record.check_in_time)}\nCheck-out: ${time(record.check_out_time)}`;
       if (!future && record.late_minutes > 0) body += `\nLate: ${record.late_minutes} minutes`;
     }
+    if (isArabic && record) body += `\n\nالله يعافيك.`;
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body } }, "ai_bot");
   } catch (error) {
     console.error("Internal shift assistant error:", error);
