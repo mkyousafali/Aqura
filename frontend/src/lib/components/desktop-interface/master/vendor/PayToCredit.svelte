@@ -27,6 +27,7 @@
 	let editingAmount = '';
 	let savingEditedAmount = false;
 	let savingCashTransaction = false;
+	let savingBankTransaction = false;
 	$: canChangeBranch = !!$currentUser?.isMasterAdmin;
 	$: filteredVendorLedgers = vendorSearch.trim()
 		? vendorLedgers.filter((vendor) => `${vendor.vendor_name || ''} ${vendor.erp_vendor_id || ''}`.toLowerCase().includes(vendorSearch.trim().toLowerCase())).slice(0, 50)
@@ -171,6 +172,31 @@
 			amount = '';
 		}
 		savingCashTransaction = false;
+	}
+
+	async function saveBankTransaction() {
+		const branchId = permittedBranchId();
+		if (!$currentUser?.id || !branchId || selectedVendorLedgerId === null || savingBankTransaction) return;
+		const bankAmount = Number(amount);
+		if (!Number.isFinite(bankAmount) || bankAmount <= 0) return;
+		savingBankTransaction = true;
+		error = '';
+		const values = {
+			branch_id: branchId, requested_by: $currentUser.id,
+			request_type: 'pay_to_credit_slip', payment_account_type: 'bank',
+			request_label: `Pay to Credit · ${vendorSearch}`, status: 'completed',
+			extracted_amount: bankAmount, completed_by: $currentUser.id,
+			completed_at: new Date().toISOString(), updated_at: new Date().toISOString()
+		};
+		const result = await supabase.from('pos_scan_requests')
+			.insert({ ...values, box_operation_id: null, receiving_record_id: null, photo_url: null })
+			.select('id').single();
+		if (result.error) error = result.error.message;
+		else {
+			await loadTransactions();
+			amount = '';
+		}
+		savingBankTransaction = false;
 	}
 
 	function startScanRequestRefresh() {
@@ -358,7 +384,20 @@
 			</div>
 		</div>
 	{:else if paymentAccountType === 'bank'}
-		<div class="mt-5 max-w-xl"><label for="pay-credit-bank-amount" class="block text-sm font-semibold text-slate-700 mb-2">{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</label><div class="flex gap-2"><input id="pay-credit-bank-amount" type="number" min="0" step="0.01" class="flex-1 px-3 py-2.5 border border-slate-300 rounded-lg" bind:value={amount} placeholder="0.00" /><button type="button" class="px-4 py-2.5 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50" on:click={sendScanRequest} disabled={sendingScanRequest || scanRequest?.status === 'pending' || !selectedBranchId || selectedVendorLedgerId === null}>{sendingScanRequest ? 'Sending...' : scanRequest?.status === 'pending' ? 'Waiting for Photo' : 'Send Request'}</button>{#if scanRequest?.status === 'completed' && scanRequest?.photo_url}<button type="button" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50" on:click={getAmountFromSlip} disabled={gettingAmount}>{gettingAmount ? 'Reading...' : 'Get Amount'}</button>{/if}</div></div>
+		<div class="mt-5 max-w-2xl">
+			<label for="pay-credit-bank-amount" class="block text-sm font-semibold text-slate-700 mb-2">{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</label>
+			<div class="flex flex-wrap gap-2">
+				<input id="pay-credit-bank-amount" type="number" min="0" step="0.01" class="min-w-0 flex-1 px-3 py-2.5 border border-slate-300 rounded-lg" bind:value={amount} placeholder="0.00" />
+				<button type="button" class="px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50" on:click={saveBankTransaction} disabled={savingBankTransaction || scanRequest?.status === 'pending' || !selectedBranchId || selectedVendorLedgerId === null || !(Number(amount) > 0)}>
+					{savingBankTransaction ? ($currentLocale === 'ar' ? 'جاري الحفظ...' : 'Saving...') : ($currentLocale === 'ar' ? 'حفظ' : 'Save')}
+				</button>
+				<button type="button" class="px-4 py-2.5 rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50" on:click={sendScanRequest} disabled={sendingScanRequest || savingBankTransaction || scanRequest?.status === 'pending' || !selectedBranchId || selectedVendorLedgerId === null}>
+					{sendingScanRequest ? 'Sending...' : scanRequest?.status === 'pending' ? 'Waiting for Photo' : 'Send Request'}
+				</button>
+				{#if scanRequest?.status === 'completed' && scanRequest?.photo_url}<button type="button" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50" on:click={getAmountFromSlip} disabled={gettingAmount}>{gettingAmount ? 'Reading...' : 'Get Amount'}</button>{/if}
+			</div>
+			<p class="mt-2 text-xs text-slate-500">{$currentLocale === 'ar' ? 'أدخل المبلغ واحفظ مباشرة، أو أرسل طلبًا لرفع إيصال الدفع.' : 'Enter the amount and save directly, or send a request to upload a payment slip.'}</p>
+		</div>
 	{/if}
 
 	{#if paymentAccountType === 'bank' && scanRequest?.status === 'pending'}
@@ -396,11 +435,11 @@
 										{transaction.extracted_amount == null ? '—' : Number(transaction.extracted_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 									{/if}
 								</td>
-								<td class="px-4 py-3"><span class={transaction.status === 'completed' ? 'rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700' : 'rounded-full bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700'}>{transaction.status === 'completed' ? 'Uploaded' : 'Waiting for photo'}</span></td>
+								<td class="px-4 py-3"><span class={transaction.status === 'completed' ? 'rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700' : 'rounded-full bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700'}>{transaction.status === 'completed' ? (transaction.photo_url ? 'Uploaded' : 'Saved') : 'Waiting for photo'}</span></td>
 								<td class="px-4 py-3">{#if transaction.photo_url}<img src={transaction.photo_url} alt="Payment slip" class="h-14 w-20 rounded border border-slate-200 object-cover" />{:else}<span class="text-slate-400">—</span>{/if}</td>
 								<td class="px-4 py-3">
 									<div class="flex flex-wrap gap-2">
-										{#if transaction.status === 'completed' && transaction.photo_url}<button type="button" class="rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white disabled:opacity-50" on:click={() => getAmountFromSlip(transaction)} disabled={gettingAmount}>{gettingAmount && scanRequest?.id === transaction.id ? 'Reading...' : 'Get Amount'}</button>{:else}<span class="text-slate-400">Pending</span>{/if}
+										{#if transaction.status === 'completed' && transaction.photo_url}<button type="button" class="rounded-lg bg-emerald-600 px-3 py-2 font-semibold text-white disabled:opacity-50" on:click={() => getAmountFromSlip(transaction)} disabled={gettingAmount}>{gettingAmount && scanRequest?.id === transaction.id ? 'Reading...' : 'Get Amount'}</button>{:else if transaction.status !== 'completed'}<span class="text-slate-400">Pending</span>{/if}
 										{#if canEditTransaction(transaction)}
 											{#if editingTransactionId === transaction.id}
 												<button type="button" class="rounded-lg bg-blue-600 px-3 py-2 font-semibold text-white disabled:opacity-50" on:click={() => saveEditedTransactionAmount(transaction)} disabled={savingEditedAmount}>{savingEditedAmount ? 'Saving...' : 'Save'}</button>
