@@ -717,7 +717,7 @@ async function tryInternalAttendanceAssistant(
   supabase: any, conversationId: string, senderPhone: string, content: string, buttonReplyId: string,
 ): Promise<boolean> {
   let isArabic = isArabicText(content);
-  const attendanceIntent = /\b(arriv(?:e|ed|al)|attendance|attended|checked?\s*in|come\s*to\s*work|present)\b/i.test(content) ||
+  const attendanceIntent = /\b(arriv(?:e|ed|al|ing)|attendance|attended|checked?\s*in|come|came|coming|at\s*work|working\s*today|present)\b/i.test(content) ||
     /(حضر|حضور|وصل|وصلت|داوم|بصم|البصمه|البصمة)/.test(content);
   const { data: state } = await supabase.from("wa_internal_assistant_state")
     .select("pending_action,context,updated_at").eq("conversation_id", conversationId).maybeSingle();
