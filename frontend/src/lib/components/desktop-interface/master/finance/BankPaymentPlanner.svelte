@@ -29,6 +29,7 @@
 	let vendorResultsElement;
 	const vendorInputId = `bank-planner-vendor-${Math.random().toString(36).slice(2)}`;
 	let unpaidItems = [];
+	let selectedBranchFilter = '';
 	let selectedItemKeys = new Set();
 	let draftSchedules = [];
 	let expandedScheduleKeys = new Set();
@@ -50,8 +51,13 @@
 	$: scheduledItemKeys = new Set(draftSchedules.flatMap(schedule => schedule.items.map(item => item.key)));
 	$: selectedItems = unpaidItems.filter(item => selectedItemKeys.has(item.key));
 	$: selectedTotal = selectedItems.reduce((total, item) => total + item.amount, 0);
-	$: selectableItems = unpaidItems.filter(item => !scheduledItemKeys.has(item.key));
-	$: allItemsSelected = selectableItems.length > 0 && selectedItems.length === selectableItems.length;
+	$: branchOptions = Array.from(new Map(unpaidItems.map(item => [String(item.branch_id), {
+		id: String(item.branch_id), name: item.branch_name, location: item.branch_location
+	}])).values()).sort((a, b) => a.name.localeCompare(b.name) || a.location.localeCompare(b.location));
+	$: visibleUnpaidItems = selectedBranchFilter ? unpaidItems.filter(item => String(item.branch_id) === selectedBranchFilter) : unpaidItems;
+	$: visibleUnpaidTotal = visibleUnpaidItems.reduce((total, item) => total + item.amount, 0);
+	$: selectableItems = visibleUnpaidItems.filter(item => !scheduledItemKeys.has(item.key));
+	$: allItemsSelected = selectableItems.length > 0 && selectableItems.every(item => selectedItemKeys.has(item.key));
 
 	function toggleItemSelection(key, checked) {
 		transferPlan = null;
@@ -65,7 +71,14 @@
 	function toggleAllItems(checked) {
 		transferPlan = null;
 		transferError = '';
-		selectedItemKeys = checked ? new Set(unpaidItems.filter(item => !scheduledItemKeys.has(item.key)).map(item => item.key)) : new Set();
+		selectedItemKeys = checked ? new Set(selectableItems.map(item => item.key)) : new Set();
+	}
+
+	function changeBranchFilter(value) {
+		selectedBranchFilter = value;
+		selectedItemKeys = new Set();
+		transferPlan = null;
+		transferError = '';
 	}
 
 	function toggleScheduleDetails(schedule) {
@@ -258,8 +271,6 @@
 	}
 
 	$: loadUnpaidItems(selectedVendor);
-	$: unpaidTotal = unpaidItems.reduce((total, item) => total + item.amount, 0);
-
 	async function fetchUnpaid(table, fields, vendorId) {
 		const rows = [];
 		for (let offset = 0; ; offset += 1000) {
@@ -275,6 +286,7 @@
 	async function loadUnpaidItems(vendor) {
 		const request = ++unpaidRequest;
 		selectedItemKeys = new Set();
+		selectedBranchFilter = '';
 		unpaidItems = [];
 		unpaidError = '';
 		unpaidLoading = false;
@@ -286,12 +298,12 @@
 				fetchUnpaid('expense_scheduler', 'id, bill_number, bill_date, due_date, branch_id, branch_name, description, amount, payment_method, requisition_id, requisition_number, created_at', vendor.erp_vendor_id)
 			]);
 			const branchIds = [...new Set([...bills, ...expenses].map(item => item.branch_id).filter(id => id != null))];
-			const branchLocations = new Map();
+			const branchDetails = new Map();
 			for (let offset = 0; offset < branchIds.length; offset += 100) {
 				const { data, error } = await supabase.from('branches')
-					.select('id, location_en').in('id', branchIds.slice(offset, offset + 100));
+					.select('id, name_en, location_en').in('id', branchIds.slice(offset, offset + 100));
 				if (error) throw error;
-				for (const branch of data || []) branchLocations.set(String(branch.id), branch.location_en);
+				for (const branch of data || []) branchDetails.set(String(branch.id), branch);
 			}
 			// Approved payment schedules move into expense_scheduler. Requisition
 			// expenses retain a link to the source approval record.
@@ -315,7 +327,10 @@
 					approval_amount: requisitionStatuses.get(String(expense.requisition_id))?.amount,
 					requisition_approver_id: requisitionStatuses.get(String(expense.requisition_id))?.approver_id
 				}))
-			].map(item => ({ ...item, branch_location: branchLocations.get(String(item.branch_id)) || '—' }))
+			].map(item => {
+				const branch = branchDetails.get(String(item.branch_id));
+				return { ...item, branch_name: branch?.name_en || item.branch_name || '—', branch_location: branch?.location_en || '—' };
+			})
 				.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.branch_location.localeCompare(b.branch_location));
 		} catch (error) {
 			if (request === unpaidRequest) unpaidError = 'Unable to load unpaid bills and expenses. Please try again.';
@@ -497,13 +512,14 @@
 			const groups = new Map();
 			for (const item of data?.items || []) {
 				const vendorId = String(item.vendor_id);
-				if (!groups.has(vendorId)) groups.set(vendorId, {
-					key: `${vendorId}-${date}`, vendorId, vendorName: item.vendor_name, date,
+				const applicationBatchId = String(item.application_batch_id);
+				if (!groups.has(applicationBatchId)) groups.set(applicationBatchId, {
+					key: applicationBatchId, applicationBatchId, vendorId, vendorName: item.vendor_name, date,
 					paidFromBranchId: item.paid_from_branch_id == null ? '' : String(item.paid_from_branch_id),
 					bankLedgerId: item.bank_ledger_id == null ? null : Number(item.bank_ledger_id),
 					bankLedgerName: item.bank_ledger_name || '', items: []
 				});
-				groups.get(vendorId).items.push({
+				groups.get(applicationBatchId).items.push({
 					...item, key: `${item.source_type.toLowerCase()}-${item.source_id}`,
 					type: item.source_type, id: item.source_id,
 					branch_location: item.branch_location, status: item.approval_status,
@@ -525,10 +541,10 @@
 			if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load posting task status.');
 			const grouped = {};
 			for (const task of result.tasks || []) {
-				const vendorId = String(task.payload?.vendor_id || '');
-				if (!vendorId) continue;
-				if (!grouped[vendorId]) grouped[vendorId] = [];
-				grouped[vendorId].push(task);
+				const groupKey = String(task.payload?.application_batch_id || task.payload?.vendor_id || '');
+				if (!groupKey) continue;
+				if (!grouped[groupKey]) grouped[groupKey] = [];
+				grouped[groupKey].push(task);
 			}
 			plannerTasksByVendor = grouped;
 		} catch (error) {
@@ -537,7 +553,7 @@
 	}
 
 	async function postScheduleTasks(schedule) {
-		if (postingScheduleKey || plannerTasksByVendor[schedule.vendorId]?.length) return;
+		if (postingScheduleKey || plannerTasksByVendor[schedule.applicationBatchId]?.length) return;
 		postingScheduleKey = schedule.key;
 		scheduleError = '';
 		scheduleMessage = '';
@@ -548,12 +564,12 @@
 				method: 'POST', headers: { 'Content-Type': 'application/json', 'x-aqura-interface': 'desktop' },
 				body: JSON.stringify({
 					task_type: 'bank_payment_planner', schedule_date: selectedScheduleDate,
-					vendor_id: schedule.vendorId, entries
+					vendor_id: schedule.vendorId, application_batch_id: schedule.applicationBatchId, entries
 				})
 			});
 			const result = await response.json();
 			if (!response.ok || !result.success) throw new Error(result.error || 'Unable to post the ERP tasks.');
-			plannerTasksByVendor = { ...plannerTasksByVendor, [schedule.vendorId]: result.tasks || [] };
+			plannerTasksByVendor = { ...plannerTasksByVendor, [schedule.applicationBatchId]: result.tasks || [] };
 			scheduleMessage = `${result.tasks?.length || entries.length} posting task(s) sent to the branch Entry Task user(s).`;
 		} catch (error) {
 			scheduleError = error.message || 'Unable to post the ERP tasks.';
@@ -607,19 +623,27 @@
 		const target = Number(value);
 		const targetCents = Math.round(target * 100);
 		if (!value) {
-			selectedItemKeys = new Set();
 			return;
 		}
 		if (!Number.isFinite(target) || target <= 0 || Math.abs(target * 100 - targetCents) > 0.000001) {
-			selectedItemKeys = new Set();
 			transferError = 'Enter a valid amount with up to two decimal places.';
 			return;
 		}
-		const candidates = unpaidItems.filter(item => item.status === 'approved' && !scheduledItemKeys.has(item.key));
+		const candidates = selectedItems.filter(item => item.status === 'approved' && !scheduledItemKeys.has(item.key));
+		if (candidates.length === 0) {
+			transferError = 'Select at least one approved bill or expense first.';
+			return;
+		}
 		const availableCents = candidates.reduce((sum, item) => sum + Math.round(item.amount * 100), 0);
 		if (targetCents > availableCents) {
-			selectedItemKeys = new Set(candidates.map(item => item.key));
-			transferError = `Approved unscheduled balance is ${formatAmount(availableCents / 100)} SAR.`;
+			transferPlan = {
+				targetAmount: targetCents / 100,
+				fullItems: candidates,
+				fullTotal: availableCents / 100,
+				partialItem: null,
+				partialAmount: 0,
+				overpaymentAmount: (targetCents - availableCents) / 100
+			};
 			return;
 		}
 		let remainingCents = targetCents;
@@ -636,7 +660,6 @@
 			}
 			if (remainingCents === 0) break;
 		}
-		selectedItemKeys = new Set(fullItems.map(item => item.key));
 		transferPlan = {
 			targetAmount: targetCents / 100,
 			fullItems,
@@ -657,6 +680,13 @@
 		transferError = '';
 		try {
 			const scheduleItems = [...plan.fullItems];
+			if (plan.overpaymentAmount > 0 && scheduleItems.length > 0) {
+				const lastIndex = scheduleItems.length - 1;
+				scheduleItems[lastIndex] = {
+					...scheduleItems[lastIndex],
+					amount: scheduleItems[lastIndex].amount + plan.overpaymentAmount
+				};
+			}
 			if (plan.partialItem && plan.partialAmount > 0) {
 				const { data, error } = await supabase.rpc('bank_planner_split_payment', {
 					p_type: plan.partialItem.type, p_id: String(plan.partialItem.id),
@@ -689,7 +719,8 @@
 		scheduleSaving = true;
 		scheduleError = '';
 		const { error } = await supabase.rpc('remove_bank_payment_planner_scheduled_vendor', {
-			p_schedule_date: schedule.date, p_vendor_id: schedule.vendorId
+			p_schedule_date: schedule.date, p_vendor_id: schedule.vendorId,
+			p_application_batch_id: schedule.applicationBatchId
 		});
 		if (error) scheduleError = error.message;
 		else await loadSchedule(selectedScheduleDate);
@@ -784,6 +815,7 @@
 		const { error } = await supabase.rpc('set_bank_payment_planner_branch_bank', {
 			p_schedule_date: branchBankSchedule.date,
 			p_vendor_id: branchBankSchedule.vendorId,
+			p_application_batch_id: branchBankSchedule.applicationBatchId,
 			p_branch_id: Number(branchBankSelection),
 			p_bank_ledger_id: ledger.ledgerId,
 			p_bank_ledger_name: ledger.ledgerName
@@ -846,7 +878,7 @@
 </script>
 
 <div class="relative flex h-full w-full overflow-hidden bg-white">
-	<section aria-label="Vendor bills and expenses" class="h-full w-1/2 min-w-0 overflow-auto border-r border-slate-200 p-2">
+	<section aria-label="Vendor bills and expenses" class="flex h-full w-1/2 min-w-0 flex-col overflow-hidden border-r border-slate-200 p-2">
 	<div class="flex flex-wrap items-end gap-2">
 		<label class="flex flex-col gap-1 text-sm font-medium text-slate-700">
 			Year
@@ -922,13 +954,22 @@
 	</div>
 
 	{#if selectedVendor}
-		<div class="mt-2">
+		<div class="mt-2 flex min-h-0 flex-1 flex-col">
 			{#if approvalPermissionsError}<p role="alert" class="mb-2 text-sm text-red-600">{approvalPermissionsError}</p>{/if}
 			{#if approvalError}<p role="alert" class="mb-2 text-sm text-red-600">{approvalError}</p>{/if}
 			{#if approvalSuccess}<p role="status" class="mb-2 text-sm text-green-700">{approvalSuccess}</p>{/if}
 			<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
 				<h2 class="text-sm font-semibold text-slate-800">Unpaid bills and expenses — {selectedVendor.vendor_name} (All branches)</h2>
-				<button type="button" on:click={() => loadUnpaidItems(selectedVendor)} disabled={unpaidLoading || splitSaving} class="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Refresh</button>
+				<div class="flex items-end gap-2">
+					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+						Branch
+						<select value={selectedBranchFilter} on:change={(event) => changeBranchFilter(event.currentTarget.value)} class="w-64 rounded-md border border-slate-300 bg-white px-2 py-2 text-sm">
+							<option value="">All branches</option>
+							{#each branchOptions as branch}<option value={branch.id}>{branch.name} — {branch.location}</option>{/each}
+						</select>
+					</label>
+					<button type="button" on:click={() => loadUnpaidItems(selectedVendor)} disabled={unpaidLoading || splitSaving} class="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Refresh</button>
+				</div>
 			</div>
 			{#if unpaidLoading}
 				<p class="text-sm text-slate-500">Loading unpaid bills and expenses…</p>
@@ -940,10 +981,10 @@
 						Amount to transfer (SAR)
 						<input type="number" min="0.01" step="0.01" bind:value={transferAmount}
 							disabled={autoTransferSaving || scheduleSaving}
-							on:input={() => { transferPlan = null; transferError = ''; selectedItemKeys = new Set(); }}
+							on:input={() => { transferPlan = null; transferError = ''; }}
 							class="transfer-amount-input w-36 rounded border border-slate-300 px-2 py-1 text-right" placeholder="0.00" />
 						<button type="button" on:click={() => prepareTransferPlan(transferAmount)}
-							disabled={autoTransferSaving || scheduleSaving || !transferAmount}
+							disabled={autoTransferSaving || scheduleSaving || !transferAmount || selectedItems.length === 0}
 							class="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50">Apply</button>
 					</label>
 					<span>Selected: {selectedItems.length}</span>
@@ -958,7 +999,9 @@
 						<p class="font-semibold text-slate-800">Prepare {formatAmount(transferPlan.targetAmount)} SAR for {formatBillDate(selectedScheduleDate)}?</p>
 						<p class="mt-1 text-slate-600">
 							{transferPlan.fullItems.length} full {transferPlan.fullItems.length === 1 ? 'record' : 'records'}: {formatAmount(transferPlan.fullTotal)} SAR.
-							{#if transferPlan.partialItem}
+							{#if transferPlan.overpaymentAmount > 0}
+								<span class="mt-1 block font-semibold text-amber-700">Warning: this payment exceeds the selected balance by {formatAmount(transferPlan.overpaymentAmount)} SAR.</span>
+							{:else if transferPlan.partialItem}
 								Split {formatAmount(transferPlan.partialAmount)} SAR from
 								{transferPlan.partialItem.bill_number || transferPlan.partialItem.requisition_number || `EXP-${transferPlan.partialItem.id}`};
 								the remaining {formatAmount(transferPlan.partialItem.amount - transferPlan.partialAmount)} SAR stays on the original record.
@@ -973,24 +1016,24 @@
 					</div>
 				{/if}
 				{#if scheduleMessage}<p role="status" class="mb-2 text-xs text-slate-600">{scheduleMessage}</p>{/if}
-				<div class="overflow-x-auto rounded-md border border-slate-200">
+				<div class="min-h-0 flex-1 overflow-auto rounded-md border border-slate-200">
 					<table class="w-full text-left text-sm">
-						<thead class="bg-slate-50 text-slate-600">
+						<thead class="sticky top-0 z-10 bg-slate-50 text-slate-600">
 							<tr>
-								<th class="px-2 py-2"><input type="checkbox" aria-label="Select all bills and expenses" checked={allItemsSelected} disabled={unpaidItems.length === 0} on:change={(event) => toggleAllItems(event.currentTarget.checked)} /></th>
-								{#each ['Type', 'Branch location', 'Bill number', 'Bill date', 'Payment method', 'Approval status'] as heading}
+								<th class="px-2 py-2"><input type="checkbox" aria-label="Select all bills and expenses" checked={allItemsSelected} disabled={visibleUnpaidItems.length === 0} on:change={(event) => toggleAllItems(event.currentTarget.checked)} /></th>
+								{#each ['Type', 'Branch', 'Bill number', 'Bill date', 'Payment method', 'Approval status'] as heading}
 									<th class="whitespace-nowrap px-3 py-3 font-medium">{heading}</th>
 								{/each}
 								<th class="px-3 py-3 text-right font-medium">Amount (SAR)</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each unpaidItems as item (item.key)}
+							{#each visibleUnpaidItems as item (item.key)}
 								{@const dueStatus = getDueStatus(item.due_date)}
 								<tr class="border-t border-slate-200">
 									<td class="px-2 py-2"><input type="checkbox" aria-label={`Select ${item.type} ${item.bill_number || item.requisition_number || item.id}`} checked={selectedItemKeys.has(item.key)} disabled={scheduledItemKeys.has(item.key)} title={scheduledItemKeys.has(item.key) ? 'Already scheduled for this date' : ''} on:change={(event) => toggleItemSelection(item.key, event.currentTarget.checked)} /></td>
 									<td class="px-3 py-3">{item.type}</td>
-									<td class="px-3 py-3">{item.branch_location}</td>
+									<td class="px-3 py-3"><span class="block text-xs">{item.branch_name}</span><span class="block text-xs text-slate-500">{item.branch_location}</span></td>
 									<td class="px-3 py-3">
 										<span class="block">{item.bill_number || item.requisition_number || (item.type === 'Expense' ? `EXP-${item.id}` : '—')}</span>
 										{#if item.description}
@@ -1026,8 +1069,8 @@
 								<tr><td colspan="8" class="px-3 py-6 text-center text-slate-500">No unpaid bills or expenses found for this vendor.</td></tr>
 							{/each}
 						</tbody>
-						<tfoot class="border-t border-slate-200 bg-slate-50 font-semibold">
-							<tr><td colspan="7" class="px-3 py-3">Total ({unpaidItems.length} records)</td><td class="whitespace-nowrap px-3 py-3 text-right">{formatAmount(unpaidTotal)}</td></tr>
+						<tfoot class="sticky bottom-0 z-10 border-t border-slate-200 bg-slate-50 font-semibold">
+								<tr><td colspan="7" class="px-3 py-3">Total ({visibleUnpaidItems.length} records)</td><td class="whitespace-nowrap px-3 py-3 text-right">{formatAmount(visibleUnpaidTotal)}</td></tr>
 						</tfoot>
 					</table>
 				</div>
@@ -1081,11 +1124,11 @@
 								<td class="text-center">
 									<div class="flex flex-col items-center gap-1">
 										<button type="button" on:click={() => postScheduleTasks(schedule)}
-											disabled={postingScheduleKey === schedule.key || !!postingScheduleKey || !!plannerTasksByVendor[schedule.vendorId]?.length || !schedule.paidFromBranchId || !schedule.bankLedgerName}
+										disabled={postingScheduleKey === schedule.key || !!postingScheduleKey || !!plannerTasksByVendor[schedule.applicationBatchId]?.length || !schedule.paidFromBranchId || !schedule.bankLedgerName}
 											class="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 disabled:opacity-50">
-											{postingScheduleKey === schedule.key ? 'Postingâ€¦' : plannerTasksByVendor[schedule.vendorId]?.length ? 'âœ“ Task Sent' : 'Post Task'}
+											{postingScheduleKey === schedule.key ? 'Postingâ€¦' : plannerTasksByVendor[schedule.applicationBatchId]?.length ? 'âœ“ Task Sent' : 'Post Task'}
 										</button>
-										<button type="button" on:click={() => removeScheduledVendor(schedule)} disabled={scheduleSaving || !!plannerTasksByVendor[schedule.vendorId]?.length} class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 disabled:opacity-50">Remove</button>
+										<button type="button" on:click={() => removeScheduledVendor(schedule)} disabled={scheduleSaving || !!plannerTasksByVendor[schedule.applicationBatchId]?.length} class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 disabled:opacity-50">Remove</button>
 									</div>
 								</td>
 							</tr>

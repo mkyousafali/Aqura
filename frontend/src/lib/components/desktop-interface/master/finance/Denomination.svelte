@@ -1863,20 +1863,23 @@
 		const target = Number(payToCreditApplyAmount);
 		const targetCents = Math.round(target * 100);
 		if (!Number.isFinite(target) || target <= 0 || Math.abs(target * 100 - targetCents) > 0.000001) {
-			selectedUnpaidBillIds = [];
 			processError = 'Enter a valid amount with up to two decimal places.';
 			return;
 		}
 		if (targetCents > Math.round(payToCreditPaidAmount * 100)) {
-			selectedUnpaidBillIds = [];
 			processError = `Amount cannot exceed the Pay to Credit amount of ${payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.`;
 			return;
 		}
-		const candidates = unpaidVendorBills.filter((bill) => bill.approval_status === 'approved');
+		const candidates = unpaidVendorBills.filter((bill) =>
+			selectedUnpaidBillIds.includes(String(bill.id)) && bill.approval_status === 'approved'
+		);
+		if (candidates.length === 0) {
+			processError = 'Select at least one approved bill first.';
+			return;
+		}
 		const availableCents = candidates.reduce((sum, bill) => sum + Math.round(Number(bill.final_bill_amount || bill.bill_amount || 0) * 100), 0);
 		if (targetCents > availableCents) {
-			selectedUnpaidBillIds = candidates.map((bill) => String(bill.id));
-			processError = `Approved unpaid balance is ${(availableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.`;
+			processError = `The selected approved balance is ${(availableCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.`;
 			return;
 		}
 		let remainingCents = targetCents;
@@ -1893,7 +1896,6 @@
 			}
 			if (remainingCents === 0) break;
 		}
-		selectedUnpaidBillIds = fullBills.map((bill) => String(bill.id));
 		payToCreditAutoPlan = {
 			targetAmount: targetCents / 100,
 			fullBills,
@@ -3691,11 +3693,11 @@
 						<label>
 							Amount to apply (SAR)
 							<input type="number" min="0.01" step="0.01" bind:value={payToCreditApplyAmount}
-								on:input={() => { payToCreditAutoPlan = null; payToCreditApplyMessage = ''; selectedUnpaidBillIds = []; payToCreditTaskSent = false; }}
+								on:input={() => { payToCreditAutoPlan = null; payToCreditApplyMessage = ''; payToCreditTaskSent = false; }}
 								disabled={applyingPayToCreditAmount || sendingPayToCreditTask} placeholder="0.00" />
 						</label>
 						<button type="button" class="pay-credit-process-btn" on:click={preparePayToCreditAutoPlan}
-							disabled={applyingPayToCreditAmount || sendingPayToCreditTask || !payToCreditApplyAmount}>Apply</button>
+							disabled={applyingPayToCreditAmount || sendingPayToCreditTask || !payToCreditApplyAmount || selectedUnpaidBillIds.length === 0}>Apply</button>
 						<span>Pay to Credit: <strong>{payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</strong></span>
 					</div>
 					{#if payToCreditAutoPlan}

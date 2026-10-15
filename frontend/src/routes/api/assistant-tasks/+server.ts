@@ -100,8 +100,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			if (!await canUseBankPlanner(secureDb, actor)) return json({ success: false, error: 'Bank Payment Planner permission required' }, { status: 403 });
 			const scheduleDate = String(body.schedule_date || '');
 			const vendorId = String(body.vendor_id || '').trim();
+			const applicationBatchId = String(body.application_batch_id || '').trim();
 			const entries = Array.isArray(body.entries) ? body.entries : [];
-			if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduleDate) || !vendorId || !entries.length || entries.length > 25) {
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduleDate) || !vendorId || !applicationBatchId || !entries.length || entries.length > 25) {
 				return json({ success: false, error: 'Invalid Bank Payment Planner task request' }, { status: 400 });
 			}
 			const { data: schedule, error: scheduleError } = await secureDb.from('bank_payment_planner_schedules')
@@ -109,7 +110,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			if (scheduleError || !schedule) return json({ success: false, error: 'The payment schedule was not found' }, { status: 404 });
 			const { data: items, error: itemsError } = await secureDb.from('bank_payment_planner_schedule_items')
 				.select('id,source_type,source_id,source_branch_id,vendor_id,vendor_name,branch_location,bill_number,amount,approval_status,paid_from_branch_id,bank_ledger_id,bank_ledger_name')
-				.eq('schedule_id', schedule.id).eq('vendor_id', vendorId);
+				.eq('schedule_id', schedule.id).eq('vendor_id', vendorId).eq('application_batch_id', applicationBatchId);
 			if (itemsError) throw itemsError;
 			if (!items?.length) return json({ success: false, error: 'The scheduled vendor was not found' }, { status: 404 });
 			if (items.some((item) => String(item.approval_status || '').toLowerCase() !== 'approved')) {
@@ -140,7 +141,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 					return json({ success: false, error: 'One or more planned ERP entries are invalid' }, { status: 400 });
 				}
 			}
-			const workflowKeys = entries.map((entry: any) => `bank-planner:${schedule.id}:${vendorId}:${String(entry.entry).trim()}`);
+			const workflowKeys = entries.map((entry: any) => `bank-planner:${schedule.id}:${applicationBatchId}:${String(entry.entry).trim()}`);
 			const { data: existing } = await secureDb.from('assistant_workflow_tasks').select('workflow_key').in('workflow_key', workflowKeys);
 			if (existing?.length) return json({ success: false, error: 'Posting tasks already exist for this scheduled vendor' }, { status: 409 });
 
@@ -168,6 +169,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 					created_by: actor.id, source_record_id: schedule.id, workflow_key: workflowKeys[index], status: 'pending',
 					payload: {
 						schedule_date: scheduleDate, vendor_id: vendorId, vendor_name: vendorName,
+						application_batch_id: applicationBatchId,
 						entry: entry.entry, bill_number: billNumbers, amount, narration: String(entry.narration),
 						...(isBp ? {
 							bank_account_id: bankLedgerId, bank_account: bankLedgerName,
