@@ -271,6 +271,13 @@
             } else {
                 conversations = rows;
             }
+
+            // Keep the open chat synchronized with the freshly calculated Meta
+            // conversation window as it changes or expires.
+            if (selectedConv) {
+                const refreshedSelected = conversations.find(c => c.id === selectedConv?.id);
+                if (refreshedSelected) selectedConv = refreshedSelected;
+            }
             // Main list uses RPC order (last_message_at DESC), no client-side re-sorting needed
             filteredConversations = conversations;
 
@@ -315,6 +322,10 @@
             });
             if (err) throw err;
             priorityConversations = data || [];
+            if (selectedConv) {
+                const refreshedSelected = priorityConversations.find(c => c.id === selectedConv?.id);
+                if (refreshedSelected) selectedConv = refreshedSelected;
+            }
         } catch (e: any) {
             console.error('Priority conversations error:', e);
         }

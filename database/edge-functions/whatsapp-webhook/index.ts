@@ -513,6 +513,20 @@ async function handleIncomingMessage(
           return;
         }
         if (semanticIntent?.intent === "self_shift") {
+          const semanticDate = semanticIntent.requested_date === "today"
+            ? saudiDateString()
+            : semanticIntent.requested_date === "yesterday"
+              ? saudiDateString(-1)
+              : semanticIntent.requested_date === "tomorrow"
+                ? saudiDateString(1)
+                : parseRequestedShiftDate(semanticIntent.requested_date);
+          if (semanticDate) {
+            await sendInternalShiftDetails(
+              supabase, conversationId, senderPhone, semanticDate,
+              semanticIntent.language === "ar",
+            );
+            return;
+          }
           const handled = await tryInternalShiftAssistant(
             supabase, conversationId, senderPhone,
             semanticIntent.language === "ar" ? "ورديتي" : "my shift", ""
@@ -695,7 +709,7 @@ Available intents:
 - none: anything else.
 
 For employee_attendance or employee_shift, extract only the colleague's written name into employee_name. Do not invent a name.
-Set requested_date to today, yesterday, YYYY-MM-DD when explicitly stated, or unspecified when omitted. Resolve relative dates using today's Riyadh date: ${saudiDateString()}.
+Set requested_date to today, yesterday, tomorrow, or YYYY-MM-DD when explicitly stated, or unspecified when omitted. Resolve relative dates using today's Riyadh date: ${saudiDateString()}.
 Set language to ar when the request is Arabic, otherwise en.
 
 Message: ${JSON.stringify(String(content))}` }] }],
