@@ -155,6 +155,7 @@ An enabled attendance-notification recipient can ask whether one monitored emplo
 - A future shift says it has not started; a started shift without a check-in says the employee has not arrived yet.
 - Approved leave, weekly day off, official holiday, and no-shift cases are reported explicitly.
 - Replies use only the detected question language and are generated from authoritative attendance data, not by the language model.
+- All user-facing Internal WhatsApp dates use `DD-MM-YYYY`. All times use 12-hour format: `AM/PM` in English and `ص/م` in Arabic. Database storage remains unchanged.
 - Master Admins are authorized automatically and can search all active employees, including employees outside the monitoring list.
 - Normal attendance-notification recipients remain limited to monitored employees in their assigned branches.
 - Employee attendance and shift requests support Today, Yesterday, or a specific date. When the date is omitted, the assistant asks for it.

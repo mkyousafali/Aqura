@@ -13,6 +13,20 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 
 const safeError = (error: unknown) => error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500)
 
+function formatRiyadhDate(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(date)
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || ''
+  return `${get('day')}-${get('month')}-${get('year')}`
+}
+
+function formatRiyadhTime(date: Date, isArabic = true) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const hour24 = Number(parts.find((part) => part.type === 'hour')?.value || 0)
+  const minute = parts.find((part) => part.type === 'minute')?.value || '00'
+  const period = isArabic ? (hour24 < 12 ? 'ص' : 'م') : (hour24 < 12 ? 'AM' : 'PM')
+  return `${hour24 % 12 || 12}:${minute} ${period}`
+}
+
 async function saveWhatsAppToLiveChat(
   admin: any, accountId: string, phoneValue: string, recipientName: string,
   whatsappMessageId: string | null, content: string, templateName: string,
@@ -151,10 +165,10 @@ serve(async (req: Request) => {
               { type: 'text', text: 'موظف تجريبي' },
               { type: 'text', text: 'فرع تجريبي' },
               { type: 'text', text: 'موقع تجريبي' },
-              { type: 'text', text: new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { timeZone: 'Asia/Riyadh', dateStyle: 'medium' }).format(now) },
+              { type: 'text', text: formatRiyadhDate(now) },
               { type: 'text', text: '08:00 ص' },
               { type: 'text', text: '05:00 م' },
-              { type: 'text', text: new Intl.DateTimeFormat('ar-SA', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit' }).format(now) },
+              { type: 'text', text: formatRiyadhTime(now) },
               { type: 'text', text: '16' },
             ] }],
           },
@@ -172,7 +186,7 @@ serve(async (req: Request) => {
         status: 'sent',
         customer_name: recipientName,
       })
-      const chatContent = `اختبار إشعار الحضور\nهذا إشعار تجريبي فقط، ولم تحدث حالة حضور فعلية.\nوقت الاختبار: ${now.toISOString()}`
+      const chatContent = `اختبار إشعار الحضور\nهذا إشعار تجريبي فقط، ولم تحدث حالة حضور فعلية.\nوقت الاختبار: ${formatRiyadhDate(now)} ${formatRiyadhTime(now)}`
       await saveWhatsAppToLiveChat(
         admin, account.id, contact.whatsapp_number, recipientNameAr || recipientName,
         providerId, chatContent, 'attendance_not_reported_ar',
@@ -189,8 +203,9 @@ serve(async (req: Request) => {
     if (!account) throw new Error('Transactional email account is not configured')
 
     const subject = 'Attendance notification test | اختبار إشعار الحضور'
-    const textBody = `Attendance Notification Test\n\nHello ${recipientName},\nThis confirms that attendance email notifications are configured correctly.\nNo employee attendance event occurred.\nTest time: ${now.toISOString()}\n\nاختبار إشعار الحضور\n\nمرحباً ${recipientNameAr}،\nيؤكد هذا الاختبار أن إشعارات الحضور عبر البريد الإلكتروني تعمل بشكل صحيح.\nلم يتم تسجيل أي حالة حضور فعلية لموظف.\nوقت الاختبار: ${now.toISOString()}`
-    const htmlBody = `<div dir="ltr"><h2>Attendance Notification Test</h2><p>Hello ${recipientName},</p><p>This confirms that attendance email notifications are configured correctly.</p><p><b>No employee attendance event occurred.</b></p><p>Test time: ${now.toISOString()}</p></div><hr><div dir="rtl"><h2>اختبار إشعار الحضور</h2><p>مرحباً ${recipientNameAr}،</p><p>يؤكد هذا الاختبار أن إشعارات الحضور عبر البريد الإلكتروني تعمل بشكل صحيح.</p><p><b>لم يتم تسجيل أي حالة حضور فعلية لموظف.</b></p><p>وقت الاختبار: ${now.toISOString()}</p></div>`
+    const displayDate = formatRiyadhDate(now)
+    const textBody = `Attendance Notification Test\n\nHello ${recipientName},\nThis confirms that attendance email notifications are configured correctly.\nNo employee attendance event occurred.\nTest time: ${displayDate} ${formatRiyadhTime(now, false)}\n\nاختبار إشعار الحضور\n\nمرحباً ${recipientNameAr}،\nيؤكد هذا الاختبار أن إشعارات الحضور عبر البريد الإلكتروني تعمل بشكل صحيح.\nلم يتم تسجيل أي حالة حضور فعلية لموظف.\nوقت الاختبار: ${displayDate} ${formatRiyadhTime(now)}`
+    const htmlBody = `<div dir="ltr"><h2>Attendance Notification Test</h2><p>Hello ${recipientName},</p><p>This confirms that attendance email notifications are configured correctly.</p><p><b>No employee attendance event occurred.</b></p><p>Test time: ${displayDate} ${formatRiyadhTime(now, false)}</p></div><hr><div dir="rtl"><h2>اختبار إشعار الحضور</h2><p>مرحباً ${recipientNameAr}،</p><p>يؤكد هذا الاختبار أن إشعارات الحضور عبر البريد الإلكتروني تعمل بشكل صحيح.</p><p><b>لم يتم تسجيل أي حالة حضور فعلية لموظف.</b></p><p>وقت الاختبار: ${displayDate} ${formatRiyadhTime(now)}</p></div>`
     const { data: message, error: messageError } = await admin.from('email_messages').insert({
       email_account_id: account.id,
       direction: 'outbound',

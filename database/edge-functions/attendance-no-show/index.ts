@@ -134,15 +134,21 @@ function validCheckIn(attendanceRows: any[], slot: ShiftSlot) {
 }
 
 function formatDateAr(date: Date) {
-  return new Intl.DateTimeFormat('ar-SA-u-ca-gregory', { timeZone: 'Asia/Riyadh', dateStyle: 'medium' }).format(date)
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(date)
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || ''
+  return `${get('day')}-${get('month')}-${get('year')}`
 }
 
 function formatDateEn(date: Date) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', dateStyle: 'long' }).format(date)
+  return formatDateAr(date)
 }
 
 function formatTime(date: Date, locale: 'ar-SA' | 'en-US') {
-  return new Intl.DateTimeFormat(locale, { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit' }).format(date)
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const hour24 = Number(parts.find((part) => part.type === 'hour')?.value || 0)
+  const minute = parts.find((part) => part.type === 'minute')?.value || '00'
+  const period = locale === 'ar-SA' ? (hour24 < 12 ? 'ص' : 'م') : (hour24 < 12 ? 'AM' : 'PM')
+  return `${hour24 % 12 || 12}:${minute} ${period}`
 }
 
 function safeError(error: unknown) {

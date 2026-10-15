@@ -637,6 +637,16 @@ function displaySalesDate(date: string): string {
   return `${day}-${month}-${year}`;
 }
 
+function formatInternalClock(value: string | null | undefined, isArabic: boolean): string {
+  if (!value) return "—";
+  const match = String(value).match(/(?:T|^)([01]?\d|2[0-3]):([0-5]\d)/);
+  if (!match) return String(value);
+  const hour24 = Number(match[1]);
+  const hour12 = hour24 % 12 || 12;
+  const period = isArabic ? (hour24 < 12 ? "ص" : "م") : (hour24 < 12 ? "AM" : "PM");
+  return `${hour12}:${match[2]} ${period}`;
+}
+
 async function getInternalEmployeeContext(supabase: any, senderPhone: string): Promise<any | null> {
   const digits = normalizePhoneDigits(senderPhone);
   const { data: employees, error } = await supabase.from("hr_employee_master_with_status")
@@ -950,7 +960,7 @@ async function sendInternalEmployeeAttendance(
       .eq("shift_date", date).order("shift_start_time");
     if (error) throw error;
     const name = (isArabic ? employee.name_ar : employee.name_en) || employee.name_en || employee.name_ar;
-    const time = (value: string | null) => value ? String(value).slice(0, 5) : "—";
+    const time = (value: string | null) => formatInternalClock(value, isArabic);
     const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
     const nowMinutes = Number(nowParts.find((p) => p.type === "hour")?.value || 0) * 60 + Number(nowParts.find((p) => p.type === "minute")?.value || 0);
     const toMinutes = (value: string | null) => { const [h, m] = String(value || "0:0").split(":").map(Number); return h * 60 + m; };
@@ -958,7 +968,7 @@ async function sendInternalEmployeeAttendance(
     const future = date > today;
     if (!records?.length) {
       await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body: isArabic
-        ? `${name}: لا توجد وردية مسجلة بتاريخ ${date}.` : `${name}: No shift is assigned on ${date}.` } }, "ai_bot");
+        ? `${name}: لا توجد وردية مسجلة بتاريخ ${displaySalesDate(date)}.` : `${name}: No shift is assigned on ${displaySalesDate(date)}.` } }, "ai_bot");
       return;
     }
     const nonWorkingAr: Record<string, string> = { "Official Day Off": "راحة أسبوعية", "Official Holiday": "إجازة رسمية",
@@ -985,7 +995,7 @@ async function sendInternalEmployeeAttendance(
       return isArabic ? `الوردية ${index + 1} (${shift}): لم يحضر` : `Shift ${index + 1} (${shift}): Did not arrive`;
     });
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body:
-      `${isArabic ? (queryKind === "shift" ? "وردية" : "حضور") : (queryKind === "shift" ? "Shift" : "Attendance")}: ${name}\n${date}\n${lines.join("\n")}${isArabic ? "\n\nالله يعافيك." : ""}` } }, "ai_bot");
+      `${isArabic ? (queryKind === "shift" ? "وردية" : "حضور") : (queryKind === "shift" ? "Shift" : "Attendance")}: ${name}\n${displaySalesDate(date)}\n${lines.join("\n")}${isArabic ? "\n\nالله يعافيك." : ""}` } }, "ai_bot");
   } catch (error) {
     console.error("Internal employee attendance query error:", error);
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body: isArabic
@@ -1185,8 +1195,8 @@ async function tryInternalShiftAssistant(
   if (buttonReplyId === "internal_shift_other") {
     await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
       type: "text", text: { body: isArabic
-        ? "أرسل التاريخ المطلوب بصيغة سنة-شهر-يوم، مثال: 2026-10-20"
-        : "Send the required date as YYYY-MM-DD, for example: 2026-10-20" },
+        ? "أرسل التاريخ المطلوب بصيغة يوم-شهر-سنة، مثال: 20-10-2026"
+        : "Send the required date as DD-MM-YYYY, for example: 20-10-2026" },
     }, "ai_bot");
     return true;
   }
@@ -1251,7 +1261,7 @@ async function sendInternalShiftDetails(
       .eq("employee_id", employee.id).eq("shift_date", date).maybeSingle();
     if (recordError) throw recordError;
 
-    const time = (value: string | null) => value ? value.slice(0, 5) : "—";
+    const time = (value: string | null) => formatInternalClock(value, isArabic);
     const future = date > saudiDateString();
     const nonWorking = new Set(["Official Day Off", "Official Holiday", "Approved Leave (Deductible)",
       "Approved Leave (No Deduction)", "Pending Approval"]);
@@ -1266,16 +1276,16 @@ async function sendInternalShiftDetails(
 
     let body: string;
     if (!record) {
-      body = isArabic ? `لم أجد تفاصيل دوام مسجلة بتاريخ ${date}.` : `No shift details were found for ${date}.`;
+      body = isArabic ? `لم أجد تفاصيل دوام مسجلة بتاريخ ${displaySalesDate(date)}.` : `No shift details were found for ${displaySalesDate(date)}.`;
     } else if (isArabic) {
       const status = future && !nonWorking.has(record.status) ? "دوام مجدول" : (statusAr[record.status] || record.status);
-      body = `📅 تفاصيل دوامك — ${date}\nالحالة: ${status}\nالوردية: ${time(record.shift_start_time)} - ${time(record.shift_end_time)}`;
+      body = `📅 تفاصيل دوامك — ${displaySalesDate(date)}\nالحالة: ${status}\nالوردية: ${time(record.shift_start_time)} - ${time(record.shift_end_time)}`;
       if (!future && (record.check_in_time || record.check_out_time))
         body += `\nالحضور: ${time(record.check_in_time)}\nالانصراف: ${time(record.check_out_time)}`;
       if (!future && record.late_minutes > 0) body += `\nالتأخير: ${record.late_minutes} دقيقة`;
     } else {
       const status = future && !nonWorking.has(record.status) ? "Scheduled" : record.status;
-      body = `📅 Your shift — ${date}\nStatus: ${status}\nShift: ${time(record.shift_start_time)} - ${time(record.shift_end_time)}`;
+      body = `📅 Your shift — ${displaySalesDate(date)}\nStatus: ${status}\nShift: ${time(record.shift_start_time)} - ${time(record.shift_end_time)}`;
       if (!future && (record.check_in_time || record.check_out_time))
         body += `\nCheck-in: ${time(record.check_in_time)}\nCheck-out: ${time(record.check_out_time)}`;
       if (!future && record.late_minutes > 0) body += `\nLate: ${record.late_minutes} minutes`;
