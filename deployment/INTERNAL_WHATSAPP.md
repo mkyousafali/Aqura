@@ -153,6 +153,10 @@ An enabled attendance-notification recipient can ask whether one monitored emplo
 - A future shift says it has not started; a started shift without a check-in says the employee has not arrived yet.
 - Approved leave, weekly day off, official holiday, and no-shift cases are reported explicitly.
 - Replies use only the detected question language and are generated from authoritative attendance data, not by the language model.
+- Master Admins are authorized automatically and can search all active employees, including employees outside the monitoring list.
+- Normal attendance-notification recipients remain limited to monitored employees in their assigned branches.
+- Employee attendance and shift requests support Today, Yesterday, or a specific date. When the date is omitted, the assistant asks for it.
+- Future dates show scheduled shifts and state that attendance is not available yet.
 
 ### Sales report self-service
 
