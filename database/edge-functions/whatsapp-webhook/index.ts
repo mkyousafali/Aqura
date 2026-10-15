@@ -504,6 +504,12 @@ async function handleIncomingMessage(
         if (handled) return;
       }
       if (isInternalAccount) {
+        const attendanceHandled = await tryInternalAttendanceAssistant(
+          supabase, conversationId, senderPhone, content,
+          typeof buttonReplyId === "string" ? buttonReplyId : ""
+        );
+        if (attendanceHandled) return;
+
         const salesHandled = await tryInternalSalesAssistant(
           supabase, conversationId, senderPhone, content,
           typeof buttonReplyId === "string" ? buttonReplyId : ""
@@ -618,6 +624,205 @@ async function setInternalAssistantState(supabase: any, conversationId: string, 
 
 async function clearInternalAssistantState(supabase: any, conversationId: string) {
   await supabase.from("wa_internal_assistant_state").delete().eq("conversation_id", conversationId);
+}
+
+function normalizeEmployeeName(value: string): string {
+  return String(value || "").toLocaleLowerCase().normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه")
+    .replace(/ى/g, "ي").replace(/ؤ/g, "و").replace(/ئ/g, "ي")
+    .replace(/[^a-z0-9\u0600-\u06ff]+/g, " ").trim();
+}
+
+function editDistance(left: string, right: string): number {
+  const a = normalizeEmployeeName(left), b = normalizeEmployeeName(right);
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    let previous = row[0]; row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const saved = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = saved;
+    }
+  }
+  return row[b.length];
+}
+
+function attendanceNameScore(query: string, employee: any): number {
+  const q = normalizeEmployeeName(query);
+  const names = [employee.name_en, employee.name_ar].map(normalizeEmployeeName).filter(Boolean);
+  let best = 0;
+  for (const name of names) {
+    if (q.includes(name)) best = Math.max(best, 1);
+    if (name.includes(q) && q.length >= 2) best = Math.max(best, 0.92);
+    for (const token of q.split(" ")) {
+      if (token.length < 2) continue;
+      if (name.includes(token)) best = Math.max(best, token.length / Math.max(name.length, token.length));
+      const distance = editDistance(token, name);
+      best = Math.max(best, 1 - distance / Math.max(token.length, name.length));
+    }
+  }
+  return best;
+}
+
+async function getPermittedAttendanceEmployees(supabase: any, senderPhone: string) {
+  const context = await getInternalEmployeeContext(supabase, senderPhone);
+  if (!context || context.user.status !== "active" || context.user.locked_at) return null;
+  const { data: recipient } = await supabase.from("attendance_notification_recipients")
+    .select("id,all_branches,is_enabled,attendance_notification_recipient_branches(branch_id)")
+    .eq("user_id", context.user.id).eq("is_enabled", true).maybeSingle();
+  if (!recipient) return null;
+  const allowedBranches = new Set((recipient.attendance_notification_recipient_branches || [])
+    .map((row: any) => Number(row.branch_id)));
+  const { data: monitored, error } = await supabase.from("attendance_monitoring_employees")
+    .select("employee_id,hr_employee_master!inner(id,name_en,name_ar,current_branch_id)").eq("is_enabled", true);
+  if (error) throw error;
+  const employees = (monitored || []).map((row: any) => row.hr_employee_master)
+    .filter((employee: any) => employee && (recipient.all_branches || allowedBranches.has(Number(employee.current_branch_id))));
+  return { context, employees };
+}
+
+async function sendAttendanceEmployeeList(
+  supabase: any, conversationId: string, senderPhone: string, employees: any[], isArabic: boolean, page = 0,
+) {
+  const start = page * 10;
+  const rows = employees.slice(start, start + 10).map((employee: any) => ({
+    id: `internal_attendance_employee:${employee.id}`,
+    title: String((isArabic ? employee.name_ar : employee.name_en) || employee.name_en || employee.name_ar).slice(0, 24),
+    description: String((isArabic ? employee.name_en : employee.name_ar) || "").slice(0, 72),
+  }));
+  await setInternalAssistantState(supabase, conversationId, "attendance_employee_selection", {
+    language: isArabic ? "ar" : "en", employee_ids: employees.map((employee: any) => employee.id), page,
+  });
+  await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+    type: "interactive", interactive: {
+      type: "list",
+      header: { type: "text", text: isArabic ? "حضور الموظفين" : "Employee attendance" },
+      body: { text: isArabic ? "اختر موظفاً للتحقق من حضوره اليوم." : "Select an employee to check today's attendance." },
+      action: { button: isArabic ? "عرض الموظفين" : "View employees", sections: [{
+        title: isArabic ? "الموظفون" : "Employees", rows,
+      }] },
+    },
+  }, "ai_bot");
+  if (start + 10 < employees.length) {
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "interactive", interactive: { type: "button",
+        body: { text: isArabic ? "توجد نتائج إضافية." : "More matching employees are available." },
+        action: { buttons: [{ type: "reply", reply: { id: "internal_attendance_next", title: isArabic ? "التالي" : "Next" } }] },
+      },
+    }, "ai_bot");
+  }
+}
+
+async function tryInternalAttendanceAssistant(
+  supabase: any, conversationId: string, senderPhone: string, content: string, buttonReplyId: string,
+): Promise<boolean> {
+  let isArabic = isArabicText(content);
+  const attendanceIntent = /\b(arriv(?:e|ed|al)|attendance|attended|checked?\s*in|come\s*to\s*work|present)\b/i.test(content) ||
+    /(حضر|حضور|وصل|وصلت|داوم|بصم|البصمه|البصمة)/.test(content);
+  const { data: state } = await supabase.from("wa_internal_assistant_state")
+    .select("pending_action,context,updated_at").eq("conversation_id", conversationId).maybeSingle();
+  const stateFresh = state?.pending_action === "attendance_employee_selection" &&
+    Date.now() - new Date(state.updated_at).getTime() < 10 * 60 * 1000;
+
+  if (buttonReplyId.startsWith("internal_attendance_employee:")) {
+    if (!stateFresh) {
+      await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body:
+        isArabic ? "انتهت صلاحية قائمة الموظفين. أرسل السؤال مرة أخرى." : "That employee list expired. Please ask again." } }, "ai_bot");
+      return true;
+    }
+    isArabic = state.context?.language === "ar";
+    const employeeId = buttonReplyId.split(":")[1] || "";
+    if (!(state.context?.employee_ids || []).includes(employeeId)) return true;
+    const permitted = await getPermittedAttendanceEmployees(supabase, senderPhone);
+    const employee = permitted?.employees.find((row: any) => String(row.id) === employeeId);
+    if (!employee) return true;
+    await clearInternalAssistantState(supabase, conversationId);
+    await sendInternalEmployeeAttendance(supabase, conversationId, senderPhone, employee, isArabic);
+    return true;
+  }
+  if (buttonReplyId === "internal_attendance_next") {
+    if (!stateFresh) return true;
+    isArabic = state.context?.language === "ar";
+    const permitted = await getPermittedAttendanceEmployees(supabase, senderPhone);
+    const ordered = (state.context?.employee_ids || []).map((id: string) =>
+      permitted?.employees.find((employee: any) => String(employee.id) === String(id))).filter(Boolean);
+    await sendAttendanceEmployeeList(supabase, conversationId, senderPhone, ordered, isArabic, Number(state.context?.page || 0) + 1);
+    return true;
+  }
+  if (!attendanceIntent) return false;
+
+  const permitted = await getPermittedAttendanceEmployees(supabase, senderPhone);
+  if (!permitted) {
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body: isArabic
+      ? "ليس لديك صلاحية للاستعلام عن حضور الموظفين." : "You do not have permission to check employee attendance." } }, "ai_bot");
+    return true;
+  }
+  const ranked = permitted.employees.map((employee: any) => ({ employee, score: attendanceNameScore(content, employee) }))
+    .filter((item: any) => item.score >= 0.38).sort((a: any, b: any) => b.score - a.score);
+  if (ranked.length === 1 && ranked[0].score >= 0.72) {
+    await sendInternalEmployeeAttendance(supabase, conversationId, senderPhone, ranked[0].employee, isArabic);
+  } else {
+    const choices = (ranked.length ? ranked : permitted.employees).map((item: any) => item.employee || item);
+    await sendAttendanceEmployeeList(supabase, conversationId, senderPhone, choices, isArabic);
+  }
+  return true;
+}
+
+async function sendInternalEmployeeAttendance(
+  supabase: any, conversationId: string, senderPhone: string, employee: any, isArabic: boolean,
+) {
+  try {
+    const date = saudiDateString();
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    for (const request of [
+      { path: "process-fingerprints", body: { skipAnalyze: true } },
+      { path: "analyze-attendance", body: { employeeId: employee.id, dateFrom: date, dateTo: date, triggerType: "internal-whatsapp-attendance-query" } },
+    ]) {
+      const response = await fetch(`${supabaseUrl}/functions/v1/${request.path}`, { method: "POST",
+        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
+      if (!response.ok) throw new Error(`${request.path} failed (${response.status})`);
+    }
+    const { data: records, error } = await supabase.from("hr_analysed_attendance_data")
+      .select("status,shift_start_time,shift_end_time,check_in_time").eq("employee_id", employee.id)
+      .eq("shift_date", date).order("shift_start_time");
+    if (error) throw error;
+    const name = (isArabic ? employee.name_ar : employee.name_en) || employee.name_en || employee.name_ar;
+    const time = (value: string | null) => value ? String(value).slice(0, 5) : "—";
+    const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const nowMinutes = Number(nowParts.find((p) => p.type === "hour")?.value || 0) * 60 + Number(nowParts.find((p) => p.type === "minute")?.value || 0);
+    const toMinutes = (value: string | null) => { const [h, m] = String(value || "0:0").split(":").map(Number); return h * 60 + m; };
+    if (!records?.length) {
+      await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body: isArabic
+        ? `${name}: لا توجد وردية مسجلة اليوم.` : `${name}: No shift is assigned today.` } }, "ai_bot");
+      return;
+    }
+    const nonWorkingAr: Record<string, string> = { "Official Day Off": "راحة أسبوعية", "Official Holiday": "إجازة رسمية",
+      "Approved Leave (Deductible)": "إجازة معتمدة", "Approved Leave (No Deduction)": "إجازة معتمدة", "Pending Approval": "إجازة قيد الموافقة" };
+    const nonWorking = new Set(Object.keys(nonWorkingAr));
+    const lines = records.map((record: any, index: number) => {
+      const shift = `${time(record.shift_start_time)}–${time(record.shift_end_time)}`;
+      if (nonWorking.has(record.status)) return isArabic
+        ? `الوردية ${index + 1} (${shift}): ${nonWorkingAr[record.status]}`
+        : `Shift ${index + 1} (${shift}): ${record.status}`;
+      if (record.check_in_time) {
+        const late = Math.max(0, toMinutes(record.check_in_time) - toMinutes(record.shift_start_time));
+        return isArabic
+          ? `الوردية ${index + 1} (${shift}): وصل الساعة ${time(record.check_in_time)}${late ? ` — متأخر ${late} دقيقة` : " — في الوقت"}`
+          : `Shift ${index + 1} (${shift}): Arrived at ${time(record.check_in_time)}${late ? ` — ${late} minutes late` : " — on time"}`;
+      }
+      if (nowMinutes < toMinutes(record.shift_start_time)) return isArabic
+        ? `الوردية ${index + 1} (${shift}): لم تبدأ بعد`
+        : `Shift ${index + 1} (${shift}): Shift has not started yet`;
+      return isArabic ? `الوردية ${index + 1} (${shift}): لم يصل بعد` : `Shift ${index + 1} (${shift}): Not arrived yet`;
+    });
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body:
+      `${isArabic ? "حضور" : "Attendance"}: ${name}\n${lines.join("\n")}` } }, "ai_bot");
+  } catch (error) {
+    console.error("Internal employee attendance query error:", error);
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body: isArabic
+      ? "تعذر تحديث بيانات الحضور الآن. حاول مرة أخرى بعد قليل." : "I couldn't refresh attendance right now. Please try again shortly." } }, "ai_bot");
+  }
 }
 
 async function tryInternalSalesAssistant(

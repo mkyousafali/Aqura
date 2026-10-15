@@ -133,6 +133,21 @@ The answer is generated from `analyze-attendance`, not from AI. It can include:
 
 Only the requesting employee's record is returned.
 
+### Assigned-employee arrival lookup
+
+An enabled attendance-notification recipient can ask whether one monitored employee arrived today.
+
+- Access is taken from `attendance_notification_recipients`; being a Master Admin alone does not grant this lookup.
+- Branch-scoped recipients can search only monitored employees in their configured branches. Recipients with `all_branches` can search all monitored employees.
+- Search uses Arabic and English employee names, tolerates minor typing errors, and never searches by employee ID.
+- Ambiguous results are returned as an interactive employee list (up to 10 per page), with a Next action for additional results.
+- Selection state expires after 10 minutes, and authorization/branch scope is checked again when a selection is executed.
+- Before answering, the webhook runs `process-fingerprints` and `analyze-attendance` for today's Riyadh date.
+- Every shift is reported separately with scheduled time, arrival time, on-time/late status, and late minutes calculated from the scheduled start.
+- A future shift says it has not started; a started shift without a check-in says the employee has not arrived yet.
+- Approved leave, weekly day off, official holiday, and no-shift cases are reported explicitly.
+- Replies use only the detected question language and are generated from authoritative attendance data, not by the language model.
+
 ### Sales report self-service
 
 When an employee asks for a sales report, the webhook offers:
