@@ -10,6 +10,36 @@ const RIYADH_OFFSET = '+03:00'
 const WHATSAPP_TEMPLATE = 'attendance_not_reported_ar'
 const GRAPH_API_VERSION = 'v22.0'
 
+async function saveWhatsAppToLiveChat(
+  supabase: any, accountId: string, phoneValue: string, recipientName: string,
+  whatsappMessageId: string | null, content: string, templateName: string,
+) {
+  const phone = `+${String(phoneValue || '').replace(/\D/g, '')}`
+  const now = new Date().toISOString()
+  let { data: conversation } = await supabase.from('wa_conversations')
+    .select('id').eq('wa_account_id', accountId).eq('customer_phone', phone)
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!conversation) {
+    const { data, error } = await supabase.from('wa_conversations').insert({
+      wa_account_id: accountId, customer_phone: phone, customer_name: recipientName || phone,
+      status: 'active', handled_by: 'bot', is_bot_handling: true, bot_type: 'ai',
+      last_message_at: now, last_message_preview: content.slice(0, 100), unread_count: 0,
+    }).select('id').single()
+    if (error) throw error
+    conversation = data
+  }
+  const { error: messageError } = await supabase.from('wa_messages').upsert({
+    conversation_id: conversation.id, wa_account_id: accountId, direction: 'outbound',
+    message_type: 'template', content, template_name: templateName,
+    whatsapp_message_id: whatsappMessageId, status: 'sent', sent_by: 'system', created_at: now,
+  }, { onConflict: 'whatsapp_message_id', ignoreDuplicates: true })
+  if (messageError) throw messageError
+  await supabase.from('wa_conversations').update({
+    customer_name: recipientName || phone, last_message_at: now,
+    last_message_preview: content.slice(0, 100), unread_count: 0,
+  }).eq('id', conversation.id)
+}
+
 type ShiftRow = {
   employee_id: string
   version_id: number
@@ -381,7 +411,9 @@ serve(async (req: Request) => {
           if (error) throw error
           providerId = notification.id
         } else if (delivery.channel === 'whatsapp') {
-          const { data: account } = await supabase.from('wa_accounts').select('access_token,phone_number_id').eq('is_active', true).eq('is_default', true).maybeSingle()
+          const { data: accountResult, error: accountError } = await supabase.rpc('get_internal_whatsapp_account')
+          if (accountError) throw accountError
+          const account = Array.isArray(accountResult) ? accountResult[0] : accountResult
           if (!account?.access_token || !account?.phone_number_id) throw new Error('WhatsApp account is not configured')
           const phone = String(recipient.whatsapp_number).replace(/[^0-9]/g, '')
           const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${account.phone_number_id}/messages`, {
@@ -403,6 +435,12 @@ serve(async (req: Request) => {
             phone_number: recipient.whatsapp_number, message_type: 'attendance_no_show', template_name: WHATSAPP_TEMPLATE,
             template_language: 'ar', whatsapp_message_id: providerId, status: 'sent', customer_name: employeeEn,
           })
+          const chatContent = `تنبيه الحضور\nالموظف: ${employeeAr}\nالحالة: لم يحضر للعمل حتى الآن\nالفرع: ${branchAr}\nالتاريخ: ${formatDateAr(shiftStart)}\nالوردية: ${formatTime(shiftStart, 'ar-SA')} - ${formatTime(shiftEnd, 'ar-SA')}\nوقت التنبيه: ${formatTime(now, 'ar-SA')}\nالتأخير: ${minutesLate} دقيقة`
+          await saveWhatsAppToLiveChat(
+            supabase, account.id, recipient.whatsapp_number,
+            recipient.name_ar || recipient.name_en || recipient.whatsapp_number,
+            providerId, chatContent, WHATSAPP_TEMPLATE,
+          )
         } else {
           const { data: account } = await supabase.from('email_accounts').select('*').eq('is_active', true).eq('send_enabled', true).eq('default_for_transactional', true).maybeSingle()
           if (!account) throw new Error('Transactional email account is not configured')

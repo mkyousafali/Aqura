@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
+	export let accountScope: WhatsAppAccountScope = 'customer';
 
 	let supabase: any = null;
 	let loading = true;
@@ -80,6 +82,14 @@
 - Human support hours to quote to customers
 - Formatting limits: how many emojis, how many lines per reply
 - How to close a conversation politely`;
+	const internalBotRulesExample = `Internal assistant rules, for example:
+
+- Answer only active employees with internal WhatsApp access
+- Never expose confidential employee, payroll, disciplinary or management information
+- Give information only when it exists in the approved internal knowledge or training
+- Never guess policies, balances, attendance records, approvals or HR decisions
+- Escalate sensitive, personal or approval-based requests to the responsible manager or HR team
+- Keep replies concise, helpful and professional`;
 
 	// Training Q&A pairs
 	interface QAPair { prompt: string; response: string; }
@@ -128,6 +138,16 @@ Website / App: https://yourbrand.com
 Contact: support@yourbrand.com
 
 Include anything the AI should know when answering customers: policies, amenities, payment methods, loyalty program details, etc.`;
+	const internalKnowledgeExample = `Add approved information employees may receive, for example:
+
+- Company departments and responsible contacts
+- Attendance and leave procedures
+- Shift, uniform and workplace policies
+- HR request procedures and required documents
+- Internal systems and support channels
+- Branch-specific instructions
+
+Do not add confidential payroll, disciplinary, medical or private employee information.`;
 
 	// Card 5 ‚Äî Services
 	let savedServicesInfo = '';
@@ -151,6 +171,14 @@ Include anything the AI should know when answering customers: policies, amenitie
 - Price questions the AI can't verify: never guess, escalate instead
 - Stock availability questions: never claim available/unavailable, escalate instead
 - Any case requiring investigation, approval, compensation, or refund: escalate, never promise the outcome`;
+	const internalSupportExample = `Describe how the assistant should handle employee requests, for example:
+
+- Attendance or punch issue: collect the date, branch and shift, then escalate to the responsible team
+- Leave or schedule request: explain the approved process; never promise approval
+- Payroll or personal HR matter: do not expose details; hand over securely to HR
+- System access problem: collect the affected system and error, then route to support
+- Workplace complaint or urgent safety issue: acknowledge it and escalate immediately
+- Never invent policy, approval status, balances or employee records`;
 
 	// Card 2 ‚Äî Escalation Keywords (exact match ‚Üí acknowledgement + turn off AI)
 	let escalationKeywords: string[] = [];
@@ -185,21 +213,14 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
-		await loadIdentity();
-		await loadMasterAutoReply();
+		const account = await getScopedWhatsAppAccount(supabase, accountScope, 'id');
+		waAccountId = account?.id || null;
+		await Promise.all([loadIdentity(), loadMasterAutoReply()]);
 	});
 
 	async function loadMasterAutoReply() {
 		try {
-			const { data: account } = await supabase
-				.from('wa_accounts')
-				.select('id')
-				.eq('status', 'connected')
-				.order('is_default', { ascending: false })
-				.limit(1)
-				.maybeSingle();
-			if (!account) return;
-			waAccountId = account.id;
+			if (!waAccountId) return;
 
 			const { data: settings } = await supabase
 				.from('wa_settings')
@@ -235,8 +256,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 			const { data } = await supabase
 				.from('wa_ai_bot_config')
 				.select('id, bot_name, bot_name_ar, tone, language_rules, custom_instructions, services_information, problem_handling_info, escalation_keywords, escalation_ack_message, escalation_rules_instructions, escalation_context_gathering_reply_en, escalation_context_gathering_reply_ar, escalation_complaint_reply_en, escalation_complaint_reply_ar, is_enabled, app_link, app_link_button_en, app_link_button_ar, offers_link, offers_link_button_en, offers_link_button_ar, promotions_link, promotions_link_button_en, promotions_link_button_ar, offers_send_pdf_enabled, bot_rules, training_qa, tokens_used, prompt_tokens_used, completion_tokens_used, total_requests')
-				.order('created_at', { ascending: true })
-				.limit(1)
+				.eq('wa_account_id', waAccountId)
 				.maybeSingle();
 
 			if (data) {
@@ -311,7 +331,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -332,7 +352,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -351,7 +371,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -370,7 +390,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -389,7 +409,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -408,7 +428,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -427,7 +447,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 			const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 			if (error) throw error;
 		} else {
-			const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+			const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 			if (error) throw error;
 			configId = data.id;
 		}
@@ -566,7 +586,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				const { error } = await supabase.from('wa_ai_bot_config').update(payload).eq('id', configId);
 				if (error) throw error;
 			} else {
-				const { data, error } = await supabase.from('wa_ai_bot_config').insert(payload).select('id').single();
+				const { data, error } = await supabase.from('wa_ai_bot_config').insert({ ...payload, wa_account_id: waAccountId }).select('id').single();
 				if (error) throw error;
 				configId = data.id;
 			}
@@ -595,7 +615,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
 				<span class="text-2xl">üí¨</span>
-				<h1 class="text-lg font-black text-slate-800 uppercase tracking-wide">AI Reply</h1>
+				<h1 class="text-lg font-black text-slate-800 uppercase tracking-wide">{accountScope === 'internal' ? 'Internal AI Assistant' : 'AI Reply'}</h1>
 			</div>
 			<div class="flex items-center gap-2 flex-wrap justify-end">
 				<button
@@ -608,11 +628,13 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 					on:click={() => scrollToSection('card-who-am-i')}>
 					üôã Who am I
 				</button>
+				{#if accountScope !== 'internal'}
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
 					on:click={() => scrollToSection('card-links')}>
 					üîó Links
 				</button>
+				{/if}
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
 					on:click={() => scrollToSection('card-escalation')}>
@@ -626,17 +648,19 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
 					on:click={() => scrollToSection('card-business-info')}>
-					üìö Business Info
+					üìö {accountScope === 'internal' ? 'Internal Knowledge' : 'Business Info'}
 				</button>
+				{#if accountScope !== 'internal'}
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
 					on:click={() => scrollToSection('card-services')}>
 					üõéÔ∏è Services
 				</button>
+				{/if}
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
 					on:click={() => scrollToSection('card-problem-handling')}>
-					üõ†Ô∏è Problem Handling
+					üõ†Ô∏è {accountScope === 'internal' ? 'Employee Support' : 'Problem Handling'}
 				</button>
 				<button
 					class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
@@ -814,6 +838,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 
 					</div>
 
+				{#if accountScope !== 'internal'}
 				<!-- Card 2 ‚Äî Links & CTA Buttons -->
 				<div id="card-links" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-1">
@@ -879,17 +904,18 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 						{/each}
 					</div>
 				</div>
+				{/if}
 
 				<!-- Card 2 ‚Äî Escalation Keywords -->
 				<div id="card-escalation" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">3</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">{accountScope === 'internal' ? '2' : '3'}</span>
 						üÜò Escalation Rules
 					</h2>
 
 					<!-- Keywords list -->
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Escalation Keywords (any language)</span>
-					<p class="text-[10px] text-slate-400 mb-2">When a customer's message is <b>exactly</b> one of these words, the acknowledgement below is sent and AI reply is turned off for that customer.</p>
+					<p class="text-[10px] text-slate-400 mb-2">When {accountScope === 'internal' ? "an employee's" : "a customer's"} message is <b>exactly</b> one of these words, the acknowledgement below is sent and AI reply is turned off for that conversation.</p>
 					<div class="flex gap-2 mb-2">
 						<input type="text" bind:value={escalationKeywordInput} placeholder="e.g. ÿÆÿØŸÖÿ©, help, aiuto..."
 							class="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all"
@@ -911,7 +937,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 
 					<!-- Acknowledgement message -->
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Escalation Acknowledgement Message</span>
-					<p class="text-[10px] text-slate-400 mb-2">Written in any language ‚Äî the AI rephrases it naturally in the customer's own language when sending.</p>
+					<p class="text-[10px] text-slate-400 mb-2">Written in any language ‚Äî the AI rephrases it naturally in the {accountScope === 'internal' ? "employee's" : "customer's"} own language when sending.</p>
 					<textarea bind:value={ackMessageDraft} rows="4" placeholder="e.g. Thank you, our team will contact you shortly."
 						class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y mb-3"></textarea>
 
@@ -924,8 +950,8 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 
 					<hr class="border-slate-200 my-4" />
 
-					<p class="text-[11px] font-bold text-slate-600 mb-1">üìã General Query Escalation Reply</p>
-					<p class="text-[10px] text-slate-400 mb-3">Sent when the AI escalates because the customer asked something it can't reliably confirm (price, stock, vacancy, etc.) with no sign of frustration.</p>
+					<p class="text-[11px] font-bold text-slate-600 mb-1">üìã {accountScope === 'internal' ? 'Employee Request Escalation Reply' : 'General Query Escalation Reply'}</p>
+					<p class="text-[10px] text-slate-400 mb-3">{accountScope === 'internal' ? 'Sent when an employee asks something the assistant cannot reliably confirm and a manager or HR team member must help.' : "Sent when the AI escalates because the customer asked something it can't reliably confirm (price, stock, vacancy, etc.) with no sign of frustration."}</p>
 
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
 						<div>
@@ -940,6 +966,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 						</div>
 					</div>
 
+					{#if accountScope !== 'internal'}
 					<hr class="border-slate-200 my-4" />
 
 					<p class="text-[11px] font-bold text-slate-600 mb-1">üò§ Complaint / Frustration Escalation Reply</p>
@@ -957,6 +984,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 								class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y"></textarea>
 						</div>
 					</div>
+					{/if}
 
 					<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
 						on:click={saveEscalation} disabled={savingEscalation}>
@@ -967,7 +995,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				<!-- Card 3 ‚Äî Language Rules -->
 				<div id="card-language-rules" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">4</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">{accountScope === 'internal' ? '3' : '4'}</span>
 						üåê Language Rules
 					</h2>
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Rules the AI must follow for language handling</span>
@@ -982,11 +1010,11 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				<!-- Card 4 ‚Äî Business Information -->
 				<div id="card-business-info" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">5</span>
-						üìö Business Information
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">{accountScope === 'internal' ? '4' : '5'}</span>
+						üìö {accountScope === 'internal' ? 'Internal Knowledge' : 'Business Information'}
 					</h2>
-					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Knowledge base the AI references when replying to customers</span>
-					<textarea bind:value={businessInfoDraft} rows="12" placeholder={businessInfoExample}
+					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">{accountScope === 'internal' ? 'Company policies, HR guidance, procedures and information the assistant may provide to employees' : 'Knowledge base the AI references when replying to customers'}</span>
+					<textarea bind:value={businessInfoDraft} rows="12" placeholder={accountScope === 'internal' ? internalKnowledgeExample : businessInfoExample}
 						class="w-full flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y mb-3"></textarea>
 					<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
 						on:click={saveBusinessInfo} disabled={savingBusinessInfo}>
@@ -994,6 +1022,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 					</button>
 				</div>
 
+				{#if accountScope !== 'internal'}
 				<!-- Card 5 ‚Äî Services -->
 				<div id="card-services" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
@@ -1008,15 +1037,16 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 						{savingServicesInfo ? '...' : (savedServicesInfo ? 'Change' : 'Save')}
 					</button>
 				</div>
+				{/if}
 
 				<!-- Card 6 ‚Äî Problem & Issue Handling -->
 				<div id="card-problem-handling" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">7</span>
-						üõ†Ô∏è Problem & Issue Handling
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">{accountScope === 'internal' ? '5' : '7'}</span>
+						üõ†Ô∏è {accountScope === 'internal' ? 'Employee Support Handling' : 'Problem & Issue Handling'}
 					</h2>
-					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">How the AI should handle complaints, defects, price/stock questions, and other issues it can't resolve itself</span>
-					<textarea bind:value={problemHandlingDraft} rows="16" placeholder={problemHandlingExample}
+					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">{accountScope === 'internal' ? 'How the assistant should handle employee questions, workplace requests, HR matters and issues that require a manager' : "How the AI should handle complaints, defects, price/stock questions, and other issues it can't resolve itself"}</span>
+					<textarea bind:value={problemHandlingDraft} rows="16" placeholder={accountScope === 'internal' ? internalSupportExample : problemHandlingExample}
 						class="w-full flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y mb-3"></textarea>
 					<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
 						on:click={saveProblemHandling} disabled={savingProblemHandling}>
@@ -1027,12 +1057,12 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				<!-- Card 7 ‚Äî Behavior Rules -->
 				<div id="card-behavior-rules" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">8</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">{accountScope === 'internal' ? '6' : '8'}</span>
 						üìã Behavior Rules
 					</h2>
 					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Behaviour not covered by the sections above</span>
-					<p class="text-[10px] text-slate-400 mb-2">Keep this short. Anything about language, escalation, tone, services, business info or problem handling belongs in its own section above ‚Äî repeating it here sends the AI the same instruction twice and the two copies drift apart.</p>
-					<textarea bind:value={botRulesDraft} rows="12" placeholder={botRulesExample}
+					<p class="text-[10px] text-slate-400 mb-2">{accountScope === 'internal' ? 'Keep this short. Add only internal safety and behaviour rules that are not already covered by language, escalation, internal knowledge or employee support.' : 'Keep this short. Anything about language, escalation, tone, services, business info or problem handling belongs in its own section above ‚Äî repeating it here sends the AI the same instruction twice and the two copies drift apart.'}</p>
+					<textarea bind:value={botRulesDraft} rows="12" placeholder={accountScope === 'internal' ? internalBotRulesExample : botRulesExample}
 						class="w-full flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent transition-all resize-y mb-3"></textarea>
 					<button class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50"
 						on:click={saveBotRules} disabled={savingBotRules}>
@@ -1043,11 +1073,11 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 				<!-- Card 8 ‚Äî Training Examples -->
 				<div id="card-training" class="bg-white/60 backdrop-blur-xl border border-white/40 rounded-2xl p-6 shadow-sm flex flex-col">
 					<h2 class="flex items-center gap-2 text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">
-						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">9</span>
+						<span class="w-5 h-5 flex items-center justify-center bg-emerald-600 text-white rounded-full text-[10px]">{accountScope === 'internal' ? '7' : '9'}</span>
 						üéì Training Examples
 					</h2>
-					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Sample customer messages and the reply the AI should model</span>
-					<p class="text-[10px] text-slate-400 mb-3">Sent to the AI as <b>Customer / Bot</b> example pairs. Empty rows are dropped on save.</p>
+					<span class="text-[10px] font-bold text-slate-500 uppercase mb-1.5 block">Sample {accountScope === 'internal' ? 'employee' : 'customer'} messages and the reply the AI should model</span>
+					<p class="text-[10px] text-slate-400 mb-3">Sent to the AI as <b>{accountScope === 'internal' ? 'Employee' : 'Customer'} / Assistant</b> example pairs. Empty rows are dropped on save.</p>
 
 					<div class="space-y-3 mb-3">
 						{#each trainingQA as qa, idx}
@@ -1056,7 +1086,7 @@ Do NOT escalate for general questions about products, offers, hours, or prices ‚
 									<span class="text-[10px] font-bold text-slate-500 uppercase">Example {idx + 1}</span>
 									<button class="text-xs font-bold text-rose-500 hover:text-rose-600" on:click={() => removeQAPair(idx)}>‚úï Remove</button>
 								</div>
-								<input type="text" bind:value={qa.prompt} placeholder="Customer says‚Ä¶"
+								<input type="text" bind:value={qa.prompt} placeholder={accountScope === 'internal' ? 'Employee asks‚Ä¶' : 'Customer says‚Ä¶'}
 									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-2" />
 								<textarea bind:value={qa.response} rows="2" placeholder="Bot should reply‚Ä¶"
 									class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-y"></textarea>

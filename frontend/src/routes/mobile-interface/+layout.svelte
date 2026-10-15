@@ -28,6 +28,7 @@
 	let hasBranchPerformancePermission = false;
 	let hasIncidentManagerPermission = false;
 	let hasLiveChatPermission = false;
+	let hasInternalLiveChatPermission = false;
 	let hasBreakRegisterPermission = false;
 	let hasExpenseManagerPermission = false;
 	let hasVendorPaymentsPermission = false;
@@ -687,6 +688,7 @@
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
+			hasInternalLiveChatPermission = false;
 			hasBreakRegisterPermission = false;
 			hasExpenseManagerPermission = false;
 			hasOfferSelectorPermission = false;
@@ -708,6 +710,7 @@
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
 				hasLiveChatPermission = false;
+				hasInternalLiveChatPermission = false;
 				hasBreakRegisterPermission = false;
 				hasExpenseManagerPermission = false;
 				hasVendorPaymentsPermission = false;
@@ -725,6 +728,7 @@
 			hasReportsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SALES_REPORT');
 			hasBranchPerformancePermission = buttonCodes.has('BRANCH_PERFORMANCE');
 			hasLiveChatPermission = buttonCodes.has('WA_LIVE_CHAT');
+			hasInternalLiveChatPermission = buttonCodes.has('INTERNAL_WA_LIVE_CHAT');
 			hasBreakRegisterPermission = buttonCodes.has('BREAK_REGISTER');
 			hasExpenseManagerPermission = buttonCodes.has('EXPENSE_MANAGER');
 			hasVendorPaymentsPermission = buttonCodes.has('VENDOR_PAYMENTS');
@@ -740,6 +744,7 @@
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
+			hasInternalLiveChatPermission = false;
 			hasBreakRegisterPermission = false;
 			hasExpenseManagerPermission = false;
 			hasVendorPaymentsPermission = false;
@@ -1247,6 +1252,11 @@
 								{#if $waUnreadCounts.total > 0}
 									<span class="wa-unread-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
 								{/if}
+							</a>
+						{/if}
+						{#if hasInternalLiveChatPermission}
+							<a href="/mobile-interface/internal-whatsapp" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/internal-whatsapp')}>
+								<img class="internal-whatsapp-icon" src="/icons/internal-whatsapp-aqura.png" alt="" /><span>{$currentLocale === 'ar' ? 'واتساب الداخلي' : 'Internal WhatsApp'}</span>
 							</a>
 						{/if}
 						<!-- Break Register Log -->
@@ -2611,6 +2621,13 @@
 	.emergencies-submenu-item svg {
 		flex-shrink: 0;
 		color: #DC2626;
+	}
+
+	.internal-whatsapp-icon {
+		width: 22px;
+		height: 22px;
+		object-fit: contain;
+		flex-shrink: 0;
 	}
 
 	/* Tasks Submenu Styles */

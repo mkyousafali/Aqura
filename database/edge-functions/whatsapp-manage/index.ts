@@ -80,6 +80,23 @@ serve(async (req: Request) => {
       );
     }
 
+    const { data: isInternalAccount } = account_id
+      ? await supabase.rpc("is_internal_whatsapp_account", { p_account_id: account_id })
+      : { data: false };
+    if (isInternalAccount && (action === "send_message" || action === "send_template")) {
+      const target = params.to || params.phone_number;
+      const { data: authorized } = await supabase.rpc("is_internal_whatsapp_authorized_phone", { p_phone: target });
+      if (!authorized) {
+        await supabase.from("wa_internal_security_audit").insert({
+          account_id, phone_number: String(target || ""), event_type: "send_denied",
+          details: { action, reason: "Recipient is not an active authorized employee" },
+        });
+        return new Response(JSON.stringify({ error: "Internal WhatsApp recipient is not authorized" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     let result: any;
 
     switch (action) {
@@ -972,6 +989,19 @@ async function sendBroadcast(
       }
     }
     console.log(`[Broadcast] Claimed ${recipients.length} pending recipients from DB`);
+  }
+
+  const { data: internalBroadcast } = wa_account_id
+    ? await supabase.rpc("is_internal_whatsapp_account", { p_account_id: wa_account_id })
+    : { data: false };
+  if (internalBroadcast && recipients.length) {
+    const allowed: any[] = [];
+    for (const recipient of recipients) {
+      const { data: authorized } = await supabase.rpc("is_internal_whatsapp_authorized_phone", { p_phone: recipient.phone });
+      if (authorized) allowed.push(recipient);
+      else await supabase.from("wa_broadcast_recipients").update({ status: "failed", error_details: "Internal recipient is not authorized" }).eq("id", recipient.id);
+    }
+    recipients = allowed;
   }
 
   console.log(`[Broadcast] Starting: template=${template_name}, lang=${language}, recipients=${recipients?.length}, hasComponents=${!!components}`);

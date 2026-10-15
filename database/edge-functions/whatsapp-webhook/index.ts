@@ -240,7 +240,7 @@ async function handleIncomingMessage(
 
     const rawPhone = message.from; // e.g. "966567334726"
     const senderPhone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`; // normalize to +966...
-    const senderName = contact.profile?.name || senderPhone;
+    let senderName = contact.profile?.name || senderPhone;
     const messageId = message.id;
     const timestamp = message.timestamp;
     const messageType = message.type;
@@ -251,9 +251,44 @@ async function handleIncomingMessage(
       return;
     }
 
+    const { data: waAccount } = await supabase.from("wa_accounts").select("id, branch_id")
+      .eq("phone_number_id", phoneNumberId).eq("is_active", true).single();
+    const accountId = waAccount?.id || null;
+    const branchId = waAccount?.branch_id || null;
+    const { data: isInternalAccount } = accountId
+      ? await supabase.rpc("is_internal_whatsapp_account", { p_account_id: accountId })
+      : { data: false };
+
+    if (isInternalAccount) {
+      const { data: authorized } = await supabase.rpc("is_internal_whatsapp_authorized_phone", { p_phone: senderPhone });
+      if (!authorized) {
+        await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+          method: "POST", headers: { Authorization: `Bearer ${waToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ messaging_product: "whatsapp", to: rawPhone, type: "text", text: { body: "You do not have access to use this service.\n\nليس لديك صلاحية لاستخدام هذه الخدمة." } }),
+        });
+        const blocked = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/block_users`, {
+          method: "POST", headers: { Authorization: `Bearer ${waToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ messaging_product: "whatsapp", block_users: [{ user: rawPhone }] }),
+        });
+        await supabase.from("wa_internal_security_audit").insert({ account_id: accountId, phone_number: senderPhone,
+          event_type: "unauthorized_inbound", details: { whatsapp_message_id: messageId, blocked: blocked.ok } });
+        return;
+      }
+
+      // Internal conversations always use the authoritative Employee Master
+      // name. A WhatsApp profile name must never replace it on the chat card.
+      const { data: employeeDirectory } = await supabase
+        .from("hr_employee_master")
+        .select("name_en,name_ar,whatsapp_number");
+      const employee = (employeeDirectory || []).find((row: any) =>
+        normalizePhoneDigits(row.whatsapp_number) === normalizePhoneDigits(senderPhone)
+      );
+      if (employee) senderName = employee.name_en || employee.name_ar || senderPhone;
+    }
+
     // ─── Auto-Create Customer if Not Exists ─────────
     // ignoreDuplicates=true means existing customers are never touched
-    try {
+    try { if (!isInternalAccount) {
       await supabase
         .from("customers")
         .upsert(
@@ -261,12 +296,12 @@ async function handleIncomingMessage(
           { onConflict: "whatsapp_number", ignoreDuplicates: true }
         );
       console.log("[AUTO_CREATE] Customer ensured for:", rawPhone);
-    } catch (e) {
+    }} catch (e) {
       console.warn("[AUTO_CREATE] Customer upsert error:", e);
     }
 
     // ─── Update Customer Record with WhatsApp Profile Name ──
-    if (contact.profile?.name) {
+    if (!isInternalAccount && contact.profile?.name) {
       await supabase
         .from("customers")
         .update({ name: contact.profile.name, whatsapp_available: true })
@@ -281,16 +316,6 @@ async function handleIncomingMessage(
     }
 
     // ─── Resolve WhatsApp Account ───────────────────
-    const { data: waAccount } = await supabase
-      .from("wa_accounts")
-      .select("id, branch_id")
-      .eq("phone_number_id", phoneNumberId)
-      .eq("is_active", true)
-      .single();
-
-    const accountId = waAccount?.id || null;
-    const branchId = waAccount?.branch_id || null;
-
     // ─── Find or Create Conversation ────────────────
     let conversationId: string;
 
@@ -478,6 +503,19 @@ async function handleIncomingMessage(
         const handled = await tryFlowButtonReply(supabase, conversationId, accountId, senderPhone, buttonReplyId, content);
         if (handled) return;
       }
+      if (isInternalAccount) {
+        const salesHandled = await tryInternalSalesAssistant(
+          supabase, conversationId, senderPhone, content,
+          typeof buttonReplyId === "string" ? buttonReplyId : ""
+        );
+        if (salesHandled) return;
+
+        const handled = await tryInternalShiftAssistant(
+          supabase, conversationId, senderPhone, content,
+          typeof buttonReplyId === "string" ? buttonReplyId : ""
+        );
+        if (handled) return;
+      }
       await tryAutoReply(supabase, conversationId, accountId, branchId, senderPhone, content);
     }
 
@@ -491,6 +529,395 @@ async function handleIncomingMessage(
 }
 
 // ─── Get Media URL from WhatsApp ───────────────────────────────────
+function normalizePhoneDigits(value: string): string {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.length === 9 && digits.startsWith("5")) digits = `966${digits}`;
+  return digits;
+}
+
+function saudiDateString(offsetDays = 0): string {
+  const now = new Date(Date.now() + offsetDays * 86400000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function parseRequestedShiftDate(value: string): string | null {
+  const text = String(value || "").trim();
+  let match = text.match(/^(\d{4})[-\/]([01]?\d)[-\/]([0-3]?\d)$/);
+  if (!match) {
+    const dmy = text.match(/^([0-3]?\d)[-\/]([01]?\d)[-\/](\d{4})$/);
+    if (dmy) match = [dmy[0], dmy[3], dmy[2], dmy[1]];
+  }
+  if (!match) return null;
+  const result = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+  const parsed = new Date(`${result}T12:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === result ? result : null;
+}
+
+function isArabicText(value: string): boolean {
+  return /[\u0600-\u06ff]/.test(value || "");
+}
+
+function replaceArabicDigits(value: string): string {
+  const arabic = "٠١٢٣٤٥٦٧٨٩";
+  const persian = "۰۱۲۳۴۵۶۷۸۹";
+  return String(value || "").replace(/[٠-٩۰-۹]/g, (digit) => {
+    const arabicIndex = arabic.indexOf(digit);
+    return String(arabicIndex >= 0 ? arabicIndex : persian.indexOf(digit));
+  });
+}
+
+function parseFlexibleSalesDate(value: string): string | null {
+  const text = replaceArabicDigits(value).trim();
+  let match = text.match(/\b(\d{4})[-\/.]([01]?\d)[-\/.]([0-3]?\d)\b/);
+  let year: number, month: number, day: number;
+  if (match) {
+    year = Number(match[1]); month = Number(match[2]); day = Number(match[3]);
+  } else {
+    match = text.match(/\b([0-3]?\d)[-\/.]([01]?\d)[-\/.](\d{4})\b/);
+    if (match) {
+      day = Number(match[1]); month = Number(match[2]); year = Number(match[3]);
+    } else {
+      const parsed = Date.parse(text);
+      if (Number.isNaN(parsed)) return null;
+      const date = new Date(parsed);
+      year = date.getUTCFullYear(); month = date.getUTCMonth() + 1; day = date.getUTCDate();
+    }
+  }
+  const result = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const validated = new Date(`${result}T12:00:00Z`);
+  return !Number.isNaN(validated.getTime()) && validated.toISOString().slice(0, 10) === result ? result : null;
+}
+
+function displaySalesDate(date: string): string {
+  const [year, month, day] = date.split("-");
+  return `${day}-${month}-${year}`;
+}
+
+async function getInternalEmployeeContext(supabase: any, senderPhone: string): Promise<any | null> {
+  const digits = normalizePhoneDigits(senderPhone);
+  const { data: employees, error } = await supabase.from("hr_employee_master_with_status")
+    .select("id,user_id,current_branch_id,name_en,name_ar,whatsapp_number,employment_status");
+  if (error) throw error;
+  const employee = (employees || []).find((row: any) => normalizePhoneDigits(row.whatsapp_number) === digits);
+  if (!employee) return null;
+  const { data: user } = await supabase.from("users")
+    .select("id,branch_id,is_master_admin,status,locked_at").eq("id", employee.user_id).maybeSingle();
+  return user ? { employee, user } : null;
+}
+
+async function setInternalAssistantState(supabase: any, conversationId: string, pendingAction: string, context: any = {}) {
+  await supabase.from("wa_internal_assistant_state").upsert({
+    conversation_id: conversationId, pending_action: pendingAction, context, updated_at: new Date().toISOString(),
+  }, { onConflict: "conversation_id" });
+}
+
+async function clearInternalAssistantState(supabase: any, conversationId: string) {
+  await supabase.from("wa_internal_assistant_state").delete().eq("conversation_id", conversationId);
+}
+
+async function tryInternalSalesAssistant(
+  supabase: any, conversationId: string, senderPhone: string, content: string, buttonReplyId: string
+): Promise<boolean> {
+  let isArabic = isArabicText(content);
+  const salesIntent = /\b(sales?\s*report|sales?|net\s*sales?)\b/i.test(content) ||
+    /(تقرير.*مبيعات|مبيعات|صافي.*مبيعات)/.test(content);
+  const { data: state } = await supabase.from("wa_internal_assistant_state")
+    .select("pending_action,context,updated_at").eq("conversation_id", conversationId).maybeSingle();
+  const stateFresh = state && Date.now() - new Date(state.updated_at).getTime() < 15 * 60 * 1000;
+
+  if (buttonReplyId === "internal_sales_cancel") {
+    await clearInternalAssistantState(supabase, conversationId);
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "text", text: { body: isArabic ? "تم إلغاء الطلب." : "Request cancelled." },
+    }, "ai_bot");
+    return true;
+  }
+
+  if (buttonReplyId === "internal_sales_specific") {
+    await setInternalAssistantState(supabase, conversationId, "awaiting_sales_date", { language: isArabic ? "ar" : "en" });
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "text", text: { body: isArabic
+        ? "أرسل تاريخ التقرير. يمكنك كتابته بأي صيغة، مثال: 15-10-2026."
+        : "Send the report date in any common format, for example: 15-10-2026." },
+    }, "ai_bot");
+    return true;
+  }
+
+  if (stateFresh && state.pending_action === "awaiting_sales_date" && !buttonReplyId) {
+    isArabic = state.context?.language === "ar";
+    const requestedDate = parseFlexibleSalesDate(content);
+    if (!requestedDate) {
+      await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+        type: "text", text: { body: isArabic
+          ? "لم أتمكن من فهم التاريخ. مثال صحيح: 15-10-2026."
+          : "I couldn't understand that date. Example: 15-10-2026." },
+      }, "ai_bot");
+      return true;
+    }
+    if (requestedDate > saudiDateString()) {
+      await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+        type: "text", text: { body: isArabic
+          ? "لا يمكن طلب تقرير مبيعات لتاريخ مستقبلي. اختر اليوم أو تاريخاً سابقاً."
+          : "Sales reports are available only for today or a past date." },
+      }, "ai_bot");
+      return true;
+    }
+    await setInternalAssistantState(supabase, conversationId, "confirm_sales_date", {
+      date: requestedDate, language: isArabic ? "ar" : "en",
+    });
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "interactive", interactive: {
+        type: "button",
+        body: { text: isArabic
+          ? `تأكيد تقرير المبيعات لتاريخ ${displaySalesDate(requestedDate)}؟`
+          : `Confirm the sales report for ${displaySalesDate(requestedDate)}?` },
+        action: { buttons: [
+          { type: "reply", reply: { id: `internal_sales_confirm`, title: isArabic ? "تأكيد" : "Confirm" } },
+          { type: "reply", reply: { id: "internal_sales_cancel", title: isArabic ? "إلغاء" : "Cancel" } },
+        ] },
+      },
+    }, "ai_bot");
+    return true;
+  }
+
+  let reportDate: string | null = null;
+  if (buttonReplyId === "internal_sales_today") reportDate = saudiDateString();
+  else if (buttonReplyId === "internal_sales_yesterday") reportDate = saudiDateString(-1);
+  else if (buttonReplyId === "internal_sales_confirm" && stateFresh && state.pending_action === "confirm_sales_date") {
+    reportDate = state.context?.date || null;
+    isArabic = state.context?.language === "ar";
+  }
+
+  if (reportDate) {
+    await clearInternalAssistantState(supabase, conversationId);
+    await sendInternalSalesReport(supabase, conversationId, senderPhone, reportDate, isArabic);
+    return true;
+  }
+  if (!salesIntent) return false;
+
+  const context = await getInternalEmployeeContext(supabase, senderPhone);
+  if (!context) return false;
+  const { data: permission } = await supabase.from("button_permissions").select("is_enabled")
+    .eq("user_id", context.user.id).eq("button_code", "SALES_REPORT").eq("is_enabled", true).maybeSingle();
+  if (!context.user.is_master_admin && !permission) {
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "text", text: { body: isArabic
+        ? "ليس لديك صلاحية لعرض تقارير المبيعات."
+        : "You do not have permission to view sales reports." },
+    }, "ai_bot");
+    return true;
+  }
+
+  await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+    type: "interactive", interactive: {
+      type: "button",
+      body: { text: isArabic ? "لأي تاريخ تريد تقرير صافي المبيعات؟" : "Which date would you like the net sales report for?" },
+      action: { buttons: [
+        { type: "reply", reply: { id: "internal_sales_today", title: isArabic ? "اليوم" : "Today" } },
+        { type: "reply", reply: { id: "internal_sales_yesterday", title: isArabic ? "أمس" : "Yesterday" } },
+        { type: "reply", reply: { id: "internal_sales_specific", title: isArabic ? "تاريخ محدد" : "Specific date" } },
+      ] },
+    },
+  }, "ai_bot");
+  return true;
+}
+
+async function sendInternalSalesReport(
+  supabase: any, conversationId: string, senderPhone: string, date: string, isArabic: boolean
+): Promise<void> {
+  try {
+    const context = await getInternalEmployeeContext(supabase, senderPhone);
+    if (!context) throw new Error("Employee account not found");
+    const { data: permission } = await supabase.from("button_permissions").select("is_enabled")
+      .eq("user_id", context.user.id).eq("button_code", "SALES_REPORT").eq("is_enabled", true).maybeSingle();
+    if (!context.user.is_master_admin && !permission) {
+      await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+        type: "text", text: { body: isArabic
+          ? "ليس لديك صلاحية لعرض تقارير المبيعات."
+          : "You do not have permission to view sales reports." },
+      }, "ai_bot");
+      return;
+    }
+
+    let query = supabase.from("erp_connections")
+      .select("branch_id,branch_name,erp_branch_id,tunnel_url,bridge_api_secret")
+      .eq("is_active", true).order("branch_id");
+    if (!context.user.is_master_admin) {
+      const assignedBranch = context.user.branch_id || context.employee.current_branch_id;
+      if (!assignedBranch) throw new Error("No assigned branch");
+      query = query.eq("branch_id", assignedBranch);
+    }
+    const { data: branches, error: branchError } = await query;
+    if (branchError) throw branchError;
+    if (!branches?.length) throw new Error("No ERP branch is configured for this user");
+
+    const rows = await Promise.all(branches.map(async (branch: any) => {
+      try {
+        if (!branch.tunnel_url || !branch.bridge_api_secret || !branch.erp_branch_id)
+          throw new Error("ERP connection unavailable");
+        const sql = `SELECT SUM(CASE WHEN VoucherType = 'SI' THEN GrandTotal ELSE 0 END) - SUM(CASE WHEN VoucherType = 'SR' THEN GrandTotal ELSE 0 END) AS NetSales FROM InvTransactionMaster WHERE BranchID = ${Number(branch.erp_branch_id)} AND CAST(TransactionDate AS date) = '${date}' AND VoucherType IN ('SI','SR');`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        let response: Response;
+        try {
+          response = await fetch(`${String(branch.tunnel_url).replace(/\/+$/, "")}/query`, {
+            method: "POST", headers: { "Content-Type": "application/json", "x-api-secret": branch.bridge_api_secret },
+            body: JSON.stringify({ sql }), signal: controller.signal,
+          });
+        } finally { clearTimeout(timeout); }
+        if (!response.ok) throw new Error(`ERP ${response.status}`);
+        const payload = await response.json();
+        const result = payload.recordset || payload.records || payload || [];
+        const first = Array.isArray(result) ? result[0] : result;
+        return { name: branch.branch_name || `Branch ${branch.branch_id}`, amount: Number(first?.NetSales ?? first?.netsales ?? 0), online: true };
+      } catch (error) {
+        console.error(`Internal sales report branch ${branch.branch_id}:`, error);
+        return { name: branch.branch_name || `Branch ${branch.branch_id}`, amount: 0, online: false };
+      }
+    }));
+
+    const currency = (amount: number) => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-SA", {
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    }).format(amount);
+    const availableTotal = rows.filter((row: any) => row.online).reduce((sum: number, row: any) => sum + row.amount, 0);
+    const lines = rows.map((row: any) => row.online
+      ? `${row.name}: ${currency(row.amount)} ${isArabic ? "ر.س" : "SAR"}`
+      : `${row.name}: ${isArabic ? "غير متاح" : "Unavailable"}`);
+    if (context.user.is_master_admin)
+      lines.push(`${isArabic ? "الإجمالي المتاح" : "Available total"}: ${currency(availableTotal)} ${isArabic ? "ر.س" : "SAR"}`);
+    const body = `${isArabic ? "📊 تقرير صافي المبيعات" : "📊 Net Sales Report"}\n${displaySalesDate(date)}\n\n${lines.join("\n")}`;
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body } }, "ai_bot");
+  } catch (error) {
+    console.error("Internal sales report error:", error);
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "text", text: { body: isArabic
+        ? "تعذر تحميل تقرير المبيعات الآن. تحقق من الفرع وحاول مرة أخرى."
+        : "I couldn't load the sales report right now. Please check the branch and try again." },
+    }, "ai_bot");
+  }
+}
+
+async function tryInternalShiftAssistant(
+  supabase: any, conversationId: string, senderPhone: string, content: string, buttonReplyId: string
+): Promise<boolean> {
+  let isArabic = isArabicText(content);
+  const shiftIntent = /\b(shift|schedule|duty|work\s*time|working\s*hours)\b/i.test(content) ||
+    /(دوام|شفت|وردية|مناوب|جدول.*عمل|ساعات.*عمل)/.test(content);
+
+  if (buttonReplyId === "internal_shift_other") {
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "text", text: { body: isArabic
+        ? "أرسل التاريخ المطلوب بصيغة سنة-شهر-يوم، مثال: 2026-10-20"
+        : "Send the required date as YYYY-MM-DD, for example: 2026-10-20" },
+    }, "ai_bot");
+    return true;
+  }
+
+  let requestedDate: string | null = null;
+  if (buttonReplyId === "internal_shift_today") requestedDate = saudiDateString();
+  else if (buttonReplyId === "internal_shift_tomorrow") requestedDate = saudiDateString(1);
+  else requestedDate = parseRequestedShiftDate(content);
+
+  if (requestedDate) {
+    if (!isArabic) {
+      const { data: previousReply } = await supabase.from("wa_messages")
+        .select("content").eq("conversation_id", conversationId).eq("direction", "outbound")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      isArabic = isArabicText(previousReply?.content || "");
+    }
+    await sendInternalShiftDetails(supabase, conversationId, senderPhone, requestedDate, isArabic);
+    return true;
+  }
+  if (!shiftIntent) return false;
+
+  await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: isArabic ? "لأي يوم تريد معرفة تفاصيل دوامك؟" : "Which day would you like your shift details for?" },
+      action: { buttons: [
+        { type: "reply", reply: { id: "internal_shift_today", title: isArabic ? "اليوم" : "Today" } },
+        { type: "reply", reply: { id: "internal_shift_tomorrow", title: isArabic ? "غداً" : "Tomorrow" } },
+        { type: "reply", reply: { id: "internal_shift_other", title: isArabic ? "تاريخ آخر" : "Other date" } },
+      ] },
+    },
+  }, "ai_bot");
+  return true;
+}
+
+async function sendInternalShiftDetails(
+  supabase: any, conversationId: string, senderPhone: string, date: string, isArabic: boolean
+): Promise<void> {
+  try {
+    const phoneDigits = normalizePhoneDigits(senderPhone);
+    const { data: employees, error: employeeError } = await supabase
+      .from("hr_employee_master_with_status")
+      .select("id,name_en,name_ar,whatsapp_number,employment_status");
+    if (employeeError) throw employeeError;
+    const employee = (employees || []).find((row: any) => normalizePhoneDigits(row.whatsapp_number) === phoneDigits);
+    if (!employee) throw new Error("Authorized employee record not found");
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    const response = await fetch(`${supabaseUrl}/functions/v1/analyze-attendance`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeId: employee.id, dateFrom: date, dateTo: date,
+        triggerType: "internal-whatsapp-shift-query" }),
+    });
+    if (!response.ok) throw new Error(`Attendance analysis failed (${response.status})`);
+
+    const { data: record, error: recordError } = await supabase
+      .from("hr_analysed_attendance_data")
+      .select("shift_date,status,shift_start_time,shift_end_time,check_in_time,check_out_time,worked_minutes,late_minutes")
+      .eq("employee_id", employee.id).eq("shift_date", date).maybeSingle();
+    if (recordError) throw recordError;
+
+    const time = (value: string | null) => value ? value.slice(0, 5) : "—";
+    const future = date > saudiDateString();
+    const nonWorking = new Set(["Official Day Off", "Official Holiday", "Approved Leave (Deductible)",
+      "Approved Leave (No Deduction)", "Pending Approval"]);
+    const statusAr: Record<string, string> = {
+      "Official Day Off": "راحة أسبوعية", "Official Holiday": "إجازة رسمية",
+      "Approved Leave (Deductible)": "إجازة معتمدة (بخصم)",
+      "Approved Leave (No Deduction)": "إجازة معتمدة (بدون خصم)",
+      "Pending Approval": "طلب إجازة قيد الموافقة", "Rejected-Deducted": "طلب الإجازة مرفوض",
+      "Rejected-Not Deducted": "طلب الإجازة مرفوض", "Worked": "حاضر", "Absent": "غائب",
+      "Check-Out Missing": "تسجيل الخروج مفقود", "Check-In Missing": "تسجيل الدخول مفقود",
+    };
+
+    let body: string;
+    if (!record) {
+      body = isArabic ? `لم أجد تفاصيل دوام مسجلة بتاريخ ${date}.` : `No shift details were found for ${date}.`;
+    } else if (isArabic) {
+      const status = future && !nonWorking.has(record.status) ? "دوام مجدول" : (statusAr[record.status] || record.status);
+      body = `📅 تفاصيل دوامك — ${date}\nالحالة: ${status}\nالوردية: ${time(record.shift_start_time)} - ${time(record.shift_end_time)}`;
+      if (!future && (record.check_in_time || record.check_out_time))
+        body += `\nالحضور: ${time(record.check_in_time)}\nالانصراف: ${time(record.check_out_time)}`;
+      if (!future && record.late_minutes > 0) body += `\nالتأخير: ${record.late_minutes} دقيقة`;
+    } else {
+      const status = future && !nonWorking.has(record.status) ? "Scheduled" : record.status;
+      body = `📅 Your shift — ${date}\nStatus: ${status}\nShift: ${time(record.shift_start_time)} - ${time(record.shift_end_time)}`;
+      if (!future && (record.check_in_time || record.check_out_time))
+        body += `\nCheck-in: ${time(record.check_in_time)}\nCheck-out: ${time(record.check_out_time)}`;
+      if (!future && record.late_minutes > 0) body += `\nLate: ${record.late_minutes} minutes`;
+    }
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, { type: "text", text: { body } }, "ai_bot");
+  } catch (error) {
+    console.error("Internal shift assistant error:", error);
+    await sendWhatsAppMessage(supabase, conversationId, senderPhone, {
+      type: "text", text: { body: isArabic
+        ? "تعذر تحميل تفاصيل دوامك الآن. حاول مرة أخرى بعد قليل."
+        : "I couldn't load your shift details right now. Please try again shortly." },
+    }, "ai_bot");
+  }
+}
+
 async function getMediaUrl(mediaId: string | undefined, waToken: string): Promise<{ url: string | null; mimeType: string | null }> {
   if (!mediaId || !waToken) return { url: null, mimeType: null };
   try {
@@ -1212,6 +1639,7 @@ async function tryAIReply(
     const query = supabase
       .from("wa_ai_bot_config")
       .select("*")
+	  .eq("wa_account_id", accountId)
       .eq("is_enabled", true);
 
     const { data: configs, error: configError } = await query.order("created_at", { ascending: false }).limit(1);
@@ -1814,10 +2242,15 @@ async function sendBranchOfferPdfs(
     // back to the offers link rather than leaving the customer with silence.
     if (!offers || offers.length === 0) {
       console.log(`[AI_BOT] Branch ${branchId} has no offer valid right now — sending the offers link instead`);
+      const { data: conversation } = await supabase
+		.from("wa_conversations")
+		.select("wa_account_id")
+		.eq("id", conversationId)
+		.maybeSingle();
       const { data: cfg } = await supabase
         .from("wa_ai_bot_config")
         .select("app_link, app_link_button_en, offers_link, offers_link_button_en")
-        .limit(1)
+		.eq("wa_account_id", conversation?.wa_account_id)
         .maybeSingle();
       const url = cfg?.offers_link || cfg?.app_link || "";
       const label = (cfg?.offers_link ? cfg?.offers_link_button_en : cfg?.app_link_button_en) || "";

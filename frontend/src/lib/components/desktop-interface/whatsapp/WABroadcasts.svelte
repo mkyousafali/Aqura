@@ -2,6 +2,8 @@
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
     import { onMount, onDestroy } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
+    import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
+    export let accountScope: WhatsAppAccountScope = 'customer';
 
     interface Broadcast {
         id: string;
@@ -280,7 +282,7 @@
 
     async function loadAccount() {
         try {
-            const { data } = await supabase.from('wa_accounts').select('id, branch_id').eq('is_default', true).single();
+            const data = await getScopedWhatsAppAccount(supabase, accountScope, 'id, branch_id');
             if (data) {
                 accountId = data.id;
                 accountBranchId = data.branch_id || '';
@@ -448,6 +450,12 @@
     async function loadCustomers() {
         loadingCustomers = true;
         try {
+            if (accountScope === 'internal') {
+                const { data } = await supabase.rpc('get_internal_whatsapp_contacts', { p_limit: 5000, p_offset: 0, p_search: null });
+                allCustomers = (data || []).map((c:any)=>({ phone:c.whatsapp_number, name:c.name_ar ? `${c.name} / ${c.name_ar}` : c.name, last_message_at:c.last_message_at, selected:false }));
+                recipientMode = 'customers';
+                return;
+            }
             const { data } = await supabase.from('wa_conversations')
                 .select('customer_phone, customer_name, last_message_at')
                 .eq('wa_account_id', accountId)

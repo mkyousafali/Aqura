@@ -8,15 +8,21 @@ const corsHeaders = {
 
 const GRAPH_API_VERSION = "v22.0";
 
-// Load WhatsApp credentials from wa_accounts table (default active account)
-async function getWaCredentials(supabase: any): Promise<{ token: string; phoneId: string }> {
+// Customer traffic keeps using the existing default account. Employee traffic is
+// explicitly routed through the isolated singleton internal account.
+async function getWaCredentials(supabase: any, internal = false): Promise<{ token: string; phoneId: string; accountId: string }> {
+  if (internal) {
+    const { data } = await supabase.rpc("get_internal_whatsapp_account");
+    const account = Array.isArray(data) ? data[0] : data;
+    return { token: account?.access_token || "", phoneId: account?.phone_number_id || "", accountId: account?.id || "" };
+  }
   const { data } = await supabase
     .from("wa_accounts")
-    .select("access_token, phone_number_id")
+    .select("id, access_token, phone_number_id")
     .eq("is_active", true)
     .eq("is_default", true)
     .maybeSingle();
-  return { token: data?.access_token || "", phoneId: data?.phone_number_id || "" };
+  return { token: data?.access_token || "", phoneId: data?.phone_number_id || "", accountId: data?.id || "" };
 }
 
 interface SendWhatsAppRequest {
@@ -48,11 +54,11 @@ serve(async (req: Request) => {
     // Supabase client for logging
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { token: WHATSAPP_TOKEN, phoneId: WHATSAPP_PHONE_ID } = await getWaCredentials(supabase);
-
     const body: SendWhatsAppRequest = await req.json();
     const { action, phone_number, customer_name, purpose, language, username } = body;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const internalAction = action === "send_user_creation_otp" || action === "send_employee_login_otp" || action === "send_user_credentials";
+    const { token: WHATSAPP_TOKEN, phoneId: WHATSAPP_PHONE_ID } = await getWaCredentials(supabase, internalAction);
     let access_code = body.access_code;
     let customerOtpExpirySeconds: number | undefined;
 
@@ -81,6 +87,22 @@ serve(async (req: Request) => {
     // Clean phone number — remove spaces, strip + prefix for API
     const cleanPhone = phone_number.replace(/[\s\-()]/g, "");
     const formattedPhone = cleanPhone.startsWith("+") ? cleanPhone.substring(1) : cleanPhone;
+
+    if (internalAction) {
+      const { data: authorized, error: authorizationError } = await supabase.rpc("is_internal_whatsapp_authorized_phone", {
+        p_phone: formattedPhone,
+      });
+      if (authorizationError || !authorized) {
+        await supabase.from("wa_internal_security_audit").insert({
+          phone_number: formattedPhone,
+          event_type: "send_denied",
+          details: { action, reason: authorizationError?.message || "Employee is not authorized" },
+        });
+        return new Response(JSON.stringify({ success: false, error: "Internal WhatsApp recipient is not authorized" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // Customer authentication OTPs are issued only on the server. The plaintext
     // OTP is used for this WhatsApp request and is never returned to the browser.

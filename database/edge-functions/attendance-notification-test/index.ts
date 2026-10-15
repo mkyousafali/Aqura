@@ -13,6 +13,36 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 
 const safeError = (error: unknown) => error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500)
 
+async function saveWhatsAppToLiveChat(
+  admin: any, accountId: string, phoneValue: string, recipientName: string,
+  whatsappMessageId: string | null, content: string, templateName: string,
+) {
+  const phone = `+${String(phoneValue || '').replace(/\D/g, '')}`
+  const now = new Date().toISOString()
+  let { data: conversation } = await admin.from('wa_conversations')
+    .select('id').eq('wa_account_id', accountId).eq('customer_phone', phone)
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!conversation) {
+    const { data, error } = await admin.from('wa_conversations').insert({
+      wa_account_id: accountId, customer_phone: phone, customer_name: recipientName || phone,
+      status: 'active', handled_by: 'bot', is_bot_handling: true, bot_type: 'ai',
+      last_message_at: now, last_message_preview: content.slice(0, 100), unread_count: 0,
+    }).select('id').single()
+    if (error) throw error
+    conversation = data
+  }
+  const { error: messageError } = await admin.from('wa_messages').upsert({
+    conversation_id: conversation.id, wa_account_id: accountId, direction: 'outbound',
+    message_type: 'template', content, template_name: templateName,
+    whatsapp_message_id: whatsappMessageId, status: 'sent', sent_by: 'system', created_at: now,
+  }, { onConflict: 'whatsapp_message_id', ignoreDuplicates: true })
+  if (messageError) throw messageError
+  await admin.from('wa_conversations').update({
+    customer_name: recipientName || phone, last_message_at: now,
+    last_message_preview: content.slice(0, 100), unread_count: 0,
+  }).eq('id', conversation.id)
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return json({ success: false, error: 'Method not allowed' }, 405)
@@ -101,11 +131,9 @@ serve(async (req: Request) => {
     }
 
     if (channel === 'whatsapp') {
-      const { data: account } = await admin.from('wa_accounts')
-        .select('access_token,phone_number_id')
-        .eq('is_active', true)
-        .eq('is_default', true)
-        .maybeSingle()
+      const { data: accountResult, error: accountError } = await admin.rpc('get_internal_whatsapp_account')
+      if (accountError) throw accountError
+      const account = Array.isArray(accountResult) ? accountResult[0] : accountResult
       if (!account?.access_token || !account?.phone_number_id) throw new Error('WhatsApp account is not configured')
 
       const phone = String(contact.whatsapp_number).replace(/[^0-9]/g, '')
@@ -144,6 +172,11 @@ serve(async (req: Request) => {
         status: 'sent',
         customer_name: recipientName,
       })
+      const chatContent = `اختبار إشعار الحضور\nهذا إشعار تجريبي فقط، ولم تحدث حالة حضور فعلية.\nوقت الاختبار: ${now.toISOString()}`
+      await saveWhatsAppToLiveChat(
+        admin, account.id, contact.whatsapp_number, recipientNameAr || recipientName,
+        providerId, chatContent, 'attendance_not_reported_ar',
+      )
       return json({ success: true, channel, provider_id: providerId })
     }
 

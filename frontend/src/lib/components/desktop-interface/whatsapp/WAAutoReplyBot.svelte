@@ -2,6 +2,8 @@
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
     import WAFlowBuilder from './WAFlowBuilder.svelte';
+    import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
+    export let accountScope: WhatsAppAccountScope = 'customer';
 
     interface Trigger {
         id: string;
@@ -48,7 +50,7 @@
 
     async function loadAccount() {
         try {
-            const { data } = await supabase.from('wa_accounts').select('id').eq('is_default', true).single();
+            const data = await getScopedWhatsAppAccount(supabase, accountScope, 'id');
             if (data) {
                 accountId = data.id;
                 await Promise.all([loadTriggers(), loadBotStatus(), loadTemplates(), loadFlows()]);
@@ -627,7 +629,7 @@
         {:else if activeTab === 'flows'}
             <!-- Flow Builder -->
             <div class="-m-6 h-[calc(100%+3rem)]">
-                <WAFlowBuilder />
+                <WAFlowBuilder {accountScope} />
             </div>
 
         {:else if activeTab === 'test'}

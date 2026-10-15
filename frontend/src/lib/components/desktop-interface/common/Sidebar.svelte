@@ -177,6 +177,8 @@
 	import WAAccounts from '$lib/components/desktop-interface/whatsapp/WAAccounts.svelte';
 	import WASettings from '$lib/components/desktop-interface/whatsapp/WASettings.svelte';
 	import WACatalog from '$lib/components/desktop-interface/whatsapp/WACatalog.svelte';
+	import InternalWAAccounts from '$lib/components/desktop-interface/whatsapp/InternalWAAccounts.svelte';
+	import InternalWAContacts from '$lib/components/desktop-interface/whatsapp/InternalWAContacts.svelte';
 
 	// Email Module Imports
 	import EmailDashboard from '$lib/components/desktop-interface/email/EmailDashboard.svelte';
@@ -263,6 +265,7 @@
 	let showWhatsAppManageSubmenu = false;
 	let showWhatsAppOperationsSubmenu = false;
 	let showWhatsAppReportsSubmenu = false;
+	let showInternalWhatsAppSubmenu = false;
 	let showEmailSubmenu = false;
 	let showEmailDashboardSubmenu = false;
 	let showEmailManageSubmenu = false;
@@ -615,6 +618,7 @@
 		WhatsAppManage: ["WA_ACCOUNTS","WA_TEMPLATES","WA_CONTACTS","WA_CATALOG","WA_SETTINGS"],
 		WhatsAppOperations: ["WA_LIVE_CHAT","WA_BROADCASTS","WA_AUTO_REPLY","WA_AI_BOT"],
 		WhatsAppReports: [],
+		InternalWhatsApp: ["INTERNAL_WA_DASHBOARD","INTERNAL_WA_LIVE_CHAT","INTERNAL_WA_CONTACTS","INTERNAL_WA_BROADCASTS","INTERNAL_WA_TEMPLATES","INTERNAL_WA_AUTO_REPLY","INTERNAL_WA_AI_BOT","INTERNAL_WA_CATALOG","INTERNAL_WA_ACCOUNTS","INTERNAL_WA_SETTINGS"],
 		EmailDashboard: ["EMAIL_DASHBOARD"],
 		EmailManage: ["EMAIL_ACCOUNTS","EMAIL_TEMPLATES","EMAIL_SIGNATURES","EMAIL_GROUPS","EMAIL_SETTINGS","EMAIL_AI_SETTINGS","EMAIL_SETUP_GUIDE"],
 		EmailOperations: ["EMAIL_CENTRE","EMAIL_COMPOSE","EMAIL_BROADCAST","EMAIL_QUEUE","EMAIL_SCHEDULED"],
@@ -635,6 +639,7 @@
 		Controls: ["ControlsDashboard","ControlsManage","ControlsOperations","ControlsReports"],
 		System: ["SystemDashboard","SystemManage","SystemOperations","SystemReports"],
 		WhatsApp: ["WhatsAppDashboard","WhatsAppManage","WhatsAppOperations","WhatsAppReports"],
+		InternalWhatsApp: ["InternalWhatsApp"],
 		Email: ["EmailDashboard","EmailManage","EmailOperations","EmailReports"],
 	};
 
@@ -2602,6 +2607,7 @@ function openApprovalCenter() {
 		showTasksSubmenu = false;
 		showUserSubmenu = false;
 		showWhatsAppSubmenu = false;
+		showInternalWhatsAppSubmenu = false;
 		showEmailSubmenu = false;
 		showLoyaltySubmenu = false;
 		showControlsSubmenu = false;
@@ -2662,6 +2668,10 @@ function openApprovalCenter() {
 		const windowId = generateWindowId('wa-catalog');
 		const n = Math.floor(Math.random() * 1000) + 1;
 		openWindow({ id: windowId, title: `${t('nav.whatsappCatalog')} #${n}`, component: WACatalog, componentName: 'WACatalog', icon: '🛍️', size: { width: 1300, height: 750 }, position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) }, resizable: true, minimizable: true, maximizable: true, closable: true });
+	}
+	function openInternalWA(component:any, name:string, icon:string) {
+		collapseAllMenus();
+		openWindow({ id: generateWindowId(`internal-wa-${name}`), title: `${$currentLocale === 'ar' ? 'واتساب الداخلي' : 'Internal WhatsApp'} - ${name}`, component, componentName: `InternalWA${name.replace(/\s/g,'')}`, props: component===InternalWAAccounts||component===InternalWAContacts?{}:{accountScope:'internal'}, icon, size:{width:1350,height:780}, position:{x:140+(Math.random()*80),y:90+(Math.random()*80)}, resizable:true,minimizable:true,maximizable:true,closable:true,popOutEnabled:component===WALiveChat });
 	}
 
 	// ============ EMAIL MODULE WINDOW FUNCTIONS ============
@@ -7196,6 +7206,28 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- ============ ✉️ EMAIL SECTION ============ -->
+	{#if sectionVisible['InternalWhatsApp']}
+	<div class="menu-section">
+		<button class="section-button" on:click={() => showInternalWhatsAppSubmenu = !showInternalWhatsAppSubmenu} title={$currentLocale === 'ar' ? 'واتساب الداخلي' : 'Internal WhatsApp'}>
+			<span class="section-icon"><img class="internal-whatsapp-icon" src="/icons/internal-whatsapp-aqura.png" alt="" /></span><span class="section-text">{$currentLocale === 'ar' ? 'واتساب الداخلي' : 'Internal WhatsApp'}</span><span class="arrow" class:expanded={showInternalWhatsAppSubmenu}>▼</span>
+		</button>
+	</div>
+	{/if}
+	{#if showInternalWhatsAppSubmenu}
+	<div class="submenu-inline whatsapp-submenu">
+		{#if isButtonAllowed('INTERNAL_WA_DASHBOARD')}<button class="submenu-item" on:click={()=>openInternalWA(WADashboard,$currentLocale==='ar'?'لوحة المعلومات':'Dashboard','📊')}>📊 {$currentLocale === 'ar' ? 'لوحة المعلومات' : 'Dashboard'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_LIVE_CHAT')}<button class="submenu-item" on:click={()=>openInternalWA(WALiveChat,$currentLocale==='ar'?'المحادثة المباشرة':'Live Chat','/icons/internal-whatsapp-aqura.png')}><img class="internal-whatsapp-icon" src="/icons/internal-whatsapp-aqura.png" alt="" /> {$currentLocale === 'ar' ? 'المحادثة المباشرة' : 'Live Chat'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_CONTACTS')}<button class="submenu-item" on:click={()=>openInternalWA(InternalWAContacts,$currentLocale==='ar'?'جهات الاتصال':'Contacts','👥')}>👥 {$currentLocale === 'ar' ? 'جهات الاتصال' : 'Contacts'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_BROADCASTS')}<button class="submenu-item" on:click={()=>openInternalWA(WABroadcasts,$currentLocale==='ar'?'الحملات':'Broadcasts','📣')}>📣 {$currentLocale === 'ar' ? 'الحملات' : 'Broadcasts'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_TEMPLATES')}<button class="submenu-item" on:click={()=>openInternalWA(WATemplates,$currentLocale==='ar'?'القوالب':'Templates','📝')}>📝 {$currentLocale === 'ar' ? 'القوالب' : 'Templates'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_AUTO_REPLY')}<button class="submenu-item" on:click={()=>openInternalWA(WAAutoReplyBot,$currentLocale==='ar'?'الرد والتدفقات':'Auto Reply & Flows','⚙️')}>⚙️ {$currentLocale === 'ar' ? 'الرد والتدفقات' : 'Auto Reply & Flows'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_AI_BOT')}<button class="submenu-item" on:click={()=>openInternalWA(AIReply,$currentLocale==='ar'?'بوت الذكاء':'AI Bot','🤖')}>🤖 {$currentLocale === 'ar' ? 'بوت الذكاء' : 'AI Bot'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_CATALOG')}<button class="submenu-item" on:click={()=>openInternalWA(WACatalog,$currentLocale==='ar'?'الكتالوج':'Catalog','🛍️')}>🛍️ {$currentLocale === 'ar' ? 'الكتالوج' : 'Catalog'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_ACCOUNTS')}<button class="submenu-item" on:click={()=>openInternalWA(InternalWAAccounts,$currentLocale==='ar'?'الحساب':'Account','📱')}>📱 {$currentLocale === 'ar' ? 'الحساب' : 'Account'}</button>{/if}
+		{#if isButtonAllowed('INTERNAL_WA_SETTINGS')}<button class="submenu-item" on:click={()=>openInternalWA(WASettings,$currentLocale==='ar'?'الإعدادات':'Settings','⚙️')}>⚙️ {$currentLocale === 'ar' ? 'الإعدادات' : 'Settings'}</button>{/if}
+	</div>
+	{/if}
+
 	{#if sectionVisible['Email']}
 	<div class="menu-section">
 		<button class="section-button" on:click={() => showEmailSubmenu = !showEmailSubmenu}
@@ -7670,6 +7702,13 @@ function openApprovalCenter() {
 	.section-icon.whatsapp-icon :global(svg) {
 		width: 16px;
 		height: 16px;
+		flex-shrink: 0;
+	}
+
+	.internal-whatsapp-icon {
+		width: 18px;
+		height: 18px;
+		object-fit: contain;
 		flex-shrink: 0;
 	}
 

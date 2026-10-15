@@ -19,7 +19,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { supabase } from '$lib/utils/supabase';
 	import WALiveChat from '$lib/components/desktop-interface/whatsapp/WALiveChat.svelte';
 	import EmailCentre from '$lib/components/desktop-interface/email/EmailCentre.svelte';
-	import { waUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
+	import { waUnreadCounts, internalWaUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
 
 	// Event dispatcher for communicating with layout
 	const dispatch = createEventDispatcher();
@@ -42,6 +42,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	// Subscribe to WA unread counts store
 	$: waUnreadData = $waUnreadCounts;
+	$: internalWaUnreadData = $internalWaUnreadCounts;
 
 	// Language data
 	$: availableLocales = getAvailableLocales();
@@ -561,6 +562,25 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		});
 	}
 
+	function openInternalWhatsAppWindow() {
+		const windowId = generateWindowId('internal-wa-live-chat');
+		openWindow({
+			id: windowId,
+			title: $currentLocale === 'ar' ? 'واتساب الداخلي - المحادثة المباشرة' : 'Internal WhatsApp - Live Chat',
+			component: WALiveChat,
+			componentName: 'InternalWALiveChat',
+			props: { accountScope: 'internal' },
+			icon: '/icons/internal-whatsapp-aqura.png',
+			size: { width: 1400, height: 800 },
+			position: { x: 130 + (Math.random() * 100), y: 90 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true,
+			popOutEnabled: true
+		});
+	}
+
 	function openEmailCentreWindow() {
 		const windowId = generateWindowId('email-centre');
 		openWindow({
@@ -764,6 +784,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			</div>
 			{#if waUnreadData.total > 0}
 				<div class="quick-badge">{waUnreadData.total > 99 ? '99+' : waUnreadData.total}</div>
+			{/if}
+		</button>
+		{/if}
+
+		<!-- Internal WhatsApp Live Chat -->
+		{#if buttonPermissionsLoaded && isButtonAllowed('INTERNAL_WA_LIVE_CHAT')}
+		<button
+			class="quick-btn internal-whatsapp-btn"
+			on:click={openInternalWhatsAppWindow}
+			title={$currentLocale === 'ar' ? 'واتساب الداخلي - المحادثة المباشرة' : 'Internal WhatsApp - Live Chat'}
+		>
+			<img class="internal-whatsapp-quick-icon" src="/icons/internal-whatsapp-aqura.png" alt="" />
+			{#if internalWaUnreadData.total > 0}
+				<div class="quick-badge">{internalWaUnreadData.total > 99 ? '99+' : internalWaUnreadData.total}</div>
 			{/if}
 		</button>
 		{/if}
@@ -1010,6 +1044,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.quick-btn:active {
 		transform: translateY(0);
 		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+	}
+
+	.internal-whatsapp-quick-icon {
+		width: 24px;
+		height: 24px;
+		object-fit: contain;
 	}
 
 	.quick-icon {

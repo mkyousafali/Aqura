@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
+    import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
+    export let accountScope: WhatsAppAccountScope = 'customer';
 
     interface WATemplate {
         id: string;
@@ -63,11 +65,7 @@
 
     async function loadAccount() {
         try {
-            const { data } = await supabase
-                .from('wa_accounts')
-                .select('id')
-                .eq('is_default', true)
-                .single();
+            const data = await getScopedWhatsAppAccount(supabase, accountScope, 'id');
             if (data) {
                 accountId = data.id;
                 await loadTemplates();

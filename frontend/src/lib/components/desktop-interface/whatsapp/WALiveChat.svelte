@@ -5,8 +5,10 @@
     import { getEdgeFunctionUrl } from '$lib/utils/supabase';
     import { currentUser } from '$lib/utils/persistentAuth';
     import ReportIncident from '../../../../routes/mobile-interface/report-incident/+page.svelte';
+    import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
 
     export let initialPhone: string = '';
+    export let accountScope: WhatsAppAccountScope = 'customer';
 
     interface Conversation {
         id: string;
@@ -216,7 +218,8 @@
     async function loadAccount() {
         try {
             console.log('📱 WALiveChat: Loading account...');
-            const { data, error: accErr } = await supabase.from('wa_accounts').select('id, display_name, phone_number_id, access_token').eq('is_default', true).single();
+            const data = await getScopedWhatsAppAccount(supabase, accountScope, 'id, display_name, phone_number_id, access_token');
+            const accErr = null;
             console.log('📱 WALiveChat: Account result:', { data: data ? { id: data.id, display_name: data.display_name } : null, error: accErr });
             if (accErr) console.error('📱 WALiveChat: Account error:', accErr);
             if (data) {
@@ -323,6 +326,13 @@
     }
 
     // Subscribe to realtime for the selected conversation's messages
+    function sortMessagesChronologically(rows: Message[]): Message[] {
+        return [...rows].sort((a, b) => {
+            const timeDifference = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            return timeDifference !== 0 ? timeDifference : String(a.id).localeCompare(String(b.id));
+        });
+    }
+
     function subscribeToMessages(convId: string) {
         if (msgSubscription) msgSubscription.unsubscribe();
         msgSubscription = supabase
@@ -335,8 +345,10 @@
             }, (payload: any) => {
                 const newMsg = payload.new;
                 if (newMsg && !messages.find(m => m.id === newMsg.id)) {
-                    messages = [...messages, newMsg];
-                    setTimeout(() => scrollToBottom(), 50);
+                    const wasLatest = messages.length === 0 ||
+                        new Date(newMsg.created_at).getTime() >= new Date(messages[messages.length - 1].created_at).getTime();
+                    messages = sortMessagesChronologically([...messages, newMsg]);
+                    if (wasLatest) setTimeout(() => scrollToBottom(), 50);
                 }
             })
             .on('postgres_changes', {
@@ -347,7 +359,9 @@
             }, (payload: any) => {
                 const updated = payload.new;
                 if (updated) {
-                    messages = messages.map(m => m.id === updated.id ? { ...m, ...updated } : m);
+                    messages = sortMessagesChronologically(
+                        messages.map(m => m.id === updated.id ? { ...m, ...updated } : m)
+                    );
                 }
             })
             .subscribe();
@@ -401,7 +415,7 @@
             if (msgErr) console.error('📨 WALiveChat: Messages error:', msgErr);
             const rows = data || [];
             hasMoreMessages = rows.length > MSG_PAGE_SIZE;
-            messages = (hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows).reverse();
+            messages = sortMessagesChronologically(hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows);
             // Load employee names for messages sent by users
             await loadUserNames(messages);
             if (!silent) {
@@ -428,12 +442,12 @@
             if (msgErr) console.error('📨 WALiveChat: loadOlderMessages error:', msgErr);
             const rows = data || [];
             hasMoreMessages = rows.length > MSG_PAGE_SIZE;
-            const olderMsgs = (hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows).reverse();
+            const olderMsgs = sortMessagesChronologically(hasMoreMessages ? rows.slice(0, MSG_PAGE_SIZE) : rows);
             await loadUserNames(olderMsgs);
             // Preserve scroll position
             const container = messagesContainer;
             const prevHeight = container?.scrollHeight || 0;
-            messages = [...olderMsgs, ...messages];
+            messages = sortMessagesChronologically([...olderMsgs, ...messages]);
             // After DOM updates, restore scroll so user doesn't jump
             setTimeout(() => {
                 if (container) {
@@ -1476,7 +1490,9 @@
                                         <div class="text-[10px] font-semibold text-orange-600 mb-1">👤 {$locale === 'ar' ? 'مستخدم' : 'User'}</div>
                                     {/if}
                                 {:else if msg.direction === 'inbound'}
-                                    <div class="text-[10px] font-semibold text-slate-500 mb-1">💬 {$locale === 'ar' ? 'العميل' : 'Customer'}</div>
+                                    <div class="text-[10px] font-semibold text-slate-500 mb-1">💬 {accountScope === 'internal'
+                                        ? (selectedConv?.customer_name || selectedConv?.customer_phone || ($locale === 'ar' ? 'الموظف' : 'Employee'))
+                                        : ($locale === 'ar' ? 'العميل' : 'Customer')}</div>
                                 {/if}
                                 {#if msg.message_type === 'image' && msg.media_url}
                                     <img src={msg.media_url} alt="media" class="rounded-lg max-w-[280px] w-auto h-auto mb-1 cursor-pointer" on:click={() => window.open(msg.media_url, '_blank')} />

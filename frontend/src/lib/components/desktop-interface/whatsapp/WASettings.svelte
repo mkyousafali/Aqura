@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
+    export let accountScope: WhatsAppAccountScope = 'customer';
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
 
@@ -158,6 +160,12 @@
 
     async function loadAccounts() {
         try {
+            if (accountScope === 'internal') {
+                const scoped = await getScopedWhatsAppAccount(supabase, accountScope, 'id, phone_number, display_name, phone_number_id, access_token, waba_id, is_default, status');
+                accounts = scoped ? [scoped] : [];
+                if (scoped) { selectedAccountId = scoped.id; await loadSettings(); await fetchMetaProfile(); } else loading = false;
+                return;
+            }
             const { data } = await supabase
                 .from('wa_accounts')
                 .select('id, phone_number, display_name, phone_number_id, access_token, waba_id, is_default, status')
@@ -204,7 +212,8 @@
                     .insert({
                         wa_account_id: selectedAccountId,
                         business_hours: defaultHours,
-                        default_language: 'en'
+                        default_language: 'en',
+                        webhook_active: accountScope === 'internal'
                     })
                     .select()
                     .single();

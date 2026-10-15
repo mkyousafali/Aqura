@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { getScopedWhatsAppAccount, type WhatsAppAccountScope } from '$lib/whatsapp/accountScope';
+    export let accountScope: WhatsAppAccountScope = 'customer';
     import { onMount } from 'svelte';
     import { _ as t, locale } from '$lib/i18n';
 
@@ -181,6 +183,12 @@
     // ─── Data Loading ───
     async function loadAccounts() {
         try {
+            if (accountScope === 'internal') {
+                const scoped = await getScopedWhatsAppAccount(supabase, accountScope, '*');
+                accounts = scoped ? [scoped] : [];
+                if (scoped) { account = scoped; await loadAllData(); } else loading = false;
+                return;
+            }
             const { data } = await supabase
                 .from('wa_accounts')
                 .select('*')
