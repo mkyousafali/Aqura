@@ -458,6 +458,7 @@ export const englishLocale: LocaleData = {
       expenseManager: "Expense Manager",
       dayBudgetPlanner: "Day Budget Planner",
       bankPaymentPlanner: "Bank Payment Planner",
+      statementsManager: "Statements Manager",
       defaultAccountsOtherBranches: "Default Accounts of Other Branches",
       paidManager: "Paid Manager",
       soundSettings: "Sound Settings",

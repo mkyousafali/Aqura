@@ -45,6 +45,7 @@
 	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
 	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
 	import BankPaymentPlanner from '$lib/components/desktop-interface/master/finance/BankPaymentPlanner.svelte';
+	import StatementsManager from '$lib/components/desktop-interface/master/finance/StatementsManager.svelte';
 	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
 	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
 	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
@@ -588,7 +589,7 @@
 		PromoReports: ["COUPON_REPORTS"],
 		FinanceDashboard: ["APPROVAL_CENTER","LC_PLANNER","ERP_LEDGERS"],
 		FinanceManage: ["CATEGORY_MANAGER","PURCHASE_VOUCHER_MANAGER","MANAGE_RECONCILIATIONS","ASSET_MANAGER","LEASE_AND_RENT"],
-		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","BANK_PAYMENT_PLANNER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH","CHANGE_REQUESTS"],
+		FinanceOperations: ["MANUAL_SCHEDULING","DAY_BUDGET_PLANNER","BANK_PAYMENT_PLANNER","STATEMENTS_MANAGER","MONTHLY_MANAGER","EXPENSE_MANAGER","PAID_MANAGER","DENOMINATION","PETTY_CASH","CHANGE_REQUESTS"],
 		FinanceReports: ["EXPENSE_TRACKER","SALES_REPORT","SALES_ANALYSIS","MONTHLY_BREAKDOWN","OVERDUES_REPORT","VENDOR_PAYMENTS","POS_REPORT"],
 		HRDashboard: ["SECURITY_CODE","FINGERPRINT_DASHBOARD","QUICK_DASHBOARD"],
 		HRManage: ["EMPLOYEE_MASTER","LINK_ID","HR_SERVICES","SALARY_STATEMENT"],
@@ -2408,6 +2409,7 @@ function openApprovalCenter() {
 			'MANUAL_SCHEDULING': openManualScheduling,
 			'DAY_BUDGET_PLANNER': openDayBudgetPlanner,
 			'BANK_PAYMENT_PLANNER': openBankPaymentPlanner,
+			'STATEMENTS_MANAGER': openStatementsManager,
 			'MONTHLY_MANAGER': openMonthlyManager,
 			'EXPENSE_MANAGER': openExpenseManager,
 			'PAID_MANAGER': openPaidManager,
@@ -3438,6 +3440,29 @@ function openApprovalCenter() {
 			position: {
 				x: 180 + (Math.random() * 100),
 				y: 180 + (Math.random() * 100)
+			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openStatementsManager() {
+		collapseAllMenus();
+		const windowId = generateWindowId('statements-manager');
+		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
+
+		openWindow({
+			id: windowId,
+			title: `${t('nav.statementsManager') || 'Statements Manager'} #${instanceNumber}`,
+			component: StatementsManager,
+			componentName: 'StatementsManager',
+			icon: '📄',
+			size: { width: 1450, height: 900 },
+			position: {
+				x: 170 + (Math.random() * 100),
+				y: 170 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -5628,6 +5653,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openBankPaymentPlanner}>
 								<span class="menu-icon">🏦</span>
 								<span class="menu-text">{t('nav.bankPaymentPlanner')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('STATEMENTS_MANAGER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openStatementsManager}>
+								<span class="menu-icon">📄</span>
+								<span class="menu-text">{t('nav.statementsManager') || 'Statements Manager'}</span>
 							</button>
 						</div>
 					{/if}
