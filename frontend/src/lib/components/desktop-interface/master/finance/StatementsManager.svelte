@@ -32,6 +32,9 @@
 	let rawTransactionCount = 0;
 	let processingFeeCount = 0;
 	let vatCount = 0;
+	let transactionView = '';
+	let transactionViewOptions: { description: string; count: number; isPos: boolean }[] = [];
+	let selectedTransactionViewIsPos = false;
 	let terminalFilter = '';
 	let terminalOptions: string[] = [];
 	let dateFilter = '';
@@ -53,6 +56,9 @@
 	let loadingTaskStatus = false;
 	let taskStatusError = '';
 	let deletingStatementItem = '';
+	let expandedSavedMjvRows = new Set<string>();
+	let savedMjvDetails: Record<string, any> = {};
+	let loadingSavedMjvId = '';
 	let filteredStatementRows: StatementRow[] = [];
 	let branches: any[] = [];
 	let terminalAccounts: any[] = [];
@@ -85,7 +91,17 @@
 		.map((row) => bank === 'riyad' ? row.terminalId.slice(0, 8) : row.terminalId)
 		.filter(Boolean))).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
 	$: dateOptions = Array.from(new Set(statementRows.map((row) => displayDate(row.date)).filter(Boolean)));
+	$: transactionViewOptions = Array.from(statementRows.reduce((types, row) => {
+		const description = transactionViewLabel(row);
+		const existing = types.get(description);
+		if (existing) existing.count += 1;
+		else types.set(description, { description, count: 1, isPos: isPosTransaction(row) });
+		return types;
+	}, new Map<string, { description: string; count: number; isPos: boolean }>()).values());
+	$: selectedTransactionViewIsPos = transactionViewOptions.find((option) => option.description === transactionView)?.isPos ?? false;
 	$: filteredStatementRows = statementRows.filter((row) =>
+		transactionViewLabel(row) === transactionView
+		&&
 		(!terminalFilter || (bank === 'riyad' ? row.terminalId.slice(0, 8) : row.terminalId) === terminalFilter)
 		&& (!dateFilter || displayDate(row.date) === dateFilter)
 	);
@@ -195,6 +211,31 @@
 		deletingStatementItem = '';
 	}
 
+	async function toggleSavedMjvDetails(row: any) {
+		if (!row.statement_mjv_id) return;
+		const id = String(row.statement_mjv_id);
+		const next = new Set(expandedSavedMjvRows);
+		if (next.has(id)) {
+			next.delete(id);
+			expandedSavedMjvRows = next;
+			return;
+		}
+		if (!savedMjvDetails[id]) {
+			loadingSavedMjvId = id;
+			taskStatusError = '';
+			const { data, error } = await supabase.rpc('get_statement_mjv', {
+				p_bank: row.bank,
+				p_bank_account_id: row.bank_account_id,
+				p_statement_date: taskStatusDate
+			});
+			loadingSavedMjvId = '';
+			if (error) { taskStatusError = error.message; return; }
+			savedMjvDetails = { ...savedMjvDetails, [id]: data };
+		}
+		next.add(id);
+		expandedSavedMjvRows = next;
+	}
+
 	function taskDateCountClass(saved: number, configured: number): string {
 		if (saved === 0 || configured === 0) return 'none-saved';
 		if (saved === configured) return 'all-saved';
@@ -220,6 +261,45 @@
 
 	function isPosTransaction(row: StatementRow): boolean {
 		return row.description.includes('POS Credit') || row.description.includes('POS Bulk Credit');
+	}
+
+	function transactionViewLabel(row: StatementRow): string {
+		if (isPosTransaction(row)) return 'POS Transactions';
+		return transactionDisplayDescription(row);
+	}
+
+	function transactionDisplayDescription(row: StatementRow): string {
+		if (bank !== 'riyad') return row.description;
+		const labels: Record<string, string> = {
+			'POS DEBIT': 'POS Card Purchases',
+			'OUTGOING INSTANT PAYMENT': 'Instant Payments',
+			'Outgoing Transfer': 'Company Transfers',
+			'UTILITY BILL PAYMENT': 'SADAD Utility Payments',
+			'--': 'Iqama Renewal Payments',
+			'OUTGOING TRANSF': 'Local Transfer',
+			'ATM DEBIT': 'ATM Withdrawals',
+			'INCOMING TRANSFER': 'Incoming Transfers',
+			'TRNSFR FROM C/A TO C/A': 'Internal Account Transfer'
+		};
+		return labels[row.description] || row.description;
+	}
+
+	function transactionIdentifierLabel(view: string): string {
+		return view === 'Iqama Renewal Payments' ? 'Iqama Number' : 'Terminal ID';
+	}
+
+	function transactionIdentifier(row: StatementRow): string {
+		if (transactionView === 'Iqama Renewal Payments') return row.details.match(/\bSUB\s*(\d+)/i)?.[1] || '—';
+		return row.terminalId;
+	}
+
+	function selectTransactionView(description: string) {
+		transactionView = description;
+		terminalFilter = '';
+		showFullDateJournal = false;
+		savedStatementMjv = null;
+		statementWorkflowMessage = '';
+		expandedEntryRows = new Set<number>();
 	}
 
 	function previewBranchLabel(branchId: number, fallback: string): string {
@@ -799,6 +879,7 @@
 		rawTransactionCount = 0;
 		processingFeeCount = 0;
 		vatCount = 0;
+		transactionView = '';
 		terminalFilter = '';
 		dateFilter = '';
 		showFullDateJournal = false;
@@ -816,6 +897,7 @@
 		isImporting = true;
 		errorMessage = '';
 		statementRows = [];
+		transactionView = '';
 		terminalFilter = '';
 		dateFilter = '';
 		showFullDateJournal = false;
@@ -824,7 +906,9 @@
 		statementWorkflowMessage = '';
 		fileName = file.name;
 		try {
-			const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+			// Keep Excel dates as serial values. Converting them to JavaScript Date objects can
+			// shift an Excel calendar date to the previous day in the Riyadh timezone.
+			const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
 			const worksheet = workbook.Sheets[workbook.SheetNames[0]];
 			const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: true, defval: '' });
 			const expectedHeader = bank === 'riyad' ? 'transaction type' : 'transaction description';
@@ -864,6 +948,7 @@
 				vatCount = parsedRows.filter((row) => childKind(row) === 'vat').length;
 				statementRows = groupTransactions(parsedRows);
 			}
+			transactionView = statementRows.some(isPosTransaction) ? 'POS Transactions' : statementRows[0] ? transactionViewLabel(statementRows[0]) : '';
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Unable to import the selected statement.';
 			fileName = '';
@@ -886,7 +971,7 @@
 	<section class="import-panel">
 		<div class="field"><label for="statement-bank">Bank</label><select id="statement-bank" bind:value={bank} on:change={resetStatement}><option value="">Choose a bank</option><option value="al-ahli">Al Ahli (SNB)</option><option value="riyad">Riyad Bank</option></select></div>
 		{#if bank}
-			<div class="field statement-account-field"><label for="statement-bank-account">Real bank account</label><select id="statement-bank-account" bind:value={selectedStatementBankAccountId} on:change={() => { fileName = ''; statementRows = []; terminalFilter = ''; dateFilter = ''; showFullDateJournal = false; savedStatementMjv = null; statementWorkflowMessage = ''; }}><option value="">Choose configured account</option>{#each configuredBankAccounts.filter((account) => account.bank === bank) as account}<option value={account.id}>{account.branch_name} — {account.ledger_name} ({account.ledger_code || account.ledger_id})</option>{/each}</select></div>
+			<div class="field statement-account-field"><label for="statement-bank-account">Real bank account</label><select id="statement-bank-account" bind:value={selectedStatementBankAccountId} on:change={() => { fileName = ''; statementRows = []; transactionView = ''; terminalFilter = ''; dateFilter = ''; showFullDateJournal = false; savedStatementMjv = null; statementWorkflowMessage = ''; }}><option value="">Choose configured account</option>{#each configuredBankAccounts.filter((account) => account.bank === bank) as account}<option value={account.id}>{account.branch_name} — {account.ledger_name} ({account.ledger_code || account.ledger_id})</option>{/each}</select></div>
 			<button class="import-button" type="button" disabled={isImporting || !selectedStatementBankAccountId} on:click={chooseFile}>{isImporting ? 'Importing…' : 'Import Excel file'}</button>
 			<input bind:this={fileInput} class="file-input" type="file" accept=".xlsx,.xls" on:change={importStatement} />
 		{/if}
@@ -900,10 +985,15 @@
 			<div><span>Processing fees</span><strong>{processingFeeCount}</strong></div><div><span>VAT entries</span><strong>{vatCount}</strong></div>
 		</section>
 		{#if bank === 'riyad'}<div class="source-note">Riyad stores some processing fees and VAT inside the same Excel row. They are extracted below for clear grouping without changing the source-row count.</div>{/if}
+		<nav class="transaction-view-tabs" aria-label="Statement transaction categories">
+			{#each transactionViewOptions as option}
+				<button type="button" class:active={transactionView === option.description} on:click={() => selectTransactionView(option.description)}><span>{option.description}</span><strong>{option.count}</strong></button>
+			{/each}
+		</nav>
 		<div class="table-filters">
-			<div class="filter-field"><label for="terminal-filter">Terminal ID</label><select id="terminal-filter" bind:value={terminalFilter}><option value="">All terminals</option>{#each terminalOptions as terminalId}<option value={terminalId}>{terminalId}</option>{/each}</select></div>
+			{#if selectedTransactionViewIsPos}<div class="filter-field"><label for="terminal-filter">Terminal ID</label><select id="terminal-filter" bind:value={terminalFilter}><option value="">All terminals</option>{#each terminalOptions as terminalId}<option value={terminalId}>{terminalId}</option>{/each}</select></div>{/if}
 			<div class="filter-field"><label for="date-filter">Transaction date</label><select id="date-filter" bind:value={dateFilter} on:change={() => { showFullDateJournal = false; savedStatementMjv = null; statementWorkflowMessage = ''; }}><option value="">All dates</option>{#each dateOptions as transactionDate}<option value={transactionDate}>{transactionDate}</option>{/each}</select></div>
-			<button class="full-journal-button" type="button" disabled={!dateFilter} on:click={openFullDateJournal}>Show full MJV</button>
+			{#if selectedTransactionViewIsPos}<button class="full-journal-button" type="button" disabled={!dateFilter} on:click={openFullDateJournal}>Show full MJV</button>{/if}
 			{#if terminalFilter || dateFilter}<span>{filteredStatementRows.length} matching transactions</span>{/if}
 		</div>
 		{#if showFullDateJournal}
@@ -939,7 +1029,7 @@
 			{/each}
 		{:else}
 		<div class="table-shell"><table>
-			<thead><tr><th>Group</th><th>Date</th><th>Transaction description</th><th>Details</th><th>Reference</th><th>Terminal ID</th><th class="number">Debit</th><th class="number">Credit</th><th class="number">Balance</th></tr></thead>
+			<thead><tr><th>Group</th><th>Date</th><th>Transaction description</th><th>Details</th><th>Reference</th><th>{transactionIdentifierLabel(transactionView)}</th><th class="number">Debit</th><th class="number">Credit</th><th class="number">Balance</th></tr></thead>
 			{#each filteredStatementRows as row, transactionIndex}
 				<tbody class:linked-group={row.children.length > 0} class:standalone-group={row.children.length === 0} class:group-alt={transactionIndex % 2 === 1}>
 					<tr class="main-row">
@@ -950,7 +1040,7 @@
 								<button class="entry-toggle" type="button" aria-expanded={expandedEntryRows.has(row.rowNumber)} on:click={() => toggleEntryPreview(row.rowNumber)}>{expandedEntryRows.has(row.rowNumber) ? 'Hide entry' : 'Show entry'}</button>
 							{/if}
 						</td>
-						<td>{displayDate(row.date)}</td><td><span class="row-type main-type">Main</span><strong>{row.description}</strong></td><td>{row.details}</td><td>{row.reference}</td><td class="terminal-id">{row.terminalId}</td><td class="number debit">{row.debit}</td><td class="number credit">{row.credit}</td><td class="number">{row.balance}</td>
+						<td>{displayDate(row.date)}</td><td><span class="row-type main-type">Main</span><strong>{transactionDisplayDescription(row)}</strong></td><td>{row.details}</td><td>{row.reference}</td><td class="terminal-id">{transactionIdentifier(row)}</td><td class="number debit">{row.debit}</td><td class="number credit">{row.credit}</td><td class="number">{row.balance}</td>
 					</tr>
 					{#each row.children as child}
 						<tr class="child-row"><td>{displayDate(child.date)}</td><td><span class:vat-type={childKind(child) === 'vat'} class="row-type">{childKind(child) === 'vat' ? 'VAT' : 'Fee'}</span><strong>{childKind(child) === 'vat' ? 'VAT on processing fee' : 'Processing fee'}</strong></td><td>{child.details}</td><td>{child.reference}</td><td class="terminal-id">{child.terminalId}</td><td class="number debit">{child.debit}</td><td class="number credit">{child.credit}</td><td class="number">{child.balance}</td></tr>
@@ -975,6 +1065,7 @@
 					{/if}
 				</tbody>
 			{/each}
+			{#if filteredStatementRows.length === 0}<tbody><tr><td class="accounts-empty" colspan="9">No transactions found in this category.</td></tr></tbody>{/if}
 		</table></div>
 		{/if}
 	{:else if !errorMessage}
@@ -1050,11 +1141,21 @@
 			<div class="task-status-results">
 			{#if taskStatusError}<div class="account-alert error">{taskStatusError}</div>{/if}
 			<div class="accounts-table-shell task-status-table-shell">
-				<table class="accounts-table task-status-table"><thead><tr><th>Bank</th><th>Configured bank number</th><th>Bank account</th><th>Account branch</th><th>Saved MJV</th><th>Posting tasks</th><th>Task details</th>{#if $currentUser?.isMasterAdmin}<th>Master actions</th>{/if}</tr></thead><tbody>
-					{#each taskStatusRows as row}
-						<tr><td><strong>{row.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli (SNB)'}</strong></td><td class="terminal-id">{row.ledger_code || row.ledger_id}</td><td>{row.ledger_name}</td><td>{row.branch_name}</td><td>{row.statement_mjv_id ? row.statement_status : 'Not saved'}</td><td>{row.statement_mjv_id ? `${row.posted_task_count} of ${row.branch_task_count} posted` : '—'}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span><strong>{task.branch_name}</strong> — {task.task_id ? task.task_status : 'Saved, not posted'}</span>{/each}</div>{:else}—{/if}</td>{#if $currentUser?.isMasterAdmin}<td><div class="statement-delete-actions"><button type="button" disabled={!row.posted_task_count || !!deletingStatementItem} on:click={() => deleteStatementItem(row,'tasks')}>{deletingStatementItem === `${row.statement_mjv_id}:tasks` ? 'Deleting…' : 'Delete tasks'}</button><button type="button" disabled={!row.statement_mjv_id || !!row.posted_task_count || !!deletingStatementItem} on:click={() => deleteStatementItem(row,'mjv')}>{deletingStatementItem === `${row.statement_mjv_id}:mjv` ? 'Deleting…' : 'Delete MJV'}</button></div></td>{/if}</tr>
+				<table class="accounts-table task-status-table"><thead><tr><th>Bank</th><th>Bank account</th><th>Account branch</th><th>Saved MJV</th><th>Posting tasks</th><th>Task branch</th><th>Location</th><th>Assigned user</th><th>Task status</th>{#if $currentUser?.isMasterAdmin}<th>Master actions</th>{/if}</tr></thead><tbody>
+					{#each taskStatusRows.filter((row) => row.statement_status !== 'completed') as row}
+						<tr><td><strong>{row.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli (SNB)'}</strong></td><td><span class="bank-account-name">{row.ledger_name}</span><small class="configured-bank-number">Configured bank number: {row.ledger_code || row.ledger_id}</small></td><td>{row.branch_name}</td><td><div class="saved-mjv-cell"><span class:status-saved={!!row.statement_mjv_id} class="task-status-badge">{row.statement_mjv_id ? row.statement_status : 'Not saved'}</span>{#if row.statement_mjv_id}<button type="button" class="expand-mjv-button" disabled={loadingSavedMjvId === String(row.statement_mjv_id)} on:click={() => toggleSavedMjvDetails(row)}>{loadingSavedMjvId === String(row.statement_mjv_id) ? 'Loading…' : expandedSavedMjvRows.has(String(row.statement_mjv_id)) ? 'Collapse' : 'Expand MJV'}</button>{/if}</div></td><td><span class:status-complete={row.statement_mjv_id && row.posted_task_count === row.branch_task_count} class:status-partial={row.statement_mjv_id && row.posted_task_count !== row.branch_task_count} class="task-posting-badge">{row.statement_mjv_id ? `${row.posted_task_count} of ${row.branch_task_count} assigned` : '—'}</span></td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span><strong>{task.branch_name}</strong></span>{/each}</div>{:else}—{/if}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span>{task.branch_location || '—'}</span>{/each}</div>{:else}—{/if}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span>{task.assigned_user_name || 'Not assigned'}</span>{/each}</div>{:else}—{/if}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span><span class:status-complete={task.task_status === 'completed'} class:status-partial={task.task_id && task.task_status !== 'completed'} class="task-posting-badge">{task.task_id ? task.task_status : 'Not assigned'}</span></span>{/each}</div>{:else}—{/if}</td>{#if $currentUser?.isMasterAdmin}<td><div class="statement-delete-actions"><button type="button" disabled={!row.posted_task_count || !!deletingStatementItem} on:click={() => deleteStatementItem(row,'tasks')}>{deletingStatementItem === `${row.statement_mjv_id}:tasks` ? 'Deleting…' : 'Delete tasks'}</button><button type="button" disabled={!row.statement_mjv_id || !!row.posted_task_count || !!deletingStatementItem} on:click={() => deleteStatementItem(row,'mjv')}>{deletingStatementItem === `${row.statement_mjv_id}:mjv` ? 'Deleting…' : 'Delete MJV'}</button></div></td>{/if}</tr>
+						{#if row.statement_mjv_id && expandedSavedMjvRows.has(String(row.statement_mjv_id))}
+							<tr class="saved-mjv-detail-row"><td colspan={$currentUser?.isMasterAdmin ? 10 : 9}>
+								<section class="saved-mjv-preview">
+									<header><div><strong>Saved MJV</strong><span>{row.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli (SNB)'} · {taskStatusDate}</span></div><span class="balance-badge">Saved by branch</span></header>
+									{#each savedMjvDetails[String(row.statement_mjv_id)]?.branches || [] as branch}
+										<article class="saved-mjv-branch"><h4>{branch.branch_name}</h4><div class="saved-mjv-grid saved-mjv-grid-head"><span>Account</span><span>Narration</span><span>Debit</span><span>Credit</span></div>{#each branch.lines || [] as line}<div class="saved-mjv-grid"><span><strong>{line.ledger_name}</strong>{#if line.ledger_code}<small>{line.ledger_code}</small>{/if}</span><span>{line.narration}</span><span class="number debit">{line.side === 'Debit' ? amount(line.amount) : '—'}</span><span class="number credit">{line.side === 'Credit' ? amount(line.amount) : '—'}</span></div>{/each}</article>
+									{/each}
+								</section>
+							</td></tr>
+						{/if}
 					{/each}
-					{#if loadingTaskStatus}<tr><td class="accounts-empty" colspan={$currentUser?.isMasterAdmin ? 8 : 7}>Loading task status…</td></tr>{:else if !taskStatusDate}<tr><td class="accounts-empty" colspan={$currentUser?.isMasterAdmin ? 8 : 7}>Select a calendar date to view bank and task status.</td></tr>{:else if taskStatusRows.length === 0}<tr><td class="accounts-empty" colspan={$currentUser?.isMasterAdmin ? 8 : 7}>No configured bank accounts found.</td></tr>{/if}
+					{#if loadingTaskStatus}<tr><td class="accounts-empty" colspan={$currentUser?.isMasterAdmin ? 10 : 9}>Loading task status…</td></tr>{:else if !taskStatusDate}<tr><td class="accounts-empty" colspan={$currentUser?.isMasterAdmin ? 10 : 9}>Select a calendar date to view bank and task status.</td></tr>{:else if taskStatusRows.filter((row) => row.statement_status !== 'completed').length === 0}<tr><td class="accounts-empty" colspan={$currentUser?.isMasterAdmin ? 10 : 9}>All statement tasks for this date are completed.</td></tr>{/if}
 				</tbody></table>
 			</div>
 			</div>
@@ -1070,7 +1171,7 @@
 	.account-actions{display:flex;gap:8px}.add-account-button.secondary{background:#334155}.posting-form{display:grid;grid-template-columns:repeat(2,minmax(260px,1fr));gap:12px;margin-top:16px;padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc}.ledger-search-field label{display:block}.ledger-search-row{display:flex;gap:7px}.ledger-search-row input{min-width:0;flex:1;height:42px;box-sizing:border-box;padding:0 12px;border:1px solid #cbd5e1;border-radius:9px;background:#fff}.ledger-search-row button{height:42px;padding:0 12px;border:1px solid #94a3b8;border-radius:9px;background:#fff;color:#334155;font-weight:800;cursor:pointer}.ledger-search-row button:disabled{opacity:.45}.posting-save{align-self:end;width:max-content}.posting-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:14px}.posting-summary article{display:flex;flex-direction:column;gap:4px;padding:11px 13px;border:1px solid #dbe3ef;border-radius:10px;background:#f8fafc}.posting-summary article strong{font-size:13px}.posting-summary article span{color:#475569;font-size:11px}@media(max-width:1000px){.posting-form{grid-template-columns:1fr}.account-actions{flex-wrap:wrap}}
 	.configured-accounts-table{margin-top:16px}.configured-accounts-table td{vertical-align:middle}.configured-accounts-table small{display:block;margin-top:4px;color:#64748b;font-size:10px;font-weight:700}
 	.active-branch-badge{display:inline-flex;padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:800}
-	.task-status-header{align-items:flex-end}.selected-task-date{color:#0f766e;font-size:13px}.task-status-content{display:grid;grid-template-columns:570px minmax(0,1fr);gap:16px;min-height:0;flex:1;margin-top:16px}.task-calendar{width:100%;height:max-content;box-sizing:border-box;padding:14px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 4px 12px rgba(15,23,42,.06)}.task-calendar-go-to{display:grid;grid-template-columns:auto 1.35fr .8fr .65fr auto;align-items:center;gap:7px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #dbe3ef}.task-calendar-go-to>strong{font-size:11px;white-space:nowrap}.task-calendar-go-to select{height:34px;padding:0 8px;font-size:11px}.task-calendar-go-to button{height:34px;padding:0 13px;border:0;border-radius:7px;background:#0f766e;color:#fff;font-size:11px;font-weight:900;cursor:pointer}.task-calendar>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.task-calendar h3{margin:0;font-size:16px}.task-calendar>header button{width:36px;height:32px;border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#172033;font-size:23px;line-height:1;cursor:pointer}.task-calendar-weekdays,.task-calendar-days{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.task-calendar-weekdays span{text-align:center;color:#64748b;font-size:10px;font-weight:900;text-transform:uppercase}.task-calendar-days{margin-top:6px}.task-calendar-days button{display:flex;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1px solid #e2e8f0;border-radius:7px;background:#fff;color:#334155;cursor:pointer}.task-calendar-days button strong{font-size:13px}.task-calendar-days button small{font-size:8px;font-weight:800}.task-calendar-days button.none-saved{border-color:#fca5a5;background:#fef2f2;color:#991b1b}.task-calendar-days button.partially-saved{border-color:#fdba74;background:#fff7ed;color:#9a3412}.task-calendar-days button.all-saved{border-color:#86efac;background:#f0fdf4;color:#166534}.task-calendar-days button:hover{border-color:#0f766e}.task-calendar-days button.outside{border-color:transparent;background:transparent;color:#a5b4c5}.task-calendar-days button.selected{outline:3px solid #0f766e;outline-offset:1px}.task-status-results{display:flex;min-width:0;min-height:0;flex-direction:column}.task-status-table{min-width:1050px}.task-status-table-shell{margin-top:0}.task-status-list{display:flex;flex-direction:column;gap:5px}.task-status-list span{font-size:11px}.task-status-list strong{color:#334155}@media(max-width:1250px){.task-status-content{grid-template-columns:1fr}.task-calendar{width:min(570px,100%)}.task-status-results{min-height:360px}}
+	.task-status-header{align-items:flex-end}.selected-task-date{color:#0f766e;font-size:13px}.task-status-content{display:grid;grid-template-columns:570px minmax(0,1fr);gap:16px;min-height:0;flex:1;margin-top:16px}.task-calendar{width:100%;height:max-content;box-sizing:border-box;padding:14px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 4px 12px rgba(15,23,42,.06)}.task-calendar-go-to{display:grid;grid-template-columns:auto 1.35fr .8fr .65fr auto;align-items:center;gap:7px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #dbe3ef}.task-calendar-go-to>strong{font-size:11px;white-space:nowrap}.task-calendar-go-to select{height:34px;padding:0 8px;font-size:11px}.task-calendar-go-to button{height:34px;padding:0 13px;border:0;border-radius:7px;background:#0f766e;color:#fff;font-size:11px;font-weight:900;cursor:pointer}.task-calendar>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.task-calendar h3{margin:0;font-size:16px}.task-calendar>header button{width:36px;height:32px;border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#172033;font-size:23px;line-height:1;cursor:pointer}.task-calendar-weekdays,.task-calendar-days{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.task-calendar-weekdays span{text-align:center;color:#64748b;font-size:10px;font-weight:900;text-transform:uppercase}.task-calendar-days{margin-top:6px}.task-calendar-days button{display:flex;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1px solid #e2e8f0;border-radius:7px;background:#fff;color:#334155;cursor:pointer}.task-calendar-days button strong{font-size:13px}.task-calendar-days button small{font-size:8px;font-weight:800}.task-calendar-days button.none-saved{border-color:#fca5a5;background:#fef2f2;color:#991b1b}.task-calendar-days button.partially-saved{border-color:#fdba74;background:#fff7ed;color:#9a3412}.task-calendar-days button.all-saved{border-color:#86efac;background:#f0fdf4;color:#166534}.task-calendar-days button:hover{border-color:#0f766e}.task-calendar-days button.outside{border-color:transparent;background:transparent;color:#a5b4c5}.task-calendar-days button.selected{outline:3px solid #0f766e;outline-offset:1px}.task-status-results{display:flex;min-width:0;min-height:0;flex-direction:column}.task-status-table{min-width:960px;table-layout:auto}.task-status-table-shell{margin-top:0;border-color:#cbd5e1;border-radius:12px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.07)}.task-status-table thead{background:linear-gradient(135deg,#e8eef6,#dbe7f3)}.task-status-table th{padding:11px 10px;border-right:1px solid #bdcada;color:#26364d;white-space:nowrap}.task-status-table th:last-child{border-right:0}.task-status-table td{padding:11px 10px;border-right:1px solid #d6e0eb;vertical-align:middle;line-height:1.35}.task-status-table td:last-child{border-right:0}.task-status-table tbody tr:nth-child(even) td{background:#f8fafc}.task-status-table tbody tr{transition:background .15s ease,box-shadow .15s ease}.task-status-table tbody tr:hover td{background:#eef6f7}.task-status-table th:nth-child(1){width:90px}.task-status-table th:nth-child(2){width:125px}.task-status-table th:nth-child(5),.task-status-table th:nth-child(6){width:105px}.task-status-table th:last-child{width:140px}.task-status-list{display:flex;flex-direction:column;gap:6px}.task-status-list span{padding-bottom:5px;border-bottom:1px dashed #cbd5e1;font-size:11px}.task-status-list span:last-child{padding-bottom:0;border-bottom:0}.task-status-list strong{color:#334155}.task-status-badge,.task-posting-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#fef2f2;color:#991b1b;font-size:10px;font-weight:900;white-space:nowrap}.task-status-badge.status-saved{background:#fff7ed;color:#9a3412}.task-posting-badge{background:#f1f5f9;color:#64748b}.task-posting-badge.status-partial{background:#fff7ed;color:#9a3412}.task-posting-badge.status-complete{background:#ecfdf5;color:#047857}@media(max-width:1250px){.task-status-content{grid-template-columns:1fr}.task-calendar{width:min(570px,100%)}.task-status-results{min-height:360px}}
 	.edit-row-button{height:30px;padding:0 12px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#334155;font-size:11px;font-weight:800;cursor:pointer}.edit-row-button:hover{border-color:#0f766e;background:#ecfdf5;color:#0f766e}
 	.entry-toggle{width:82px;margin-top:10px;padding:6px 7px;border:1px solid #2563eb;border-radius:7px;background:#fff;color:#1d4ed8;font-size:10px;font-weight:900;cursor:pointer}.entry-toggle:hover{background:#eff6ff}.entry-preview-row>td{padding:10px 14px 14px;background:#f8fafc!important}.entry-preview{overflow:hidden;border:1px solid #94a3b8;border-radius:10px;background:#fff;box-shadow:0 3px 10px rgba(15,23,42,.08)}.entry-preview>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:#e2e8f0}.entry-preview>header div{display:flex;align-items:baseline;gap:10px}.entry-preview>header strong{font-size:13px}.entry-preview>header span{color:#64748b;font-size:10px;font-weight:700}.balance-badge{padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534!important;font-size:10px!important;font-weight:900!important}.balance-badge.unbalanced{background:#fee2e2;color:#991b1b!important}.entry-grid{display:grid;grid-template-columns:minmax(135px,.8fr) minmax(105px,.65fr) minmax(220px,1.45fr) minmax(280px,1.8fr) 100px 100px;align-items:center;border-top:1px solid #e2e8f0}.entry-grid>*{padding:8px 12px}.entry-grid-head{background:#f8fafc;color:#475569;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}.entry-grid .number{text-align:right}.entry-total{background:#f8fafc;border-top:2px solid #94a3b8}.preview-error{padding:14px;background:#fef2f2;color:#b91c1c;font-weight:800}
 	.full-journal-button{height:42px;padding:0 16px;border:0;border-radius:9px;background:#1d4ed8;color:#fff;font-size:12px;font-weight:900;cursor:pointer}.full-journal-button:disabled{opacity:.4;cursor:not-allowed}.full-journal-panel{display:flex;min-height:0;flex:1;flex-direction:column;overflow:hidden;border:1px solid #94a3b8;border-radius:13px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.08)}.full-journal-header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-bottom:1px solid #cbd5e1;background:#e8eef6}.full-journal-header h2{margin:0;font-size:16px}.full-journal-header p{margin:4px 0 0;color:#64748b;font-size:11px;font-weight:700}.full-journal-header button{height:34px;padding:0 13px;border:1px solid #64748b;border-radius:8px;background:#fff;color:#334155;font-size:11px;font-weight:900;cursor:pointer}.full-journal-content{display:flex;min-height:0;flex:1;flex-direction:column;overflow:hidden;padding:14px;background:#f1f5f9}.branch-journal-card{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;margin-bottom:12px;overflow:hidden;border:1px solid #94a3b8;border-radius:11px;background:#fff;box-shadow:0 3px 10px rgba(15,23,42,.06)}.branch-journal-card>header{display:flex;flex-shrink:0;align-items:center;justify-content:space-between;padding:11px 14px;background:#dbeafe}.branch-journal-card>header div{display:flex;align-items:baseline;gap:9px}.branch-journal-card>header div span{color:#475569;font-size:9px;font-weight:900;text-transform:uppercase}.branch-journal-card>header div strong{font-size:14px}.branch-journal-table-scroll{min-height:0;flex:1;overflow:auto}.full-journal-grid{display:grid;grid-template-columns:105px 115px minmax(230px,1.2fr) minmax(340px,1.8fr) 100px 100px;min-width:1250px;align-items:center;border-bottom:1px solid #e2e8f0;font-size:11px}.full-journal-grid>*{padding:9px 11px}.full-journal-grid small{display:block;margin-top:3px;color:#64748b;font-size:9px}.full-journal-grid-head{position:sticky;top:0;z-index:1;background:#172033;color:#fff;font-size:9px;font-weight:900;text-transform:uppercase}.branch-journal-total{flex-shrink:0;background:#f8fafc;border-top:2px solid #94a3b8;border-bottom:0}.overall-journal-total{display:flex;flex-shrink:0;justify-content:flex-end;gap:28px;padding:13px 16px;border:1px solid #64748b;border-radius:9px;background:#172033;color:#fff;font-variant-numeric:tabular-nums}.overall-journal-total span{font-weight:800}
@@ -1180,4 +1281,57 @@
 	.task-status-theme .full-journal-content{background:#061a36}.task-status-theme .full-journal-grid,.task-status-theme .entry-grid{border-color:#234d75}
 	.task-status-theme .full-journal-grid-head,.task-status-theme .overall-journal-total{background:#062a64;color:#fff}
 	.task-status-theme .branch-journal-tabs button{border-color:#3678a8;background:#0a315f;color:#bae6fd}.task-status-theme .branch-journal-tabs button.active{border-color:#22d3ee;background:#075b9d;color:#fff}
+	.task-status-table{width:100%;min-width:0;table-layout:fixed}
+	.task-status-table th:nth-child(1){width:6%}
+	.task-status-table th:nth-child(2){width:28%;min-width:0}
+	.task-status-table th:nth-child(3){width:18%}
+	.task-status-table th:nth-child(4){width:8%}
+	.task-status-table th:nth-child(5){width:8%}
+	.task-status-table th:nth-child(6){width:19%;min-width:0}
+	.task-status-table th:nth-child(7){width:13%}
+	.task-status-table td:nth-child(2),.task-status-table td:nth-child(3){white-space:normal;overflow-wrap:anywhere}
+	.task-status-table td:nth-child(6){white-space:normal}
+	.task-status-table td:nth-child(7){white-space:nowrap}
+	.task-status-table .statement-delete-actions{gap:5px}
+	.task-status-table .statement-delete-actions button{padding:0 7px;font-size:9px}
+	.task-status-table th,.task-status-table td{padding-left:7px;padding-right:7px}
+	.task-status-table th:nth-child(1){width:6%}
+	.task-status-table th:nth-child(2){width:18%}
+	.task-status-table th:nth-child(3){width:13%}
+	.task-status-table th:nth-child(4){width:8%}
+	.task-status-table th:nth-child(5){width:8%}
+	.task-status-table th:nth-child(6){width:10%}
+	.task-status-table th:nth-child(7){width:8%}
+	.task-status-table th:nth-child(8){width:8%}
+	.task-status-table th:nth-child(9){width:7%}
+	.task-status-table th:nth-child(10){width:14%}
+	.task-status-table td:nth-child(7),.task-status-table td:nth-child(8),.task-status-table td:nth-child(9){white-space:normal;overflow-wrap:anywhere}
+	.task-status-table td:nth-child(10){white-space:nowrap}
+	.task-status-table .statement-delete-actions{justify-content:flex-start;gap:4px}
+	.task-status-table .statement-delete-actions button{padding:0 5px;font-size:8px}
+	.transaction-view-tabs{display:flex;flex-shrink:0;gap:8px;width:100%;box-sizing:border-box;margin:0 0 10px;padding:5px;overflow-x:auto;border:1px solid #dbe3ef;border-radius:11px;background:#fff}
+	.transaction-view-tabs button{flex:0 0 auto}
+	.transaction-view-tabs button{display:flex;align-items:center;gap:9px;height:36px;padding:0 13px;border:0;border-radius:7px;background:transparent;color:#475569;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap}
+	.transaction-view-tabs button:hover{background:#f1f5f9;color:#172033}
+	.transaction-view-tabs button.active{background:#0f766e;color:#fff;box-shadow:0 3px 8px rgba(15,118,110,.2)}
+	.transaction-view-tabs button strong{display:inline-flex;min-width:22px;height:20px;align-items:center;justify-content:center;padding:0 6px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:10px}
+	.transaction-view-tabs button.active strong{background:rgba(255,255,255,.2);color:#fff}
+	.bank-account-name{display:block;font-weight:700;color:#334155}
+	.configured-bank-number{display:block;margin-top:5px;color:#64748b;font-size:10px;font-weight:800}
+	.saved-mjv-cell{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+	.expand-mjv-button{height:25px;padding:0 8px;border:1px solid #0f766e;border-radius:6px;background:#fff;color:#0f766e;font-size:9px;font-weight:900;white-space:nowrap;cursor:pointer}
+	.expand-mjv-button:hover:not(:disabled){background:#ecfdf5}
+	.expand-mjv-button:disabled{opacity:.55;cursor:not-allowed}
+	.saved-mjv-detail-row>td{padding:10px!important;border-right:0!important;background:#f1f5f9!important}
+	.saved-mjv-preview{max-height:min(480px,55vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid #94a3b8;border-radius:10px;background:#fff;box-shadow:0 3px 10px rgba(15,23,42,.08)}
+	.saved-mjv-preview>header{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #cbd5e1;background:#e8eef6}
+	.saved-mjv-preview>header div{display:flex;align-items:baseline;gap:10px}
+	.saved-mjv-preview>header span{color:#64748b;font-size:10px;font-weight:700}
+	.saved-mjv-branch{margin:10px;overflow:auto;border:1px solid #dbe3ef;border-radius:8px}
+	.saved-mjv-branch h4{margin:0;padding:8px 10px;border-bottom:1px solid #dbe3ef;background:#f8fafc;font-size:11px}
+	.saved-mjv-grid{display:grid;grid-template-columns:minmax(190px,1fr) minmax(320px,2fr) 95px 95px;min-width:800px;border-bottom:1px solid #e2e8f0;font-size:10px}
+	.saved-mjv-grid:last-child{border-bottom:0}
+	.saved-mjv-grid>*{padding:7px 9px}
+	.saved-mjv-grid small{display:block;margin-top:2px;color:#64748b;font-size:9px}
+	.saved-mjv-grid-head{background:#172033;color:#fff;font-size:9px;font-weight:900;text-transform:uppercase}
 </style>
