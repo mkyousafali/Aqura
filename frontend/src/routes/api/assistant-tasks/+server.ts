@@ -149,7 +149,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			}
 			const bankName = mjv.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli Bank';
 			const taskRows = pendingBranches.map((branch) => ({
-				task_type: 'cash_closing_mjv', title: `${bankName} ${mjv.mjv_type === 'iqama-work-permit' ? 'Iqama & Work Permit' : 'Statement'} MJV - ${mjv.statement_date}`,
+				task_type: 'cash_closing_mjv', title: `${bankName} ${mjv.mjv_type === 'iqama-work-permit' ? 'Iqama & Work Permit' : mjv.mjv_type === 'electricity' ? 'Electricity' : mjv.mjv_type === 'mobily' ? 'Mobily' : mjv.mjv_type === 'stc' ? 'STC' : mjv.mjv_type === 'cash-withdrawal' ? 'Cash Withdrawal' : 'Statement'} MJV - ${mjv.statement_date}`,
 				branch_id: Number(branch.branch_id), assigned_to: assigneeByBranch.get(Number(branch.branch_id)), created_by: actor.id,
 				source_record_id: mjv.id, workflow_key: `statement-mjv:${mjv.id}:${branch.branch_id}`, status: 'pending',
 				payload: { version: 1, statement_mjv_id: mjv.id, statement_bank_account_id: mjv.bank_account_id, statement_date: mjv.statement_date, posting_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()), branch_name: branch.branch_name, bank: mjv.bank, mjv_type: mjv.mjv_type, lines: branch.lines }

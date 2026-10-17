@@ -12,7 +12,7 @@
 	};
 
 	let bank = '';
-	let activeTab: 'process' | 'accounts' | 'bank-accounts' | 'terminals' | 'task-status' | 'iqama-sadad' = 'process';
+	let activeTab: 'process' | 'accounts' | 'bank-accounts' | 'terminals' | 'task-status' | 'iqama-sadad' | 'electricity-sadad' | 'telecom-sadad' = 'process';
 	let configuredBankAccounts: any[] = [];
 	let selectedStatementBankAccountId = '';
 	let showBankAccountForm = false;
@@ -84,6 +84,45 @@
 	let savingIqamaAccount = false;
 	let iqamaAccountError = '';
 	let iqamaAccountMessage = '';
+	let electricityPostingAccounts: any[] = [];
+	let electricityAccountMappings: any[] = [];
+	let electricityManagerTab: 'posting' | 'accounts' | 'tasks' = 'posting';
+	let electricityTaskRows: any[] = [];
+	let loadingElectricityTasks = false;
+	let electricityTaskError = '';
+	let showElectricityPostingForm = false;
+	let electricityPostingBranchSearch = '';
+	let electricityPostingBranchId: number | null = null;
+	let electricityLedgerSearch = '';
+	let electricityLedgerChoices: any[] = [];
+	let selectedElectricityLedger: any = null;
+	let loadingElectricityLedgers = false;
+	let savingElectricityPostingAccount = false;
+	let showElectricityMappingForm = false;
+	let electricityAccountNumber = '';
+	let electricityMappingBranchSearch = '';
+	let electricityMappingBranchId: number | null = null;
+	let savingElectricityMapping = false;
+	let deletingElectricityMappingId = '';
+	let updatingElectricityVatId = '';
+	let electricityConfigError = '';
+	let electricityConfigMessage = '';
+	let telecomManagerTab: 'posting' | 'subscribers' | 'tasks' = 'posting';
+	let telecomPostingAccounts: any[] = [];
+	let telecomSubscribers: any[] = [];
+	let telecomTaskRows: any[] = [];
+	let telecomProvider: 'mobily' | 'stc' = 'mobily';
+	let telecomBranchSearch = '';
+	let telecomBranchId: number | null = null;
+	let telecomLedgerSearch = '';
+	let telecomLedgerChoices: any[] = [];
+	let selectedTelecomLedger: any = null;
+	let telecomSubscriberNumber = '';
+	let telecomSubscriberBranchSearch = '';
+	let telecomSubscriberBranchId: number | null = null;
+	let telecomError = '';
+	let telecomMessage = '';
+	let updatingTelecomVatId = '';
 	let filteredStatementRows: StatementRow[] = [];
 	let branches: any[] = [];
 	let terminalAccounts: any[] = [];
@@ -109,7 +148,7 @@
 	let selectedLedgers: Record<string, any | null> = { vat: null, riyad: null, ahli: null };
 	let searchingLedger = '';
 	let savingPostingAccounts = false;
-	let previewAccounts: any = { pos_accounts: [], cross_branch_accounts: [] };
+	let previewAccounts: any = { pos_accounts: [], cash_accounts: [], cross_branch_accounts: [] };
 	let expandedEntryRows = new Set<number>();
 
 	$: terminalOptions = Array.from(new Set(statementRows
@@ -123,7 +162,13 @@
 		else types.set(description, { description, count: 1, isPos: isPosTransaction(row) });
 		return types;
 	}, new Map<string, { description: string; count: number; isPos: boolean }>()).values()).sort((left, right) => {
-		const priority = (description: string) => description === 'POS Transactions' ? 0 : description === 'Iqama & Work Permit' ? 1 : 2;
+		const priority = (description: string) => description === 'POS Transactions' ? 0
+			: description === 'Iqama & Work Permit' ? 1
+			: description === 'Electricity Payments' ? 2
+			: description === 'Mobily Payments' ? 3
+			: description === 'STC Payments' ? 4
+			: description === 'CASH WITHDRAWAL SLIP' ? 5
+			: 6;
 		return priority(left.description) - priority(right.description);
 	});
 	$: selectedTransactionViewIsPos = transactionViewOptions.find((option) => option.description === transactionView)?.isPos ?? false;
@@ -151,7 +196,7 @@
 		else terminalAccounts = terminalResult.data || [];
 		if (postingResult.error) accountError = postingResult.error.message;
 		else postingAccounts = postingResult.data || [];
-		if (!previewResult.error) previewAccounts = previewResult.data || { pos_accounts: [], cross_branch_accounts: [] };
+		if (!previewResult.error) previewAccounts = previewResult.data || { pos_accounts: [], cash_accounts: [], cross_branch_accounts: [] };
 		if (!bankAccountResult.error) configuredBankAccounts = bankAccountResult.data || [];
 	}
 
@@ -173,7 +218,7 @@
 		const { data, error } = await supabase.rpc('get_statement_task_month_counts', { p_month: `${taskStatusMonth}-01` });
 		if (error) { taskStatusError = error.message; taskMonthConfiguredBankCount = 0; taskMonthCounts = {}; return; }
 		taskMonthConfiguredBankCount = Number(data?.configured_bank_count || 0);
-		taskMonthCounts = Object.fromEntries((data?.dates || []).map((item: any) => [String(item.date).slice(0, 10), Number(item.saved_bank_count || 0)]));
+		taskMonthCounts = Object.fromEntries((data?.dates || []).map((item: any) => [String(item.date).slice(0, 10), Number(item.saved_mjv_count ?? item.saved_bank_count ?? 0)]));
 	}
 
 	function taskCalendarDays(monthValue: string): { iso: string; day: number; currentMonth: boolean }[] {
@@ -264,10 +309,8 @@
 		expandedSavedMjvRows = next;
 	}
 
-	function taskDateCountClass(saved: number, configured: number): string {
-		if (saved === 0 || configured === 0) return 'none-saved';
-		if (saved === configured) return 'all-saved';
-		return 'partially-saved';
+	function taskDateCountClass(saved: number): string {
+		return saved > 0 ? 'all-saved' : 'none-saved';
 	}
 
 	async function selectTaskStatusDate(iso: string) {
@@ -305,11 +348,23 @@
 			if (row.description === 'SADAD Payment') {
 				if (/^090-[12]\d{9}\b/.test(row.details.trim())) return 'Iqama Renewal Payments';
 				if (/^050-\d{12,18}\b/.test(row.details.trim())) return 'Work Permit SADAD Payments';
+				if (/^002-\d+\b/.test(row.details.trim())) return 'Electricity Payments';
+				if (/^005-\d+\b/.test(row.details.trim())) return 'Mobily Payments';
+				if (/^001-\d+\b/.test(row.details.trim())) return 'STC Payments';
 			}
 			return row.description;
 		}
 		if (row.description === 'UTILITY BILL PAYMENT' && /\bBILLER\s*ID\s*:\s*050\b/i.test(row.details)) {
 			return 'Work Permit SADAD Payments';
+		}
+		if (row.description === 'UTILITY BILL PAYMENT' && /\bBILLER\s*ID\s*:\s*002\b/i.test(row.details)) {
+			return 'Electricity Payments';
+		}
+		if (row.description === 'UTILITY BILL PAYMENT' && /\bBILLER\s*ID\s*:\s*005\b/i.test(row.details)) {
+			return 'Mobily Payments';
+		}
+		if (row.description === 'UTILITY BILL PAYMENT' && /\bBILLER\s*ID\s*:\s*001\b/i.test(row.details)) {
+			return 'STC Payments';
 		}
 		const labels: Record<string, string> = {
 			'POS DEBIT': 'POS Card Purchases',
@@ -329,6 +384,8 @@
 		if (view === 'Iqama & Work Permit') return 'Iqama / SADAD Number';
 		if (view === 'Iqama Renewal Payments') return 'Iqama Number';
 		if (view === 'Work Permit SADAD Payments') return 'SADAD Number';
+		if (view === 'Electricity Payments') return 'Electricity Account Number';
+		if (view === 'Mobily Payments' || view === 'STC Payments') return 'Subscriber Number';
 		return 'Terminal ID';
 	}
 
@@ -344,6 +401,16 @@
 				? row.details.match(/\bSUB\s*(\d{12,18})/i)?.[1] || '—'
 				: row.details.match(/^050-(\d{12,18})\b/)?.[1] || '—';
 		}
+		if (description === 'Electricity Payments') {
+			return bank === 'riyad'
+				? row.details.match(/\bSUB\s*(\d+)/i)?.[1] || '—'
+				: row.details.match(/^002-(\d+)\b/)?.[1] || '—';
+		}
+		if (description === 'Mobily Payments' || description === 'STC Payments') {
+			return bank === 'riyad'
+				? row.details.match(/\bSUB\s*(\d+)/i)?.[1] || '—'
+				: row.details.match(/^00[15]-(\d+)\b/)?.[1] || '—';
+		}
 		return row.terminalId;
 	}
 
@@ -358,6 +425,8 @@
 		iqamaMjvMessage = '';
 		expandedIqamaGroups = new Set<string>();
 		if (description === 'Iqama & Work Permit') await generateIqamaMjvGroups();
+		if (description === 'Electricity Payments') await loadElectricityConfiguration();
+		if (description === 'Mobily Payments' || description === 'STC Payments') await loadTelecomConfiguration();
 	}
 
 	async function handleStatementDateChange() {
@@ -467,6 +536,115 @@
 			}
 		}
 		return { error: '', lines, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
+	}
+
+	function electricityConnection(row: StatementRow) {
+		const accountNumber = transactionIdentifier(row).replace(/\D/g, '');
+		return electricityAccountMappings.find((item) => String(item.electricity_account_number || '').replace(/\D/g, '') === accountNumber) || null;
+	}
+
+	function electricityEntryPreview(row: StatementRow) {
+		const accountNumber = transactionIdentifier(row).replace(/\D/g, '');
+		const connection = electricityConnection(row);
+		if (!connection) return { error: `Electricity account ${accountNumber || 'number'} is not connected to a branch.`, lines: [], debit: 0, credit: 0 };
+		const statementAccount = configuredBankAccounts.find((item) => item.id === selectedStatementBankAccountId);
+		if (!statementAccount) return { error: 'Select the statement real bank account.', lines: [], debit: 0, credit: 0 };
+		const electricityBranchId = Number(connection.branch_id);
+		const expenseAccount = electricityPostingAccounts.find((item) => Number(item.branch_id) === electricityBranchId);
+		if (!expenseAccount) return { error: `Electricity posting ledger is not configured for ${connection.branch_name || 'the connected branch'}.`, lines: [], debit: 0, credit: 0 };
+		const gross = numericAmount(row.debit || row.credit);
+		if (!gross) return { error: 'The statement payment amount is zero.', lines: [], debit: 0, credit: 0 };
+		const vatApplicable = !!connection.vat_applicable;
+		const net = vatApplicable ? Math.round((gross / 1.15) * 100) / 100 : gross;
+		const vat = vatApplicable ? Math.round((gross - net) * 100) / 100 : 0;
+		const vatAccount = vatApplicable ? postingAccounts.find((item) => Number(item.branch_id) === electricityBranchId) : null;
+		if (vatApplicable && (!vatAccount || !vatAccount.input_vat_ledger_name)) return { error: `Input VAT ledger is not configured for ${connection.branch_name || 'the connected branch'}.`, lines: [], debit: 0, credit: 0 };
+		const bankBranchId = Number(statementAccount.branch_id);
+		const bankBranch = previewBranchLabel(bankBranchId, statementAccount.branch_name);
+		const electricityBranch = previewBranchLabel(electricityBranchId, connection.branch_name || expenseAccount.branch_name);
+		const reference = row.reference ? `, bank reference ${row.reference}` : '';
+		const baseNarration = `Electricity payment for account ${accountNumber} dated ${displayDate(row.date)}${reference}`;
+		const lines: any[] = [];
+		const add = (branchId: number, branch: string, account: string, ledgerCode: string, debit: number, credit: number, kind: string, narration: string) => lines.push({ branchId, branch, account, ledgerCode, debit, credit, kind, narration });
+		if (bankBranchId === electricityBranchId) {
+			add(electricityBranchId, electricityBranch, expenseAccount.ledger_name, expenseAccount.ledger_code || '', net, 0, 'Electricity expense', vatApplicable ? `${baseNarration}, amount excluding VAT` : baseNarration);
+			if (vat) add(electricityBranchId, electricityBranch, vatAccount.input_vat_ledger_name, vatAccount.input_vat_ledger_code || '', vat, 0, 'Input VAT', `Input VAT included in ${baseNarration.toLowerCase()}`);
+			add(bankBranchId, bankBranch, statementAccount.ledger_name, statementAccount.ledger_code || '', 0, gross, 'Real bank', `${baseNarration} paid from ${statementAccount.ledger_name}`);
+		} else {
+			const bankAdjustment = (previewAccounts.cross_branch_accounts || []).find((item: any) => Number(item.source_branch_id) === bankBranchId && Number(item.target_branch_id) === electricityBranchId);
+			const electricityAdjustment = (previewAccounts.cross_branch_accounts || []).find((item: any) => Number(item.source_branch_id) === electricityBranchId && Number(item.target_branch_id) === bankBranchId);
+			if (!bankAdjustment || !electricityAdjustment) return { error: `Both reciprocal branch adjustment accounts are required between ${bankBranch} and ${electricityBranch}.`, lines: [], debit: 0, credit: 0 };
+			add(bankBranchId, bankBranch, bankAdjustment.ledger_name, bankAdjustment.ledger_code || '', gross, 0, 'Branch adjustment', `${baseNarration} paid by ${bankBranch} for ${electricityBranch}`);
+			add(bankBranchId, bankBranch, statementAccount.ledger_name, statementAccount.ledger_code || '', 0, gross, 'Real bank', `${baseNarration} paid from ${statementAccount.ledger_name}`);
+			add(electricityBranchId, electricityBranch, expenseAccount.ledger_name, expenseAccount.ledger_code || '', net, 0, 'Electricity expense', vatApplicable ? `${baseNarration}, amount excluding VAT` : baseNarration);
+			if (vat) add(electricityBranchId, electricityBranch, vatAccount.input_vat_ledger_name, vatAccount.input_vat_ledger_code || '', vat, 0, 'Input VAT', `Input VAT included in ${baseNarration.toLowerCase()}`);
+			add(electricityBranchId, electricityBranch, electricityAdjustment.ledger_name, electricityAdjustment.ledger_code || '', 0, gross, 'Branch adjustment', `${baseNarration} funded by ${bankBranch}`);
+		}
+		return { error: '', lines, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0), connection, vatApplicable, gross, net, vat };
+	}
+
+	function telecomConnection(row: StatementRow) {
+		const provider = transactionDisplayDescription(row) === 'Mobily Payments' ? 'mobily' : 'stc';
+		const subscriber = transactionIdentifier(row).replace(/\D/g, '');
+		return telecomSubscribers.find((item) => item.provider === provider && String(item.subscriber_number || '').replace(/\D/g, '') === subscriber) || null;
+	}
+
+	function telecomEntryPreview(row: StatementRow) {
+		const provider = transactionDisplayDescription(row) === 'Mobily Payments' ? 'mobily' : 'stc';
+		const providerName = provider === 'mobily' ? 'Mobily' : 'STC';
+		const subscriber = transactionIdentifier(row).replace(/\D/g, '');
+		const connection = telecomConnection(row);
+		if (!connection) return { error: `${providerName} subscriber ${subscriber || 'number'} is not connected to a branch.`, lines: [], debit: 0, credit: 0 };
+		const statementAccount = configuredBankAccounts.find((item) => item.id === selectedStatementBankAccountId);
+		if (!statementAccount) return { error: 'Select the statement real bank account.', lines: [], debit: 0, credit: 0 };
+		const targetBranchId = Number(connection.branch_id);
+		const expenseAccount = telecomPostingAccounts.find((item) => item.provider === provider && Number(item.branch_id) === targetBranchId);
+		if (!expenseAccount) return { error: `${providerName} posting ledger is not configured for ${connection.branch_name}.`, lines: [], debit: 0, credit: 0 };
+		const gross = numericAmount(row.debit || row.credit);
+		const vatApplicable = !!connection.vat_applicable;
+		const net = vatApplicable ? Math.round((gross / 1.15) * 100) / 100 : gross;
+		const vat = vatApplicable ? Math.round((gross - net) * 100) / 100 : 0;
+		const vatAccount = vatApplicable ? postingAccounts.find((item) => Number(item.branch_id) === targetBranchId) : null;
+		if (vatApplicable && !vatAccount?.input_vat_ledger_name) return { error: `Input VAT ledger is not configured for ${connection.branch_name}.`, lines: [], debit: 0, credit: 0 };
+		const bankBranchId = Number(statementAccount.branch_id);
+		const bankBranch = previewBranchLabel(bankBranchId, statementAccount.branch_name);
+		const targetBranch = previewBranchLabel(targetBranchId, connection.branch_name);
+		const reference = row.reference ? `, bank reference ${row.reference}` : '';
+		const narration = `${providerName} payment for subscriber ${subscriber} dated ${displayDate(row.date)}${reference}`;
+		const lines: any[] = [];
+		const add = (branchId: number, branch: string, account: string, ledgerCode: string, debit: number, credit: number, kind: string, text: string) => lines.push({ branchId, branch, account, ledgerCode, debit, credit, kind, narration: text });
+		if (bankBranchId === targetBranchId) {
+			add(targetBranchId, targetBranch, expenseAccount.ledger_name, expenseAccount.ledger_code || '', net, 0, `${providerName} expense`, vatApplicable ? `${narration}, amount excluding VAT` : narration);
+			if (vat) add(targetBranchId, targetBranch, vatAccount.input_vat_ledger_name, vatAccount.input_vat_ledger_code || '', vat, 0, 'Input VAT', `Input VAT included in ${narration.toLowerCase()}`);
+			add(bankBranchId, bankBranch, statementAccount.ledger_name, statementAccount.ledger_code || '', 0, gross, 'Real bank', `${narration} paid from ${statementAccount.ledger_name}`);
+		} else {
+			const bankAdjustment = (previewAccounts.cross_branch_accounts || []).find((item: any) => Number(item.source_branch_id) === bankBranchId && Number(item.target_branch_id) === targetBranchId);
+			const targetAdjustment = (previewAccounts.cross_branch_accounts || []).find((item: any) => Number(item.source_branch_id) === targetBranchId && Number(item.target_branch_id) === bankBranchId);
+			if (!bankAdjustment || !targetAdjustment) return { error: `Both reciprocal branch adjustment accounts are required between ${bankBranch} and ${targetBranch}.`, lines: [], debit: 0, credit: 0 };
+			add(bankBranchId, bankBranch, bankAdjustment.ledger_name, bankAdjustment.ledger_code || '', gross, 0, 'Branch adjustment', `${narration} paid by ${bankBranch} for ${targetBranch}`);
+			add(bankBranchId, bankBranch, statementAccount.ledger_name, statementAccount.ledger_code || '', 0, gross, 'Real bank', `${narration} paid from ${statementAccount.ledger_name}`);
+			add(targetBranchId, targetBranch, expenseAccount.ledger_name, expenseAccount.ledger_code || '', net, 0, `${providerName} expense`, vatApplicable ? `${narration}, amount excluding VAT` : narration);
+			if (vat) add(targetBranchId, targetBranch, vatAccount.input_vat_ledger_name, vatAccount.input_vat_ledger_code || '', vat, 0, 'Input VAT', `Input VAT included in ${narration.toLowerCase()}`);
+			add(targetBranchId, targetBranch, targetAdjustment.ledger_name, targetAdjustment.ledger_code || '', 0, gross, 'Branch adjustment', `${narration} funded by ${bankBranch}`);
+		}
+		return { error: '', lines, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0), connection };
+	}
+
+	function cashWithdrawalEntryPreview(row: StatementRow) {
+		const statementAccount = configuredBankAccounts.find((item) => item.id === selectedStatementBankAccountId);
+		if (!statementAccount) return { error: 'Select the statement real bank account.', lines: [], debit: 0, credit: 0 };
+		const branchId = Number(statementAccount.branch_id);
+		const branch = previewBranchLabel(branchId, statementAccount.branch_name);
+		const cashAccount = (previewAccounts.cash_accounts || []).find((item: any) => Number(item.branch_id) === branchId);
+		if (!cashAccount) return { error: `The denomination cash account is not configured for ${branch}.`, lines: [], debit: 0, credit: 0 };
+		const gross = numericAmount(row.debit || row.credit);
+		const reference = row.reference ? `, bank reference ${row.reference}` : '';
+		const narration = `Cash withdrawal dated ${displayDate(row.date)}${reference}`;
+		const lines = [
+			{ branchId, branch, account: cashAccount.ledger_name, ledgerCode: cashAccount.ledger_code || '', debit: gross, credit: 0, kind: 'Branch cash', narration: `${narration} received into branch cash` },
+			{ branchId, branch, account: statementAccount.ledger_name, ledgerCode: statementAccount.ledger_code || '', debit: 0, credit: gross, kind: 'Real bank', narration: `${narration} withdrawn from ${statementAccount.ledger_name}` }
+		];
+		return { error: '', lines, debit: gross, credit: gross };
 	}
 
 	function previewBranchLabel(branchId: number, fallback: string): string {
@@ -581,8 +759,66 @@
 		return { lines, branchGroups, errors, transactionCount, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
 	}
 
+	function electricityFullJournalPreview() {
+		const transactions = statementRows.filter((row) => transactionViewLabel(row) === 'Electricity Payments' && displayDate(row.date) === dateFilter);
+		const lines: any[] = [];
+		const errors: string[] = [];
+		for (const [index, row] of transactions.entries()) {
+			const preview = electricityEntryPreview(row);
+			if (preview.error) { errors.push(`${transactionNumber(index)}: ${preview.error}`); continue; }
+			for (const line of preview.lines) lines.push({ ...line, transaction: transactionNumber(index), description: `Electricity ${transactionIdentifier(row)}`, reference: row.reference });
+		}
+		const branchGroups = Array.from(lines.reduce((groups: Map<string, any[]>, line: any) => {
+			if (!groups.has(line.branch)) groups.set(line.branch, []);
+			groups.get(line.branch)?.push(line);
+			return groups;
+		}, new Map<string, any[]>())).map(([branch, branchLines]) => ({
+			branch, branchId: Number(branchLines[0]?.branchId), lines: branchLines,
+			debit: branchLines.reduce((sum: number, line: any) => sum + line.debit, 0),
+			credit: branchLines.reduce((sum: number, line: any) => sum + line.credit, 0)
+		}));
+		return { lines, branchGroups, errors, transactionCount: transactions.length, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
+	}
+
+	function telecomFullJournalPreview() {
+		const transactions = statementRows.filter((row) => transactionViewLabel(row) === transactionView && displayDate(row.date) === dateFilter);
+		const lines: any[] = []; const errors: string[] = [];
+		for (const [index, row] of transactions.entries()) {
+			const preview = telecomEntryPreview(row);
+			if (preview.error) { errors.push(`${transactionNumber(index)}: ${preview.error}`); continue; }
+			for (const line of preview.lines) lines.push({ ...line, transaction: transactionNumber(index), description: `${transactionView} ${transactionIdentifier(row)}`, reference: row.reference });
+		}
+		const branchGroups = Array.from(lines.reduce((groups: Map<string, any[]>, line: any) => { if (!groups.has(line.branch)) groups.set(line.branch, []); groups.get(line.branch)?.push(line); return groups; }, new Map<string, any[]>())).map(([branch, branchLines]) => ({ branch, branchId: Number(branchLines[0]?.branchId), lines: branchLines, debit: branchLines.reduce((sum: number, line: any) => sum + line.debit, 0), credit: branchLines.reduce((sum: number, line: any) => sum + line.credit, 0) }));
+		return { lines, branchGroups, errors, transactionCount: transactions.length, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
+	}
+
+	function cashWithdrawalFullJournalPreview() {
+		const transactions = statementRows.filter((row) => transactionViewLabel(row) === 'CASH WITHDRAWAL SLIP' && displayDate(row.date) === dateFilter);
+		const lines: any[] = []; const errors: string[] = [];
+		for (const [index, row] of transactions.entries()) {
+			const preview = cashWithdrawalEntryPreview(row);
+			if (preview.error) { errors.push(`${transactionNumber(index)}: ${preview.error}`); continue; }
+			for (const line of preview.lines) lines.push({ ...line, transaction: transactionNumber(index), description: 'Cash Withdrawal', reference: row.reference });
+		}
+		const branchGroups = Array.from(lines.reduce((groups: Map<string, any[]>, line: any) => { if (!groups.has(line.branch)) groups.set(line.branch, []); groups.get(line.branch)?.push(line); return groups; }, new Map<string, any[]>())).map(([branch, branchLines]) => ({ branch, branchId: Number(branchLines[0]?.branchId), lines: branchLines, debit: branchLines.reduce((sum: number, line: any) => sum + line.debit, 0), credit: branchLines.reduce((sum: number, line: any) => sum + line.credit, 0) }));
+		return { lines, branchGroups, errors, transactionCount: transactions.length, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
+	}
+
+	function currentMjvType(): string {
+		if (transactionView === 'Iqama & Work Permit') return 'iqama-work-permit';
+		if (transactionView === 'Electricity Payments') return 'electricity';
+		if (transactionView === 'Mobily Payments') return 'mobily';
+		if (transactionView === 'STC Payments') return 'stc';
+		if (transactionView === 'CASH WITHDRAWAL SLIP') return 'cash-withdrawal';
+		return 'pos';
+	}
+
 	function currentFullJournalPreview() {
-		return transactionView === 'Iqama & Work Permit' ? iqamaFullJournalPreview() : fullDateJournalPreview();
+		if (transactionView === 'Iqama & Work Permit') return iqamaFullJournalPreview();
+		if (transactionView === 'Electricity Payments') return electricityFullJournalPreview();
+		if (transactionView === 'Mobily Payments' || transactionView === 'STC Payments') return telecomFullJournalPreview();
+		if (transactionView === 'CASH WITHDRAWAL SLIP') return cashWithdrawalFullJournalPreview();
+		return fullDateJournalPreview();
 	}
 
 	function statementDateIso(): string {
@@ -592,7 +828,7 @@
 
 	async function loadSavedStatementMjv() {
 		if (!bank || !dateFilter) return;
-		const { data, error } = await supabase.rpc('get_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso(), p_mjv_type: transactionView === 'Iqama & Work Permit' ? 'iqama-work-permit' : 'pos' });
+		const { data, error } = await supabase.rpc('get_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso(), p_mjv_type: currentMjvType() });
 		if (error) accountError = error.message;
 		else savedStatementMjv = data || null;
 	}
@@ -612,7 +848,7 @@
 			branch_id: group.branchId, branch_name: group.branch, debit: group.debit, credit: group.credit,
 			lines: group.lines.map((line: any) => ({ ledger_name: line.account, ledger_code: line.ledgerCode || '', amount: Number(line.debit || line.credit).toFixed(2), side: line.debit ? 'Debit' : 'Credit', narration: line.narration }))
 		}));
-		const mjvType = transactionView === 'Iqama & Work Permit' ? 'iqama-work-permit' : 'pos';
+		const mjvType = currentMjvType();
 		const { data: savedMjvId, error } = await supabase.rpc('save_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso(), p_source_file_name: fileName, p_branches: branchesPayload, p_mjv_type: mjvType });
 		if (error) accountError = error.message;
 		else {
@@ -916,6 +1152,260 @@
 			await loadIqamaPostingAccounts();
 		}
 		savingIqamaAccount = false;
+	}
+
+	async function loadElectricityConfiguration() {
+		const { data, error } = await supabase.rpc('get_electricity_sadad_configuration');
+		if (error) { electricityConfigError = error.message; return; }
+		electricityPostingAccounts = data?.posting_accounts || [];
+		electricityAccountMappings = data?.electricity_accounts || [];
+	}
+
+	async function openElectricitySadadManager() {
+		activeTab = 'electricity-sadad';
+		electricityManagerTab = 'posting';
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+		await loadElectricityConfiguration();
+	}
+
+	async function openElectricityManagerTab(tab: 'posting' | 'accounts' | 'tasks') {
+		electricityManagerTab = tab;
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+		if (tab === 'tasks') await loadElectricityTasks(); else await loadElectricityConfiguration();
+	}
+
+	async function loadElectricityTasks() {
+		loadingElectricityTasks = true;
+		electricityTaskError = '';
+		const { data, error } = await supabase.rpc('get_electricity_statement_tasks');
+		if (error) { electricityTaskError = error.message; electricityTaskRows = []; }
+		else electricityTaskRows = data || [];
+		loadingElectricityTasks = false;
+	}
+
+	async function selectElectricityPostingBranch() {
+		const selected = branches.find((branch) => branchLabel(branch) === electricityPostingBranchSearch);
+		electricityPostingBranchId = selected ? Number(selected.id) : null;
+		electricityLedgerSearch = '';
+		selectedElectricityLedger = null;
+		electricityLedgerChoices = [];
+		if (!electricityPostingBranchId) return;
+		const existing = electricityPostingAccounts.find((item) => Number(item.branch_id) === electricityPostingBranchId);
+		loadingElectricityLedgers = true;
+		try {
+			const response = await authenticatedFetch(`/api/erp-ledger-search?branchId=${electricityPostingBranchId}`);
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load branch ledgers.');
+			electricityLedgerChoices = result.ledgers || [];
+			if (existing) {
+				selectedElectricityLedger = { LedgerID: existing.ledger_id, LedgerCode: existing.ledger_code, LedgerName: existing.ledger_name };
+				electricityLedgerSearch = ledgerLabel(selectedElectricityLedger);
+			}
+		} catch (error) {
+			electricityConfigError = error instanceof Error ? error.message : 'Unable to load branch ledgers.';
+		} finally {
+			loadingElectricityLedgers = false;
+		}
+	}
+
+	async function searchElectricityLedgers() {
+		if (!electricityPostingBranchId) return;
+		loadingElectricityLedgers = true;
+		selectedElectricityLedger = null;
+		try {
+			const query = encodeURIComponent(electricityLedgerSearch.trim());
+			const response = await authenticatedFetch(`/api/erp-ledger-search?branchId=${electricityPostingBranchId}&query=${query}`);
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Unable to search branch ledgers.');
+			electricityLedgerChoices = result.ledgers || [];
+		} catch (error) {
+			electricityConfigError = error instanceof Error ? error.message : 'Unable to search branch ledgers.';
+		} finally {
+			loadingElectricityLedgers = false;
+		}
+	}
+
+	function chooseElectricityLedger() {
+		selectedElectricityLedger = electricityLedgerChoices.find((ledger) => ledgerLabel(ledger) === electricityLedgerSearch) || null;
+	}
+
+	async function saveElectricityPostingAccount() {
+		if (!electricityPostingBranchId || !selectedElectricityLedger) {
+			electricityConfigError = 'Select an active branch and electricity posting ledger.';
+			return;
+		}
+		savingElectricityPostingAccount = true;
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+		const ledger = selectedElectricityLedger;
+		const { error } = await supabase.rpc('save_electricity_sadad_posting_account', {
+			p_branch_id: electricityPostingBranchId,
+			p_ledger_id: Number(ledger.LedgerID),
+			p_ledger_code: String(ledger.LedgerCode ?? ''),
+			p_ledger_name: String(ledger.LedgerName)
+		});
+		if (error) electricityConfigError = error.message;
+		else {
+			electricityConfigMessage = 'Electricity posting account saved.';
+			showElectricityPostingForm = false;
+			electricityPostingBranchSearch = '';
+			electricityPostingBranchId = null;
+			electricityLedgerSearch = '';
+			selectedElectricityLedger = null;
+			await loadElectricityConfiguration();
+		}
+		savingElectricityPostingAccount = false;
+	}
+
+	function selectElectricityMappingBranch() {
+		const selected = branches.find((branch) => branchLabel(branch) === electricityMappingBranchSearch);
+		electricityMappingBranchId = selected ? Number(selected.id) : null;
+	}
+
+	function editElectricityMapping(account: any) {
+		const branch = branches.find((item) => Number(item.id) === Number(account.branch_id));
+		electricityAccountNumber = String(account.electricity_account_number || '');
+		electricityMappingBranchId = Number(account.branch_id);
+		electricityMappingBranchSearch = branch ? branchLabel(branch) : [account.branch_name, account.branch_location].filter(Boolean).join(' - ');
+		showElectricityMappingForm = true;
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+	}
+
+	async function saveElectricityMapping() {
+		const normalizedNumber = electricityAccountNumber.replace(/\D/g, '');
+		if (!normalizedNumber || !electricityMappingBranchId) {
+			electricityConfigError = 'Enter an electricity account number and select its branch.';
+			return;
+		}
+		savingElectricityMapping = true;
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+		const { error } = await supabase.rpc('save_electricity_sadad_account', {
+			p_electricity_account_number: normalizedNumber,
+			p_branch_id: electricityMappingBranchId
+		});
+		if (error) electricityConfigError = error.message;
+		else {
+			electricityConfigMessage = 'Electricity account connected to branch.';
+			showElectricityMappingForm = false;
+			electricityAccountNumber = '';
+			electricityMappingBranchSearch = '';
+			electricityMappingBranchId = null;
+			await loadElectricityConfiguration();
+		}
+		savingElectricityMapping = false;
+	}
+
+	async function deleteElectricityMapping(account: any) {
+		if (!account?.id || deletingElectricityMappingId) return;
+		if (!confirm(`Delete electricity account ${account.electricity_account_number} from the branch mapping?`)) return;
+		deletingElectricityMappingId = String(account.id);
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+		const { error } = await supabase.rpc('delete_electricity_sadad_account', { p_id: account.id });
+		if (error) electricityConfigError = error.message;
+		else {
+			electricityConfigMessage = `Electricity account ${account.electricity_account_number} deleted.`;
+			if (electricityAccountNumber === String(account.electricity_account_number)) {
+				showElectricityMappingForm = false;
+				electricityAccountNumber = '';
+				electricityMappingBranchSearch = '';
+				electricityMappingBranchId = null;
+			}
+			await loadElectricityConfiguration();
+		}
+		deletingElectricityMappingId = '';
+	}
+
+	async function toggleElectricityVat(account: any) {
+		if (!account?.id || updatingElectricityVatId) return;
+		const nextValue = !account.vat_applicable;
+		updatingElectricityVatId = String(account.id);
+		electricityConfigError = '';
+		electricityConfigMessage = '';
+		account.vat_applicable = nextValue;
+		const { error } = await supabase.rpc('set_electricity_sadad_vat_applicable', { p_id: account.id, p_vat_applicable: nextValue });
+		if (error) {
+			account.vat_applicable = !nextValue;
+			electricityConfigError = error.message;
+		} else {
+			electricityConfigMessage = `VAT ${nextValue ? 'enabled' : 'disabled'} for electricity account ${account.electricity_account_number}.`;
+		}
+		updatingElectricityVatId = '';
+	}
+
+	async function loadTelecomConfiguration() {
+		const { data, error } = await supabase.rpc('get_telecom_sadad_configuration');
+		if (error) { telecomError = error.message; return; }
+		telecomPostingAccounts = data?.posting_accounts || [];
+		telecomSubscribers = data?.subscribers || [];
+	}
+
+	async function openTelecomSadadManager() {
+		activeTab = 'telecom-sadad'; telecomManagerTab = 'posting'; telecomError = ''; telecomMessage = '';
+		await loadTelecomConfiguration();
+	}
+
+	async function openTelecomManagerTab(tab: 'posting' | 'subscribers' | 'tasks') {
+		telecomManagerTab = tab; telecomError = ''; telecomMessage = '';
+		if (tab === 'tasks') {
+			const { data, error } = await supabase.rpc('get_telecom_statement_tasks');
+			if (error) telecomError = error.message; else telecomTaskRows = data || [];
+		} else await loadTelecomConfiguration();
+	}
+
+	async function selectTelecomBranch() {
+		const branch = branches.find((item) => branchLabel(item) === telecomBranchSearch);
+		telecomBranchId = branch ? Number(branch.id) : null; telecomLedgerChoices = []; selectedTelecomLedger = null; telecomLedgerSearch = '';
+		if (!telecomBranchId) return;
+		const response = await authenticatedFetch(`/api/erp-ledger-search?branchId=${telecomBranchId}`);
+		const result = await response.json();
+		if (!response.ok || !result.success) { telecomError = result.error || 'Unable to load ledgers.'; return; }
+		telecomLedgerChoices = result.ledgers || [];
+	}
+
+	function chooseTelecomLedger() { selectedTelecomLedger = telecomLedgerChoices.find((item) => ledgerLabel(item) === telecomLedgerSearch) || null; }
+
+	async function saveTelecomPostingAccount() {
+		if (!telecomBranchId || !selectedTelecomLedger) { telecomError = 'Select a branch and posting ledger.'; return; }
+		const ledger = selectedTelecomLedger;
+		const { error } = await supabase.rpc('save_telecom_sadad_posting_account', { p_provider: telecomProvider, p_branch_id: telecomBranchId, p_ledger_id: Number(ledger.LedgerID), p_ledger_code: String(ledger.LedgerCode || ''), p_ledger_name: String(ledger.LedgerName) });
+		if (error) telecomError = error.message; else { telecomMessage = 'Telecom posting account saved.'; await loadTelecomConfiguration(); }
+	}
+
+	function selectTelecomSubscriberBranch() {
+		const branch = branches.find((item) => branchLabel(item) === telecomSubscriberBranchSearch);
+		telecomSubscriberBranchId = branch ? Number(branch.id) : null;
+	}
+
+	function editTelecomSubscriber(row: any) {
+		telecomProvider = row.provider;
+		telecomSubscriberNumber = String(row.subscriber_number || '');
+		telecomSubscriberBranchId = Number(row.branch_id);
+		const branch = branches.find((item) => Number(item.id) === Number(row.branch_id));
+		telecomSubscriberBranchSearch = branch ? branchLabel(branch) : [row.branch_name, row.branch_location].filter(Boolean).join(' - ');
+		telecomError = '';
+		telecomMessage = 'Update the branch and press Connect.';
+	}
+
+	async function saveTelecomSubscriber() {
+		const subscriber = telecomSubscriberNumber.replace(/\D/g, '');
+		if (!subscriber || !telecomSubscriberBranchId) { telecomError = 'Enter a subscriber number and select its branch.'; return; }
+		const { error } = await supabase.rpc('save_telecom_sadad_subscriber', { p_provider: telecomProvider, p_subscriber_number: subscriber, p_branch_id: telecomSubscriberBranchId });
+		if (error) telecomError = error.message; else { telecomMessage = 'Subscriber connected to branch.'; telecomSubscriberNumber = ''; await loadTelecomConfiguration(); }
+	}
+
+	async function toggleTelecomVat(row: any) {
+		if (!row?.id || updatingTelecomVatId) return;
+		const nextValue = !row.vat_applicable;
+		updatingTelecomVatId = String(row.id); row.vat_applicable = nextValue; telecomError = ''; telecomMessage = '';
+		const { error } = await supabase.rpc('set_telecom_sadad_vat_applicable', { p_id: row.id, p_vat_applicable: nextValue });
+		if (error) { row.vat_applicable = !nextValue; telecomError = error.message; }
+		else telecomMessage = `VAT ${nextValue ? 'enabled' : 'disabled'} for ${String(row.provider).toUpperCase()} subscriber ${row.subscriber_number}.`;
+		updatingTelecomVatId = '';
 	}
 
 	async function selectAccountBranch() {
@@ -1514,6 +2004,8 @@
 		<button type="button" class:active={activeTab === 'terminals'} on:click={openTerminals}>Terminal Configuration</button>
 		<button type="button" class:active={activeTab === 'task-status'} on:click={openTaskStatus}>Task Status</button>
 		<button type="button" class:active={activeTab === 'iqama-sadad'} on:click={openIqamaSadadManager}>Iqama SADAD Manager</button>
+		<button type="button" class:active={activeTab === 'electricity-sadad'} on:click={openElectricitySadadManager}>Electricity SADAD Manager</button>
+		<button type="button" class:active={activeTab === 'telecom-sadad'} on:click={openTelecomSadadManager}>Telecom SADAD Manager</button>
 	</nav>
 	{#if activeTab === 'process'}
 	<section class="import-panel">
@@ -1524,31 +2016,36 @@
 			<input bind:this={fileInput} class="file-input" type="file" accept=".xlsx,.xls" on:change={importStatement} />
 		{/if}
 		{#if fileName}<div class="file-name" title={fileName}>{fileName}</div>{/if}
+		{#if statementRows.length > 0}
+			<section class="summary-grid inline-summary" aria-label="Statement summary">
+				<div><span>Source rows</span><strong>{rawTransactionCount}</strong></div>
+				<div><span>Main</span><strong>{statementRows.length}</strong></div>
+				<div><span>Fees</span><strong>{processingFeeCount}</strong></div>
+				<div><span>VAT</span><strong>{vatCount}</strong></div>
+			</section>
+		{/if}
 	</section>
 	{#if errorMessage}<div class="error-message">{errorMessage}</div>{/if}
 
 	{#if statementRows.length > 0}
-		<section class="summary-grid" aria-label="Statement summary">
-			<div><span>Excel source rows</span><strong>{rawTransactionCount}</strong></div><div><span>Main transactions</span><strong>{statementRows.length}</strong></div>
-			<div><span>Processing fees</span><strong>{processingFeeCount}</strong></div><div><span>VAT entries</span><strong>{vatCount}</strong></div>
-		</section>
-		{#if bank === 'riyad'}<div class="source-note">Riyad stores some processing fees and VAT inside the same Excel row. They are extracted below for clear grouping without changing the source-row count.</div>{/if}
+		<div class="process-workspace">
 		<nav class="transaction-view-tabs" aria-label="Statement transaction categories">
 			{#each transactionViewOptions as option}
 				<button type="button" class:active={transactionView === option.description} on:click={() => selectTransactionView(option.description)}><span>{option.description}</span><strong>{option.count}</strong></button>
 			{/each}
 		</nav>
+		<div class="process-content">
 		<div class="table-filters">
 			{#if selectedTransactionViewIsPos}<div class="filter-field"><label for="terminal-filter">Terminal ID</label><select id="terminal-filter" bind:value={terminalFilter}><option value="">All terminals</option>{#each terminalOptions as terminalId}<option value={terminalId}>{terminalId}</option>{/each}</select></div>{/if}
 			<div class="filter-field"><label for="date-filter">Transaction date</label><select id="date-filter" bind:value={dateFilter} on:change={handleStatementDateChange}><option value="">All dates</option>{#each dateOptions as transactionDate}<option value={transactionDate}>{transactionDate}</option>{/each}</select></div>
-			{#if selectedTransactionViewIsPos || transactionView === 'Iqama & Work Permit'}<button class="full-journal-button" type="button" disabled={!dateFilter || generatingIqamaMjv} on:click={openFullDateJournal}>{generatingIqamaMjv ? 'Loading…' : 'Show full MJV'}</button>{/if}
+			{#if selectedTransactionViewIsPos || transactionView === 'Iqama & Work Permit' || transactionView === 'Electricity Payments' || transactionView === 'Mobily Payments' || transactionView === 'STC Payments' || transactionView === 'CASH WITHDRAWAL SLIP'}<button class="full-journal-button" type="button" disabled={!dateFilter || generatingIqamaMjv} on:click={openFullDateJournal}>{generatingIqamaMjv ? 'Loading…' : 'Show full MJV'}</button>{/if}
 			{#if terminalFilter || dateFilter}<span>{filteredStatementRows.length} matching transactions</span>{/if}
 		</div>
 		{#if transactionView === 'Iqama & Work Permit' && iqamaMjvMessage}<div class="source-note">{iqamaMjvMessage} Preview only — nothing is saved.</div>{/if}
 		{#if showFullDateJournal}
 			{#each [currentFullJournalPreview()] as fullPreview}
 				<section class="full-journal-panel">
-					<header class="full-journal-header"><div><h2>Full MJV for {dateFilter}</h2><p>{fullPreview.transactionCount} {transactionView === 'Iqama & Work Permit' ? 'Iqama and work-permit payments' : 'POS transactions across all terminals'}</p></div><div class="workflow-actions"><span class:unbalanced={fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} class="balance-badge">{!fullPreview.errors.length && Math.abs(fullPreview.debit - fullPreview.credit) < 0.005 ? 'Overall balanced' : 'Not balanced'}</span>{#if !savedStatementMjv}<button class="save-mjv-button" type="button" disabled={savingStatementMjv || fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} on:click={() => saveFullDateJournal(fullPreview)}>{savingStatementMjv ? 'Saving…' : 'Save MJV'}</button>{:else if savedStatementMjv.status === 'saved'}<button class="post-mjv-button" type="button" disabled={postingStatementTasks} on:click={postStatementMjvTasks}>{postingStatementTasks ? 'Posting…' : 'Post Task'}</button><span class="workflow-status">Saved</span>{:else}<span class="workflow-status">{savedStatementMjv.status === 'completed' ? 'Posted / Completed' : savedStatementMjv.status === 'partially_posted' ? 'Partially posted' : 'Tasks posted'}</span>{/if}<button type="button" on:click={() => showFullDateJournal = false}>Back to transactions</button></div></header>
+					<header class="full-journal-header"><div><h2>Full MJV for {dateFilter}</h2><p>{fullPreview.transactionCount} {transactionView === 'Iqama & Work Permit' ? 'Iqama and work-permit payments' : transactionView === 'Electricity Payments' ? 'electricity payments' : 'POS transactions across all terminals'}</p></div><div class="workflow-actions"><span class:unbalanced={fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} class="balance-badge">{!fullPreview.errors.length && Math.abs(fullPreview.debit - fullPreview.credit) < 0.005 ? 'Overall balanced' : 'Not balanced'}</span>{#if !savedStatementMjv}<button class="save-mjv-button" type="button" disabled={savingStatementMjv || fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} on:click={() => saveFullDateJournal(fullPreview)}>{savingStatementMjv ? 'Saving…' : 'Save MJV'}</button>{:else if savedStatementMjv.status === 'saved'}<button class="post-mjv-button" type="button" disabled={postingStatementTasks} on:click={postStatementMjvTasks}>{postingStatementTasks ? 'Posting…' : 'Post Task'}</button><span class="workflow-status">Saved</span>{:else}<span class="workflow-status">{savedStatementMjv.status === 'completed' ? 'Posted / Completed' : savedStatementMjv.status === 'partially_posted' ? 'Partially posted' : 'Tasks posted'}</span>{/if}<button type="button" on:click={() => showFullDateJournal = false}>Back to transactions</button></div></header>
 					{#if accountError}<div class="preview-error">{accountError}</div>{/if}
 					{#if statementWorkflowMessage}<div class="workflow-message">{statementWorkflowMessage}</div>{/if}
 					{#if fullPreview.errors.length}<div class="preview-error">{fullPreview.errors.join(' ')}</div>{/if}
@@ -1603,7 +2100,17 @@
 						<td class="group-cell" rowspan={row.children.length + 1 + (expandedEntryRows.has(row.rowNumber) ? 1 : 0)}>
 							<strong>{transactionNumber(transactionIndex)}</strong>
 							<span>{row.children.length ? `${row.children.length + 1} grouped items` : '1 standalone row'}</span>
-							{#if isPosTransaction(row)}
+							{#if transactionView === 'Electricity Payments'}
+								{@const connection = electricityConnection(row)}
+								<small>{connection ? `${connection.branch_name}${connection.branch_location ? ` — ${connection.branch_location}` : ''}` : 'Not connected'}</small>
+								<span class:connected-status={!!connection} class="electricity-connection-status">{connection ? 'Connected' : 'Not connected'}</span>
+							{/if}
+							{#if transactionView === 'Mobily Payments' || transactionView === 'STC Payments'}
+								{@const connection = telecomConnection(row)}
+								<small>{connection ? `${connection.branch_name}${connection.branch_location ? ` — ${connection.branch_location}` : ''}` : 'Not connected'}</small>
+								<span class:connected-status={!!connection} class="electricity-connection-status">{connection ? 'Connected' : 'Not connected'}</span>
+							{/if}
+							{#if isPosTransaction(row) || transactionView === 'Electricity Payments' || transactionView === 'Mobily Payments' || transactionView === 'STC Payments' || transactionView === 'CASH WITHDRAWAL SLIP'}
 								<button class="entry-toggle" type="button" aria-expanded={expandedEntryRows.has(row.rowNumber)} on:click={() => toggleEntryPreview(row.rowNumber)}>{expandedEntryRows.has(row.rowNumber) ? 'Hide entry' : 'Show entry'}</button>
 							{/if}
 						</td>
@@ -1613,7 +2120,7 @@
 						<tr class="child-row"><td>{displayDate(child.date)}</td><td><span class:vat-type={childKind(child) === 'vat'} class="row-type">{childKind(child) === 'vat' ? 'VAT' : 'Fee'}</span><strong>{childKind(child) === 'vat' ? 'VAT on processing fee' : 'Processing fee'}</strong></td><td>{child.details}</td><td>{child.reference}</td><td class="terminal-id">{child.terminalId}</td><td class="number debit">{child.debit}</td><td class="number credit">{child.credit}</td><td class="number">{child.balance}</td></tr>
 					{/each}
 					{#if expandedEntryRows.has(row.rowNumber)}
-						{#each [entryPreview(row)] as preview}
+						{#each [transactionView === 'Electricity Payments' ? electricityEntryPreview(row) : transactionView === 'Mobily Payments' || transactionView === 'STC Payments' ? telecomEntryPreview(row) : transactionView === 'CASH WITHDRAWAL SLIP' ? cashWithdrawalEntryPreview(row) : entryPreview(row)] as preview}
 							<tr class="entry-preview-row"><td colspan="8">
 								<section class="entry-preview" aria-label={`Journal entry preview for ${transactionNumber(transactionIndex)}`}>
 									<header><div><strong>Complete journal entry</strong><span>Preview only — nothing will be posted</span></div>{#if !preview.error}<span class:unbalanced={Math.abs(preview.debit - preview.credit) >= 0.005} class="balance-badge">{Math.abs(preview.debit - preview.credit) < 0.005 ? 'Balanced' : 'Not balanced'}</span>{/if}</header>
@@ -1636,6 +2143,8 @@
 			{/if}
 		</table></div>
 		{/if}
+		</div>
+		</div>
 	{:else if !errorMessage}
 		<div class="empty-state"><div class="empty-icon">▤</div><h2>No statement imported</h2><p>Choose a bank, then import its Excel statement to arrange transactions with their fees and VAT.</p></div>
 	{/if}
@@ -1704,13 +2213,14 @@
 				<div class="task-calendar-go-to"><strong>Go to date</strong><select aria-label="Go to month" bind:value={taskGoToMonth}><option value="">Month</option>{#each ['January','February','March','April','May','June','July','August','September','October','November','December'] as monthName, index}<option value={String(index + 1)}>{monthName}</option>{/each}</select><select aria-label="Go to year" bind:value={taskGoToYear}><option value="">Year</option>{#each taskGoToYears(taskStatusMonth) as year}<option value={String(year)}>{year}</option>{/each}</select><select aria-label="Go to day" bind:value={taskGoToDay}><option value="">Day</option>{#each Array.from({ length: 31 }, (_, index) => index + 1) as day}<option value={String(day)}>{day}</option>{/each}</select><button type="button" on:click={goToTaskStatusDate}>Go</button><button class="clear-task-date" type="button" on:click={clearTaskStatusDate}>Clear</button></div>
 				<header><button type="button" aria-label="Previous month" on:click|preventDefault={showPreviousTaskStatusMonth}>‹</button><h3>{taskCalendarMonthLabel(taskStatusMonth)}</h3><button type="button" aria-label="Next month" on:click|preventDefault={showNextTaskStatusMonth}>›</button></header>
 				<div class="task-calendar-weekdays">{#each ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as weekday}<span>{weekday}</span>{/each}</div>
-				<div class="task-calendar-days">{#each taskCalendarDays(taskStatusMonth) as date}<button type="button" class:outside={!date.currentMonth} class:selected={date.iso === taskStatusDate} class={date.currentMonth ? taskDateCountClass(taskMonthCounts[date.iso] || 0, taskMonthConfiguredBankCount) : ''} on:click={() => selectTaskStatusDate(date.iso)}><strong>{date.day}</strong>{#if date.currentMonth}<small>Configured {taskMonthConfiguredBankCount}</small><small>Saved {taskMonthCounts[date.iso] || 0}</small>{/if}</button>{/each}</div>
+				<div class="task-calendar-days">{#each taskCalendarDays(taskStatusMonth) as date}<button type="button" class:outside={!date.currentMonth} class:selected={date.iso === taskStatusDate} class={date.currentMonth ? taskDateCountClass(taskMonthCounts[date.iso] || 0) : ''} on:click={() => selectTaskStatusDate(date.iso)}><strong>{date.day}</strong>{#if date.currentMonth}<small>Saved MJVs {taskMonthCounts[date.iso] || 0}</small>{/if}</button>{/each}</div>
 			</section>
 			<div class="task-status-results">
 			{#if taskStatusError}<div class="account-alert error">{taskStatusError}</div>{/if}
 			<div class="accounts-table-shell task-status-table-shell">
 				<table class="accounts-table task-status-table"><thead><tr><th>Bank</th><th>Bank account</th><th>Account branch</th><th>Saved MJV</th><th>Posting tasks</th><th>Task branch</th><th>Location</th><th>Assigned user</th><th>Task status</th>{#if $currentUser?.isMasterAdmin}<th>Master actions</th>{/if}</tr></thead><tbody>
 					{#each taskStatusRows.filter((row) => row.statement_status !== 'completed') as row}
+						{#if row.statement_mjv_id}<tr class="task-category-row"><td colspan={$currentUser?.isMasterAdmin ? 10 : 9}><strong>{row.mjv_type === 'iqama-work-permit' ? 'Iqama & Work Permit' : row.mjv_type === 'electricity' ? 'Electricity' : row.mjv_type === 'mobily' ? 'Mobily' : row.mjv_type === 'stc' ? 'STC' : row.mjv_type === 'cash-withdrawal' ? 'Cash Withdrawal' : 'POS'} MJV</strong></td></tr>{/if}
 						<tr><td><strong>{row.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli (SNB)'}</strong></td><td><span class="bank-account-name">{row.ledger_name}</span><small class="configured-bank-number">Configured bank number: {row.ledger_code || row.ledger_id}</small></td><td>{row.branch_name}</td><td><div class="saved-mjv-cell"><span class:status-saved={!!row.statement_mjv_id} class="task-status-badge">{row.statement_mjv_id ? row.statement_status : 'Not saved'}</span>{#if row.statement_mjv_id}<button type="button" class="expand-mjv-button" disabled={loadingSavedMjvId === String(row.statement_mjv_id)} on:click={() => toggleSavedMjvDetails(row)}>{loadingSavedMjvId === String(row.statement_mjv_id) ? 'Loading…' : expandedSavedMjvRows.has(String(row.statement_mjv_id)) ? 'Collapse' : 'Expand MJV'}</button>{/if}</div></td><td><span class:status-complete={row.statement_mjv_id && row.posted_task_count === row.branch_task_count} class:status-partial={row.statement_mjv_id && row.posted_task_count !== row.branch_task_count} class="task-posting-badge">{row.statement_mjv_id ? `${row.posted_task_count} of ${row.branch_task_count} assigned` : '—'}</span></td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span><strong>{task.branch_name}</strong></span>{/each}</div>{:else}—{/if}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span>{task.branch_location || '—'}</span>{/each}</div>{:else}—{/if}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span>{task.assigned_user_name || 'Not assigned'}</span>{/each}</div>{:else}—{/if}</td><td>{#if row.branch_tasks?.length}<div class="task-status-list">{#each row.branch_tasks as task}<span><span class:status-complete={task.task_status === 'completed'} class:status-partial={task.task_id && task.task_status !== 'completed'} class="task-posting-badge">{task.task_id ? task.task_status : 'Not assigned'}</span></span>{/each}</div>{:else}—{/if}</td>{#if $currentUser?.isMasterAdmin}<td><div class="statement-delete-actions"><button type="button" disabled={!row.posted_task_count || !!deletingStatementItem} on:click={() => deleteStatementItem(row,'tasks')}>{deletingStatementItem === `${row.statement_mjv_id}:tasks` ? 'Deleting…' : 'Delete tasks'}</button><button type="button" disabled={!row.statement_mjv_id || !!row.posted_task_count || !!deletingStatementItem} on:click={() => deleteStatementItem(row,'mjv')}>{deletingStatementItem === `${row.statement_mjv_id}:mjv` ? 'Deleting…' : 'Delete MJV'}</button></div></td>{/if}</tr>
 						{#if row.statement_mjv_id && expandedSavedMjvRows.has(String(row.statement_mjv_id))}
 							<tr class="saved-mjv-detail-row"><td colspan={$currentUser?.isMasterAdmin ? 10 : 9}>
@@ -1729,7 +2239,7 @@
 			</div>
 			</div>
 		</section>
-	{:else}
+	{:else if activeTab === 'iqama-sadad'}
 		<section class="accounts-manager iqama-sadad-manager" aria-label="Iqama SADAD Manager">
 			<nav class="iqama-manager-tabs" aria-label="Iqama SADAD Manager sections"><button type="button" class:active={iqamaManagerTab === 'documents'} on:click={openIqamaDocuments}>Manage SADAD Documents</button><button type="button" class:active={iqamaManagerTab === 'accounts'} on:click={openIqamaConfigureAccounts}>Configure Accounts</button></nav>
 			{#if iqamaManagerTab === 'documents'}
@@ -1762,11 +2272,64 @@
 				</tbody></table></div>
 			{/if}
 		</section>
+	{:else if activeTab === 'electricity-sadad'}
+		<section class="accounts-manager electricity-sadad-manager" aria-label="Electricity SADAD Manager">
+			<nav class="iqama-manager-tabs" aria-label="Electricity SADAD Manager sections"><button type="button" class:active={electricityManagerTab === 'posting'} on:click={() => openElectricityManagerTab('posting')}>Configure Accounts</button><button type="button" class:active={electricityManagerTab === 'accounts'} on:click={() => openElectricityManagerTab('accounts')}>Configure Electricity Accounts</button></nav>
+			{#if electricityManagerTab !== 'tasks'}
+			<header class="accounts-header">
+				<div><h2>{electricityManagerTab === 'posting' ? 'Configure Accounts' : 'Configure Electricity Accounts'}</h2><p>{electricityManagerTab === 'posting' ? 'Configure the electricity expense posting ledger for each branch.' : 'Connect each electricity account number to its owning branch and select whether VAT applies.'}</p></div>
+				<div class="account-actions">{#if electricityManagerTab === 'posting'}<button class="add-account-button" type="button" on:click={() => { showElectricityPostingForm = !showElectricityPostingForm; electricityConfigError = ''; electricityConfigMessage = ''; }}>+ Posting account</button>{:else}<button class="add-account-button secondary" type="button" on:click={() => { showElectricityMappingForm = !showElectricityMappingForm; electricityConfigError = ''; electricityConfigMessage = ''; }}>+ Electricity account</button>{/if}</div>
+			</header>
+			{#if electricityManagerTab === 'posting' && showElectricityPostingForm}
+				<div class="electricity-config-form">
+					<div class="account-field"><label for="electricity-posting-branch">Branch</label><input id="electricity-posting-branch" list="electricity-posting-branches" bind:value={electricityPostingBranchSearch} on:change={selectElectricityPostingBranch} placeholder="Search and select active branch" /><datalist id="electricity-posting-branches">{#each branches as branch}<option value={branchLabel(branch)}></option>{/each}</datalist></div>
+					<div class="ledger-search-field"><label for="electricity-posting-ledger">Electricity posting ledger</label><div class="ledger-search-row"><input id="electricity-posting-ledger" list="electricity-posting-ledgers" bind:value={electricityLedgerSearch} on:change={chooseElectricityLedger} disabled={!electricityPostingBranchId || loadingElectricityLedgers} placeholder={loadingElectricityLedgers ? 'Loading SQL ledgers…' : 'Search and select SQL ledger'} /><button type="button" disabled={!electricityPostingBranchId || loadingElectricityLedgers} on:click={searchElectricityLedgers}>{loadingElectricityLedgers ? '…' : 'Search'}</button></div><datalist id="electricity-posting-ledgers">{#each electricityLedgerChoices as ledger}<option value={ledgerLabel(ledger)}></option>{/each}</datalist></div>
+					<button class="save-terminal-button" type="button" disabled={savingElectricityPostingAccount} on:click={saveElectricityPostingAccount}>{savingElectricityPostingAccount ? 'Saving…' : 'Save posting account'}</button>
+				</div>
+			{/if}
+			{#if electricityManagerTab === 'accounts' && showElectricityMappingForm}
+				<div class="electricity-config-form electricity-mapping-form">
+					<div class="account-field"><label for="electricity-account-number">Electricity account number</label><input id="electricity-account-number" inputmode="numeric" bind:value={electricityAccountNumber} placeholder="Example: 30053563307" /></div>
+					<div class="account-field"><label for="electricity-account-branch">Owning branch</label><input id="electricity-account-branch" list="electricity-account-branches" bind:value={electricityMappingBranchSearch} on:change={selectElectricityMappingBranch} placeholder="Search and select active branch" /><datalist id="electricity-account-branches">{#each branches as branch}<option value={branchLabel(branch)}></option>{/each}</datalist></div>
+					<button class="save-terminal-button" type="button" disabled={savingElectricityMapping} on:click={saveElectricityMapping}>{savingElectricityMapping ? 'Saving…' : 'Connect to branch'}</button>
+				</div>
+			{/if}
+			{#if electricityConfigError}<div class="account-alert error">{electricityConfigError}</div>{/if}
+			{#if electricityConfigMessage}<div class="account-alert success">{electricityConfigMessage}</div>{/if}
+			<div class:show-posting={electricityManagerTab === 'posting'} class:show-accounts={electricityManagerTab === 'accounts'} class="electricity-config-grid">
+				<section><h3>Branch posting accounts</h3><div class="accounts-table-shell"><table class="accounts-table electricity-config-table"><thead><tr><th>Branch</th><th>Location</th><th>Electricity posting ledger</th><th>Ledger code</th></tr></thead><tbody>{#each electricityPostingAccounts as account}<tr><td><strong>{account.branch_name}</strong></td><td>{account.branch_location || '—'}</td><td>{account.ledger_name}</td><td>{account.ledger_code || account.ledger_id}</td></tr>{/each}{#if electricityPostingAccounts.length === 0}<tr><td class="accounts-empty" colspan="4">No electricity posting accounts configured yet.</td></tr>{/if}</tbody></table></div></section>
+				<section><h3>Electricity accounts by branch</h3><div class="accounts-table-shell"><table class="accounts-table electricity-config-table"><thead><tr><th>Sl No.</th><th>Electricity account number</th><th>Branch</th><th>Location</th><th>VAT applicable</th><th>Actions</th></tr></thead><tbody>{#each electricityAccountMappings as account, accountIndex}<tr><td><strong>{accountIndex + 1}</strong></td><td class="terminal-id">{account.electricity_account_number}</td><td><strong>{account.branch_name}</strong></td><td>{account.branch_location || '—'}</td><td><button class:enabled={account.vat_applicable} class="vat-toggle" type="button" role="switch" aria-checked={account.vat_applicable} aria-label={`VAT applicable for electricity account ${account.electricity_account_number}`} disabled={!!updatingElectricityVatId} on:click={() => toggleElectricityVat(account)}><span></span><strong>{account.vat_applicable ? 'On' : 'Off'}</strong></button></td><td><div class="electricity-row-actions"><button class="edit-row-button" type="button" disabled={!!deletingElectricityMappingId} on:click={() => editElectricityMapping(account)}>Edit</button><button class="delete-row-button" type="button" disabled={!!deletingElectricityMappingId} on:click={() => deleteElectricityMapping(account)}>{deletingElectricityMappingId === String(account.id) ? 'Deleting…' : 'Delete'}</button></div></td></tr>{/each}{#if electricityAccountMappings.length === 0}<tr><td class="accounts-empty" colspan="6">No electricity accounts connected to branches yet.</td></tr>{/if}</tbody></table></div></section>
+			</div>
+			{:else}
+			<header class="accounts-header"><div><h2>Manage Tasks</h2><p>Saved electricity MJVs, assigned Entry Task users, and current posting status.</p></div><button class="edit-row-button" type="button" on:click={loadElectricityTasks}>Refresh</button></header>
+			{#if electricityTaskError}<div class="account-alert error">{electricityTaskError}</div>{/if}
+			<div class="accounts-table-shell"><table class="accounts-table electricity-task-table"><thead><tr><th>Date</th><th>Bank</th><th>Paying account</th><th>Posting branch</th><th>Task given to</th><th>Task status</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{#each electricityTaskRows as mjv}{#each mjv.branch_tasks || [] as task}<tr><td>{mjv.statement_date}</td><td>{mjv.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli Bank'}</td><td>{mjv.bank_account}</td><td><strong>{task.branch_name}</strong>{#if task.branch_location}<small>{task.branch_location}</small>{/if}</td><td>{task.assigned_user_name || 'Not assigned'}</td><td><span class:status-complete={task.task_status === 'completed'} class:status-partial={task.task_status === 'pending' || task.task_status === 'in_progress'} class="task-posting-badge">{String(task.task_status || 'saved').replaceAll('_', ' ')}</span></td><td class="number">{amount(task.debit_total)}</td><td class="number">{amount(task.credit_total)}</td></tr>{/each}{/each}{#if loadingElectricityTasks}<tr><td class="accounts-empty" colspan="8">Loading electricity tasks…</td></tr>{:else if electricityTaskRows.length === 0}<tr><td class="accounts-empty" colspan="8">No active saved electricity MJVs.</td></tr>{/if}</tbody></table></div>
+			{/if}
+		</section>
+	{:else}
+		<section class="accounts-manager" aria-label="Telecom SADAD Manager">
+			<nav class="iqama-manager-tabs"><button class:active={telecomManagerTab === 'posting'} type="button" on:click={() => openTelecomManagerTab('posting')}>Configure Accounts</button><button class:active={telecomManagerTab === 'subscribers'} type="button" on:click={() => openTelecomManagerTab('subscribers')}>Configure Subscriber Numbers</button></nav>
+			{#if telecomManagerTab === 'posting'}
+				<header class="accounts-header"><div><h2>Configure Telecom Accounts</h2><p>Set the Mobily or STC posting ledger for each branch.</p></div></header>
+				<div class="electricity-config-form"><div class="account-field"><label>Provider</label><select bind:value={telecomProvider}><option value="mobily">Mobily</option><option value="stc">STC</option></select></div><div class="account-field"><label>Branch</label><input list="telecom-branches" bind:value={telecomBranchSearch} on:change={selectTelecomBranch} placeholder="Select branch" /><datalist id="telecom-branches">{#each branches as branch}<option value={branchLabel(branch)}></option>{/each}</datalist></div><div class="ledger-search-field"><label>Posting ledger</label><input list="telecom-ledgers" bind:value={telecomLedgerSearch} on:change={chooseTelecomLedger} placeholder="Select SQL ledger" /><datalist id="telecom-ledgers">{#each telecomLedgerChoices as ledger}<option value={ledgerLabel(ledger)}></option>{/each}</datalist></div><button class="save-terminal-button" type="button" on:click={saveTelecomPostingAccount}>Save</button></div>
+				<div class="accounts-table-shell"><table class="accounts-table"><thead><tr><th>Provider</th><th>Branch</th><th>Location</th><th>Posting ledger</th><th>Code</th></tr></thead><tbody>{#each telecomPostingAccounts as row}<tr><td>{String(row.provider).toUpperCase()}</td><td>{row.branch_name}</td><td>{row.branch_location || '—'}</td><td>{row.ledger_name}</td><td>{row.ledger_code || row.ledger_id}</td></tr>{/each}</tbody></table></div>
+			{:else if telecomManagerTab === 'subscribers'}
+				<header class="accounts-header"><div><h2>Configure Subscriber Numbers</h2><p>Connect Mobily and STC subscriber numbers to their owning branch.</p></div></header>
+				<div class="electricity-config-form"><div class="account-field"><label>Provider</label><select bind:value={telecomProvider}><option value="mobily">Mobily</option><option value="stc">STC</option></select></div><div class="account-field"><label>Subscriber number</label><input inputmode="numeric" bind:value={telecomSubscriberNumber} /></div><div class="account-field"><label>Branch</label><input list="telecom-subscriber-branches" bind:value={telecomSubscriberBranchSearch} on:change={selectTelecomSubscriberBranch} /><datalist id="telecom-subscriber-branches">{#each branches as branch}<option value={branchLabel(branch)}></option>{/each}</datalist></div><button class="save-terminal-button" type="button" on:click={saveTelecomSubscriber}>Connect</button></div>
+				<div class="accounts-table-shell"><table class="accounts-table"><thead><tr><th>Sl No.</th><th>Provider</th><th>Subscriber number</th><th>Branch</th><th>Location</th><th>VAT applicable</th><th>Action</th></tr></thead><tbody>{#each telecomSubscribers as row, index}<tr><td>{index + 1}</td><td>{String(row.provider).toUpperCase()}</td><td class="terminal-id">{row.subscriber_number}</td><td>{row.branch_name}</td><td>{row.branch_location || '—'}</td><td><button class:enabled={row.vat_applicable} class="vat-toggle" type="button" role="switch" aria-checked={row.vat_applicable} disabled={!!updatingTelecomVatId} on:click={() => toggleTelecomVat(row)}><span></span><strong>{row.vat_applicable ? 'On' : 'Off'}</strong></button></td><td><button class="edit-row-button" type="button" on:click={() => editTelecomSubscriber(row)}>Edit</button></td></tr>{/each}</tbody></table></div>
+			{:else}
+				<header class="accounts-header"><div><h2>Manage Tasks</h2><p>Saved Mobily and STC MJVs with assignee and task status.</p></div></header>
+				<div class="accounts-table-shell"><table class="accounts-table"><thead><tr><th>Date</th><th>Provider</th><th>Bank</th><th>Branch</th><th>Task given to</th><th>Status</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{#each telecomTaskRows as mjv}{#each mjv.branch_tasks || [] as task}<tr><td>{mjv.statement_date}</td><td>{String(mjv.mjv_type).toUpperCase()}</td><td>{mjv.bank}</td><td>{task.branch_name}</td><td>{task.assigned_user_name}</td><td>{String(task.task_status).replaceAll('_', ' ')}</td><td class="number">{amount(task.debit_total)}</td><td class="number">{amount(task.credit_total)}</td></tr>{/each}{/each}</tbody></table></div>
+			{/if}
+			{#if telecomError}<div class="account-alert error">{telecomError}</div>{/if}{#if telecomMessage}<div class="account-alert success">{telecomMessage}</div>{/if}
+		</section>
 	{/if}
 </div>
 
 <style>
 	.statement-manager{height:100%;overflow:hidden;padding:18px 24px 24px;background:#f4f7fb;color:#172033;font-family:'Segoe UI',sans-serif;box-sizing:border-box;display:flex;flex-direction:column}.import-panel{display:flex;align-items:flex-end;gap:12px;padding:18px;background:#fff;border:1px solid #dbe3ef;border-radius:14px;box-shadow:0 8px 22px rgba(15,23,42,.05);flex-shrink:0}.field{min-width:260px}label{display:block;margin-bottom:7px;color:#475569;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}select{width:100%;height:42px;padding:0 12px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#172033;font-size:14px}.import-button{height:42px;padding:0 18px;border:0;border-radius:9px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer}.import-button:hover:not(:disabled){background:#115e59}.import-button:disabled{opacity:.45;cursor:not-allowed}.file-input{display:none}.file-name{min-width:0;padding-bottom:11px;overflow:hidden;color:#475569;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.error-message{margin-top:14px;padding:12px 14px;border:1px solid #fecaca;border-radius:10px;background:#fef2f2;color:#b91c1c;flex-shrink:0}.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:12px;margin:14px 0;flex-shrink:0}.summary-grid div{padding:14px 16px;border:1px solid #dbe3ef;border-radius:12px;background:#fff}.summary-grid span{display:block;color:#64748b;font-size:12px;font-weight:700}.summary-grid strong{display:block;margin-top:5px;font-size:23px}.source-note{flex-shrink:0;margin:-3px 0 10px;padding:8px 12px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#1e40af;font-size:11px;font-weight:600}.table-shell{flex:1;min-height:0;overflow:auto;border:1px solid #dbe3ef;border-radius:13px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.05)}table{width:100%;min-width:1360px;border-collapse:separate;border-spacing:0;font-size:12px}thead{position:sticky;top:0;z-index:2;background:#172033;color:#fff}th,td{padding:10px 12px;border-bottom:1px solid #dce5ef;text-align:left;vertical-align:top}th{font-size:11px;letter-spacing:.03em;text-transform:uppercase}.linked-group td{background:#eef7ff}.linked-group.group-alt td{background:#f2f1ff}.linked-group tr:first-child td{border-top:3px solid #3b82f6}.linked-group.group-alt tr:first-child td{border-top-color:#7c3aed}.linked-group tr:last-child td{border-bottom:3px solid #3b82f6}.linked-group.group-alt tr:last-child td{border-bottom-color:#7c3aed}.linked-group .group-cell{border-left:7px solid #3b82f6;background:#dbeafe}.linked-group.group-alt .group-cell{border-left-color:#7c3aed;background:#e8e5ff}.standalone-group .group-cell{border-left:7px solid #cbd5e1;background:#f8fafc}.standalone-group tr:hover td{background:#f8fafc}.group-cell{width:105px;vertical-align:middle;text-align:center}.group-cell strong{display:block;color:#172033;font-size:14px}.group-cell span{display:block;margin-top:5px;color:#64748b;font-size:10px;font-weight:700;line-height:1.25}.child-row td{border-top:1px dashed #a9bed5}.row-type{display:inline-flex;min-width:36px;justify-content:center;margin-right:8px;padding:3px 7px;border-radius:5px;background:#d1fae5;color:#047857;font-size:9px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.row-type.vat-type{background:#fef3c7;color:#a16207}.row-type.main-type{background:#dbeafe;color:#1d4ed8}.terminal-id{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}.number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.debit{color:#b42318}.credit{color:#087443}.empty-state{display:grid;place-items:center;min-height:0;flex:1;margin-top:18px;padding:30px;border:1px dashed #b7c4d6;border-radius:14px;background:rgba(255,255,255,.65);text-align:center}.empty-state>*{margin:0}.empty-state h2{margin-top:10px;font-size:18px}.empty-state p{max-width:520px;margin-top:7px;color:#64748b}.empty-icon{color:#0f766e;font-size:42px}@media(max-width:850px){.summary-grid{grid-template-columns:repeat(2,1fr)}.import-panel{align-items:stretch;flex-direction:column}.field{min-width:0}.file-name{padding:0}}
+	.import-panel:has(.inline-summary){padding:12px}.inline-summary{flex:1;grid-template-columns:repeat(4,minmax(72px,1fr));gap:7px;margin:0 0 0 auto}.inline-summary div{min-width:0;padding:7px 9px;border-radius:8px;background:#f8fafc}.inline-summary span{font-size:9px;white-space:nowrap}.inline-summary strong{margin-top:2px;font-size:16px}@media(max-width:1250px){.import-panel:has(.inline-summary){flex-wrap:wrap}.inline-summary{flex-basis:100%}}
+	.statement-manager{padding:8px 10px 10px}.statement-manager>.manager-tabs{margin-bottom:8px}
 	.table-filters{display:flex;align-items:flex-end;gap:12px;margin:0 0 10px;flex-shrink:0}.filter-field{width:260px}.table-filters span{padding-bottom:11px;color:#475569;font-size:12px;font-weight:700}
 	.manager-tabs{display:flex;gap:6px;margin-bottom:14px;padding:5px;border:1px solid #dbe3ef;border-radius:12px;background:#fff;flex-shrink:0;width:max-content}.manager-tabs button{height:38px;padding:0 20px;border:0;border-radius:8px;background:transparent;color:#64748b;font-size:13px;font-weight:800;cursor:pointer}.manager-tabs button:hover{background:#f1f5f9;color:#172033}.manager-tabs button.active{background:#0f766e;color:#fff;box-shadow:0 3px 8px rgba(15,118,110,.22)}.accounts-manager{display:flex;flex:1;min-height:0;flex-direction:column;padding:18px;border:1px solid #dbe3ef;border-radius:14px;background:#fff}.accounts-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.accounts-header h2{margin:0;font-size:20px}.accounts-header p{margin:4px 0 0;color:#64748b;font-size:13px}.add-account-button,.save-terminal-button{height:40px;padding:0 17px;border:0;border-radius:9px;background:#0f766e;color:#fff;font-weight:800;cursor:pointer}.account-form{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1.4fr) minmax(180px,.8fr) auto;align-items:end;gap:12px;margin-top:16px;padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc}.account-field input{width:100%;height:42px;box-sizing:border-box;padding:0 12px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#172033;font-size:14px}.save-terminal-button:disabled{opacity:.5;cursor:not-allowed}.account-alert{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:12px;font-weight:700}.account-alert.error{background:#fef2f2;color:#b91c1c}.account-alert.success{background:#ecfdf5;color:#047857}.accounts-table-shell{min-height:0;flex:1;margin-top:16px;overflow:auto;border:1px solid #dbe3ef;border-radius:11px}.accounts-table{min-width:760px}.accounts-table thead{background:#e8eef6;color:#172033}.accounts-table th{border-bottom:1px solid #cbd5e1;color:#172033;font-weight:900}.accounts-empty{padding:40px;text-align:center;color:#64748b}@media(max-width:1000px){.account-form{grid-template-columns:1fr 1fr}.save-terminal-button{width:max-content}}
 	.account-actions{display:flex;gap:8px}.add-account-button.secondary{background:#334155}.posting-form{display:grid;grid-template-columns:repeat(2,minmax(260px,1fr));gap:12px;margin-top:16px;padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc}.ledger-search-field label{display:block}.ledger-search-row{display:flex;gap:7px}.ledger-search-row input{min-width:0;flex:1;height:42px;box-sizing:border-box;padding:0 12px;border:1px solid #cbd5e1;border-radius:9px;background:#fff}.ledger-search-row button{height:42px;padding:0 12px;border:1px solid #94a3b8;border-radius:9px;background:#fff;color:#334155;font-weight:800;cursor:pointer}.ledger-search-row button:disabled{opacity:.45}.posting-save{align-self:end;width:max-content}.posting-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:14px}.posting-summary article{display:flex;flex-direction:column;gap:4px;padding:11px 13px;border:1px solid #dbe3ef;border-radius:10px;background:#f8fafc}.posting-summary article strong{font-size:13px}.posting-summary article span{color:#475569;font-size:11px}@media(max-width:1000px){.posting-form{grid-template-columns:1fr}.account-actions{flex-wrap:wrap}}
@@ -1774,7 +2337,7 @@
 	.active-branch-badge{display:inline-flex;padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:800}
 	.task-status-header{align-items:flex-end}.selected-task-date{color:#0f766e;font-size:13px}.task-status-content{display:grid;grid-template-columns:570px minmax(0,1fr);gap:16px;min-height:0;flex:1;margin-top:16px}.task-calendar{width:100%;height:max-content;box-sizing:border-box;padding:14px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc;box-shadow:0 4px 12px rgba(15,23,42,.06)}.task-calendar-go-to{display:grid;grid-template-columns:auto 1.35fr .8fr .65fr auto;align-items:center;gap:7px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #dbe3ef}.task-calendar-go-to>strong{font-size:11px;white-space:nowrap}.task-calendar-go-to select{height:34px;padding:0 8px;font-size:11px}.task-calendar-go-to button{height:34px;padding:0 13px;border:0;border-radius:7px;background:#0f766e;color:#fff;font-size:11px;font-weight:900;cursor:pointer}.task-calendar>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.task-calendar h3{margin:0;font-size:16px}.task-calendar>header button{width:36px;height:32px;border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#172033;font-size:23px;line-height:1;cursor:pointer}.task-calendar-weekdays,.task-calendar-days{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.task-calendar-weekdays span{text-align:center;color:#64748b;font-size:10px;font-weight:900;text-transform:uppercase}.task-calendar-days{margin-top:6px}.task-calendar-days button{display:flex;height:64px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1px solid #e2e8f0;border-radius:7px;background:#fff;color:#334155;cursor:pointer}.task-calendar-days button strong{font-size:13px}.task-calendar-days button small{font-size:8px;font-weight:800}.task-calendar-days button.none-saved{border-color:#fca5a5;background:#fef2f2;color:#991b1b}.task-calendar-days button.partially-saved{border-color:#fdba74;background:#fff7ed;color:#9a3412}.task-calendar-days button.all-saved{border-color:#86efac;background:#f0fdf4;color:#166534}.task-calendar-days button:hover{border-color:#0f766e}.task-calendar-days button.outside{border-color:transparent;background:transparent;color:#a5b4c5}.task-calendar-days button.selected{outline:3px solid #0f766e;outline-offset:1px}.task-status-results{display:flex;min-width:0;min-height:0;flex-direction:column}.task-status-table{min-width:960px;table-layout:auto}.task-status-table-shell{margin-top:0;border-color:#cbd5e1;border-radius:12px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.07)}.task-status-table thead{background:linear-gradient(135deg,#e8eef6,#dbe7f3)}.task-status-table th{padding:11px 10px;border-right:1px solid #bdcada;color:#26364d;white-space:nowrap}.task-status-table th:last-child{border-right:0}.task-status-table td{padding:11px 10px;border-right:1px solid #d6e0eb;vertical-align:middle;line-height:1.35}.task-status-table td:last-child{border-right:0}.task-status-table tbody tr:nth-child(even) td{background:#f8fafc}.task-status-table tbody tr{transition:background .15s ease,box-shadow .15s ease}.task-status-table tbody tr:hover td{background:#eef6f7}.task-status-table th:nth-child(1){width:90px}.task-status-table th:nth-child(2){width:125px}.task-status-table th:nth-child(5),.task-status-table th:nth-child(6){width:105px}.task-status-table th:last-child{width:140px}.task-status-list{display:flex;flex-direction:column;gap:6px}.task-status-list span{padding-bottom:5px;border-bottom:1px dashed #cbd5e1;font-size:11px}.task-status-list span:last-child{padding-bottom:0;border-bottom:0}.task-status-list strong{color:#334155}.task-status-badge,.task-posting-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#fef2f2;color:#991b1b;font-size:10px;font-weight:900;white-space:nowrap}.task-status-badge.status-saved{background:#fff7ed;color:#9a3412}.task-posting-badge{background:#f1f5f9;color:#64748b}.task-posting-badge.status-partial{background:#fff7ed;color:#9a3412}.task-posting-badge.status-complete{background:#ecfdf5;color:#047857}@media(max-width:1250px){.task-status-content{grid-template-columns:1fr}.task-calendar{width:min(570px,100%)}.task-status-results{min-height:360px}}
 	.edit-row-button{height:30px;padding:0 12px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#334155;font-size:11px;font-weight:800;cursor:pointer}.edit-row-button:hover{border-color:#0f766e;background:#ecfdf5;color:#0f766e}
-	.entry-toggle{width:82px;margin-top:10px;padding:6px 7px;border:1px solid #2563eb;border-radius:7px;background:#fff;color:#1d4ed8;font-size:10px;font-weight:900;cursor:pointer}.entry-toggle:hover{background:#eff6ff}.entry-preview-row>td{padding:10px 14px 14px;background:#f8fafc!important}.entry-preview{overflow:hidden;border:1px solid #94a3b8;border-radius:10px;background:#fff;box-shadow:0 3px 10px rgba(15,23,42,.08)}.entry-preview>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:#e2e8f0}.entry-preview>header div{display:flex;align-items:baseline;gap:10px}.entry-preview>header strong{font-size:13px}.entry-preview>header span{color:#64748b;font-size:10px;font-weight:700}.balance-badge{padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534!important;font-size:10px!important;font-weight:900!important}.balance-badge.unbalanced{background:#fee2e2;color:#991b1b!important}.entry-grid{display:grid;grid-template-columns:minmax(135px,.8fr) minmax(105px,.65fr) minmax(220px,1.45fr) minmax(280px,1.8fr) 100px 100px;align-items:center;border-top:1px solid #e2e8f0}.entry-grid>*{padding:8px 12px}.entry-grid-head{background:#f8fafc;color:#475569;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}.entry-grid .number{text-align:right}.entry-total{background:#f8fafc;border-top:2px solid #94a3b8}.preview-error{padding:14px;background:#fef2f2;color:#b91c1c;font-weight:800}
+	.electricity-connection-status{display:inline-flex!important;width:max-content;margin:6px auto 0!important;padding:3px 7px;border-radius:999px;background:#fee2e2;color:#991b1b!important;font-size:8px!important;font-weight:900!important}.electricity-connection-status.connected-status{background:#dcfce7;color:#166534!important}.entry-toggle{width:82px;margin-top:10px;padding:6px 7px;border:1px solid #2563eb;border-radius:7px;background:#fff;color:#1d4ed8;font-size:10px;font-weight:900;cursor:pointer}.entry-toggle:hover{background:#eff6ff}.entry-preview-row>td{padding:10px 14px 14px;background:#f8fafc!important}.entry-preview{overflow:hidden;border:1px solid #94a3b8;border-radius:10px;background:#fff;box-shadow:0 3px 10px rgba(15,23,42,.08)}.entry-preview>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:#e2e8f0}.entry-preview>header div{display:flex;align-items:baseline;gap:10px}.entry-preview>header strong{font-size:13px}.entry-preview>header span{color:#64748b;font-size:10px;font-weight:700}.balance-badge{padding:4px 8px;border-radius:999px;background:#dcfce7;color:#166534!important;font-size:10px!important;font-weight:900!important}.balance-badge.unbalanced{background:#fee2e2;color:#991b1b!important}.entry-grid{display:grid;grid-template-columns:minmax(135px,.8fr) minmax(105px,.65fr) minmax(220px,1.45fr) minmax(280px,1.8fr) 100px 100px;align-items:center;border-top:1px solid #e2e8f0}.entry-grid>*{padding:8px 12px}.entry-grid-head{background:#f8fafc;color:#475569;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}.entry-grid .number{text-align:right}.entry-total{background:#f8fafc;border-top:2px solid #94a3b8}.preview-error{padding:14px;background:#fef2f2;color:#b91c1c;font-weight:800}
 	.full-journal-button{height:42px;padding:0 16px;border:0;border-radius:9px;background:#1d4ed8;color:#fff;font-size:12px;font-weight:900;cursor:pointer}.full-journal-button:disabled{opacity:.4;cursor:not-allowed}.full-journal-panel{display:flex;min-height:0;flex:1;flex-direction:column;overflow:hidden;border:1px solid #94a3b8;border-radius:13px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.08)}.full-journal-header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-bottom:1px solid #cbd5e1;background:#e8eef6}.full-journal-header h2{margin:0;font-size:16px}.full-journal-header p{margin:4px 0 0;color:#64748b;font-size:11px;font-weight:700}.full-journal-header button{height:34px;padding:0 13px;border:1px solid #64748b;border-radius:8px;background:#fff;color:#334155;font-size:11px;font-weight:900;cursor:pointer}.full-journal-content{display:flex;min-height:0;flex:1;flex-direction:column;overflow:hidden;padding:14px;background:#f1f5f9}.branch-journal-card{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;margin-bottom:12px;overflow:hidden;border:1px solid #94a3b8;border-radius:11px;background:#fff;box-shadow:0 3px 10px rgba(15,23,42,.06)}.branch-journal-card>header{display:flex;flex-shrink:0;align-items:center;justify-content:space-between;padding:11px 14px;background:#dbeafe}.branch-journal-card>header div{display:flex;align-items:baseline;gap:9px}.branch-journal-card>header div span{color:#475569;font-size:9px;font-weight:900;text-transform:uppercase}.branch-journal-card>header div strong{font-size:14px}.branch-journal-table-scroll{min-height:0;flex:1;overflow:auto}.full-journal-grid{display:grid;grid-template-columns:105px 115px minmax(230px,1.2fr) minmax(340px,1.8fr) 100px 100px;min-width:1250px;align-items:center;border-bottom:1px solid #e2e8f0;font-size:11px}.full-journal-grid>*{padding:9px 11px}.full-journal-grid small{display:block;margin-top:3px;color:#64748b;font-size:9px}.full-journal-grid-head{position:sticky;top:0;z-index:1;background:#172033;color:#fff;font-size:9px;font-weight:900;text-transform:uppercase}.branch-journal-total{flex-shrink:0;background:#f8fafc;border-top:2px solid #94a3b8;border-bottom:0}.overall-journal-total{display:flex;flex-shrink:0;justify-content:flex-end;gap:28px;padding:13px 16px;border:1px solid #64748b;border-radius:9px;background:#172033;color:#fff;font-variant-numeric:tabular-nums}.overall-journal-total span{font-weight:800}
 	.branch-journal-tabs{display:flex;gap:7px;min-width:max-content;margin-bottom:12px}.branch-journal-tabs button{display:flex;align-items:center;gap:9px;height:40px;padding:0 14px;border:1px solid #94a3b8;border-radius:9px;background:#fff;color:#475569;font-size:11px;font-weight:900;cursor:pointer}.branch-journal-tabs button span{padding:3px 7px;border-radius:999px;background:#e2e8f0;color:#475569;font-size:9px}.branch-journal-tabs button.active{border-color:#1d4ed8;background:#1d4ed8;color:#fff}.branch-journal-tabs button.active span{background:#dbeafe;color:#1e40af}
 	.workflow-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}.full-journal-header .save-mjv-button{border-color:#047857;background:#059669;color:#fff}.full-journal-header .post-mjv-button{border-color:#4338ca;background:#4f46e5;color:#fff}.full-journal-header button:disabled{opacity:.5;cursor:not-allowed}.workflow-status{padding:5px 9px;border-radius:999px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:900}.workflow-message{padding:9px 14px;border-bottom:1px solid #a7f3d0;background:#ecfdf5;color:#047857;font-size:11px;font-weight:800}
@@ -1895,6 +2458,7 @@
 	.task-status-table td:nth-child(7){white-space:nowrap}
 	.task-status-table .statement-delete-actions{gap:5px}
 	.task-status-table .statement-delete-actions button{padding:0 7px;font-size:9px}
+	.task-category-row td{padding:7px 10px!important;background:#dbeafe!important;color:#1e3a8a!important;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
 	.task-status-table th,.task-status-table td{padding-left:7px;padding-right:7px}
 	.task-status-table th:nth-child(1){width:6%}
 	.task-status-table th:nth-child(2){width:18%}
@@ -1917,6 +2481,7 @@
 	.transaction-view-tabs button.active{background:#0f766e;color:#fff;box-shadow:0 3px 8px rgba(15,118,110,.2)}
 	.transaction-view-tabs button strong{display:inline-flex;min-width:22px;height:20px;align-items:center;justify-content:center;padding:0 6px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:10px}
 	.transaction-view-tabs button.active strong{background:rgba(255,255,255,.2);color:#fff}
+	.process-workspace{display:grid;grid-template-columns:240px minmax(0,1fr);gap:8px;min-height:0;flex:1}.process-content{display:flex;min-width:0;min-height:0;flex-direction:column}.process-workspace>.transaction-view-tabs{display:flex;width:240px;min-height:0;margin:0;flex-direction:column;gap:6px;padding:8px;overflow-x:hidden;overflow-y:auto;align-self:stretch;background:#eef2f7}.process-workspace>.transaction-view-tabs button{width:100%;height:38px;justify-content:space-between;padding:0 11px;border:1px solid #cbd5e1;background:#fff;text-align:left;box-shadow:0 1px 2px rgba(15,23,42,.06)}.process-workspace>.transaction-view-tabs button:hover{border-color:#0f766e;background:#f0fdfa}.process-workspace>.transaction-view-tabs button.active{border-color:#0f766e;background:#0f766e;box-shadow:0 3px 8px rgba(15,118,110,.25)}.process-workspace>.transaction-view-tabs button span{min-width:0;overflow:hidden;text-overflow:ellipsis}.process-workspace>.transaction-view-tabs button strong{min-width:26px;height:24px;padding:0 5px;border:1px solid #cbd5e1;border-radius:4px;background:#f1f5f9}.process-workspace>.transaction-view-tabs button.active strong{border-color:rgba(255,255,255,.35);border-radius:4px;background:rgba(255,255,255,.16)}.process-content>.table-filters{margin-top:0}@media(max-width:900px){.process-workspace{grid-template-columns:180px minmax(0,1fr)}.process-workspace>.transaction-view-tabs{width:180px}}
 	.group-cell small{display:block;margin-top:6px;color:#475569;font-size:8px;font-weight:700;line-height:1.25}
 	.bank-account-name{display:block;font-weight:700;color:#334155}
 	.configured-bank-number{display:block;margin-top:5px;color:#64748b;font-size:10px;font-weight:800}
@@ -1948,6 +2513,17 @@
 	.iqama-manager-tabs button{height:35px;padding:0 16px;border:0;border-radius:7px;background:transparent;color:#64748b;font-size:11px;font-weight:900;cursor:pointer}
 	.iqama-manager-tabs button:hover{background:#e8eef6;color:#172033}
 	.iqama-manager-tabs button.active{background:#0f766e;color:#fff;box-shadow:0 3px 8px rgba(15,118,110,.2)}
+	.electricity-config-form{display:grid;grid-template-columns:minmax(240px,.8fr) minmax(360px,1.4fr) auto;align-items:end;gap:12px;margin-top:16px;padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc}
+	.electricity-mapping-form{grid-template-columns:minmax(260px,.8fr) minmax(300px,1fr) auto}
+	.electricity-config-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-height:0;flex:1;margin-top:16px}
+	.electricity-config-grid>section{display:flex;min-width:0;min-height:0;flex-direction:column}
+	.electricity-config-grid.show-posting>section:nth-child(2),.electricity-config-grid.show-accounts>section:nth-child(1){display:none}.electricity-config-grid.show-posting,.electricity-config-grid.show-accounts{grid-template-columns:1fr}.electricity-task-table small{display:block;margin-top:3px;color:#64748b}
+	.electricity-config-grid h3{margin:0 0 -4px;color:#334155;font-size:14px}
+	.electricity-config-grid .accounts-table-shell{margin-top:12px}
+	.electricity-config-table{min-width:560px}
+	.electricity-row-actions{display:flex;gap:7px}.delete-row-button{height:30px;padding:0 12px;border:1px solid #ef4444;border-radius:7px;background:#fff;color:#dc2626;font-size:11px;font-weight:800;cursor:pointer}.delete-row-button:hover:not(:disabled){background:#fef2f2}.delete-row-button:disabled,.edit-row-button:disabled{opacity:.45;cursor:not-allowed}
+	.vat-toggle{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 4px;border:1px solid #cbd5e1;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:10px;cursor:pointer}.vat-toggle span{position:relative;width:30px;height:18px;border-radius:999px;background:#94a3b8;transition:background .15s ease}.vat-toggle span::after{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.3);content:'';transition:transform .15s ease}.vat-toggle.enabled{border-color:#86efac;background:#ecfdf5;color:#047857}.vat-toggle.enabled span{background:#10b981}.vat-toggle.enabled span::after{transform:translateX(12px)}.vat-toggle:disabled{opacity:.5;cursor:not-allowed}
+	@media(max-width:1100px){.electricity-config-form,.electricity-mapping-form{grid-template-columns:1fr}.electricity-config-grid{grid-template-columns:1fr}}
 	.iqama-account-form{display:grid;grid-template-columns:minmax(230px,1fr) minmax(180px,.65fr) minmax(320px,1.4fr) auto;align-items:end;gap:12px;margin-top:16px;padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc}
 	.iqama-account-form input{width:100%;height:42px;box-sizing:border-box;padding:0 12px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#172033;font-size:14px}
 	.iqama-account-table{min-width:850px}
