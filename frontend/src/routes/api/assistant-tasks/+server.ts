@@ -125,7 +125,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		if (body.task_type === 'statement_mjv') {
 			if (!await canUseStatementsManager(secureDb, actor)) return json({ success: false, error: 'Statements Manager permission required' }, { status: 403 });
 			const mjvId = String(body.statement_mjv_id || '');
-			const { data: mjv, error: mjvError } = await secureDb.from('statement_mjvs').select('id,bank,bank_account_id,statement_date,status').eq('id', mjvId).maybeSingle();
+			const { data: mjv, error: mjvError } = await secureDb.from('statement_mjvs').select('id,bank,bank_account_id,statement_date,status,mjv_type').eq('id', mjvId).maybeSingle();
 			if (mjvError || !mjv) return json({ success: false, error: 'Saved statement MJV was not found' }, { status: 404 });
 			if (mjv.status === 'completed') return json({ success: false, error: 'This statement MJV is already completed' }, { status: 409 });
 			const { data: branches, error: branchesError } = await secureDb.from('statement_mjv_branches')
@@ -149,10 +149,10 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			}
 			const bankName = mjv.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli Bank';
 			const taskRows = pendingBranches.map((branch) => ({
-				task_type: 'cash_closing_mjv', title: `${bankName} Statement MJV - ${mjv.statement_date}`,
+				task_type: 'cash_closing_mjv', title: `${bankName} ${mjv.mjv_type === 'iqama-work-permit' ? 'Iqama & Work Permit' : 'Statement'} MJV - ${mjv.statement_date}`,
 				branch_id: Number(branch.branch_id), assigned_to: assigneeByBranch.get(Number(branch.branch_id)), created_by: actor.id,
 				source_record_id: mjv.id, workflow_key: `statement-mjv:${mjv.id}:${branch.branch_id}`, status: 'pending',
-				payload: { version: 1, statement_mjv_id: mjv.id, statement_bank_account_id: mjv.bank_account_id, statement_date: mjv.statement_date, posting_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()), branch_name: branch.branch_name, bank: mjv.bank, lines: branch.lines }
+				payload: { version: 1, statement_mjv_id: mjv.id, statement_bank_account_id: mjv.bank_account_id, statement_date: mjv.statement_date, posting_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()), branch_name: branch.branch_name, bank: mjv.bank, mjv_type: mjv.mjv_type, lines: branch.lines }
 			}));
 			const { data: tasks, error: taskError } = await secureDb.from('assistant_workflow_tasks').insert(taskRows).select();
 			if (taskError) {

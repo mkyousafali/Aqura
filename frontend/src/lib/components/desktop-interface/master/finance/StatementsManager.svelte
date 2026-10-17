@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as XLSX from 'xlsx';
+	import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
@@ -11,7 +12,7 @@
 	};
 
 	let bank = '';
-	let activeTab: 'process' | 'accounts' | 'bank-accounts' | 'terminals' | 'task-status' = 'process';
+	let activeTab: 'process' | 'accounts' | 'bank-accounts' | 'terminals' | 'task-status' | 'iqama-sadad' = 'process';
 	let configuredBankAccounts: any[] = [];
 	let selectedStatementBankAccountId = '';
 	let showBankAccountForm = false;
@@ -35,6 +36,10 @@
 	let transactionView = '';
 	let transactionViewOptions: { description: string; count: number; isPos: boolean }[] = [];
 	let selectedTransactionViewIsPos = false;
+	let generatingIqamaMjv = false;
+	let iqamaMjvGroups: any[] = [];
+	let iqamaMjvMessage = '';
+	let expandedIqamaGroups = new Set<string>();
 	let terminalFilter = '';
 	let terminalOptions: string[] = [];
 	let dateFilter = '';
@@ -59,6 +64,26 @@
 	let expandedSavedMjvRows = new Set<string>();
 	let savedMjvDetails: Record<string, any> = {};
 	let loadingSavedMjvId = '';
+	let iqamaPdfInput: HTMLInputElement;
+	let iqamaImageInput: HTMLInputElement;
+	let iqamaManagerTab: 'documents' | 'accounts' = 'documents';
+	let importingIqamaPdf = false;
+	let importingIqamaImage = false;
+	let iqamaPdfError = '';
+	let iqamaPdfRows: any[] = [];
+	let savingIqamaDocuments = false;
+	let iqamaDocumentMessage = '';
+	let iqamaPostingAccounts: any[] = [];
+	let showIqamaAccountForm = false;
+	let iqamaAccountBranchSearch = '';
+	let iqamaAccountBranchId: number | null = null;
+	let iqamaAccountLedgerSearch = '';
+	let iqamaAccountLedgerChoices: any[] = [];
+	let selectedIqamaAccountLedger: any = null;
+	let loadingIqamaAccountLedgers = false;
+	let savingIqamaAccount = false;
+	let iqamaAccountError = '';
+	let iqamaAccountMessage = '';
 	let filteredStatementRows: StatementRow[] = [];
 	let branches: any[] = [];
 	let terminalAccounts: any[] = [];
@@ -97,7 +122,10 @@
 		if (existing) existing.count += 1;
 		else types.set(description, { description, count: 1, isPos: isPosTransaction(row) });
 		return types;
-	}, new Map<string, { description: string; count: number; isPos: boolean }>()).values());
+	}, new Map<string, { description: string; count: number; isPos: boolean }>()).values()).sort((left, right) => {
+		const priority = (description: string) => description === 'POS Transactions' ? 0 : description === 'Iqama & Work Permit' ? 1 : 2;
+		return priority(left.description) - priority(right.description);
+	});
 	$: selectedTransactionViewIsPos = transactionViewOptions.find((option) => option.description === transactionView)?.isPos ?? false;
 	$: filteredStatementRows = statementRows.filter((row) =>
 		transactionViewLabel(row) === transactionView
@@ -265,11 +293,24 @@
 
 	function transactionViewLabel(row: StatementRow): string {
 		if (isPosTransaction(row)) return 'POS Transactions';
-		return transactionDisplayDescription(row);
+		const description = transactionDisplayDescription(row);
+		if (description === 'Iqama Renewal Payments' || description === 'Work Permit SADAD Payments') {
+			return 'Iqama & Work Permit';
+		}
+		return description;
 	}
 
 	function transactionDisplayDescription(row: StatementRow): string {
-		if (bank !== 'riyad') return row.description;
+		if (bank !== 'riyad') {
+			if (row.description === 'SADAD Payment') {
+				if (/^090-[12]\d{9}\b/.test(row.details.trim())) return 'Iqama Renewal Payments';
+				if (/^050-\d{12,18}\b/.test(row.details.trim())) return 'Work Permit SADAD Payments';
+			}
+			return row.description;
+		}
+		if (row.description === 'UTILITY BILL PAYMENT' && /\bBILLER\s*ID\s*:\s*050\b/i.test(row.details)) {
+			return 'Work Permit SADAD Payments';
+		}
 		const labels: Record<string, string> = {
 			'POS DEBIT': 'POS Card Purchases',
 			'OUTGOING INSTANT PAYMENT': 'Instant Payments',
@@ -285,21 +326,147 @@
 	}
 
 	function transactionIdentifierLabel(view: string): string {
-		return view === 'Iqama Renewal Payments' ? 'Iqama Number' : 'Terminal ID';
+		if (view === 'Iqama & Work Permit') return 'Iqama / SADAD Number';
+		if (view === 'Iqama Renewal Payments') return 'Iqama Number';
+		if (view === 'Work Permit SADAD Payments') return 'SADAD Number';
+		return 'Terminal ID';
 	}
 
 	function transactionIdentifier(row: StatementRow): string {
-		if (transactionView === 'Iqama Renewal Payments') return row.details.match(/\bSUB\s*(\d+)/i)?.[1] || '—';
+		const description = transactionDisplayDescription(row);
+		if (description === 'Iqama Renewal Payments') {
+			return bank === 'riyad'
+				? row.details.match(/\bSUB\s*(\d+)/i)?.[1] || '—'
+				: row.details.match(/^090-([12]\d{9})\b/)?.[1] || '—';
+		}
+		if (description === 'Work Permit SADAD Payments') {
+			return bank === 'riyad'
+				? row.details.match(/\bSUB\s*(\d{12,18})/i)?.[1] || '—'
+				: row.details.match(/^050-(\d{12,18})\b/)?.[1] || '—';
+		}
 		return row.terminalId;
 	}
 
-	function selectTransactionView(description: string) {
+	async function selectTransactionView(description: string) {
 		transactionView = description;
 		terminalFilter = '';
 		showFullDateJournal = false;
 		savedStatementMjv = null;
 		statementWorkflowMessage = '';
 		expandedEntryRows = new Set<number>();
+		iqamaMjvGroups = [];
+		iqamaMjvMessage = '';
+		expandedIqamaGroups = new Set<string>();
+		if (description === 'Iqama & Work Permit') await generateIqamaMjvGroups();
+	}
+
+	async function handleStatementDateChange() {
+		showFullDateJournal = false;
+		savedStatementMjv = null;
+		statementWorkflowMessage = '';
+		iqamaMjvGroups = [];
+		iqamaMjvMessage = '';
+		if (transactionView === 'Iqama & Work Permit') await generateIqamaMjvGroups();
+	}
+
+	function iqamaGroupKey(group: any, groupIndex: number): string {
+		return group.document?.id || `unmatched-${group.transactions[0]?.rowNumber ?? groupIndex}`;
+	}
+
+	function toggleIqamaEntry(group: any, groupIndex: number) {
+		const key = iqamaGroupKey(group, groupIndex);
+		const next = new Set(expandedIqamaGroups);
+		if (next.has(key)) next.delete(key); else next.add(key);
+		expandedIqamaGroups = next;
+	}
+
+	async function generateIqamaMjvGroups() {
+		generatingIqamaMjv = true;
+		iqamaMjvGroups = [];
+		iqamaMjvMessage = '';
+		const [{ data, error }, postingResult] = await Promise.all([
+			supabase.rpc('get_iqama_sadad_documents'),
+			supabase.rpc('get_iqama_sadad_posting_accounts')
+		]);
+		if (error) {
+			iqamaMjvMessage = error.message;
+			generatingIqamaMjv = false;
+			return;
+		}
+		if (postingResult.error) {
+			iqamaMjvMessage = postingResult.error.message;
+			generatingIqamaMjv = false;
+			return;
+		}
+		iqamaPostingAccounts = postingResult.data || [];
+		expandedIqamaGroups = new Set<string>();
+		const availableRows = filteredStatementRows.filter((row) => {
+			const description = transactionDisplayDescription(row);
+			return description === 'Iqama Renewal Payments' || description === 'Work Permit SADAD Payments';
+		});
+		const usedRows = new Set<number>();
+		const matchedGroups = (data || []).map((document: any) => {
+			const iqamaNumber = String(document.iqama_number || '').replace(/\D/g, '');
+			const sadadNumber = String(document.sadad_number || '').replace(/\D/g, '');
+			const transactions = availableRows.filter((row) => {
+				if (usedRows.has(row.rowNumber)) return false;
+				const description = transactionDisplayDescription(row);
+				const identifier = transactionIdentifier(row).replace(/\D/g, '');
+				return (description === 'Iqama Renewal Payments' && identifier === iqamaNumber)
+					|| (description === 'Work Permit SADAD Payments' && identifier === sadadNumber);
+			});
+			transactions.forEach((row) => usedRows.add(row.rowNumber));
+			return { document, transactions };
+		}).filter((group: any) => group.transactions.length > 0);
+		const unmatchedRows = availableRows.filter((row) => !usedRows.has(row.rowNumber));
+		iqamaMjvGroups = [
+			...matchedGroups,
+			...unmatchedRows.map((row) => ({ document: null, transactions: [row] }))
+		];
+		iqamaMjvMessage = matchedGroups.length
+			? `${matchedGroups.length} saved document group(s) matched. ${unmatchedRows.length} transaction(s) unmatched.`
+			: `No saved SADAD documents matched. ${unmatchedRows.length} transaction(s) unmatched.`;
+		generatingIqamaMjv = false;
+	}
+
+	function iqamaEntryPreview(group: any) {
+		if (!group.document) return { error: 'No saved SADAD document is connected to this transaction.', lines: [], debit: 0, credit: 0 };
+		const statementAccount = configuredBankAccounts.find((item) => item.id === selectedStatementBankAccountId);
+		if (!statementAccount) return { error: 'Select the statement real bank account.', lines: [], debit: 0, credit: 0 };
+		const employeeBranchId = Number(group.document.employee_branch_id);
+		if (!employeeBranchId) return { error: 'The saved employee document has no branch.', lines: [], debit: 0, credit: 0 };
+		const expenseAccount = iqamaPostingAccounts.find((item) => Number(item.branch_id) === employeeBranchId && item.payment_type === 'iqama-renewal');
+		if (!expenseAccount) return { error: `Iqama & Work Permit expense ledger is not configured for ${group.document.employee_branch || 'the employee branch'}.`, lines: [], debit: 0, credit: 0 };
+		const bankBranchId = Number(statementAccount.branch_id);
+		const bankBranch = previewBranchLabel(bankBranchId, statementAccount.branch_name);
+		const employeeBranch = previewBranchLabel(employeeBranchId, group.document.employee_branch || expenseAccount.branch_name);
+		const lines: any[] = [];
+		const add = (branchId: number, branch: string, account: string, ledgerCode: string, debit: number, credit: number, kind: string, narration: string) => lines.push({ branchId, branch, account, ledgerCode, debit, credit, kind, narration });
+		let bankAdjustment: any = null;
+		let employeeAdjustment: any = null;
+		if (bankBranchId !== employeeBranchId) {
+			bankAdjustment = (previewAccounts.cross_branch_accounts || []).find((item: any) => Number(item.source_branch_id) === bankBranchId && Number(item.target_branch_id) === employeeBranchId);
+			employeeAdjustment = (previewAccounts.cross_branch_accounts || []).find((item: any) => Number(item.source_branch_id) === employeeBranchId && Number(item.target_branch_id) === bankBranchId);
+			if (!bankAdjustment || !employeeAdjustment) return { error: `Both reciprocal branch adjustment accounts are required between ${bankBranch} and ${employeeBranch}.`, lines: [], debit: 0, credit: 0 };
+		}
+		for (const row of group.transactions) {
+			const value = numericAmount(row.debit || row.credit);
+			if (!value) continue;
+			const paymentType = transactionDisplayDescription(row);
+			const identifier = transactionIdentifier(row);
+			const reference = row.reference ? `, bank reference ${row.reference}` : '';
+			const narration = `${paymentType} for ${group.document.employee_name}, ${transactionIdentifierLabel(paymentType)} ${identifier}${reference}`;
+			if (bankBranchId === employeeBranchId) {
+				add(employeeBranchId, employeeBranch, expenseAccount.ledger_name, expenseAccount.ledger_code || '', value, 0, 'Iqama / work permit expense', narration);
+				add(bankBranchId, bankBranch, statementAccount.ledger_name, statementAccount.ledger_code || '', 0, value, 'Real bank', `${narration} paid from ${statementAccount.ledger_name}`);
+			} else {
+				add(bankBranchId, bankBranch, bankAdjustment.ledger_name, bankAdjustment.ledger_code || '', value, 0, 'Branch adjustment', `${narration} paid by ${bankBranch} for ${employeeBranch}`);
+				add(bankBranchId, bankBranch, statementAccount.ledger_name, statementAccount.ledger_code || '', 0, value, 'Real bank', `${narration} paid from ${statementAccount.ledger_name}`);
+				add(employeeBranchId, employeeBranch, expenseAccount.ledger_name, expenseAccount.ledger_code || '', value, 0, 'Iqama / work permit expense', narration);
+				add(employeeBranchId, employeeBranch, employeeAdjustment.ledger_name, employeeAdjustment.ledger_code || '', 0, value, 'Branch adjustment', `${narration} funded by ${bankBranch}`);
+			}
+		}
+		return { error: '', lines, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
 	}
 
 	function previewBranchLabel(branchId: number, fallback: string): string {
@@ -383,6 +550,41 @@
 		};
 	}
 
+	function iqamaFullJournalPreview() {
+		const lines: any[] = [];
+		const errors: string[] = [];
+		let transactionCount = 0;
+		for (const [index, group] of iqamaMjvGroups.entries()) {
+			if (!group.document) {
+				errors.push(`${transactionNumber(index)}: No saved SADAD document is connected.`);
+				continue;
+			}
+			const preview = iqamaEntryPreview(group);
+			transactionCount += group.transactions.length;
+			if (preview.error) {
+				errors.push(`${transactionNumber(index)}: ${preview.error}`);
+				continue;
+			}
+			for (const line of preview.lines) lines.push({ ...line, transaction: transactionNumber(index), description: group.document.employee_name, reference: group.document.sadad_number });
+		}
+		const branchGroups = Array.from(lines.reduce((groups: Map<string, any[]>, line: any) => {
+			if (!groups.has(line.branch)) groups.set(line.branch, []);
+			groups.get(line.branch)?.push(line);
+			return groups;
+		}, new Map<string, any[]>())).map(([branch, branchLines]) => ({
+			branch,
+			branchId: Number(branchLines[0]?.branchId),
+			lines: branchLines,
+			debit: branchLines.reduce((sum: number, line: any) => sum + line.debit, 0),
+			credit: branchLines.reduce((sum: number, line: any) => sum + line.credit, 0)
+		}));
+		return { lines, branchGroups, errors, transactionCount, debit: lines.reduce((sum, line) => sum + line.debit, 0), credit: lines.reduce((sum, line) => sum + line.credit, 0) };
+	}
+
+	function currentFullJournalPreview() {
+		return transactionView === 'Iqama & Work Permit' ? iqamaFullJournalPreview() : fullDateJournalPreview();
+	}
+
 	function statementDateIso(): string {
 		const [day, month, year] = dateFilter.split('/');
 		return `${year}-${month}-${day}`;
@@ -390,7 +592,7 @@
 
 	async function loadSavedStatementMjv() {
 		if (!bank || !dateFilter) return;
-		const { data, error } = await supabase.rpc('get_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso() });
+		const { data, error } = await supabase.rpc('get_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso(), p_mjv_type: transactionView === 'Iqama & Work Permit' ? 'iqama-work-permit' : 'pos' });
 		if (error) accountError = error.message;
 		else savedStatementMjv = data || null;
 	}
@@ -398,6 +600,7 @@
 	async function openFullDateJournal() {
 		selectedFullJournalBranch = '';
 		statementWorkflowMessage = '';
+		if (transactionView === 'Iqama & Work Permit') await generateIqamaMjvGroups();
 		await loadSavedStatementMjv();
 		showFullDateJournal = true;
 	}
@@ -409,9 +612,19 @@
 			branch_id: group.branchId, branch_name: group.branch, debit: group.debit, credit: group.credit,
 			lines: group.lines.map((line: any) => ({ ledger_name: line.account, ledger_code: line.ledgerCode || '', amount: Number(line.debit || line.credit).toFixed(2), side: line.debit ? 'Debit' : 'Credit', narration: line.narration }))
 		}));
-		const { error } = await supabase.rpc('save_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso(), p_source_file_name: fileName, p_branches: branchesPayload });
+		const mjvType = transactionView === 'Iqama & Work Permit' ? 'iqama-work-permit' : 'pos';
+		const { data: savedMjvId, error } = await supabase.rpc('save_statement_mjv', { p_bank: bank, p_bank_account_id: selectedStatementBankAccountId, p_statement_date: statementDateIso(), p_source_file_name: fileName, p_branches: branchesPayload, p_mjv_type: mjvType });
 		if (error) accountError = error.message;
-		else { statementWorkflowMessage = 'MJV saved by branch.'; await loadSavedStatementMjv(); }
+		else {
+			if (mjvType === 'iqama-work-permit') {
+				const documentIds = iqamaMjvGroups.map((group) => group.document?.id).filter(Boolean);
+				if (documentIds.length) {
+					const linkResult = await supabase.rpc('link_iqama_sadad_documents_to_mjv', { p_statement_mjv_id: savedMjvId, p_document_ids: documentIds });
+					if (linkResult.error) { accountError = linkResult.error.message; savingStatementMjv = false; return; }
+				}
+			}
+			statementWorkflowMessage = 'MJV saved by branch.'; await loadSavedStatementMjv();
+		}
 		savingStatementMjv = false;
 	}
 
@@ -564,6 +777,145 @@
 		const name = branch.name_en || branch.name_ar || `Branch ${branch.id}`;
 		const location = branch.location_en || branch.location_ar || '';
 		return location ? `${name} - ${location}` : name;
+	}
+
+	async function loadIqamaPostingAccounts() {
+		const { data, error } = await supabase.rpc('get_iqama_sadad_posting_accounts');
+		if (error) iqamaAccountError = error.message;
+		else iqamaPostingAccounts = data || [];
+	}
+
+	async function openIqamaSadadManager() {
+		activeTab = 'iqama-sadad';
+		if (iqamaManagerTab === 'accounts') await loadIqamaPostingAccounts();
+		else await loadIqamaDocuments();
+	}
+
+	async function openIqamaDocuments() {
+		iqamaManagerTab = 'documents';
+		iqamaPdfError = '';
+		await loadIqamaDocuments();
+	}
+
+	async function loadIqamaDocuments() {
+		const { data, error } = await supabase.rpc('get_iqama_sadad_documents');
+		if (error) { iqamaPdfError = error.message; return; }
+		iqamaPdfRows = (data || []).map((row: any) => ({
+			id: row.id,
+			fileName: row.source_file_name,
+			employeeName: row.employee_name,
+			employeeBranch: row.employee_branch,
+			employeeBranchId: row.employee_branch_id,
+			iqamaNumber: row.iqama_number,
+			sadadNumber: row.sadad_number,
+			duration: row.duration_months ? `${row.duration_months} months` : 'Not detected',
+			amounts: row.detected_amount == null ? 'Not detected' : Number(row.detected_amount).toFixed(2),
+			connection: 'Ready to match',
+			taskIssued: !!row.task_issued,
+			taskStatus: row.task_status || 'not_issued',
+			isSaved: true
+		}));
+	}
+
+	async function saveReadyIqamaDocuments() {
+		const readyRows = iqamaPdfRows.filter((row) => row.connection === 'Ready to match' && !row.isSaved);
+		if (!readyRows.length) return;
+		savingIqamaDocuments = true;
+		iqamaPdfError = '';
+		iqamaDocumentMessage = '';
+		const { data, error } = await supabase.rpc('save_iqama_sadad_documents', {
+			p_documents: readyRows.map((row) => ({
+				source_file_name: row.fileName,
+				employee_name: row.employeeName,
+				employee_branch_id: row.employeeBranchId || null,
+				iqama_number: row.iqamaNumber,
+				sadad_number: row.sadadNumber,
+				duration_months: Number.parseInt(row.duration, 10) || null,
+				detected_amount: row.amounts === 'Not detected' ? null : Number(String(row.amounts).split(',')[0])
+			}))
+		});
+		if (error) iqamaPdfError = error.message;
+		else {
+			iqamaDocumentMessage = `${Number(data) || readyRows.length} document(s) saved.`;
+			await loadIqamaDocuments();
+		}
+		savingIqamaDocuments = false;
+	}
+
+	async function openIqamaConfigureAccounts() {
+		iqamaManagerTab = 'accounts';
+		iqamaAccountError = '';
+		await loadIqamaPostingAccounts();
+	}
+
+	async function selectIqamaAccountBranch() {
+		const selected = branches.find((branch) => branchLabel(branch) === iqamaAccountBranchSearch);
+		iqamaAccountBranchId = selected ? Number(selected.id) : null;
+		iqamaAccountLedgerSearch = '';
+		selectedIqamaAccountLedger = null;
+		iqamaAccountLedgerChoices = [];
+		if (!iqamaAccountBranchId) return;
+		loadingIqamaAccountLedgers = true;
+		try {
+			const response = await authenticatedFetch(`/api/erp-ledger-search?branchId=${iqamaAccountBranchId}`);
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Unable to load branch ledgers.');
+			iqamaAccountLedgerChoices = result.ledgers || [];
+		} catch (error) {
+			iqamaAccountError = error instanceof Error ? error.message : 'Unable to load branch ledgers.';
+		} finally {
+			loadingIqamaAccountLedgers = false;
+		}
+	}
+
+	async function searchIqamaAccountLedgers() {
+		if (!iqamaAccountBranchId) return;
+		loadingIqamaAccountLedgers = true;
+		selectedIqamaAccountLedger = null;
+		try {
+			const query = encodeURIComponent(iqamaAccountLedgerSearch.trim());
+			const response = await authenticatedFetch(`/api/erp-ledger-search?branchId=${iqamaAccountBranchId}&query=${query}`);
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.error || 'Unable to search branch ledgers.');
+			iqamaAccountLedgerChoices = result.ledgers || [];
+		} catch (error) {
+			iqamaAccountError = error instanceof Error ? error.message : 'Unable to search branch ledgers.';
+		} finally {
+			loadingIqamaAccountLedgers = false;
+		}
+	}
+
+	function chooseIqamaAccountLedger() {
+		selectedIqamaAccountLedger = iqamaAccountLedgerChoices.find((ledger) => ledgerLabel(ledger) === iqamaAccountLedgerSearch) || null;
+	}
+
+	async function saveIqamaPostingAccount() {
+		if (!iqamaAccountBranchId || !selectedIqamaAccountLedger) {
+			iqamaAccountError = 'Select an active branch and posting ledger.';
+			return;
+		}
+		savingIqamaAccount = true;
+		iqamaAccountError = '';
+		iqamaAccountMessage = '';
+		const ledger = selectedIqamaAccountLedger;
+		const { error } = await supabase.rpc('save_iqama_sadad_posting_account', {
+			p_branch_id: iqamaAccountBranchId,
+			p_payment_type: 'iqama-renewal',
+			p_ledger_id: Number(ledger.LedgerID),
+			p_ledger_code: String(ledger.LedgerCode ?? ''),
+			p_ledger_name: String(ledger.LedgerName)
+		});
+		if (error) iqamaAccountError = error.message;
+		else {
+			iqamaAccountMessage = 'Iqama Renewal posting account saved.';
+			showIqamaAccountForm = false;
+			iqamaAccountBranchSearch = '';
+			iqamaAccountBranchId = null;
+			iqamaAccountLedgerSearch = '';
+			selectedIqamaAccountLedger = null;
+			await loadIqamaPostingAccounts();
+		}
+		savingIqamaAccount = false;
 	}
 
 	async function selectAccountBranch() {
@@ -868,6 +1220,201 @@
 		return Number.isFinite(number) ? number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : text;
 	}
 
+	function chooseIqamaPdf() {
+		iqamaPdfInput?.click();
+	}
+
+	function chooseIqamaImage() {
+		iqamaImageInput?.click();
+	}
+
+	async function fileBase64(file: File): Promise<string> {
+		return await new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+			reader.onerror = () => reject(new Error(`Unable to read ${file.name}.`));
+			reader.readAsDataURL(file);
+		});
+	}
+
+	async function importIqamaImage(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const files = Array.from(input.files || []);
+		if (!files.length) return;
+		importingIqamaImage = true;
+		iqamaPdfError = '';
+		iqamaDocumentMessage = '';
+		const importedRows: any[] = [];
+		let skippedDuplicateCount = 0;
+		try {
+			for (const file of files) {
+				const response = await authenticatedFetch('/api/iqama-sadad-image-extract', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ imageBase64: await fileBase64(file), mimeType: file.type || 'image/jpeg' })
+				});
+				const extracted = await response.json();
+				if (!response.ok || !extracted?.success) throw new Error(extracted?.error || `Unable to extract ${file.name}.`);
+				const iqamaNumber = String(extracted.iqamaNumber || '').replace(/\D/g, '');
+				const sadadNumber = String(extracted.sadadNumber || '').replace(/\D/g, '');
+				if (sadadNumber && [...iqamaPdfRows, ...importedRows].some((row) => String(row.sadadNumber) === sadadNumber)) {
+					skippedDuplicateCount += 1;
+					continue;
+				}
+				let employeeName = String(extracted.employeeName || '').trim();
+				let employeeBranch = 'Employee not found';
+				let employeeBranchId: number | null = null;
+				if (iqamaNumber) {
+					const { data: employee } = await supabase.from('hr_employee_master')
+						.select('id_number, name_en, name_ar, current_branch_id, branches(name_en, name_ar, location_en, location_ar)')
+						.eq('id_number', iqamaNumber).maybeSingle();
+					if (employee) {
+						const employeeRecord: any = employee;
+						employeeBranchId = employeeRecord.current_branch_id ? Number(employeeRecord.current_branch_id) : null;
+						employeeBranch = employeeRecord.branches ? branchLabel(employeeRecord.branches)
+							: employeeBranchId ? `Branch ${employeeBranchId}` : 'No branch configured';
+						if (!employeeName) employeeName = employeeRecord.name_en || employeeRecord.name_ar || '';
+					}
+				}
+				importedRows.push({
+					id: `${Date.now()}-image-${importedRows.length}`,
+					fileName: file.name,
+					employeeName: employeeName || 'Not detected',
+					employeeBranch,
+					employeeBranchId,
+					iqamaNumber: iqamaNumber || 'Not detected',
+					sadadNumber: sadadNumber || 'Not detected',
+					duration: extracted.durationMonths ? `${extracted.durationMonths} months` : 'Not detected',
+					amounts: extracted.amountSar ? Number(extracted.amountSar).toFixed(2) : 'Not detected',
+					connection: iqamaNumber && sadadNumber ? 'Ready to match' : 'Needs review',
+					isSaved: false
+				});
+			}
+			iqamaPdfRows = [...iqamaPdfRows, ...importedRows];
+			iqamaDocumentMessage = skippedDuplicateCount
+				? `${importedRows.length} image document(s) extracted. ${skippedDuplicateCount} duplicate SADAD document(s) skipped.`
+				: `${importedRows.length} image document(s) extracted.`;
+		} catch (error) {
+			iqamaPdfError = error instanceof Error ? error.message : 'Unable to extract the selected image.';
+		} finally {
+			importingIqamaImage = false;
+			input.value = '';
+		}
+	}
+
+	function firstPdfMatch(text: string, patterns: RegExp[]) {
+		for (const pattern of patterns) {
+			const match = text.match(pattern);
+			if (match?.[1]) return match[1].trim();
+		}
+		return '';
+	}
+
+	function normalizePdfText(value: string) {
+		const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+		const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+		return value.normalize('NFKC').replace(/\u0000/g, '')
+			.replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)))
+			.replace(/[۰-۹]/g, (digit) => String(persianDigits.indexOf(digit)))
+			.replace(/٬/g, ',').replace(/٫/g, '.').replace(/\s+/g, ' ').trim();
+	}
+
+	async function importIqamaPdf(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const files = Array.from(input.files || []);
+		if (!files.length) return;
+		importingIqamaPdf = true;
+		iqamaPdfError = '';
+		try {
+			const pdfjs = await import('pdfjs-dist');
+			pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+			const importedRows: any[] = [];
+			let skippedDuplicateCount = 0;
+			for (const file of files) {
+				const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+				const pages: string[] = [];
+				for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+					const page = await document.getPage(pageNumber);
+					const content = await page.getTextContent();
+					pages.push(content.items.map((item: any) => item.str || '').join(' '));
+				}
+				const text = normalizePdfText(pages.join(' '));
+				const iqamaNumber = firstPdfMatch(text, [
+					/(?:Iqama|Residence|Resident|Resident ID|Identity Number)[^0-9]{0,60}([12]\d{9})/i,
+					/(?:رقم\s*الإقامة|رقم\s*الاقامة|الإقامة|الاقامة|هوية\s*مقيم|رقم\s*المقيم|رقم\s*الهوية)[^0-9]{0,60}([12]\d{9})/,
+					/\b([12]\d{9})\b/
+				]);
+				const sadadNumber = firstPdfMatch(text, [
+					/(?:SADAD|SADAD Number|Payment Number|سداد|رقم\s*السداد|رقم\s*المفوتر|رقم\s*الدفع)[^0-9]{0,80}(\d{12,18})/i,
+					/\b(\d{14,18})\b/
+				]);
+				let employeeName = firstPdfMatch(text, [
+					/(?:Employee Name|Worker Name|Resident Name|Name)\s*[:\-]?\s*([A-Za-z][A-Za-z .'-]{4,80}?)(?=\s+(?:Iqama|Residence|Nationality|Work|ID|رقم)|$)/i,
+					/(?:اسم\s*العامل|اسم\s*الموظف|اسم\s*المقيم|اسم\s*صاحب\s*الإقامة|الاسم)\s*[:\-]?\s*([\u0600-\u06FF][\u0600-\u06FF\s]{3,80}?)(?=\s+(?:رقم|الجنسية|مدة|تاريخ|$))/
+				]);
+				let duration = firstPdfMatch(text, [
+					/(?:Duration|Period|Work Permit Period)[^0-9]{0,30}(\d{1,2}\s*(?:months?|month|years?|year))/i,
+					/(?:المدة|مدة\s*الرخصة|فترة\s*الرخصة)[^0-9]{0,30}(\d{1,2}\s*(?:شهر|أشهر|اشهر|سنة|سنوات))/
+				]);
+				if (iqamaNumber) {
+					const iqamaIndex = text.indexOf(iqamaNumber);
+					const beforeIqama = text.slice(Math.max(0, iqamaIndex - 180), iqamaIndex);
+					const englishNames = Array.from(beforeIqama.matchAll(/\b([A-Z]{3,}(?:\s+[A-Z]{3,}){1,5})\b/g));
+					if (!employeeName && englishNames.length) employeeName = englishNames[englishNames.length - 1][1];
+					const afterIqama = text.slice(iqamaIndex + iqamaNumber.length, iqamaIndex + iqamaNumber.length + 180);
+					const structuralDuration = afterIqama.match(/^[^0-9]{0,60}(\d{1,2})\s+\d{2}\/\d{2}\/\d{4}/);
+					if (!duration && structuralDuration) duration = `${structuralDuration[1]} months`;
+				}
+				const moneyValues = Array.from(text.matchAll(/(?:SAR|ر\.؟س|ريال)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:SAR|ر\.؟س|ريال)|\b(\d{1,3}(?:,\d{3})+\.\d{2})\b/gi))
+					.map((match) => (match[1] || match[2] || match[3] || '').replace(/,/g, ''))
+					.filter((value, index, values) => value && values.indexOf(value) === index);
+				let employeeBranch = 'Employee not found';
+				let employeeBranchId: number | null = null;
+				if (iqamaNumber) {
+					const { data: employee } = await supabase.from('hr_employee_master')
+						.select('id_number, name_en, name_ar, current_branch_id, branches(name_en, name_ar, location_en, location_ar)')
+						.eq('id_number', iqamaNumber).maybeSingle();
+					if (employee) {
+						const employeeRecord: any = employee;
+						employeeBranchId = employeeRecord.current_branch_id ? Number(employeeRecord.current_branch_id) : null;
+						const employeeBranchRecord: any = employeeRecord.branches;
+						employeeBranch = employeeBranchRecord
+							? branchLabel(employeeBranchRecord)
+							: employeeRecord.current_branch_id ? `Branch ${employeeRecord.current_branch_id}` : 'No branch configured';
+						if (!employeeName) employeeName = employeeRecord.name_en || employeeRecord.name_ar || '';
+					}
+				}
+				const duplicateSadad = !!sadadNumber && [...iqamaPdfRows, ...importedRows].some((row) => String(row.sadadNumber) === sadadNumber);
+				if (duplicateSadad) {
+					skippedDuplicateCount += 1;
+					continue;
+				}
+				importedRows.push({
+					id: `${Date.now()}-${importedRows.length}`,
+					fileName: file.name,
+					employeeName: employeeName || 'Not detected',
+					employeeBranch,
+					employeeBranchId,
+					iqamaNumber: iqamaNumber || 'Not detected',
+					sadadNumber: sadadNumber || 'Not detected',
+					duration: duration || 'Not detected',
+					amounts: moneyValues.length ? moneyValues.join(', ') : 'Not detected',
+					connection: iqamaNumber && sadadNumber ? 'Ready to match' : 'Needs review',
+					isSaved: false
+				});
+			}
+			iqamaPdfRows = [...iqamaPdfRows, ...importedRows];
+			iqamaDocumentMessage = skippedDuplicateCount
+				? `${importedRows.length} new document(s) imported. ${skippedDuplicateCount} duplicate SADAD document(s) skipped.`
+				: `${importedRows.length} new document(s) imported.`;
+		} catch (error) {
+			iqamaPdfError = error instanceof Error ? error.message : 'Unable to extract the selected PDF.';
+		} finally {
+			importingIqamaPdf = false;
+			input.value = '';
+		}
+	}
+
 	function chooseFile() {
 		if (bank && selectedStatementBankAccountId && !isImporting) fileInput?.click();
 	}
@@ -966,6 +1513,7 @@
 		<button type="button" class:active={activeTab === 'bank-accounts'} on:click={openBankAccounts}>Bank Accounts</button>
 		<button type="button" class:active={activeTab === 'terminals'} on:click={openTerminals}>Terminal Configuration</button>
 		<button type="button" class:active={activeTab === 'task-status'} on:click={openTaskStatus}>Task Status</button>
+		<button type="button" class:active={activeTab === 'iqama-sadad'} on:click={openIqamaSadadManager}>Iqama SADAD Manager</button>
 	</nav>
 	{#if activeTab === 'process'}
 	<section class="import-panel">
@@ -992,14 +1540,15 @@
 		</nav>
 		<div class="table-filters">
 			{#if selectedTransactionViewIsPos}<div class="filter-field"><label for="terminal-filter">Terminal ID</label><select id="terminal-filter" bind:value={terminalFilter}><option value="">All terminals</option>{#each terminalOptions as terminalId}<option value={terminalId}>{terminalId}</option>{/each}</select></div>{/if}
-			<div class="filter-field"><label for="date-filter">Transaction date</label><select id="date-filter" bind:value={dateFilter} on:change={() => { showFullDateJournal = false; savedStatementMjv = null; statementWorkflowMessage = ''; }}><option value="">All dates</option>{#each dateOptions as transactionDate}<option value={transactionDate}>{transactionDate}</option>{/each}</select></div>
-			{#if selectedTransactionViewIsPos}<button class="full-journal-button" type="button" disabled={!dateFilter} on:click={openFullDateJournal}>Show full MJV</button>{/if}
+			<div class="filter-field"><label for="date-filter">Transaction date</label><select id="date-filter" bind:value={dateFilter} on:change={handleStatementDateChange}><option value="">All dates</option>{#each dateOptions as transactionDate}<option value={transactionDate}>{transactionDate}</option>{/each}</select></div>
+			{#if selectedTransactionViewIsPos || transactionView === 'Iqama & Work Permit'}<button class="full-journal-button" type="button" disabled={!dateFilter || generatingIqamaMjv} on:click={openFullDateJournal}>{generatingIqamaMjv ? 'Loading…' : 'Show full MJV'}</button>{/if}
 			{#if terminalFilter || dateFilter}<span>{filteredStatementRows.length} matching transactions</span>{/if}
 		</div>
+		{#if transactionView === 'Iqama & Work Permit' && iqamaMjvMessage}<div class="source-note">{iqamaMjvMessage} Preview only — nothing is saved.</div>{/if}
 		{#if showFullDateJournal}
-			{#each [fullDateJournalPreview()] as fullPreview}
+			{#each [currentFullJournalPreview()] as fullPreview}
 				<section class="full-journal-panel">
-					<header class="full-journal-header"><div><h2>Full MJV for {dateFilter}</h2><p>{fullPreview.transactionCount} POS transactions across all terminals</p></div><div class="workflow-actions"><span class:unbalanced={fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} class="balance-badge">{!fullPreview.errors.length && Math.abs(fullPreview.debit - fullPreview.credit) < 0.005 ? 'Overall balanced' : 'Not balanced'}</span>{#if !savedStatementMjv}<button class="save-mjv-button" type="button" disabled={savingStatementMjv || fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} on:click={() => saveFullDateJournal(fullPreview)}>{savingStatementMjv ? 'Saving…' : 'Save MJV'}</button>{:else if savedStatementMjv.status === 'saved'}<button class="post-mjv-button" type="button" disabled={postingStatementTasks} on:click={postStatementMjvTasks}>{postingStatementTasks ? 'Posting…' : 'Post Task'}</button><span class="workflow-status">Saved</span>{:else}<span class="workflow-status">{savedStatementMjv.status === 'completed' ? 'Posted / Completed' : savedStatementMjv.status === 'partially_posted' ? 'Partially posted' : 'Tasks posted'}</span>{/if}<button type="button" on:click={() => showFullDateJournal = false}>Back to transactions</button></div></header>
+					<header class="full-journal-header"><div><h2>Full MJV for {dateFilter}</h2><p>{fullPreview.transactionCount} {transactionView === 'Iqama & Work Permit' ? 'Iqama and work-permit payments' : 'POS transactions across all terminals'}</p></div><div class="workflow-actions"><span class:unbalanced={fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} class="balance-badge">{!fullPreview.errors.length && Math.abs(fullPreview.debit - fullPreview.credit) < 0.005 ? 'Overall balanced' : 'Not balanced'}</span>{#if !savedStatementMjv}<button class="save-mjv-button" type="button" disabled={savingStatementMjv || fullPreview.errors.length > 0 || Math.abs(fullPreview.debit - fullPreview.credit) >= 0.005} on:click={() => saveFullDateJournal(fullPreview)}>{savingStatementMjv ? 'Saving…' : 'Save MJV'}</button>{:else if savedStatementMjv.status === 'saved'}<button class="post-mjv-button" type="button" disabled={postingStatementTasks} on:click={postStatementMjvTasks}>{postingStatementTasks ? 'Posting…' : 'Post Task'}</button><span class="workflow-status">Saved</span>{:else}<span class="workflow-status">{savedStatementMjv.status === 'completed' ? 'Posted / Completed' : savedStatementMjv.status === 'partially_posted' ? 'Partially posted' : 'Tasks posted'}</span>{/if}<button type="button" on:click={() => showFullDateJournal = false}>Back to transactions</button></div></header>
 					{#if accountError}<div class="preview-error">{accountError}</div>{/if}
 					{#if statementWorkflowMessage}<div class="workflow-message">{statementWorkflowMessage}</div>{/if}
 					{#if fullPreview.errors.length}<div class="preview-error">{fullPreview.errors.join(' ')}</div>{/if}
@@ -1030,6 +1579,24 @@
 		{:else}
 		<div class="table-shell"><table>
 			<thead><tr><th>Group</th><th>Date</th><th>Transaction description</th><th>Details</th><th>Reference</th><th>{transactionIdentifierLabel(transactionView)}</th><th class="number">Debit</th><th class="number">Credit</th><th class="number">Balance</th></tr></thead>
+			{#if transactionView === 'Iqama & Work Permit' && iqamaMjvGroups.length > 0}
+				{#each iqamaMjvGroups as group, groupIndex}
+					{@const groupKey = iqamaGroupKey(group, groupIndex)}
+					<tbody class:linked-group={group.transactions.length > 1} class:standalone-group={group.transactions.length === 1} class:group-alt={groupIndex % 2 === 1}>
+						{#each group.transactions as row, rowIndex}
+							<tr class="main-row">
+								{#if rowIndex === 0}<td class="group-cell" rowspan={group.transactions.length + (expandedIqamaGroups.has(groupKey) ? 1 : 0)}><strong>{transactionNumber(groupIndex)}</strong><span>{group.transactions.length > 1 ? `${group.transactions.length} grouped items` : '1 standalone row'}</span>{#if group.document}<small>{group.document.employee_name}</small><button class="entry-toggle" type="button" aria-expanded={expandedIqamaGroups.has(groupKey)} on:click={() => toggleIqamaEntry(group, groupIndex)}>{expandedIqamaGroups.has(groupKey) ? 'Hide entry' : 'Show entry'}</button>{/if}</td>{/if}
+								<td>{displayDate(row.date)}</td><td><span class="row-type main-type">Main</span><strong>{transactionDisplayDescription(row)}</strong></td><td>{row.details}</td><td>{row.reference}</td><td class="terminal-id">{transactionIdentifier(row)}</td><td class="number debit">{row.debit}</td><td class="number credit">{row.credit}</td><td class="number">{row.balance}</td>
+							</tr>
+						{/each}
+						{#if expandedIqamaGroups.has(groupKey)}
+							{#each [iqamaEntryPreview(group)] as preview}
+								<tr class="entry-preview-row"><td colspan="8"><section class="entry-preview" aria-label={`Journal entry preview for ${transactionNumber(groupIndex)}`}><header><div><strong>Complete journal entry</strong><span>Preview only — nothing will be posted</span></div>{#if !preview.error}<span class:unbalanced={Math.abs(preview.debit - preview.credit) >= 0.005} class="balance-badge">{Math.abs(preview.debit - preview.credit) < 0.005 ? 'Balanced' : 'Not balanced'}</span>{/if}</header>{#if preview.error}<div class="preview-error">{preview.error}</div>{:else}<div class="entry-grid entry-grid-head"><span>Posting branch</span><span>Entry type</span><span>Account</span><span>Narration</span><span>Debit</span><span>Credit</span></div>{#each preview.lines as line}<div class="entry-grid"><span>{line.branch}</span><span>{line.kind}</span><strong>{line.account}</strong><span>{line.narration}</span><span class="number debit">{line.debit ? amount(line.debit) : '—'}</span><span class="number credit">{line.credit ? amount(line.credit) : '—'}</span></div>{/each}<div class="entry-grid entry-total"><span></span><span></span><span></span><strong>Total</strong><strong class="number">{amount(preview.debit)}</strong><strong class="number">{amount(preview.credit)}</strong></div>{/if}</section></td></tr>
+							{/each}
+						{/if}
+					</tbody>
+				{/each}
+			{:else}
 			{#each filteredStatementRows as row, transactionIndex}
 				<tbody class:linked-group={row.children.length > 0} class:standalone-group={row.children.length === 0} class:group-alt={transactionIndex % 2 === 1}>
 					<tr class="main-row">
@@ -1066,6 +1633,7 @@
 				</tbody>
 			{/each}
 			{#if filteredStatementRows.length === 0}<tbody><tr><td class="accounts-empty" colspan="9">No transactions found in this category.</td></tr></tbody>{/if}
+			{/if}
 		</table></div>
 		{/if}
 	{:else if !errorMessage}
@@ -1128,7 +1696,7 @@
 				</tbody></table>
 			</div>
 		</section>
-	{:else}
+	{:else if activeTab === 'task-status'}
 		<section class="accounts-manager task-status-manager">
 			<header class="accounts-header task-status-header"><div><h2>Task Status</h2><p>Review saved statement MJVs and posting tasks for each configured bank account.</p></div><strong class="selected-task-date">{taskStatusDate ? `Selected: ${taskStatusDate}` : 'Select a date'}</strong></header>
 			<div class="task-status-content">
@@ -1160,6 +1728,39 @@
 			</div>
 			</div>
 			</div>
+		</section>
+	{:else}
+		<section class="accounts-manager iqama-sadad-manager" aria-label="Iqama SADAD Manager">
+			<nav class="iqama-manager-tabs" aria-label="Iqama SADAD Manager sections"><button type="button" class:active={iqamaManagerTab === 'documents'} on:click={openIqamaDocuments}>Manage SADAD Documents</button><button type="button" class:active={iqamaManagerTab === 'accounts'} on:click={openIqamaConfigureAccounts}>Configure Accounts</button></nav>
+			{#if iqamaManagerTab === 'documents'}
+				<header class="accounts-header"><div><h2>Manage SADAD Documents</h2><p>Import work-permit or Iqama PDFs and images, review the extracted connections, and save all ready documents.</p></div><div class="iqama-document-actions"><button class="save-ready-documents" type="button" disabled={savingIqamaDocuments || iqamaPdfRows.filter((row) => row.connection === 'Ready to match' && !row.isSaved).length === 0} on:click={saveReadyIqamaDocuments}>{savingIqamaDocuments ? 'Saving…' : 'Save All Ready'}</button><button class="add-account-button" type="button" disabled={importingIqamaImage} on:click={chooseIqamaImage}>{importingIqamaImage ? 'Reading image…' : '+ Import Image'}</button><button class="add-account-button" type="button" disabled={importingIqamaPdf} on:click={chooseIqamaPdf}>{importingIqamaPdf ? 'Extracting…' : '+ Import PDF'}</button></div></header>
+				<input bind:this={iqamaPdfInput} class="file-input" type="file" accept="application/pdf,.pdf" multiple on:change={importIqamaPdf} />
+				<input bind:this={iqamaImageInput} class="file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple on:change={importIqamaImage} />
+				{#if iqamaPdfError}<div class="account-alert error">{iqamaPdfError}</div>{/if}
+				{#if iqamaDocumentMessage}<div class="account-alert success">{iqamaDocumentMessage}</div>{/if}
+				<div class="accounts-table-shell iqama-sadad-table-shell">
+					<table class="accounts-table iqama-sadad-table"><thead><tr><th>Sl No.</th><th>Employee</th><th>Employee branch</th><th>Iqama number</th><th>SADAD number</th><th>Duration</th><th>Detected amounts (SAR)</th><th>Connection</th><th>Document status</th><th>Task issued</th><th>Task status</th></tr></thead><tbody>
+						{#each iqamaPdfRows as row, rowIndex}<tr><td><strong>{rowIndex + 1}</strong></td><td>{row.employeeName}</td><td>{row.employeeBranch}</td><td class="terminal-id">{row.iqamaNumber}</td><td class="terminal-id">{row.sadadNumber}</td><td>{row.duration}</td><td>{row.amounts}</td><td><span class:status-complete={row.connection === 'Ready to match'} class:status-partial={row.connection !== 'Ready to match'} class="task-posting-badge">{row.connection}</span></td><td><span class:status-complete={row.isSaved} class:status-partial={!row.isSaved} class="task-posting-badge">{row.isSaved ? 'Saved' : 'Not saved'}</span></td><td><span class:status-complete={row.taskIssued} class="task-posting-badge">{row.taskIssued ? 'Yes' : 'No'}</span></td><td><span class:status-complete={row.taskStatus === 'completed'} class:status-partial={row.taskStatus === 'partially_posted'} class="task-posting-badge">{String(row.taskStatus || 'not_issued').replaceAll('_', ' ')}</span></td></tr>{/each}
+						{#if iqamaPdfRows.length === 0}<tr><td class="accounts-empty" colspan="11">No active SADAD documents. Completed documents disappear automatically.</td></tr>{/if}
+					</tbody></table>
+				</div>
+			{:else}
+				<header class="accounts-header"><div><h2>Configure Accounts</h2><p>Connect each branch and SADAD payment type to its SQL Server posting ledger.</p></div><button class="add-account-button" type="button" on:click={() => { showIqamaAccountForm = !showIqamaAccountForm; iqamaAccountError = ''; iqamaAccountMessage = ''; }}>+ Add account</button></header>
+				{#if showIqamaAccountForm}
+					<div class="iqama-account-form">
+						<div class="account-field"><label for="iqama-account-branch">Branch</label><input id="iqama-account-branch" list="iqama-account-branches" bind:value={iqamaAccountBranchSearch} on:change={selectIqamaAccountBranch} placeholder="Search and select active branch" /><datalist id="iqama-account-branches">{#each branches as branch}<option value={branchLabel(branch)}></option>{/each}</datalist></div>
+						<div class="account-field"><label for="iqama-payment-type">SADAD type</label><select id="iqama-payment-type"><option>Iqama Renewal</option></select></div>
+						<div class="ledger-search-field"><label for="iqama-posting-ledger">Posting ledger</label><div class="ledger-search-row"><input id="iqama-posting-ledger" list="iqama-posting-ledgers" bind:value={iqamaAccountLedgerSearch} on:change={chooseIqamaAccountLedger} disabled={!iqamaAccountBranchId || loadingIqamaAccountLedgers} placeholder={loadingIqamaAccountLedgers ? 'Loading SQL ledgers…' : 'Search and select SQL ledger'} /><button type="button" disabled={!iqamaAccountBranchId || loadingIqamaAccountLedgers} on:click={searchIqamaAccountLedgers}>{loadingIqamaAccountLedgers ? '…' : 'Search'}</button></div><datalist id="iqama-posting-ledgers">{#each iqamaAccountLedgerChoices as ledger}<option value={ledgerLabel(ledger)}></option>{/each}</datalist></div>
+						<button class="save-terminal-button" type="button" disabled={savingIqamaAccount} on:click={saveIqamaPostingAccount}>{savingIqamaAccount ? 'Saving…' : 'Save'}</button>
+					</div>
+				{/if}
+				{#if iqamaAccountError}<div class="account-alert error">{iqamaAccountError}</div>{/if}
+				{#if iqamaAccountMessage}<div class="account-alert success">{iqamaAccountMessage}</div>{/if}
+				<div class="accounts-table-shell iqama-sadad-table-shell"><table class="accounts-table iqama-account-table"><thead><tr><th>Branch</th><th>Location</th><th>SADAD type</th><th>Posting ledger</th><th>Ledger code</th></tr></thead><tbody>
+					{#each iqamaPostingAccounts as account}<tr><td><strong>{account.branch_name}</strong></td><td>{account.branch_location || '—'}</td><td>Iqama Renewal</td><td>{account.ledger_name}</td><td>{account.ledger_code || account.ledger_id}</td></tr>{/each}
+					{#if iqamaPostingAccounts.length === 0}<tr><td class="accounts-empty" colspan="5">No Iqama Renewal posting accounts configured yet.</td></tr>{/if}
+				</tbody></table></div>
+			{/if}
 		</section>
 	{/if}
 </div>
@@ -1316,6 +1917,7 @@
 	.transaction-view-tabs button.active{background:#0f766e;color:#fff;box-shadow:0 3px 8px rgba(15,118,110,.2)}
 	.transaction-view-tabs button strong{display:inline-flex;min-width:22px;height:20px;align-items:center;justify-content:center;padding:0 6px;border-radius:999px;background:#e2e8f0;color:#334155;font-size:10px}
 	.transaction-view-tabs button.active strong{background:rgba(255,255,255,.2);color:#fff}
+	.group-cell small{display:block;margin-top:6px;color:#475569;font-size:8px;font-weight:700;line-height:1.25}
 	.bank-account-name{display:block;font-weight:700;color:#334155}
 	.configured-bank-number{display:block;margin-top:5px;color:#64748b;font-size:10px;font-weight:800}
 	.saved-mjv-cell{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
@@ -1334,4 +1936,23 @@
 	.saved-mjv-grid>*{padding:7px 9px}
 	.saved-mjv-grid small{display:block;margin-top:2px;color:#64748b;font-size:9px}
 	.saved-mjv-grid-head{background:#172033;color:#fff;font-size:9px;font-weight:900;text-transform:uppercase}
+	.iqama-sadad-manager{overflow:hidden}
+	.iqama-sadad-table-shell{margin-top:16px}
+	.iqama-sadad-table{min-width:1100px}
+	.iqama-sadad-table td{vertical-align:middle}
+	.iqama-document-actions{display:flex;align-items:center;gap:8px}
+	.save-ready-documents{height:40px;padding:0 16px;border:0;border-radius:9px;background:#2563eb;color:#fff;font-size:12px;font-weight:900;cursor:pointer}
+	.save-ready-documents:hover:not(:disabled){background:#1d4ed8}
+	.save-ready-documents:disabled{opacity:.45;cursor:not-allowed}
+	.iqama-manager-tabs{display:flex;flex-shrink:0;gap:6px;width:max-content;margin-bottom:16px;padding:5px;border:1px solid #dbe3ef;border-radius:10px;background:#f8fafc}
+	.iqama-manager-tabs button{height:35px;padding:0 16px;border:0;border-radius:7px;background:transparent;color:#64748b;font-size:11px;font-weight:900;cursor:pointer}
+	.iqama-manager-tabs button:hover{background:#e8eef6;color:#172033}
+	.iqama-manager-tabs button.active{background:#0f766e;color:#fff;box-shadow:0 3px 8px rgba(15,118,110,.2)}
+	.iqama-account-form{display:grid;grid-template-columns:minmax(230px,1fr) minmax(180px,.65fr) minmax(320px,1.4fr) auto;align-items:end;gap:12px;margin-top:16px;padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f8fafc}
+	.iqama-account-form input{width:100%;height:42px;box-sizing:border-box;padding:0 12px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#172033;font-size:14px}
+	.iqama-account-table{min-width:850px}
+	.iqama-coming-soon{display:grid;min-height:260px;place-content:center;text-align:center;border:1px dashed #b7c4d6;border-radius:12px;background:#f8fafc}
+	.iqama-coming-soon h2{margin:0;color:#334155;font-size:20px}
+	.iqama-coming-soon p{margin:7px 0 0;color:#64748b;font-size:13px;font-weight:700}
+	@media(max-width:1100px){.iqama-account-form{grid-template-columns:1fr 1fr}.iqama-account-form .save-terminal-button{width:max-content}}
 </style>
