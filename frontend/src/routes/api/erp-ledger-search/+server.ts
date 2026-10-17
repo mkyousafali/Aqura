@@ -7,6 +7,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const branchId = Number(url.searchParams.get('branchId'));
 		const query = (url.searchParams.get('query') || '').trim();
+		const bankOnly = url.searchParams.get('bankOnly') === 'true';
 		if (!Number.isInteger(branchId) || branchId <= 0) {
 			return json({ success: false, error: 'A valid branchId is required' }, { status: 400 });
 		}
@@ -32,7 +33,9 @@ export const GET: RequestHandler = async ({ url }) => {
 		const safeQuery = query.replace(/'/g, "''");
 		const erpBranchId = Number(connection.erp_branch_id);
 		const branchFilter = Number.isInteger(erpBranchId) && erpBranchId > 0 ? `AND BranchID = ${erpBranchId}` : '';
-		const sql = `SELECT TOP 50 LedgerID, LedgerCode, LedgerName FROM AccLedgers WHERE IsActive = 1 ${branchFilter} AND (LedgerName LIKE '%${safeQuery}%' OR CAST(LedgerCode AS NVARCHAR(100)) LIKE '%${safeQuery}%' OR CAST(LedgerID AS NVARCHAR(100)) LIKE '%${safeQuery}%') ORDER BY LedgerName`;
+		const bankJoin = bankOnly ? 'INNER JOIN AccGroups g ON g.AccGroupID = l.AccGroupID AND g.BranchID = l.BranchID' : '';
+		const bankFilter = bankOnly ? "AND g.AccGroupName LIKE '%bank%'" : '';
+		const sql = `SELECT l.LedgerID, l.LedgerCode, l.LedgerName${bankOnly ? ', g.AccGroupName' : ''} FROM AccLedgers l ${bankJoin} WHERE l.IsActive = 1 ${branchFilter.replace(/BranchID/g, 'l.BranchID')} ${bankFilter} AND (l.LedgerName LIKE '%${safeQuery}%' OR CAST(l.LedgerCode AS NVARCHAR(100)) LIKE '%${safeQuery}%' OR CAST(l.LedgerID AS NVARCHAR(100)) LIKE '%${safeQuery}%') ORDER BY l.LedgerName`;
 
 		const response = await fetch(`${connection.tunnel_url.replace(/\/+$/, '')}/query`, {
 			method: 'POST',

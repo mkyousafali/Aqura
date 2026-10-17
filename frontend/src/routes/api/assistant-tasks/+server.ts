@@ -22,6 +22,13 @@ async function canManageAiTasks(secureDb: ReturnType<typeof db>, actor: { id: st
 	return data?.is_enabled === true;
 }
 
+async function canUseStatementsManager(secureDb: ReturnType<typeof db>, actor: { id: string; isMasterAdmin: boolean }) {
+	if (actor.isMasterAdmin) return true;
+	const { data } = await secureDb.from('button_permissions').select('is_enabled')
+		.eq('user_id', actor.id).eq('button_code', 'STATEMENTS_MANAGER').eq('is_enabled', true).maybeSingle();
+	return data?.is_enabled === true;
+}
+
 async function canPostReceivingPaymentTask(
 	secureDb: ReturnType<typeof db>,
 	actor: { id: string; isMasterAdmin: boolean },
@@ -81,6 +88,25 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 				source_record_id: task.source_record_id || task.payload?.receiving_record_id || null
 			})) });
 		}
+		if (url.searchParams.get('statement_mjv_users') === '1') {
+			const secureDb = databaseClient();
+			if (!await canUseStatementsManager(secureDb, user)) return json({ success: false, error: 'Statements Manager permission required' }, { status: 403 });
+			const term = String(url.searchParams.get('search') || '').trim();
+			if (!term) return json({ success: true, users: [] });
+			const pattern = `%${term.replace(/[%_]/g, '\\$&')}%`;
+			const [english, arabic, employeeId] = await Promise.all([
+				secureDb.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).ilike('name_en', pattern).limit(25),
+				secureDb.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).ilike('name_ar', pattern).limit(25),
+				secureDb.from('hr_employee_master').select('user_id,id,name_en,name_ar').eq('is_removed', false).ilike('id', pattern).limit(25)
+			]);
+			if (english.error || arabic.error || employeeId.error) throw english.error || arabic.error || employeeId.error;
+			const employees = [...new Map([...(english.data || []), ...(arabic.data || []), ...(employeeId.data || [])].map((employee) => [employee.user_id, employee])).values()];
+			if (!employees.length) return json({ success: true, users: [] });
+			const { data: activeUsers, error } = await secureDb.from('users').select('id').eq('status', 'active').in('id', employees.map((employee) => employee.user_id));
+			if (error) throw error;
+			const activeIds = new Set((activeUsers || []).map((activeUser) => activeUser.id));
+			return json({ success: true, users: employees.filter((employee) => activeIds.has(employee.user_id)).slice(0, 30) });
+		}
 		const { data, error } = await db().from('assistant_workflow_tasks').select('*').eq('assigned_to', user.id).in('status', ['pending', 'in_progress', 'failed']).order('created_at', { ascending: false });
 		if (error) throw error;
 		return json({ success: true, tasks: data || [] });
@@ -95,6 +121,49 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const body = await request.json();
 		const branchId = Number(body.branch_id);
 		const secureDb = databaseClient();
+
+		if (body.task_type === 'statement_mjv') {
+			if (!await canUseStatementsManager(secureDb, actor)) return json({ success: false, error: 'Statements Manager permission required' }, { status: 403 });
+			const mjvId = String(body.statement_mjv_id || '');
+			const { data: mjv, error: mjvError } = await secureDb.from('statement_mjvs').select('id,bank,bank_account_id,statement_date,status').eq('id', mjvId).maybeSingle();
+			if (mjvError || !mjv) return json({ success: false, error: 'Saved statement MJV was not found' }, { status: 404 });
+			if (mjv.status === 'completed') return json({ success: false, error: 'This statement MJV is already completed' }, { status: 409 });
+			const { data: branches, error: branchesError } = await secureDb.from('statement_mjv_branches')
+				.select('id,branch_id,branch_name,lines,task_id,task_status').eq('statement_mjv_id', mjv.id).order('branch_name');
+			if (branchesError || !branches?.length) return json({ success: false, error: 'The saved MJV has no branch entries' }, { status: 400 });
+			if (branches.every((branch) => branch.task_id)) return json({ success: false, error: 'Posting tasks have already been created' }, { status: 409 });
+			const pendingBranches = branches.filter((branch) => !branch.task_id);
+			const pendingBranchIds = pendingBranches.map((branch) => Number(branch.branch_id));
+			const { data: defaults, error: defaultsError } = await secureDb.from('branch_default_positions')
+				.select('branch_id,entry_task_user_id').in('branch_id', pendingBranchIds);
+			if (defaultsError) throw defaultsError;
+			const assigneeByBranch = new Map((defaults || []).map((row) => [Number(row.branch_id), String(row.entry_task_user_id || '')]));
+			for (const branch of pendingBranches) {
+				const assignedTo = assigneeByBranch.get(Number(branch.branch_id));
+				if (!assignedTo) return json({ success: false, error: `No default Entry Task User is configured for ${branch.branch_name}` }, { status: 400 });
+				const [{ data: employee }, { data: activeUser }] = await Promise.all([
+					secureDb.from('hr_employee_master').select('user_id').eq('is_removed', false).eq('user_id', assignedTo).eq('current_branch_id', Number(branch.branch_id)).maybeSingle(),
+					secureDb.from('users').select('id').eq('id', assignedTo).eq('status', 'active').maybeSingle()
+				]);
+				if (!employee || !activeUser) return json({ success: false, error: `The default Entry Task User for ${branch.branch_name} is not active in that branch` }, { status: 400 });
+			}
+			const bankName = mjv.bank === 'riyad' ? 'Riyad Bank' : 'Al Ahli Bank';
+			const taskRows = pendingBranches.map((branch) => ({
+				task_type: 'cash_closing_mjv', title: `${bankName} Statement MJV - ${mjv.statement_date}`,
+				branch_id: Number(branch.branch_id), assigned_to: assigneeByBranch.get(Number(branch.branch_id)), created_by: actor.id,
+				source_record_id: mjv.id, workflow_key: `statement-mjv:${mjv.id}:${branch.branch_id}`, status: 'pending',
+				payload: { version: 1, statement_mjv_id: mjv.id, statement_bank_account_id: mjv.bank_account_id, statement_date: mjv.statement_date, posting_date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()), branch_name: branch.branch_name, bank: mjv.bank, lines: branch.lines }
+			}));
+			const { data: tasks, error: taskError } = await secureDb.from('assistant_workflow_tasks').insert(taskRows).select();
+			if (taskError) {
+				if (taskError.code === '23505') return json({ success: false, error: 'One or more posting tasks already exist' }, { status: 409 });
+				throw taskError;
+			}
+			for (const task of tasks || []) await secureDb.from('statement_mjv_branches').update({ task_id: task.id, task_status: task.status, updated_at: new Date().toISOString() })
+				.eq('statement_mjv_id', mjv.id).eq('branch_id', task.branch_id);
+			await secureDb.from('statement_mjvs').update({ status: 'tasks_posted', updated_at: new Date().toISOString() }).eq('id', mjv.id);
+			return json({ success: true, tasks: tasks || [] });
+		}
 
 		if (body.task_type === 'bank_payment_planner') {
 			if (!await canUseBankPlanner(secureDb, actor)) return json({ success: false, error: 'Bank Payment Planner permission required' }, { status: 403 });
@@ -438,7 +507,7 @@ export const PATCH: RequestHandler = async ({ request, cookies }) => {
 	try {
 		const user = await requireBreakUser(cookies, 'desktop');
 		const body = await request.json();
-		if (!body.id || !['in_progress', 'completed', 'failed'].includes(body.status)) return json({ success: false, error: 'Invalid task update' }, { status: 400 });
+		if (!body.id || !['pending', 'in_progress', 'completed', 'failed'].includes(body.status)) return json({ success: false, error: 'Invalid task update' }, { status: 400 });
 		const updates: any = { status: body.status, result: body.result || null };
 		if (body.status === 'in_progress') updates.started_at = new Date().toISOString();
 		if (body.status === 'completed') updates.completed_at = new Date().toISOString();

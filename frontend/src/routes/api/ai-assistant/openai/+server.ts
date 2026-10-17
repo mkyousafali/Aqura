@@ -54,6 +54,7 @@ export const POST: RequestHandler = async ({ request, cookies, fetch }) => {
 		if (Array.isArray(body.tools) && body.tools.length) {
 			payload.tools = body.tools;
 			payload.tool_choice = 'auto';
+			payload.reasoning_effort = 'none';
 		}
 		if (body.response_format?.type === 'json_object') payload.response_format = { type: 'json_object' };
 		const key = await activeOpenAIKey();
