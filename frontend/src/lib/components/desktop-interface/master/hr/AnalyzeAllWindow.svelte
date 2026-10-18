@@ -35,6 +35,78 @@
 	let refreshing = false;
 	let lastUpdated: string = '';
 	let lastUpdatedDate: Date | null = null;
+	let sendingReminderKeys = new Set<string>();
+	let sentReminderKeys = new Set<string>();
+	let reminderNotice = '';
+	let reminderNoticeError = false;
+	let pendingReminder: { employeeId: string; employeeName: string; date: string } | null = null;
+
+	function openReminderConfirmation(row: any, date: string) {
+		const employeeId = String(row.employeeId);
+		const key = `${employeeId}-${date}`;
+		if (sendingReminderKeys.has(key) || sentReminderKeys.has(key)) return;
+		pendingReminder = { employeeId, employeeName: row.employeeName, date };
+	}
+
+	function showReminderDialog(dialog: HTMLDialogElement) {
+		dialog.showModal();
+		return { destroy: () => dialog.close() };
+	}
+
+	function confirmAbsenceReminder() {
+		if (!pendingReminder) return;
+		const reminder = pendingReminder;
+		pendingReminder = null;
+		void sendAbsenceReminder(reminder, reminder.date);
+	}
+
+	function reminderError(code: string): string {
+		const messages: Record<string, [string, string]> = {
+			AUTH_REQUIRED: ['Please log in again.', 'يرجى تسجيل الدخول مرة أخرى.'],
+			ACCESS_DENIED: ['Fingerprint Dashboard permission is required.', 'يلزم إذن لوحة البصمة.'],
+			PAST_DATES_ONLY: ['Reminders can only be sent for past days.', 'يمكن إرسال التذكيرات للأيام السابقة فقط.'],
+			NOT_ABSENT: ['This day is no longer absent, or a leave request already exists. Reload analysis.', 'لم يعد هذا اليوم غياباً أو يوجد طلب إجازة بالفعل. أعد تحميل التحليل.'],
+			EMPLOYEE_UNAVAILABLE: ['The employee needs an active account authorized for internal WhatsApp.', 'يحتاج الموظف إلى حساب نشط ومصرح له باستخدام واتساب الداخلي.'],
+			LANGUAGE_NOT_SET: ['The employee must choose a default notification language in My Profile first.', 'يجب أن يختار الموظف لغة الإشعارات الافتراضية في ملفي الشخصي أولاً.'],
+			WHATSAPP_NUMBER_MISSING: ['The employee has no valid WhatsApp number.', 'لا يوجد رقم واتساب صالح للموظف.'],
+			WHATSAPP_NOT_CONFIGURED: ['Internal WhatsApp is not configured.', 'واتساب الداخلي غير مُعدّ.'],
+			TEMPLATE_NOT_APPROVED: ['The template in the employee’s language is not approved by Meta yet. No message was sent.', 'لم تعتمد ميتا القالب بلغة الموظف بعد. لم تُرسل أي رسالة.'],
+			TEMPLATE_STATUS_UNAVAILABLE: ['Could not check Meta approval. No message was sent.', 'تعذر التحقق من موافقة ميتا. لم تُرسل أي رسالة.'],
+			DELIVERY_IN_PROGRESS: ['A reminder is already being sent, or its delivery needs checking in internal WhatsApp. Do not resend.', 'يجري إرسال التذكير بالفعل أو يلزم التحقق من إرساله في واتساب الداخلي. لا تُعد الإرسال.'],
+			DELIVERY_STATUS_UNKNOWN: ['Delivery could not be confirmed. Check internal WhatsApp before trying again.', 'تعذر تأكيد الإرسال. تحقق من واتساب الداخلي قبل المحاولة مجدداً.'],
+			WHATSAPP_SEND_FAILED: ['WhatsApp rejected the message. Please try again later.', 'رفض واتساب الرسالة. يرجى المحاولة لاحقاً.']
+		};
+		return (messages[code] || ['Could not send the reminder. Please try again later.', 'تعذر إرسال التذكير. يرجى المحاولة لاحقاً.'])[$locale === 'ar' ? 1 : 0];
+	}
+
+	async function sendAbsenceReminder(row: any, date: string) {
+		const key = `${row.employeeId}-${date}`;
+		if (sendingReminderKeys.has(key) || sentReminderKeys.has(key)) return;
+		sendingReminderKeys = new Set(sendingReminderKeys).add(key);
+		reminderNotice = '';
+		try {
+			const response = await fetch('/api/attendance-absence-reminder', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ employeeId: String(row.employeeId), date })
+			});
+			const result = await response.json();
+			if (!response.ok || !result.success) throw new Error(result.code || 'REQUEST_FAILED');
+			sentReminderKeys = new Set(sentReminderKeys).add(key);
+			reminderNoticeError = Boolean(result.loggingWarning);
+			reminderNotice = result.loggingWarning
+				? ($locale === 'ar' ? 'أُرسلت الرسالة، لكن تعذر حفظها في سجل المحادثة. لا تُعد الإرسال.' : 'Message sent, but the chat log could not be saved. Do not resend.')
+				: result.alreadySent
+					? ($locale === 'ar' ? 'سبق إرسال تذكير لهذا الموظف عن هذا اليوم.' : 'A reminder was already sent for this employee and day.')
+					: ($locale === 'ar' ? 'أُرسل تذكير واتساب بلغة الإشعارات المحفوظة للموظف.' : 'WhatsApp reminder sent in the employee’s saved notification language.');
+		} catch (error) {
+			reminderNoticeError = true;
+			reminderNotice = reminderError(error instanceof Error ? error.message : 'REQUEST_FAILED');
+		} finally {
+			const keys = new Set(sendingReminderKeys);
+			keys.delete(key);
+			sendingReminderKeys = keys;
+		}
+	}
 
 	// Multi-shift data for all employees
 	let multiShiftRegularAll: any[] = [];
@@ -1010,6 +1082,11 @@
 	</div>
 
 	<!-- Results Table -->
+	{#if reminderNotice}
+		<div role="status" class="mx-6 mt-3 rounded-lg border p-3 text-sm {reminderNoticeError ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-emerald-300 bg-emerald-50 text-emerald-900'}">
+			{reminderNotice}
+		</div>
+	{/if}
 	<div class="flex-1 min-h-0 p-6 overflow-hidden">
 		{#if analysisData.length > 0}
 			<div class="h-full w-full bg-white rounded-xl shadow-lg border border-slate-200 overflow-auto custom-scrollbar">
@@ -1090,6 +1167,22 @@
 												{/if}
 						{:else}
 							<span class="whitespace-nowrap font-bold uppercase tracking-tight text-[8px]">{getStatusLabel(row.dayByDay[date].status)}</span>
+							{#if row.dayByDay[date].status === 'Absent'}
+								<button
+									type="button"
+									class="absence-reminder-button"
+									disabled={sendingReminderKeys.has(`${row.employeeId}-${date}`) || sentReminderKeys.has(`${row.employeeId}-${date}`)}
+									on:click={() => openReminderConfirmation(row, date)}
+									title={$locale === 'ar' ? 'إرسال تذكير بطلب إجازة عبر واتساب الداخلي' : 'Send a leave request reminder through internal WhatsApp'}
+								>
+									<img class="absence-reminder-icon" src="/icons/internal-whatsapp-aqura.png" alt="" />
+									{sendingReminderKeys.has(`${row.employeeId}-${date}`)
+										? ($locale === 'ar' ? 'جارٍ الإرسال…' : 'Sending…')
+										: sentReminderKeys.has(`${row.employeeId}-${date}`)
+											? ($locale === 'ar' ? 'أُرسل التذكير' : 'Reminder sent')
+											: ($locale === 'ar' ? 'اسأل عن الغياب' : 'Ask why')}
+								</button>
+							{/if}
 							{#if row.dayByDay[date].leaveReasonEn || row.dayByDay[date].leaveReasonAr || row.dayByDay[date].documentUrl || getDeductionIndicator(row.dayByDay[date].status)}
 								<button type="button" class="leave-details-button" on:click={() => openLeaveDetails(row, date)}>
 									ⓘ {$locale === 'ar' ? 'التفاصيل' : 'Details'}
@@ -1120,6 +1213,32 @@
 		{/if}
 	</div>
 </div>
+
+{#if pendingReminder}
+	<dialog
+		class="reminder-confirmation"
+		use:showReminderDialog
+		on:close={() => pendingReminder = null}
+		on:cancel={() => pendingReminder = null}
+		aria-labelledby={`reminder-title-${windowId}`}
+		aria-describedby={`reminder-description-${windowId}`}
+		dir={$locale === 'ar' ? 'rtl' : 'ltr'}
+	>
+		<div class="reminder-confirmation-header">
+			<img src="/icons/internal-whatsapp-aqura.png" alt="" />
+			<h2 id={`reminder-title-${windowId}`}>{$locale === 'ar' ? 'إرسال تذكير واتساب' : 'Send WhatsApp reminder'}</h2>
+		</div>
+		<p id={`reminder-description-${windowId}`}>
+			{$locale === 'ar'
+				? `إرسال تذكير عبر واتساب الداخلي إلى ${pendingReminder.employeeName} لتقديم طلب إجازة عن ${pendingReminder.date.split('-').reverse().join('-')}؟`
+				: `Send ${pendingReminder.employeeName} an internal WhatsApp reminder to submit a leave request for ${pendingReminder.date.split('-').reverse().join('-')}?`}
+		</p>
+		<div class="reminder-confirmation-actions">
+			<button type="button" class="reminder-cancel" on:click={() => pendingReminder = null}>{$locale === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+			<button type="button" class="reminder-send" on:click={confirmAbsenceReminder}>{$locale === 'ar' ? 'إرسال التذكير' : 'Send reminder'}</button>
+		</div>
+	</dialog>
+{/if}
 
 {#if selectedLeaveDetail}
 	<div class="leave-detail-overlay">
@@ -1172,6 +1291,63 @@
 {/if}
 
 <style>
+	.reminder-confirmation {
+		width: 420px;
+		max-width: calc(100vw - 32px);
+		max-height: calc(100dvh - 32px);
+		margin: auto;
+		padding: 24px;
+		border: 1px solid #cbd5e1;
+		border-radius: 16px;
+		background: #fff;
+		color: #1e293b;
+		box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3);
+		text-align: start;
+	}
+	.reminder-confirmation::backdrop { background: rgba(15, 23, 42, 0.45); }
+	.reminder-confirmation-header { display: flex; align-items: center; gap: 12px; }
+	.reminder-confirmation-header img { width: 36px; height: 36px; object-fit: contain; }
+	.reminder-confirmation h2 { margin: 0; font-size: 18px; font-weight: 700; }
+	.reminder-confirmation p { margin: 18px 0 24px; font-size: 14px; line-height: 1.6; }
+	.reminder-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; }
+	.reminder-confirmation-actions button {
+		padding: 10px 16px;
+		border: 0;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.reminder-cancel { background: #f1f5f9; color: #475569; }
+	.reminder-cancel:hover { background: #e2e8f0; }
+	.reminder-send { background: #15803d; color: #fff; }
+	.reminder-send:hover { background: #166534; }
+	.reminder-confirmation-actions button:focus-visible { outline: 2px solid #15803d; outline-offset: 2px; }
+	.absence-reminder-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		margin: 4px auto 0;
+		padding: 3px 7px;
+		border: 1px solid #15803d;
+		border-radius: 5px;
+		background: #fff;
+		color: #166534;
+		font-size: 9px;
+		font-weight: 700;
+		line-height: 1.3;
+		cursor: pointer;
+	}
+	.absence-reminder-icon {
+		width: 14px;
+		height: 14px;
+		object-fit: contain;
+		flex-shrink: 0;
+	}
+	.absence-reminder-button:hover:not(:disabled) { background: #dcfce7; }
+	.absence-reminder-button:disabled { opacity: 0.6; cursor: default; }
+	.absence-reminder-button:focus-visible { outline: 2px solid #166534; outline-offset: 2px; }
 	.analyze-all-window {
 		user-select: none;
 	}

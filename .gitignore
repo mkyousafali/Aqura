@@ -224,3 +224,6 @@ aqura-designer-standalone/
 .android/
 # Local URBAN AI Assistant source (never commit to Aqura)
 /URBAN AI Assistant/
+
+# Local browser verification screenshots
+/artifacts/
