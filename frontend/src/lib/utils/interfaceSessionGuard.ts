@@ -1,5 +1,5 @@
 /**
- * Interface Session Guard — single active session per (user, interface).
+ * Interface Session Guard — up to two active tab sessions per interface.
  *
  * Generalizes the Cashier interface's device-binding pattern
  * (`cashier_device_bindings` / `claim_cashier_session` / see
@@ -7,10 +7,9 @@
  * by `user_device_sessions` + `claim_interface_session` /
  * `heartbeat_interface_session` / `release_interface_session`.
  *
- * Logging in on a new device for the same interface overwrites the single
- * binding row for that (user_id, device_type); the previous device is
- * detected via Realtime (instant) with a heartbeat fallback (~20s) and is
- * force-logged-out silently, no warning message.
+ * Each tab has its own sessionStorage identity. A refresh keeps the session;
+ * a third tab for the same interface rotates the oldest token. The evicted
+ * tab is detected via Realtime with a heartbeat fallback (~20s).
  *
  * Applies to ALL users, including Master Admin — no exemptions.
  */
@@ -20,7 +19,8 @@ import { supabase } from './supabase';
 export type InterfaceType = 'mobile' | 'desktop';
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
-const DEVICE_ID_KEY = 'aqura-device-id';
+const TAB_ID_KEY = 'aqura-interface-tab-id';
+const TOKEN_KEY_PREFIX = 'aqura-interface-session-token';
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let initialCheckTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -29,19 +29,66 @@ let onForcedLogout: (() => void) | null = null;
 let activeUserId: string | null = null;
 let activeInterfaceType: InterfaceType | null = null;
 let activeToken: string | null = null;
+let identityChannel: BroadcastChannel | null = null;
+
+function ensureIdentityResponder(): void {
+  if (typeof BroadcastChannel === 'undefined' || identityChannel) return;
+  identityChannel = new BroadcastChannel('aqura-interface-tab-identities');
+  identityChannel.onmessage = (event) => {
+    if (event.data?.type === 'probe' && event.data?.id === getDeviceId()) {
+      identityChannel?.postMessage({ type: 'occupied', id: event.data.id, nonce: event.data.nonce });
+    }
+  };
+}
+
+async function ensureUniqueTabIdentity(): Promise<void> {
+  ensureIdentityResponder();
+  if (!identityChannel) return;
+  const id = getDeviceId();
+  const nonce = crypto.randomUUID?.() || Math.random().toString(36).slice(2);
+  let occupied = false;
+  const listener = (event: MessageEvent) => {
+    if (event.data?.type === 'occupied' && event.data?.id === id && event.data?.nonce === nonce) occupied = true;
+  };
+  identityChannel.addEventListener('message', listener);
+  identityChannel.postMessage({ type: 'probe', id, nonce });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  identityChannel.removeEventListener('message', listener);
+  if (occupied) {
+    sessionStorage.setItem(TAB_ID_KEY, crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith(`${TOKEN_KEY_PREFIX}:`)) sessionStorage.removeItem(key);
+    }
+  }
+}
 
 function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
   try {
-    let id = localStorage.getItem(DEVICE_ID_KEY);
+    // sessionStorage is intentionally tab-scoped: a refresh retains the ID,
+    // while a newly opened tab claims its own session slot.
+    let id = sessionStorage.getItem(TAB_ID_KEY);
     if (!id) {
-      id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem(DEVICE_ID_KEY, id);
+      id = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+      sessionStorage.setItem(TAB_ID_KEY, id);
     }
     return id;
   } catch {
     return 'unknown-device';
   }
+}
+
+function tokenKey(userId: string, interfaceType: InterfaceType): string {
+  return `${TOKEN_KEY_PREFIX}:${userId}:${interfaceType}`;
+}
+
+export function getCurrentInterfaceSessionToken(
+  userId: string,
+  interfaceType: InterfaceType
+): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem(tokenKey(userId, interfaceType));
 }
 
 function getDeviceName(): string {
@@ -71,15 +118,26 @@ function getDeviceName(): string {
 }
 
 /**
- * Claim the single active session slot for this interface. Any other device
- * currently holding this user's session for the same interface will be
- * force-logged-out once its guard detects the rotation.
+ * Resume this tab's session after refresh, or claim a new slot. The database
+ * keeps the newest two sessions and rotates the oldest token when necessary.
  */
 export async function claimInterfaceSession(
   userId: string,
   interfaceType: InterfaceType
 ): Promise<string | null> {
   try {
+    await ensureUniqueTabIdentity();
+    const savedToken = getCurrentInterfaceSessionToken(userId, interfaceType);
+    if (savedToken) {
+      const { data, error } = await supabase.rpc('heartbeat_interface_session', {
+        p_user_id: userId,
+        p_device_type: interfaceType,
+        p_session_token: savedToken
+      });
+      if (!error && data?.valid) return savedToken;
+      sessionStorage.removeItem(tokenKey(userId, interfaceType));
+    }
+
     const { data, error } = await supabase.rpc('claim_interface_session', {
       p_user_id: userId,
       p_device_type: interfaceType,
@@ -92,7 +150,9 @@ export async function claimInterfaceSession(
       console.error('claim_interface_session failed:', error || data);
       return null;
     }
-    return data.session_token as string;
+    const token = data.session_token as string;
+    sessionStorage.setItem(tokenKey(userId, interfaceType), token);
+    return token;
   } catch (e) {
     console.error('claimInterfaceSession exception:', e);
     return null;
@@ -161,7 +221,7 @@ export function startInterfaceSessionGuard(
         },
         (payload: any) => {
           const newRow = payload.new || payload.record;
-          if (!newRow || newRow.device_type !== interfaceType) return;
+          if (!newRow || newRow.device_type !== interfaceType || newRow.device_id !== getDeviceId()) return;
           if (newRow.session_token && newRow.session_token !== token) {
             console.warn('[InterfaceSessionGuard] Realtime: token rotated by another device');
             const cb = onForcedLogout;
@@ -216,6 +276,9 @@ export async function releaseInterfaceSession(
       p_device_type: interfaceType,
       p_session_token: token
     });
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(tokenKey(userId, interfaceType));
+    }
   } catch (e) {
     console.warn('releaseInterfaceSession failed:', e);
   }

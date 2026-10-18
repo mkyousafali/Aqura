@@ -144,6 +144,12 @@ export class PersistentAuthService {
       // fighting over one shared "current user" slot.
       let activeUser = await this.getActiveUser(interfaceType);
       if (
+        interfaceType && typeof sessionStorage !== "undefined" &&
+        sessionStorage.getItem(`aqura-forced-logout:${interfaceType}`) === "1"
+      ) {
+        activeUser = null;
+      }
+      if (
         activeUser &&
         (interfaceType === "desktop" || interfaceType === "mobile")
       ) {
@@ -941,11 +947,11 @@ export class PersistentAuthService {
   /**
    * Logout current user
    */
-  async logout(): Promise<void> {
+  async logout(options: { preserveSharedLogin?: boolean; forced?: boolean } = {}): Promise<void> {
     try {
       const current = await this.getCurrentUser();
       if (current) {
-        await fetch("/api/break-register/session", {
+        if (!options.preserveSharedLogin) await fetch("/api/break-register/session", {
           method: "DELETE",
           headers: {
             "x-aqura-interface":
@@ -958,7 +964,7 @@ export class PersistentAuthService {
         );
 
         // Unsubscribe from push notifications on this device (non-blocking)
-        autoUnsubscribePush().catch(() => {});
+        if (!options.preserveSharedLogin) autoUnsubscribePush().catch(() => {});
 
         // Release this interface's single-session binding (non-blocking)
         if (
@@ -974,14 +980,22 @@ export class PersistentAuthService {
         // Remove only THIS interface's session entry — a sibling interface
         // (e.g. Mobile) logged in as the same account on this device must
         // stay logged in.
-        await this.removeUserSession(current.id, current.interfaceType);
+        if (!options.preserveSharedLogin) {
+          await this.removeUserSession(current.id, current.interfaceType);
+        }
 
         // Clear Supabase session for this browser only ('local' scope).
         // The default 'global' scope revokes the refresh token server-side
         // for the account everywhere — which would also sign out a second
         // device that just legitimately claimed this interface's slot via
         // the single-session guard (its logout() call races this one).
-        await supabase.auth.signOut({ scope: "local" });
+        if (!options.preserveSharedLogin) {
+          await supabase.auth.signOut({ scope: "local" });
+        }
+
+        if (options.forced && current.interfaceType && typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(`aqura-forced-logout:${current.interfaceType}`, "1");
+        }
       }
 
       // Clear current user
@@ -1312,6 +1326,9 @@ export class PersistentAuthService {
   }
 
   private async setCurrentUser(user: UserSession): Promise<void> {
+    if (user.interfaceType && typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(`aqura-forced-logout:${user.interfaceType}`);
+    }
     currentUser.set(user);
     isAuthenticated.set(true);
 
@@ -1322,10 +1339,8 @@ export class PersistentAuthService {
     // Sends to ALL devices belonging to this user
     autoSubscribePush().catch(() => {});
 
-    // Single-session-per-interface enforcement (Mobile / Desktop).
-    // Claims this device as the sole active session for the interface;
-    // whichever device previously held it is force-logged-out by its own
-    // guard (Realtime + heartbeat fallback). Applies to Master Admin too.
+    // Two tab-scoped sessions per interface (Mobile / Desktop). Refreshing
+    // resumes the same token; a third tab evicts the oldest session.
     if (user.interfaceType === "mobile" || user.interfaceType === "desktop") {
       const interfaceType = user.interfaceType;
       claimInterfaceSession(user.id, interfaceType)
@@ -1335,7 +1350,7 @@ export class PersistentAuthService {
             console.warn(
               "[PersistentAuth] Logged in on another device for this interface — forcing logout",
             );
-            this.logout();
+            this.logout({ preserveSharedLogin: true, forced: true });
           });
         })
         .catch(() => {});

@@ -1021,6 +1021,12 @@
 	{#if showMenu}
 		<div class="menu-overlay" on:click={() => showMenu = false}></div>
 		<div class="menu-dropdown">
+			<a href="/mobile-interface/login-sessions" class="menu-item" on:click={() => showMenu = false} title={$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}>
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+				</svg>
+				<span class="menu-item-text">{$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}</span>
+			</a>
 			{#if hasReportsPermission}
 				<a href="/mobile-interface/reports" class="menu-item" on:click={() => showMenu = false} title={getTranslation('reports.salesReport')}>
 					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

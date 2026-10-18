@@ -33,6 +33,7 @@
 	import ErpLedgers from '$lib/components/desktop-interface/master/finance/ErpLedgers.svelte';
 	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
 	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
+	import LoginSessions from '$lib/components/common/LoginSessions.svelte';
 	import AppPermissionsManager from '$lib/components/desktop-interface/settings/AppPermissionsManager.svelte';
 	import OtpLoginControl from '$lib/components/desktop-interface/settings/OtpLoginControl.svelte';
 	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
@@ -1868,6 +1869,23 @@ function openApprovalCenter() {
 		});
 		showSystemSubmenu = false;
 		showSystemManageSubmenu = false;
+	}
+
+	function openLoginSessions() {
+		openWindow({
+			id: generateWindowId('login-sessions'),
+			title: $currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions',
+			component: LoginSessions,
+			componentName: 'LoginSessions',
+			icon: '🔐',
+			size: { width: 760, height: 560 },
+			position: { x: 140 + Math.random() * 80, y: 80 + Math.random() * 60 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showSystemSubmenu = false;
 	}
 
 
@@ -6832,7 +6850,7 @@ function openApprovalCenter() {
 	{/if}
 
 	<!-- System Section -->
-	{#if sectionVisible['System']}
+	{#if sectionVisible['System'] || $currentUser}
 	<div class="menu-section">
 		<button
 			class="section-button"
@@ -6848,6 +6866,12 @@ function openApprovalCenter() {
 	<!-- System Submenu - Inline below System button -->
 	{#if showSystemSubmenu}
 		<div class="submenu-inline system-submenu">
+			<div class="submenu-item-container">
+				<button class="submenu-item" on:click={openLoginSessions}>
+					<span class="menu-icon">🔐</span>
+					<span class="menu-text">{$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}</span>
+				</button>
+			</div>
 			<!-- Dashboard Subsection -->
 			{#if subsectionVisible['SystemDashboard']}
 			<div class="submenu-item-container">
