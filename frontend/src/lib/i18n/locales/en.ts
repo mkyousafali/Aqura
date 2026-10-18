@@ -5388,6 +5388,7 @@ export const englishLocale: LocaleData = {
         editBankName: "Bank Name",
         editIban: "IBAN",
         editBillAmount: "Bill Amount",
+        editTotalReturns: "Total Returns",
         editFinalAmount: "Final Bill Amount",
         editSave: "Save Changes",
         editSuccess: "Receiving record updated successfully",

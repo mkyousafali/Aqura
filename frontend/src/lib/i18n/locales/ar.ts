@@ -5427,6 +5427,7 @@ export const arabicLocale: LocaleData = {
         editBankName: "اسم البنك",
         editIban: "الآيبان",
         editBillAmount: "مبلغ الفاتورة",
+        editTotalReturns: "إجمالي المرتجعات",
         editFinalAmount: "المبلغ النهائي للفاتورة",
         editSave: "حفظ التغييرات",
         editSuccess: "تم تحديث سجل الاستلام بنجاح",

@@ -10,6 +10,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { realtimeService } from '$lib/utils/realtimeService';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { calculateReceivingRecordAmounts } from '$lib/utils/receivingRecordAmounts';
 
 	// State for receiving records
 	let receivingRecords = []; // Current page records
@@ -215,6 +216,15 @@
 	let savingEdit = false;
 	let editError = '';
 	let editScheduleCount = 0;
+	let loadingEditAmounts = false;
+	let editAmountsLoaded = false;
+	$: editCalculatedAmounts = editForm ? calculateReceivingRecordAmounts(editForm) : null;
+	const editReturnFields = [
+		{ field: 'expired_return_amount', flag: 'has_expired_returns', label: 'receiving.expiredLabel' },
+		{ field: 'near_expiry_return_amount', flag: 'has_near_expiry_returns', label: 'receiving.nearExpiryLabel' },
+		{ field: 'over_stock_return_amount', flag: 'has_over_stock_returns', label: 'receiving.overStockLabel' },
+		{ field: 'damage_return_amount', flag: 'has_damage_returns', label: 'receiving.damageLabel' }
+	];
 
 	const PAYMENT_METHODS = ['Cash on Delivery', 'Bank on Delivery', 'Cash Credit', 'Bank Credit'];
 
@@ -2070,6 +2080,8 @@
 		editError = '';
 		editScheduleCount = 0;
 		editVendorSearchTerm = '';
+		editAmountsLoaded = false;
+		loadingEditAmounts = true;
 		editForm = {
 			bill_number: record.bill_number || '',
 			bill_date: toDateInput(record.bill_date),
@@ -2079,12 +2091,34 @@
 			credit_period: record.credit_period ?? '',
 			due_date: toDateInput(record.due_date),
 			bill_amount: record.bill_amount ?? '',
-			final_bill_amount: record.final_bill_amount ?? '',
+			expired_return_amount: record.expired_return_amount ?? 0,
+			near_expiry_return_amount: record.near_expiry_return_amount ?? 0,
+			over_stock_return_amount: record.over_stock_return_amount ?? 0,
+			damage_return_amount: record.damage_return_amount ?? 0,
 			bank_name: record.bank_name || '',
 			iban: record.iban || ''
 		};
 		showEditPopup = true;
 		loadEditVendors(editForm.branch_id);
+
+		// The table RPC omits the individual return amounts. Load the source
+		// record before allowing Save, so omitted values can never become zero.
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.from('receiving_records')
+				.select('bill_amount,expired_return_amount,near_expiry_return_amount,over_stock_return_amount,damage_return_amount,has_expired_returns,has_near_expiry_returns,has_over_stock_returns,has_damage_returns')
+				.eq('id', record.id).single();
+			if (error) throw error;
+			if (editingRecord?.id !== record.id || !editForm) return;
+			editingRecord = { ...editingRecord, ...data };
+			editForm = {
+				...editForm, bill_amount: data.bill_amount,
+				...Object.fromEntries(editReturnFields.map(({ field }) => [field, data[field] ?? 0]))
+			};
+			editAmountsLoaded = true;
+		} catch (error) {
+			if (editingRecord?.id === record.id) editError = tFn('receiving.records.editFailed', { error: error.message });
+		}
 
 		// A split payment has several schedule rows; the amount must not be
 		// copied onto each of them, so find out how many are linked first.
@@ -2094,11 +2128,16 @@
 				.from('vendor_payment_schedule')
 				.select('id, is_paid')
 				.eq('receiving_record_id', record.id);
-			if (!error && data) {
-				editScheduleCount = data.filter(s => !s.is_paid).length;
+			if (!error && data && editingRecord?.id === record.id) {
+				const unpaidCount = data.filter(s => !s.is_paid).length;
+				// A partially paid split is still a split, even when only one
+				// unpaid installment remains. Never replace it with the full bill.
+				editScheduleCount = unpaidCount > 0 ? data.length : 0;
 			}
 		} catch (err) {
 			console.error('Error loading linked payment schedules:', err);
+		} finally {
+			if (editingRecord?.id === record.id) loadingEditAmounts = false;
 		}
 	}
 
@@ -2139,13 +2178,14 @@
 		editingRecord = null;
 		editForm = null;
 		editError = '';
+		editAmountsLoaded = false;
+		loadingEditAmounts = false;
 	}
 
 	async function saveRecordEdit() {
-		if ((!isMasterAdmin && !canEditRecord) || !editingRecord || !editForm) return;
+		if ((!isMasterAdmin && !canEditRecord) || !editingRecord || !editForm || !editAmountsLoaded || loadingEditAmounts) return;
 
-		const billAmount = parseFloat(editForm.bill_amount);
-		const finalAmount = parseFloat(editForm.final_bill_amount);
+		const amounts = calculateReceivingRecordAmounts(editForm);
 
 		if (!editForm.bill_number?.trim()) {
 			editError = tFn('receiving.records.editBillNumberRequired');
@@ -2159,7 +2199,7 @@
 			editError = tFn('receiving.records.editVendorRequired');
 			return;
 		}
-		if (isNaN(billAmount) || billAmount < 0 || isNaN(finalAmount) || finalAmount < 0) {
+		if (!amounts) {
 			editError = tFn('receiving.records.editAmountInvalid');
 			return;
 		}
@@ -2180,18 +2220,25 @@
 				payment_method: editForm.payment_method || null,
 				credit_period: isNaN(creditPeriod) ? null : creditPeriod,
 				due_date: editForm.due_date || null,
-				bill_amount: billAmount,
-				final_bill_amount: finalAmount,
+				...amounts,
+				...Object.fromEntries(editReturnFields.map(({ field, flag }) => [
+					flag, amounts[field] > 0 || (Number(editingRecord[field] || 0) === amounts[field] && Boolean(editingRecord[flag]))
+				])),
 				bank_name: editForm.bank_name?.trim() || null,
 				iban: editForm.iban?.trim() || null
 			};
 
-			const { error: recordError } = await supabase
+			const { data: savedRecord, error: recordError } = await supabase
 				.from('receiving_records')
 				.update(recordUpdate)
-				.eq('id', editingRecord.id);
+				.eq('id', editingRecord.id)
+				.select('bill_amount,expired_return_amount,near_expiry_return_amount,over_stock_return_amount,damage_return_amount,total_return_amount,final_bill_amount,has_expired_returns,has_near_expiry_returns,has_over_stock_returns,has_damage_returns')
+				.single();
 
 			if (recordError) throw recordError;
+			// Use the database trigger's saved totals for both the table and any
+			// linked unpaid schedule rather than a stale/manual final amount.
+			Object.assign(recordUpdate, savedRecord);
 
 			// Keep unpaid payment schedules in step with the record. Paid ones are
 			// left alone so settled history is not rewritten.
@@ -2209,10 +2256,10 @@
 			// Only push the amount down when a single schedule covers the whole
 			// bill — with a split the per-row amounts are intentionally different.
 			if (editScheduleCount === 1) {
-				scheduleUpdate.bill_amount = billAmount;
-				scheduleUpdate.final_bill_amount = finalAmount;
-				scheduleUpdate.original_bill_amount = billAmount;
-				scheduleUpdate.original_final_amount = finalAmount;
+				scheduleUpdate.bill_amount = recordUpdate.bill_amount;
+				scheduleUpdate.final_bill_amount = recordUpdate.final_bill_amount;
+				scheduleUpdate.original_bill_amount = recordUpdate.bill_amount;
+				scheduleUpdate.original_final_amount = recordUpdate.final_bill_amount;
 			}
 
 			const { error: scheduleError } = await supabase
@@ -3043,13 +3090,30 @@
 				<div class="edit-grid">
 					<div class="erp-input-group">
 						<label for="edit-bill-amount">{$t('receiving.records.editBillAmount')}</label>
-						<input id="edit-bill-amount" type="number" step="0.01" min="0" class="erp-input" bind:value={editForm.bill_amount} disabled={savingEdit} />
+						<input id="edit-bill-amount" type="number" step="0.01" min="0" class="erp-input" bind:value={editForm.bill_amount} disabled={savingEdit || loadingEditAmounts || !editAmountsLoaded} />
+					</div>
+					{#each editReturnFields as returnField}
+						<div class="erp-input-group">
+							<label for={`edit-${returnField.field}`}>{$t(returnField.label)}</label>
+							<input id={`edit-${returnField.field}`} type="number" step="0.01" min="0" class="erp-input" bind:value={editForm[returnField.field]} disabled={savingEdit || loadingEditAmounts || !editAmountsLoaded} />
+						</div>
+					{/each}
+				</div>
+				<div class="edit-grid edit-amount-summary">
+					<div class="erp-input-group">
+						<label for="edit-total-returns">{$t('receiving.records.editTotalReturns')}</label>
+						<input id="edit-total-returns" type="number" step="0.01" class="erp-input" value={editAmountsLoaded ? editCalculatedAmounts?.total_return_amount ?? '' : ''} readonly />
 					</div>
 					<div class="erp-input-group">
 						<label for="edit-final-amount">{$t('receiving.records.editFinalAmount')}</label>
-						<input id="edit-final-amount" type="number" step="0.01" min="0" class="erp-input" bind:value={editForm.final_bill_amount} disabled={savingEdit} />
+						<input id="edit-final-amount" type="number" step="0.01" min="0" class="erp-input" value={editAmountsLoaded ? editCalculatedAmounts?.final_bill_amount ?? '' : ''} readonly />
 					</div>
 				</div>
+				{#if loadingEditAmounts}
+					<div class="edit-note">{$currentLocale === 'ar' ? 'جارٍ تحميل مبالغ المرتجعات المحفوظة…' : 'Loading saved return amounts…'}</div>
+				{:else}
+					<div class="edit-note">{$currentLocale === 'ar' ? 'يُحسب إجمالي المرتجعات والمبلغ النهائي تلقائياً من مبلغ الفاتورة ومبالغ المرتجعات.' : 'Total returns and final amount are calculated automatically from the bill and return amounts.'}</div>
+				{/if}
 
 				{#if editScheduleCount > 1}
 					<div class="edit-note">{$t('receiving.records.editSplitNote')}</div>
@@ -3065,7 +3129,7 @@
 				<button class="erp-btn-cancel" on:click={closeEditPopup} disabled={savingEdit}>
 					{$t('receiving.records.cancel')}
 				</button>
-				<button class="erp-btn-save" on:click={saveRecordEdit} disabled={savingEdit}>
+				<button class="erp-btn-save" on:click={saveRecordEdit} disabled={savingEdit || loadingEditAmounts || !editAmountsLoaded}>
 					{#if savingEdit}
 						<div class="spinner-small"></div>
 						{$t('receiving.records.updating')}
@@ -3450,6 +3514,20 @@
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 0 16px;
+	}
+
+	.edit-amount-summary {
+		margin-top: 12px;
+		padding: 14px;
+		border: 1px solid #a7f3d0;
+		border-radius: 10px;
+		background: #ecfdf5;
+	}
+
+	.edit-amount-summary input[readonly] {
+		font-weight: 700;
+		color: #047857;
+		background: #ffffff;
 	}
 
 	.edit-span-2 {
