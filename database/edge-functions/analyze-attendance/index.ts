@@ -93,6 +93,7 @@ interface Employee {
   name_ar: string;
   current_branch_id: string;
   employment_status: string;
+  join_date?: string;
   nationality_id?: string;
   nationality_name_en?: string;
 }
@@ -265,6 +266,7 @@ function analyzeEmployeeDays(
   employeeSpecialShiftsWeekday: Map<string, any[]>,
   employeeOfficialHolidays: Map<string, Set<string>>,
   employeeOvertime: Map<string, Map<string, number>>,
+  employeeStatusHistory: Map<string, any[]>,
   multiShiftRegular: Map<string, any[]>,
   multiShiftDateWise: Map<string, any[]>,
   multiShiftWeekday: Map<string, any[]>
@@ -274,6 +276,10 @@ function analyzeEmployeeDays(
 
   // Process dates in order so cross-day fallback works correctly
   for (const date of datesInRange) {
+    const historicalStatus = (employeeStatusHistory.get(String(emp.id)) || []).find((row: any) =>
+      (!row.effective_from || row.effective_from <= date) && (!row.effective_to || row.effective_to >= date)
+    );
+    const employmentStatus = historicalStatus?.status || emp.employment_status;
     const shift = getApplicableShift(emp.id, date, employeeShifts, employeeSpecialShiftsDateWise, employeeSpecialShiftsWeekday);
     const isOff = isOfficialDayOff(emp.id, date, employeeDayOffs);
     const specOff = getSpecificDayOff(emp.id, date, employeeSpecificDayOffs);
@@ -285,6 +291,12 @@ function analyzeEmployeeDays(
     // Get transactions for this date, excluding already consumed ones
     const allTransactions = (txnsByShiftDate.get(date) || []).filter((t: any) => !consumedTransactions.has(t.id));
 
+    // Use explicit neutral statuses so the dashboard does not treat a missing row
+    // as Absent. Leave, holidays, days off, remote work, and real punches remain unchanged.
+    const isBeforeJoin = Boolean(emp.join_date && date < emp.join_date);
+    const hasCalendarStatus = Boolean(isOff || specOff || employeeOfficialHolidays.get(String(emp.id))?.has(date));
+    const isUnscheduledNoPunch = !shift && allTransactions.length === 0 && !hasCalendarStatus && employmentStatus !== 'Remote Job';
+
     let workedMins = 0;
     let lateMins = 0;
     let underMins = 0;
@@ -292,7 +304,11 @@ function analyzeEmployeeDays(
     let checkInTime: string | null = null;
     let checkOutTime: string | null = null;
 
-    if (allTransactions.length === 0) {
+    if (isBeforeJoin) {
+      status = 'Not Joined';
+    } else if (isUnscheduledNoPunch) {
+      status = 'Not Scheduled';
+    } else if (allTransactions.length === 0) {
       // Day-off/leave status only when NO transactions (matches AnalyzeAllWindow.svelte)
       if (isOff) {
         status = 'Official Day Off';
@@ -304,7 +320,7 @@ function analyzeEmployeeDays(
         status = specOff.is_deductible_on_salary ? 'Rejected-Deducted' : 'Rejected-Not Deducted';
       } else if (employeeOfficialHolidays.get(String(emp.id))?.has(date)) {
         status = 'Official Holiday';
-      } else if (emp.employment_status === 'Remote Job') {
+      } else if (employmentStatus === 'Remote Job') {
         // Remote employees have no fingerprint — treat no-punch days as Worked
         status = 'Worked';
       } else {
@@ -646,7 +662,7 @@ Deno.serve(async (req) => {
     // ---- Load employees ----
     let empQuery = supabase
       .from('hr_employee_master_with_status')
-      .select(`id, name_en, name_ar, current_branch_id, employment_status, nationality_id, nationalities (name_en)`)
+      .select(`id, name_en, name_ar, current_branch_id, employment_status, join_date, nationality_id, nationalities (name_en)`)
       .in('employment_status', ['Job (With Finger)', 'Remote Job']);
 
     if (specificEmployeeId) {
@@ -682,7 +698,7 @@ Deno.serve(async (req) => {
         if (missingIds.length > 0) {
           const { data: extraData } = await supabase
             .from('hr_employee_master_with_status')
-            .select(`id, name_en, name_ar, current_branch_id, employment_status, nationality_id, nationalities (name_en)`)
+            .select(`id, name_en, name_ar, current_branch_id, employment_status, join_date, nationality_id, nationalities (name_en)`)
             .in('id', missingIds);
 
           const extraEmps: Employee[] = (extraData || []).map((e: any) => ({
@@ -720,12 +736,14 @@ Deno.serve(async (req) => {
       { data: specificDayOffs },
       { data: officialHolidaysData },
       { data: overtimeData },
+      { data: statusHistoryData },
     ] = await Promise.all([
       supabase.from('processed_fingerprint_transactions').select('*').in('center_id', empIds).gte('punch_date', extStart).lte('punch_date', extEnd),
       supabase.from('day_off_weekday_versions').select('id,employee_id,date_from,date_to,day_off_weekday_version_days(weekday)').in('employee_id', empIds),
       supabase.from('day_off').select('*, day_off_reasons(*)').in('employee_id', empIds),
       supabase.from('employee_official_holidays').select('employee_id, official_holidays(holiday_date)').in('employee_id', empIds),
       supabase.from('overtime_registrations').select('*').in('employee_id', empIds),
+      supabase.from('hr_employee_status_history').select('employee_id,status,effective_from,effective_to').in('employee_id', empIds).order('effective_from', { ascending: false }),
     ]);
 
     // ---- Fetch shift data via RPCs (server-side join, no URL length issue) ----
@@ -839,6 +857,14 @@ Deno.serve(async (req) => {
         employeeOvertime.set(empId, new Map());
       }
       employeeOvertime.get(empId)!.set(o.overtime_date, o.overtime_minutes || 0);
+    });
+
+    const employeeStatusHistory = new Map<string, any[]>();
+    statusHistoryData?.forEach((row: any) => {
+      const empId = String(row.employee_id);
+      const list = employeeStatusHistory.get(empId) || [];
+      list.push(row);
+      employeeStatusHistory.set(empId, list);
     });
 
     // Group transactions by employee
@@ -1016,6 +1042,7 @@ Deno.serve(async (req) => {
         employeeSpecialShiftsWeekday,
         employeeOfficialHolidays,
         employeeOvertime,
+        employeeStatusHistory,
         multiShiftRegular,
         multiShiftDateWise,
         multiShiftWeekday
@@ -1025,6 +1052,19 @@ Deno.serve(async (req) => {
     }
 
     console.log(`📊 [Analyze Attendance] Analyzed ${totalAnalyzed} employee-days. Upserting...`);
+
+    // Remove legacy false absences created without an applicable shift. Scheduled
+    // absences carry shift times and will be regenerated by this analysis.
+    const { error: staleAbsenceError } = await supabase
+      .from('hr_analysed_attendance_data')
+      .delete()
+      .in('employee_id', empIds)
+      .gte('shift_date', startDate)
+      .lte('shift_date', endDate)
+      .eq('status', 'Absent')
+      .is('shift_start_time', null)
+      .is('shift_end_time', null);
+    if (staleAbsenceError) throw staleAbsenceError;
 
     // ---- Batch upsert results (in chunks of 500) ----
     const chunkSize = 500;

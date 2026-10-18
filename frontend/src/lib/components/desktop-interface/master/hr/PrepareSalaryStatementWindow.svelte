@@ -9,6 +9,7 @@
 	import EmployeeAnalysisWindow from './EmployeeAnalysisWindow.svelte';
 	import EmployeeSalaryNotesPopup from './EmployeeSalaryNotesPopup.svelte';
 	import SalaryAndWage from './SalaryAndWage.svelte';
+	import { buildSalaryAttendance, SALARY_ATTENDANCE_POLICY_VERSION } from '$lib/utils/salaryAttendancePolicy';
 	import {
 		SALARY_STATEMENT_CALCULATION_VERSION,
 		calculateSalaryStatement,
@@ -416,40 +417,46 @@
 			autoFine: autoFineDeductions[row.employeeId] || 0,
 			penalties: empEditOverrides[row.employeeId]?.penalties || 0,
 			otherDeductions: empEditOverrides[row.employeeId]?.otherDeductions || 0,
-			lateMinutes: lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0,
-			underWorkedMinutes: underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes) ?? 0,
+			lateMinutes: lateMinutesOverrides[row.employeeId] ?? (usesLegacyRemoteAttendance(row) ? 0 : row.totalLateMinutes) ?? 0,
+			underWorkedMinutes: underWorkedMinutesOverrides[row.employeeId] ?? (usesLegacyRemoteAttendance(row) ? 0 : row.totalUnderWorkedMinutes) ?? 0,
 			lateDeduction: (() => {
 				if (lateDeductionOverrides[row.employeeId] !== undefined) return lateDeductionOverrides[row.employeeId];
 				const totSal = (basicSalaries[row.employeeId]||0)+(otherAllowances[row.employeeId]||0)+(accommodationAllowances[row.employeeId]||0)+(travelAllowances[row.employeeId]||0)+(foodAllowances[row.employeeId]||0);
 				const hr = totSal / 240;
-				const effL = lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes) ?? 0;
+				const effL = lateMinutesOverrides[row.employeeId] ?? (usesLegacyRemoteAttendance(row) ? 0 : row.totalLateMinutes) ?? 0;
 				return effL > 0 ? parseFloat(((effL / 60) * hr).toFixed(2)) : 0;
 			})(),
 			underWorkedDeduction: (() => {
 				if (underWorkedDeductionOverrides[row.employeeId] !== undefined) return underWorkedDeductionOverrides[row.employeeId];
 				const totSal = (basicSalaries[row.employeeId]||0)+(otherAllowances[row.employeeId]||0)+(accommodationAllowances[row.employeeId]||0)+(travelAllowances[row.employeeId]||0)+(foodAllowances[row.employeeId]||0);
 				const hr = totSal / 240;
-				const effU = underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes) ?? 0;
+				const effU = underWorkedMinutesOverrides[row.employeeId] ?? (usesLegacyRemoteAttendance(row) ? 0 : row.totalUnderWorkedMinutes) ?? 0;
 				return effU > 0 ? parseFloat(((effU / 60) * hr).toFixed(2)) : 0;
 			})(),
 			unapprovedLeaveDeduction: (() => {
 				if (unapprovedLeaveDeductionOverrides[row.employeeId] !== undefined) return unapprovedLeaveDeductionOverrides[row.employeeId];
-				if (!((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) > 0)) return 0;
+				if (!((usesLegacyRemoteAttendance(row) ? 0 : row.totalUnapprovedDaysOff) > 0)) return 0;
 				const totSal = (basicSalaries[row.employeeId]||0)+(otherAllowances[row.employeeId]||0)+(accommodationAllowances[row.employeeId]||0)+(travelAllowances[row.employeeId]||0)+(foodAllowances[row.employeeId]||0);
 				const hr = totSal / 240;
-				return parseFloat(((row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff) * 8 * hr).toFixed(2));
+				return parseFloat(((usesLegacyRemoteAttendance(row) ? 0 : row.totalUnapprovedDaysOff) * 8 * hr).toFixed(2));
 			})(),
 			incompleteDayDeduction: (() => {
 				if (incompleteDayDeductionOverrides[row.employeeId] !== undefined) return incompleteDayDeductionOverrides[row.employeeId];
-				if (!((row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) > 0)) return 0;
+				if (!((usesLegacyRemoteAttendance(row) ? 0 : row.totalIncompleteDays) > 0)) return 0;
 				const totSal = (basicSalaries[row.employeeId]||0)+(otherAllowances[row.employeeId]||0)+(accommodationAllowances[row.employeeId]||0)+(travelAllowances[row.employeeId]||0)+(foodAllowances[row.employeeId]||0);
 				const hr = totSal / 240;
-				return parseFloat(((row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays) * 8 * hr).toFixed(2));
+				return parseFloat(((usesLegacyRemoteAttendance(row) ? 0 : row.totalIncompleteDays) * 8 * hr).toFixed(2));
 			})(),
 			foodDeductionActive: foodDeductionActives[row.employeeId] ?? false,
 		};
 		showEmpEditModal = true;
 		recordLog({ action_type: LOG.EMP_EDIT_OPEN, action_description: `Opened edit modal for employee ${row.employeeName || row.employeeId}`, employee_id: row.employeeId, employee_name: row.employeeName, related_ui: 'EmpEditModal', before_value: { basicSalary: empEdit.basicSalary, basicPaymentMode: empEdit.basicPaymentMode, otherAllowance: empEdit.otherAllowance, otherAllowancePaymentMode: empEdit.otherAllowancePaymentMode, accommodation: empEdit.accommodation, accommodationPaymentMode: empEdit.accommodationPaymentMode, travel: empEdit.travel, travelPaymentMode: empEdit.travelPaymentMode, food: empEdit.food, foodPaymentMode: empEdit.foodPaymentMode, gosiDeduction: empEdit.gosiDeduction, posShortage: empEdit.posShortage, salaryAdvance: empEdit.salaryAdvance, loanDeductions: empEdit.loanDeductions, autoFine: empEdit.autoFine, penalties: empEdit.penalties, otherDeductions: empEdit.otherDeductions, lateMinutes: empEdit.lateMinutes, underWorkedMinutes: empEdit.underWorkedMinutes, lateDeduction: empEdit.lateDeduction, underWorkedDeduction: empEdit.underWorkedDeduction, unapprovedLeaveDeduction: empEdit.unapprovedLeaveDeduction, incompleteDayDeduction: empEdit.incompleteDayDeduction, foodDeductionActive: empEdit.foodDeductionActive } });
+	}
+
+	// Old snapshots keep their saved behavior. Fresh rows already have attendance
+	// totals resolved per date, so today's Remote status must not hide those totals.
+	function usesLegacyRemoteAttendance(row: any): boolean {
+		return row.employmentStatus === 'Remote Job' && row.attendancePolicyVersion !== SALARY_ATTENDANCE_POLICY_VERSION;
 	}
 
 	// Store for manual deductions not in DB
@@ -732,14 +739,15 @@
 			t.travel += displayedEarning(r, 'travel', travelAllow);
 			t.foodAllowance += displayedEarning(r, 'food', foodAllow);
 			t.gosiDeduction += gosiDed;
-			// Remote Job: zero out attendance counts (no fingerprint data)
+			// Only older snapshots apply today's Remote status to the whole period.
 			const isRemote = r.employmentStatus === 'Remote Job';
+			const omitRemoteAttendance = usesLegacyRemoteAttendance(r);
 			t.workedMinutes += r.totalWorkedMinutes || 0;
 			t.expectedMinutes += r.totalExpectedMinutes || 0;
-			t.underWorkedMinutes += isRemote ? 0 : ((underWorkedMinutesOverrides[r.employeeId] ?? r.totalUnderWorkedMinutes) || 0);
-			t.lateMinutes += isRemote ? 0 : ((lateMinutesOverrides[r.employeeId] ?? r.totalLateMinutes) || 0);
-			t.incompleteDays += isRemote ? 0 : (r.totalIncompleteDays || 0);
-			t.unapprovedDaysOff += isRemote ? 0 : (r.totalUnapprovedDaysOff || 0);
+			t.underWorkedMinutes += omitRemoteAttendance ? 0 : ((underWorkedMinutesOverrides[r.employeeId] ?? r.totalUnderWorkedMinutes) || 0);
+			t.lateMinutes += omitRemoteAttendance ? 0 : ((lateMinutesOverrides[r.employeeId] ?? r.totalLateMinutes) || 0);
+			t.incompleteDays += omitRemoteAttendance ? 0 : (r.totalIncompleteDays || 0);
+			t.unapprovedDaysOff += omitRemoteAttendance ? 0 : (r.totalUnapprovedDaysOff || 0);
 			t.officialLeaveDays += r.totalOfficialLeaveDays || 0;
 			t.approvedDaysOff += r.totalApprovedDaysOff || 0;
 			t.expectedWorkDays += r.totalExpectedWorkDays || 0;
@@ -747,7 +755,8 @@
 			const wdRaw = editableWorkedDays[r.employeeId];
 			let wd: number;
 			if (wdRaw !== undefined && wdRaw !== '') wd = parseFloat(wdRaw);
-			else if (isRemote) wd = r.totalExpectedWorkDays || 0;
+			else if (isRemote) wd = r.attendancePolicyVersion === SALARY_ATTENDANCE_POLICY_VERSION
+				? (r.totalWorkedDays || r.totalExpectedWorkDays || 0) : (r.totalExpectedWorkDays || 0);
 			else wd = r.totalWorkedDays || 0;
 			t.workedDays += isNaN(wd) ? 0 : wd;
 			const lateOvr = lateDeductionOverrides[r.employeeId];
@@ -889,7 +898,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 			(foodAllowances[empId] || 0)
 		) / 240;
 		const shiftHPD = 8;
-		const isRemote = row.employmentStatus === 'Remote Job';
+		const isRemote = usesLegacyRemoteAttendance(row);
 		const centralized = statementCalculationVersion >= SALARY_STATEMENT_CALCULATION_VERSION
 			? calculateSalaryStatement(rowCalculationInput(row))
 			: null;
@@ -2426,7 +2435,7 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 
 		// Fetch attendance, deductions, and all status intervals needed to construct
 		// employment eligibility independently from attendance.
-		const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }, { data: statusPeriodRows }] = await Promise.all([
+		const [{ data: rows, error }, { data: posDeductions }, { data: incidentFineRows }, { data: statusPeriodRows, error: statusError }, leaveResult, weeklyOffResult, holidayResult] = await Promise.all([
 			supabase
 				.from('hr_analysed_attendance_data')
 				.select('*')
@@ -2451,10 +2460,18 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				.select('employee_id, status, effective_from, effective_to')
 				.in('employee_id', empIds)
 				.or(`effective_to.is.null,effective_to.gte.${rangeStart}`)
-				.or(`effective_from.is.null,effective_from.lte.${rangeEnd}`)
+				.or(`effective_from.is.null,effective_from.lte.${rangeEnd}`),
+			supabase.from('day_off').select('employee_id,day_off_date,approval_status,is_deductible_on_salary')
+				.in('employee_id', empIds).gte('day_off_date', rangeStart).lte('day_off_date', rangeEnd),
+			supabase.from('day_off_weekday_versions').select('employee_id,date_from,date_to,day_off_weekday_version_days(weekday)')
+				.in('employee_id', empIds),
+			supabase.from('employee_official_holidays').select('employee_id,official_holidays(holiday_date)')
+				.in('employee_id', empIds)
 		]);
 
 		if (error) throw error;
+		if (statusError) throw statusError;
+		for (const result of [leaveResult, weeklyOffResult, holidayResult]) if (result.error) throw result.error;
 
 		const statusPeriodsByEmp = new Map<string, any[]>();
 		for (const p of statusPeriodRows || []) {
@@ -2518,64 +2535,14 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				currentStatus: emp.employment_status,
 				currentStatusEffectiveDate: emp.employment_status_effective_date
 			});
-			const eligibleDateSet = new Set(eligibility.eligibleDates);
-
-			let totalWorkedMinutes = 0;
-			let totalLateMinutes = 0;
-			let totalUnderWorkedMinutes = 0;
-			let totalIncompleteDays = 0;
-			let totalApprovedDaysOff = 0;   // Official weekly day offs (e.g. Friday)
-			let totalOfficialLeaveDays = 0; // Specific approved leaves
-			let totalUnapprovedDaysOff = 0;
-			let totalWorkedDays = 0;
-			const dayByDay: Record<string, any> = {};
-
-			for (const row of empRows) {
-				const dateStr = typeof row.shift_date === 'string'
-					? row.shift_date.split('T')[0]
-					: new Date(row.shift_date).toISOString().split('T')[0];
-
-				if (!eligibleDateSet.has(dateStr)) {
-					dayByDay[dateStr] = { workedMins: 0, status: 'Not Employed', lateMins: 0, underMins: 0 };
-					continue;
-				}
-
-				const status = row.status || 'Absent';
-				const workedMins = row.worked_minutes || 0;
-				const lateMins = row.late_minutes || 0;
-				const underMins = row.under_minutes || 0;
-
-				dayByDay[dateStr] = { workedMins, status, lateMins, underMins };
-
-				if (status === 'Official Day Off' || status === 'Official Holiday') {
-					totalApprovedDaysOff++;
-				} else if (status === 'Approved Leave (No Deduction)') {
-					totalOfficialLeaveDays++;
-				} else if (status === 'Absent' || status === 'Pending Approval' || status === 'Approved Leave (Deductible)' || status === 'Rejected-Deducted' || status === 'Rejected-Not Deducted') {
-					totalUnapprovedDaysOff++;
-				} else if (status === 'Check-Out Missing' || status === 'Check-In Missing') {
-					totalIncompleteDays++;
-				}
-
-				totalWorkedMinutes += workedMins;
-				totalLateMinutes += lateMins;
-				totalUnderWorkedMinutes += underMins;
-				if (workedMins > 0) totalWorkedDays++;
-			}
-
-			// Missing attendance is an absence only inside an eligible employment interval.
-			for (const date of dates) {
-				if (!dayByDay[date]) {
-					if (!eligibleDateSet.has(date)) {
-						dayByDay[date] = { workedMins: 0, status: 'Not Employed', lateMins: 0, underMins: 0 };
-					} else {
-						dayByDay[date] = { workedMins: 0, status: 'Absent', lateMins: 0, underMins: 0 };
-						totalUnapprovedDaysOff++;
-					}
-				}
-			}
-
-			const totalExpectedWorkDays = eligibility.eligibleCalendarDays - totalApprovedDaysOff;
+			const attendance = buildSalaryAttendance({
+				dates, eligibleDates: eligibility.eligibleDates, rows: empRows,
+				statusPeriods: statusPeriodsByEmp.get(empId) || [], currentStatus: emp.employment_status,
+				leaves: (leaveResult.data || []).filter((r: any) => String(r.employee_id) === empId),
+				weeklyOffs: (weeklyOffResult.data || []).filter((r: any) => String(r.employee_id) === empId),
+				holidayDates: (holidayResult.data || []).filter((r: any) => String(r.employee_id) === empId)
+					.map((r: any) => r.official_holidays?.holiday_date).filter(Boolean)
+			});
 			const shiftRow = empRows.find(r => r.shift_start_time && r.shift_end_time);
 			const shiftInfo = shiftRow
 				? `${shiftRow.shift_start_time} - ${shiftRow.shift_end_time}`
@@ -2596,16 +2563,8 @@ function buildMudadRowMap(): Map<string, { otherAllowances: number; leaveOfAbsen
 				idNumber: emp.id_number ?? null,
 				whatsappNumber: emp.whatsapp_number ?? null,
 				shiftInfo,
-				dayByDay,
-				totalWorkedMinutes,
-				totalUnderWorkedMinutes,
-				totalLateMinutes,
-				totalIncompleteDays,
-				totalUnapprovedDaysOff,
-				totalOfficialLeaveDays,
-				totalApprovedDaysOff,
-				totalExpectedWorkDays,
-				totalWorkedDays
+				...attendance,
+				attendancePolicyVersion: SALARY_ATTENDANCE_POLICY_VERSION
 			});
 		}
 
@@ -3417,6 +3376,15 @@ return n;
 			case 'Worked': return $t('hr.processFingerprint.status_worked');
 			case 'Official Day Off': return $t('hr.processFingerprint.status_official_day_off');
 			case 'Approved Leave': return $t('hr.processFingerprint.status_approved_leave');
+			case 'Approved Leave (Deductible)': return $t('hr.processFingerprint.status_approved_leave_deductible');
+			case 'Approved Leave (No Deduction)': return $t('hr.processFingerprint.status_approved_leave_no_deduction');
+			case 'Rejected-Deducted': return $t('hr.processFingerprint.status_rejected_deducted');
+			case 'Rejected-Not Deducted': return $t('hr.processFingerprint.status_rejected_not_deducted');
+			case 'Pending Approval': return $t('hr.processFingerprint.status_pending_approval');
+			case 'Official Holiday': return $locale === 'ar' ? 'عطلة رسمية' : 'Official Holiday';
+			case 'Not Scheduled': return $locale === 'ar' ? 'غير مجدول' : 'Not Scheduled';
+			case 'Not Joined': return $locale === 'ar' ? 'لم يلتحق بالعمل' : 'Not Joined';
+			case 'Absent': return $t('hr.processFingerprint.status_absent');
 			case 'Unapproved Day Off': return $t('hr.processFingerprint.status_unapproved_day_off');
 			case 'Incomplete': return $t('hr.processFingerprint.status_incomplete');
 			case 'Check-In Missing': return $t('hr.processFingerprint.checkin_missing');
@@ -3848,7 +3816,9 @@ title="Export salary data to Mudad Excel template"
 									{(row.totalWorkedMinutes / 60).toFixed(2)} hrs
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-teal-700 bg-teal-50/20 w-[150px] whitespace-nowrap group-hover:bg-teal-100/50 transition-colors {colVis.expectedHours ? '' : 'hidden'}">
-									{#if employeeShifts.get(String(row.employeeId))}
+									{#if row.attendancePolicyVersion === SALARY_ATTENDANCE_POLICY_VERSION}
+										{((row.totalExpectedMinutes || 0) / 60).toFixed(2)} hrs
+									{:else if employeeShifts.get(String(row.employeeId))}
 										{(() => {
 											const shift = employeeShifts.get(String(row.employeeId));
 											const startMins = timeToMinutes(shift.shift_start_time);
@@ -3864,15 +3834,15 @@ title="Export salary data to Mudad Excel template"
 									{/if}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-red-700 bg-red-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.underWorkedHours ? '' : 'hidden'}">
-									{formatMinutes(underWorkedMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalUnderWorkedMinutes))}
+									{formatMinutes(underWorkedMinutesOverrides[row.employeeId] ?? (usesLegacyRemoteAttendance(row) ? 0 : row.totalUnderWorkedMinutes))}
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-amber-700 bg-amber-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.lateHours ? '' : 'hidden'}">
-									{formatMinutes(lateMinutesOverrides[row.employeeId] ?? (row.employmentStatus === 'Remote Job' ? 0 : row.totalLateMinutes))}
+									{formatMinutes(lateMinutesOverrides[row.employeeId] ?? (usesLegacyRemoteAttendance(row) ? 0 : row.totalLateMinutes))}
 								</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-rose-700 bg-rose-50/20 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDays ? '' : 'hidden'}">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays)}</td>
+								<td class="px-4 py-3 border-r text-center font-bold text-rose-700 bg-rose-50/20 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDays ? '' : 'hidden'}">{(usesLegacyRemoteAttendance(row) ? 0 : row.totalIncompleteDays)}</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-pink-700 bg-pink-50/20 w-[150px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.incompleteDeductions ? '' : 'hidden'}">
 									{centralDeduction(row, 'incomplete') ?? (() => {
-											const _isRemote = row.employmentStatus === 'Remote Job';
+											const _isRemote = usesLegacyRemoteAttendance(row);
 											const incompOvr = incompleteDayDeductionOverrides[row.employeeId];
 											if (incompOvr !== undefined) return incompOvr > 0 ? incompOvr.toFixed(2) : '-';
 											const incompleteDays = _isRemote ? 0 : row.totalIncompleteDays;
@@ -3886,8 +3856,8 @@ title="Export salary data to Mudad Excel template"
 											return (incompleteDays * 8 * hourlyRate).toFixed(2);
 										})()}
 								</td>
-								<td class="hidden px-4 py-3 border-r text-center font-bold text-rose-700 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalIncompleteDays)}</td>
-								<td class="px-4 py-3 border-r text-center font-bold text-rose-900 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.unapprovedDaysOff ? '' : 'hidden'}">{(row.employmentStatus === 'Remote Job' ? 0 : row.totalUnapprovedDaysOff)}</td>
+								<td class="hidden px-4 py-3 border-r text-center font-bold text-rose-700 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors">{(usesLegacyRemoteAttendance(row) ? 0 : row.totalIncompleteDays)}</td>
+								<td class="px-4 py-3 border-r text-center font-bold text-rose-900 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.unapprovedDaysOff ? '' : 'hidden'}">{(usesLegacyRemoteAttendance(row) ? 0 : row.totalUnapprovedDaysOff)}</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-blue-800 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.officialLeave ? '' : 'hidden'}">{row.totalOfficialLeaveDays}</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-emerald-800 w-[120px] whitespace-nowrap group-hover:bg-emerald-100/50 transition-colors {colVis.approvedDaysOff ? '' : 'hidden'}">{row.totalApprovedDaysOff}</td>
 								<td class="px-4 py-3 text-center font-bold text-indigo-900 bg-indigo-50 z-20 w-[120px] whitespace-nowrap shadow-[-2px_0_4px_rgba(0,0,0,0.1)] border-l group-hover:bg-emerald-100 transition-colors text-xs {colVis.expectedWorkDays ? '' : 'hidden'}">
@@ -3980,7 +3950,7 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-purple-700 bg-purple-50/20 w-[150px] whitespace-nowrap group-hover:bg-purple-100/50 transition-colors {colVis.lateDeductions ? '' : 'hidden'}">
 										{(centralDeduction(row, 'late')?.toFixed(2)) ?? (() => {
-											const _isRemote = row.employmentStatus === 'Remote Job';
+											const _isRemote = usesLegacyRemoteAttendance(row);
 											const lateDedOvr = lateDeductionOverrides[row.employeeId];
 											if (lateDedOvr !== undefined) return lateDedOvr.toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
@@ -3995,7 +3965,7 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-indigo-700 bg-indigo-50/20 w-[150px] whitespace-nowrap group-hover:bg-indigo-100/50 transition-colors {colVis.underWorkedDeductions ? '' : 'hidden'}">
 										{(centralDeduction(row, 'underWorked')?.toFixed(2)) ?? (() => {
-											const _isRemote = row.employmentStatus === 'Remote Job';
+											const _isRemote = usesLegacyRemoteAttendance(row);
 											const underOvr = underWorkedDeductionOverrides[row.employeeId];
 											if (underOvr !== undefined) return underOvr.toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
@@ -4054,7 +4024,7 @@ title="Export salary data to Mudad Excel template"
 								</td>
 								<td class="px-4 py-3 border-r text-center font-bold text-sky-700 bg-sky-50/20 w-[150px] whitespace-nowrap group-hover:bg-sky-100/50 transition-colors {colVis.unapprovedLeaveDeductions ? '' : 'hidden'}">
 										{(centralDeduction(row, 'unapprovedLeave')?.toFixed(2)) ?? (() => {
-											const _isRemote = row.employmentStatus === 'Remote Job';
+											const _isRemote = usesLegacyRemoteAttendance(row);
 											const unapOvr = unapprovedLeaveDeductionOverrides[row.employeeId];
 											if (unapOvr !== undefined) return unapOvr.toFixed(2);
 											const basicSal = basicSalaries[row.employeeId] || 0;
@@ -4787,19 +4757,19 @@ class="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-5
 						</div>
 						<div class="bg-red-50 rounded px-2 py-1 text-center border border-red-200">
 							<p class="text-[9px] text-red-700 font-semibold leading-tight">{$t('hr.salaryStatement.underWorked')}</p>
-							<p class="text-xs font-bold text-red-800 leading-tight">{empEditRow.employmentStatus === 'Remote Job' ? '0h 0m' : Math.floor(empEdit.underWorkedMinutes/60) + 'h ' + (empEdit.underWorkedMinutes%60) + 'm'}</p>
+							<p class="text-xs font-bold text-red-800 leading-tight">{usesLegacyRemoteAttendance(empEditRow) ? '0h 0m' : Math.floor(empEdit.underWorkedMinutes/60) + 'h ' + (empEdit.underWorkedMinutes%60) + 'm'}</p>
 						</div>
 						<div class="bg-amber-50 rounded px-2 py-1 text-center border border-amber-200">
 							<p class="text-[9px] text-amber-700 font-semibold leading-tight">{$t('hr.salaryStatement.late')}</p>
-							<p class="text-xs font-bold text-amber-800 leading-tight">{empEditRow.employmentStatus === 'Remote Job' ? '0h 0m' : Math.floor(empEdit.lateMinutes/60) + 'h ' + (empEdit.lateMinutes%60) + 'm'}</p>
+							<p class="text-xs font-bold text-amber-800 leading-tight">{usesLegacyRemoteAttendance(empEditRow) ? '0h 0m' : Math.floor(empEdit.lateMinutes/60) + 'h ' + (empEdit.lateMinutes%60) + 'm'}</p>
 						</div>
 						<div class="bg-rose-50 rounded px-2 py-1 text-center border border-rose-100">
 							<p class="text-[9px] text-rose-700 font-semibold leading-tight">{$t('hr.salaryStatement.incompleteDays')}</p>
-							<p class="text-xs font-bold text-rose-800 leading-tight">{empEditRow.employmentStatus === 'Remote Job' ? 0 : empEditRow.totalIncompleteDays}</p>
+							<p class="text-xs font-bold text-rose-800 leading-tight">{usesLegacyRemoteAttendance(empEditRow) ? 0 : empEditRow.totalIncompleteDays}</p>
 						</div>
 						<div class="bg-orange-50 rounded px-2 py-1 text-center border border-orange-200">
 							<p class="text-[9px] text-orange-700 font-semibold leading-tight">{$t('hr.salaryStatement.unapprovedLeaves')}</p>
-							<p class="text-xs font-bold text-orange-800 leading-tight">{empEditRow.employmentStatus === 'Remote Job' ? 0 : empEditRow.totalUnapprovedDaysOff}</p>
+							<p class="text-xs font-bold text-orange-800 leading-tight">{usesLegacyRemoteAttendance(empEditRow) ? 0 : empEditRow.totalUnapprovedDaysOff}</p>
 						</div>
 						<div class="bg-blue-50 rounded px-2 py-1 text-center border border-blue-100">
 							<p class="text-[9px] text-blue-700 font-semibold leading-tight">{$t('hr.salaryStatement.officialLeave')}</p>

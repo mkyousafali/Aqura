@@ -7,6 +7,7 @@
 	import { notifications } from '$lib/stores/notifications';
 	import { locale, t, tFor } from '$lib/i18n';
 	import AutoTaskApprovalList from '$lib/components/common/AutoTaskApprovalList.svelte';
+	import LeaveDeductionChoices from '$lib/components/common/LeaveDeductionChoices.svelte';
 
 	// One component owns all approval behavior. The route selects only its
 	// presentation mode; desktop remains the default for existing callers.
@@ -70,7 +71,23 @@
 
 	// Day-off approval modal state
 	let showDayOffApproveModal = false;
+	let dayOffDecisionAction = 'approve';
 	let dayOffCheckedDates = {}; // id -> checked (boolean)
+	let dayOffDeductionChoices = {}; // id -> true/false; absent means not decided
+	$: dayOffDecisionDays = selectedRequisition?.item_type === 'day_off'
+		? (selectedRequisition._allIds || [selectedRequisition.id]).map((id, i) => ({ id, date: (selectedRequisition._allDates || [selectedRequisition.day_off_date])[i] }))
+		: [];
+	$: dayOffDecisionsComplete = dayOffDecisionDays.length > 0 && dayOffDecisionDays.every(day => typeof dayOffDeductionChoices[day.id] === 'boolean');
+
+	async function saveDayOffDecisions(statusForId, reason = null) {
+		if (!dayOffDecisionsComplete) throw new Error(t('approvalCenter.leaveDeductionRequired'));
+		const { data, error } = await supabase.rpc('decide_leave_request_days', {
+			p_decisions: dayOffDecisionDays.map(day => ({ id: day.id, status: statusForId(day.id), deduct: dayOffDeductionChoices[day.id] })),
+			p_rejection_reason: reason
+		});
+		if (error) throw error;
+		if (!data?.success) throw new Error(data?.error || t('approvalCenter.notifLeaveProcessFailed'));
+	}
 
 	// Stats for approvals assigned to me
 	let stats = {
@@ -917,6 +934,7 @@ async function loadHistoricalData() {
 
 	// Show confirmation modal for approval
 	function showApprovalConfirm(requisitionId) {
+		if (selectedRequisition?.item_type === 'day_off') { openDayOffApproveModal(selectedRequisition); return; }
 		pendingRequisitionId = requisitionId;
 		confirmAction = 'approve';
 		showConfirmModal = true;
@@ -924,6 +942,7 @@ async function loadHistoricalData() {
 
 	// Show confirmation modal for rejection
 	function showRejectionConfirm(requisitionId) {
+		if (selectedRequisition?.item_type === 'day_off') { openDayOffApproveModal(selectedRequisition, 'reject'); return; }
 		pendingRequisitionId = requisitionId;
 		confirmAction = 'reject';
 		rejectionReason = '';
@@ -1139,18 +1158,7 @@ async function loadHistoricalData() {
 
 				notifications.add({ type: 'success', message: t('approvalCenter.notifPurchaseVoucherApproved') });
 			} else if (selectedRequisition.item_type === 'day_off') {
-				// Update day off status to approved (handle grouped requests)
-				const idsToApprove = selectedRequisition._allIds || [requisitionId];
-				const { error: updateError } = await supabase
-					.from('day_off')
-					.update({
-						approval_status: 'approved',
-						approval_approved_by: $currentUser.id,
-						approval_approved_at: new Date().toISOString()
-					})
-					.in('id', idsToApprove);
-
-				if (updateError) throw updateError;
+				await saveDayOffDecisions(() => 'approved');
 
 				// Send notification to the requester
 				try {
@@ -1425,20 +1433,7 @@ async function loadHistoricalData() {
 
 				notifications.add({ type: 'warning', message: t('approvalCenter.notifPurchaseVoucherRejected') });
 			} else if (selectedRequisition.item_type === 'day_off') {
-				// Update day off status to rejected (handle grouped requests)
-				const idsToReject = selectedRequisition._allIds || [requisitionId];
-				const { error: updateError } = await supabase
-					.from('day_off')
-					.update({
-						approval_status: 'rejected',
-						rejection_reason: reason,
-						approval_approved_by: $currentUser.id,
-						approval_approved_at: new Date().toISOString(),
-						updated_at: new Date().toISOString()
-					})
-					.in('id', idsToReject);
-
-				if (updateError) throw updateError;
+				await saveDayOffDecisions(() => 'rejected', reason);
 
 				// Send notification to the requester
 				try {
@@ -1585,7 +1580,7 @@ async function loadHistoricalData() {
 				approvalMinute = `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}-${dt.getHours()}-${dt.getMinutes()}`;
 			}
 			// Group by employee_id + approval time (minute) + reason (same batch submission)
-			const key = `${d.employee_id}_${approvalMinute}_${d.day_off_reason_id || ''}`;
+			const key = `${d.employee_id}_${approvalMinute}_${d.day_off_reason_id || ''}_${d.approval_status || 'pending'}`;
 			if (!groups.has(key)) {
 				groups.set(key, []);
 			}
@@ -1606,6 +1601,7 @@ async function loadHistoricalData() {
 				_grouped: true,
 				_allIds: records.map(r => r.id),
 				_allDates: records.map(r => r.day_off_date),
+				_deductionDays: records.map(r => ({ id: r.id, date: r.day_off_date, deduct: r.is_deductible_on_salary === true })),
 				_dateFrom: first.day_off_date,
 				_dateTo: last.day_off_date,
 				_dayCount: records.length
@@ -1615,112 +1611,57 @@ async function loadHistoricalData() {
 		return grouped;
 	}
 
-	// Open day-off approve modal with all dates pre-checked
-	function openDayOffApproveModal(req) {
+	// Approval requires explicit deduction choices; rejection defaults to Deduct.
+	function openDayOffApproveModal(req, action = 'approve') {
 		selectedRequisition = req;
+		dayOffDecisionAction = action;
 		dayOffCheckedDates = {};
+		dayOffDeductionChoices = {};
+		showDetailModal = false;
 		const allIds = req._allIds || [req.id];
 		const allDates = req._allDates || [req.day_off_date];
 		for (let i = 0; i < allIds.length; i++) {
 			dayOffCheckedDates[allIds[i]] = true;
+			if (action === 'reject') dayOffDeductionChoices[allIds[i]] = true;
 		}
 		showDayOffApproveModal = true;
 	}
 
-	// Reject day-off instantly (all days, no popup)
-	async function rejectDayOffInstant(req) {
-		if (isProcessing) return;
-		selectedRequisition = req;
-		try {
-			isProcessing = true;
-			const idsToReject = req._allIds || [req.id];
-			const { error: updateError } = await supabase
-				.from('day_off')
-				.update({
-					approval_status: 'rejected',
-					approval_approved_by: $currentUser.id,
-					approval_approved_at: new Date().toISOString(),
-					rejection_reason: 'Rejected by approver'
-				})
-				.in('id', idsToReject);
+	function getLeaveDeductionSummary(req) {
+		if (!req.approval_status || req.approval_status === 'pending' || req.approval_status === 'sent_for_approval') {
+			return `${t('approvalCenter.deductSalary')} (${t('approvalCenter.pending')})`;
+		}
+		const days = req._deductionDays || [{ deduct: req.is_deductible_on_salary === true }];
+		const deduct = days.filter(day => day.deduct).length;
+		if (deduct === days.length) return t('approvalCenter.deductSalary');
+		if (deduct === 0) return t('approvalCenter.dontDeductSalary');
+		return t('approvalCenter.deductionDaysSummary', { deduct, paid: days.length - deduct });
+	}
 
-			if (updateError) throw updateError;
+	// Both row shortcuts open the required per-day deduction decisions.
+	function rejectDayOffInstant(req) {
+		openDayOffApproveModal(req, 'reject');
+	}
 
-			// Send notification
-			try {
-				if (req.approval_requested_by) {
-					const dateInfo = req._dayCount > 1
-						? t('approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
-						: t('approvalCenter.pushDateInfoFor', { date: req.day_off_date });
-					const dateInfoEnI = req._dayCount > 1
-						? tFor('en', 'approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
-						: tFor('en', 'approvalCenter.pushDateInfoFor', { date: req.day_off_date });
-					const dateInfoArI = req._dayCount > 1
-						? tFor('ar', 'approvalCenter.pushDateInfoFrom', { dateFrom: req._dateFrom, dateTo: req._dateTo, count: req._dayCount })
-						: tFor('ar', 'approvalCenter.pushDateInfoFor', { date: req.day_off_date });
-					await notificationService.createNotification({
-						title: t('approvalCenter.pushLeaveRejectedTitle'),
-						message: t('approvalCenter.pushLeaveRejectedMsg', { dateInfo, reason: '', rejector: getCurrentUserName() }),
-						titleEn: tFor('en', 'approvalCenter.pushLeaveRejectedTitle'),
-						titleAr: tFor('ar', 'approvalCenter.pushLeaveRejectedTitle'),
-						messageEn: tFor('en', 'approvalCenter.pushLeaveRejectedMsg', { dateInfo: dateInfoEnI, reason: '', rejector: getCurrentUserNameFor('en') }),
-						messageAr: tFor('ar', 'approvalCenter.pushLeaveRejectedMsg', { dateInfo: dateInfoArI, reason: '', rejector: getCurrentUserNameFor('ar') }),
-						type: 'assignment_rejected',
-						priority: 'high',
-						target_type: 'specific_users',
-						target_users: [req.approval_requested_by]
-					}, $currentUser?.id || $currentUser?.username || t('approvalCenter.system'));
-				}
-			} catch (notifError) {
-				console.error('⚠️ Failed to send rejection notification:', notifError);
-			}
-
-			notifications.add({ type: 'success', message: t('approvalCenter.notifLeaveRejectedShort') });
+	async function confirmDayOffRejection() {
+		if (!selectedRequisition || isProcessing || !dayOffDecisionsComplete) return;
+		await rejectRequisition(selectedRequisition.id, $locale === 'ar' ? 'مرفوض من قبل المعتمد' : 'Rejected by approver');
+		if (!selectedRequisition) {
+			showDayOffApproveModal = false;
 			await loadRequisitions();
-		} catch (err) {
-			console.error('Error rejecting day off:', err);
-			notifications.add({ type: 'error', message: t('approvalCenter.notifLeaveRejectFailed') });
-		} finally {
-			isProcessing = false;
-			selectedRequisition = null;
 		}
 	}
 
 	// Confirm day-off approval (approve checked, reject unchecked)
 	async function confirmDayOffApproval() {
-		if (!selectedRequisition || isProcessing) return;
+		if (!selectedRequisition || isProcessing || !dayOffDecisionsComplete) return;
 		try {
 			isProcessing = true;
 			const allIds = selectedRequisition._allIds || [selectedRequisition.id];
 			const approvedIds = allIds.filter(id => dayOffCheckedDates[id]);
 			const rejectedIds = allIds.filter(id => !dayOffCheckedDates[id]);
 
-			// Approve checked days
-			if (approvedIds.length > 0) {
-				const { error } = await supabase
-					.from('day_off')
-					.update({
-						approval_status: 'approved',
-						approval_approved_by: $currentUser.id,
-						approval_approved_at: new Date().toISOString()
-					})
-					.in('id', approvedIds);
-				if (error) throw error;
-			}
-
-			// Reject unchecked days
-			if (rejectedIds.length > 0) {
-				const { error } = await supabase
-					.from('day_off')
-					.update({
-						approval_status: 'rejected',
-						approval_approved_by: $currentUser.id,
-						approval_approved_at: new Date().toISOString(),
-						rejection_reason: t('approvalCenter.partiallyRejected')
-					})
-					.in('id', rejectedIds);
-				if (error) throw error;
-			}
+			await saveDayOffDecisions(id => dayOffCheckedDates[id] ? 'approved' : 'rejected', t('approvalCenter.partiallyRejected'));
 
 			// Send notification
 			try {
@@ -1766,13 +1707,13 @@ async function loadHistoricalData() {
 				: t('approvalCenter.leavePartialMsg', { approved: approvedIds.length, rejected: rejectedIds.length });
 			notifications.add({ type: 'success', message: msg });
 			showDayOffApproveModal = false;
+			selectedRequisition = null;
 			await loadRequisitions();
 		} catch (err) {
 			console.error('Error processing day off approval:', err);
 			notifications.add({ type: 'error', message: t('approvalCenter.notifLeaveProcessFailed') });
 		} finally {
 			isProcessing = false;
-			selectedRequisition = null;
 		}
 	}
 
@@ -2372,7 +2313,7 @@ async function loadHistoricalData() {
 										</div>
 									</td>
 									<td class="amount">-</td>
-									<td class="payment-type">{req.is_deductible_on_salary ? '💰 ' + t('approvalCenter.yes') : t('approvalCenter.no')}</td>
+									<td class="payment-type">{getLeaveDeductionSummary(req)}</td>
 									<td>
 										<span class="status-badge status-{req.approval_status}">
 											{getStatusText(req.approval_status)}
@@ -3054,7 +2995,14 @@ async function loadHistoricalData() {
 
 						<div class="detail-item">
 							<label>{t('approvalCenter.deductibleOnSalary')}</label>
-							<div class="detail-value">{selectedRequisition.is_deductible_on_salary ? '💰 ' + t('approvalCenter.yes') : t('approvalCenter.no')}</div>
+							<div class="detail-value">
+								{getLeaveDeductionSummary(selectedRequisition)}
+								{#if selectedRequisition._dayCount > 1 && ['approved', 'rejected'].includes(selectedRequisition.approval_status)}
+									{#each selectedRequisition._deductionDays || [] as day}
+										<div>{formatDateOnly(day.date)}: {day.deduct ? t('approvalCenter.deductSalary') : t('approvalCenter.dontDeductSalary')}</div>
+									{/each}
+								{/if}
+							</div>
 						</div>
 
 						{#if selectedRequisition.document_url}
@@ -3128,7 +3076,7 @@ async function loadHistoricalData() {
 					{#if selectedRequisition.item_type === 'day_off'}
 						<button
 							class="btn-approve"
-							on:click={() => { closeDetail(); openDayOffApproveModal(selectedRequisition); }}
+							on:click={() => openDayOffApproveModal(selectedRequisition)}
 							disabled={isProcessing || !canApproveThis}
 							title={!canApproveThis ? t('approvalCenter.needPermissionApprove') : t('approvalCenter.approveThis')}
 						>
@@ -3136,7 +3084,7 @@ async function loadHistoricalData() {
 						</button>
 						<button
 							class="btn-reject"
-							on:click={() => { closeDetail(); rejectDayOffInstant(selectedRequisition); }}
+							on:click={() => rejectDayOffInstant(selectedRequisition)}
 							disabled={isProcessing || !canApproveThis}
 							title={!canApproveThis ? t('approvalCenter.needPermissionReject') : t('approvalCenter.rejectThis')}
 						>
@@ -3280,36 +3228,37 @@ async function loadHistoricalData() {
 
 <!-- Day Off Approve Modal (date checkboxes) -->
 {#if showDayOffApproveModal && selectedRequisition}
-<div class="confirm-overlay" class:mobile-mode={layoutMode === 'mobile'} on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+	<div class="confirm-overlay" class:mobile-mode={layoutMode === 'mobile'} on:click={() => { if (!isProcessing) { showDayOffApproveModal = false; selectedRequisition = null; } }}>
 	<div class="confirm-modal dayoff-modal" on:click|stopPropagation>
-		<h3 class="confirm-title">✅ {t('approvalCenter.approveLeaveRequest')}</h3>
+		<h3 class="confirm-title">{t('approvalCenter.leaveDecisionTitle')}</h3>
 		<p class="confirm-message" style="margin-bottom: 0.75rem;">
 			<strong>{getEmployeeName(selectedRequisition.employee)}</strong>
 			— {selectedRequisition.reason ? (selectedRequisition.reason[$locale === 'ar' ? 'reason_ar' : 'reason_en'] || selectedRequisition.reason.reason_en || '') : ''}
 		</p>
-		<p class="confirm-message" style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
-		{t('approvalCenter.uncheckDaysToReject')}
-		</p>
-		<div class="dayoff-dates-list">
-			{#each (selectedRequisition._allIds || [selectedRequisition.id]) as dayId, i}
-				{@const dayDate = (selectedRequisition._allDates || [selectedRequisition.day_off_date])[i]}
-				<label class="dayoff-date-row" class:unchecked={!dayOffCheckedDates[dayId]}>
-					<input type="checkbox" bind:checked={dayOffCheckedDates[dayId]} />
-					<span class="dayoff-date-text">{formatDateOnly(dayDate)}</span>
-				</label>
-			{/each}
-		</div>
+		{#if dayOffDecisionAction === 'approve'}
+			<p class="confirm-message" style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
+				{t('approvalCenter.uncheckDaysToReject')}
+			</p>
+		{/if}
+		<LeaveDeductionChoices days={dayOffDecisionDays} bind:choices={dayOffDeductionChoices}
+			bind:approvedDays={dayOffCheckedDates} showApproval={dayOffDecisionAction === 'approve'} disabled={isProcessing} />
 		<div class="confirm-actions" style="margin-top: 1rem;">
-			<button class="btn-confirm-cancel" on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
+			<button class="btn-confirm-cancel" disabled={isProcessing} on:click={() => { showDayOffApproveModal = false; selectedRequisition = null; }}>
 				{t('approvalCenter.cancel')}
 			</button>
+			{#if dayOffDecisionAction === 'approve'}
 			<button 
 				class="btn-confirm-ok approve" 
 				on:click={confirmDayOffApproval}
-				disabled={isProcessing || Object.values(dayOffCheckedDates).every(v => !v)}
+				disabled={isProcessing || !dayOffDecisionsComplete || Object.values(dayOffCheckedDates).every(v => !v)}
 			>
 				{isProcessing ? t('approvalCenter.processing') : `${t('approvalCenter.accept')} (${Object.values(dayOffCheckedDates).filter(v => v).length})`}
 			</button>
+			{:else}
+			<button class="btn-confirm-ok reject" on:click={confirmDayOffRejection} disabled={isProcessing || !dayOffDecisionsComplete}>
+				{t('approvalCenter.reject')}
+			</button>
+			{/if}
 		</div>
 	</div>
 </div>

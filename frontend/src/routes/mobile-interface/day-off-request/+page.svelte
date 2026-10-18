@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { get } from 'svelte/store';
 	import { supabase } from '$lib/utils/supabase';
@@ -22,6 +22,7 @@
 	let description: string = '';
 	let documentUploadSection: HTMLElement;
 	let submitSection: HTMLElement;
+	let formScroller: HTMLDivElement;
 	let documentFile: File | null = null;
 	let documentProgress = 0;
 	let isUploadingDocument = false;
@@ -187,15 +188,17 @@
 		errorMessage = '';
 	}
 
-	function scrollToSubmit() {
-		// After a reason is chosen, automatically scroll down to the bottom (submit section)
-		setTimeout(() => {
-			if (submitSection) {
-				submitSection.scrollIntoView({ behavior: 'smooth', block: 'end' });
-			} else if (documentUploadSection) {
-				documentUploadSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-			}
-		}, 150);
+	async function scrollToSubmit() {
+		// Scroll only the form below the dates, not the layout or browser viewport.
+		await tick();
+		const target = submitSection || documentUploadSection;
+		if (!target || !formScroller) return;
+		const targetBottom = target.getBoundingClientRect().bottom;
+		const visibleBottom = formScroller.getBoundingClientRect().bottom;
+		formScroller.scrollTo({
+			top: Math.max(0, formScroller.scrollTop + targetBottom - visibleBottom + 16),
+			behavior: 'smooth'
+		});
 	}
 
 	function showAlert(title: string, message: string) {
@@ -403,8 +406,27 @@
 </script>
 
 <div class="mobile-page" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
+	{#if !loading}
+		<!-- Dates stay outside every scrollable part of the form. -->
+		<div class="request-dates">
+			<div class="form-group">
+				<span class="form-label">{$t('hr.shift.mobile_day_off_request.startDate')}</span>
+				<button type="button" class="date-trigger" on:click={() => openDatePicker('start')}>
+					<span class="date-trigger-text">{formatDisplayDate(startDate)}</span>
+					<span class="date-trigger-icon">📅</span>
+				</button>
+			</div>
+			<div class="form-group">
+				<span class="form-label">{$t('hr.shift.mobile_day_off_request.endDate')}</span>
+				<button type="button" class="date-trigger" on:click={() => openDatePicker('end')}>
+					<span class="date-trigger-text">{formatDisplayDate(endDate)}</span>
+					<span class="date-trigger-icon">📅</span>
+				</button>
+			</div>
+		</div>
+	{/if}
 	<!-- Content -->
-	<div class="mobile-content">
+	<div class="leave-request-form" bind:this={formScroller}>
 		{#if loading}
 			<div class="loading-spinner">
 				<div class="spinner"></div>
@@ -421,28 +443,6 @@
 						</div>
 					</div>
 				{/if}
-
-				<!-- Start Date -->
-				<div class="form-group">
-					<span class="form-label">{$t('hr.shift.mobile_day_off_request.startDate')}</span>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div class="date-trigger" on:click={() => openDatePicker('start')}>
-						<span class="date-trigger-text">{formatDisplayDate(startDate)}</span>
-						<span class="date-trigger-icon">📅</span>
-					</div>
-				</div>
-
-				<!-- End Date -->
-				<div class="form-group">
-					<span class="form-label">{$t('hr.shift.mobile_day_off_request.endDate')}</span>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
-					<div class="date-trigger" on:click={() => openDatePicker('end')}>
-						<span class="date-trigger-text">{formatDisplayDate(endDate)}</span>
-						<span class="date-trigger-icon">📅</span>
-					</div>
-				</div>
 
 				<!-- Reason Selection -->
 				<div class="form-group">
@@ -687,19 +687,46 @@
 	</div>
 {/if}<style>
 	.mobile-page {
-		min-height: 100%;
+		height: 100%;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 		background: #F8FAFC;
 		padding: 0;
 	}
 
-	.mobile-content {
+	.leave-request-form {
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		-webkit-overflow-scrolling: touch;
+		touch-action: pan-y;
 		padding: 0;
 		max-width: 100%;
 	}
 
 	.form-container {
 		padding: 0.5rem 0.6rem;
+		padding-bottom: 1rem;
 		max-width: 100%;
+	}
+
+	.request-dates {
+		flex-shrink: 0;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.6rem;
+		padding: 0.5rem 0.6rem;
+		background: #F8FAFC;
+		border-bottom: 1px solid #E5E7EB;
+		box-shadow: 0 3px 6px rgba(15, 23, 42, 0.05);
+	}
+
+	.request-dates .form-group {
+		min-width: 0;
+		margin-bottom: 0;
 	}
 
 	.loading-spinner {
@@ -783,6 +810,9 @@
 
 	/* Date Trigger Button */
 	.date-trigger {
+		width: 100%;
+		font: inherit;
+		text-align: start;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -1129,9 +1159,19 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
+		max-height: 45vh;
+		max-height: 45dvh;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		-webkit-overflow-scrolling: touch;
+		touch-action: pan-y;
+		scrollbar-gutter: stable;
 	}
 
 	.reason-item {
+		flex-shrink: 0;
+		touch-action: pan-y;
 		padding: 0.45rem 0.5rem;
 		border: 1px solid #E5E7EB;
 		border-radius: 5px;
@@ -1246,6 +1286,7 @@
 	.submit-section {
 		margin-top: 0.5rem;
 		padding-top: 0.5rem;
+		scroll-margin-bottom: 1rem;
 	}
 
 	.submit-btn {

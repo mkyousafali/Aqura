@@ -1101,7 +1101,7 @@
 	{/if}
 	
 	<!-- Mobile content goes here -->
-	<main class="mobile-content" class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')} class:home-content={$page.url.pathname === '/mobile-interface' || $page.url.pathname === '/mobile-interface/'}>
+	<main class="mobile-content" class:leave-request-content={$page.url.pathname.startsWith('/mobile-interface/day-off-request')} class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')} class:home-content={$page.url.pathname === '/mobile-interface' || $page.url.pathname === '/mobile-interface/'}>
 			<slot />
 		</main>
 		
@@ -2058,6 +2058,13 @@
 		padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px)); /* Space for bottom nav + safe area (PWA) */
 	}
 	.mobile-content.break-log-content { min-height: 0; overflow: hidden; }
+	.mobile-content.leave-request-content {
+		min-height: 0;
+		flex: 1 1 0%;
+		overflow: hidden;
+		touch-action: pan-y;
+		scroll-padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
+	}
 
 	/* Home screen: same animated navy "aurora" background as the desktop and cashier
 	   interfaces. Sub-pages paint their own light backgrounds, so it is scoped to home. */

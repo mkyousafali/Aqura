@@ -141,6 +141,8 @@ frontend/generate-icons.ps1
 # Backup files
 *.bak
 *.backup
+/database/backups/20261018_leave_payroll_decisions/
+/database/edge-functions/_backups/
 
 # SSH keys (never commit)
 *.pem
