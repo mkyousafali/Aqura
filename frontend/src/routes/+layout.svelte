@@ -20,14 +20,16 @@
 	import { handleUserLogin } from '$lib/utils/mobileLoginHelper';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { isLazyWindowComponent, lazyWindowComponent } from '$lib/utils/lazyWindowComponent';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	// import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
 	import { startNotificationListener } from '$lib/stores/notifications';
-	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	import { loadIcons } from '$lib/stores/iconStore';
 	import { onNativeLogout } from '$lib/utils/nativeShell';
 	import { getDeviceLoginRoute, getMobileRouteGuardTarget } from '$lib/utils/deviceRouting';
+
+	const NotificationWindow = lazyWindowComponent('NotificationWindow', () => import('$lib/components/desktop-interface/master/communication/NotificationWindow.svelte'));
 
 	function getUnauthenticatedLoginRoute(pathname: string): string {
 		return getDeviceLoginRoute(pathname);
@@ -103,7 +105,7 @@
 	}
 	
 	// Recreate the window in popout mode
-	$: if (isPopoutMode && popoutWindowData) {
+	$: if (!isDesktopInterfaceRoute && isPopoutMode && popoutWindowData) {
 		console.log('🪟 Reactive statement triggered - isAuthenticated:', isAuthenticated);
 		console.log('🪟 popoutWindowData:', popoutWindowData);
 		
@@ -125,7 +127,7 @@
 	}
 	
 	// Handle authentication state changes for popout
-	$: if (isPopoutMode && popoutWindowData && isAuthenticated) {
+	$: if (!isDesktopInterfaceRoute && isPopoutMode && popoutWindowData && isAuthenticated) {
 		console.log('🔐 Authentication state changed in popout, setting up window...');
 		// Check if window hasn't been created yet
 		if (!windowManager.getWindow(popoutWindowData.id)) {
@@ -137,9 +139,11 @@
 	}
 	
 	// Build component loader map from all desktop-interface components (auto-discovery)
-	const _componentModules = import.meta.glob(
-		'../lib/components/desktop-interface/**/*.svelte'
-	);
+	const _componentModules = import.meta.glob([
+		'../lib/components/desktop-interface/**/*.svelte',
+		'../lib/components/common/LoginSessions.svelte',
+		'../lib/components/common/PushNotificationSettings.svelte'
+	]);
 	const componentLoaderMap: Record<string, () => Promise<any>> = {};
 	for (const [path, loader] of Object.entries(_componentModules)) {
 		const match = path.match(/([^/\\]+)\.svelte$/);
@@ -149,6 +153,8 @@
 	}
 
 	async function setupPopoutWindow() {
+		if (isDesktopInterfaceRoute) return;
+
 		if (!popoutWindowData) {
 			console.log('🪟 setupPopoutWindow called but no window data available');
 			return;
@@ -227,6 +233,8 @@
 	function handleCrossWindowMessages() {
 		if (typeof window !== 'undefined') {
 			window.addEventListener('message', (event) => {
+				if (isDesktopInterfaceRoute) return;
+
 				// Only handle messages from our own domain
 				if (event.origin !== window.location.origin) return;
 				
@@ -255,7 +263,7 @@
 						const windowData = {
 							id: targetWindow.id,
 							title: targetWindow.title,
-							componentName: targetWindow.component?.name || 'UnknownComponent',
+							componentName: targetWindow.componentName || targetWindow.component?.name || 'UnknownComponent',
 							props: targetWindow.props || {},
 							icon: targetWindow.icon,
 							size: targetWindow.size
@@ -287,10 +295,11 @@
 			if (get(page).url.pathname.startsWith('/cashier-interface')) return;
 			await persistentAuthService.logout();
 		});
+
 		handleCrossWindowMessages();
 
 		// Handle popout window setup
-		if (isPopoutMode) {
+		if (!isDesktopInterfaceRoute && isPopoutMode) {
 			console.log('🪟 Setting up popout for window:', popoutWindowId);
 			
 			// If we already have window data from URL, set up immediately
@@ -335,14 +344,20 @@
 		}
 		
 		// Expose window manager proxy for popout iframes
-		if (typeof window !== 'undefined' && popoutWindowId) {
+		if (typeof window !== 'undefined' && popoutWindowId && !isDesktopInterfaceRoute) {
 			window.windowManagerProxy = {
 				openWindow: (config) => {
+					const componentName = isLazyWindowComponent(config.component)
+						? config.component.name
+						: config.componentName || config.component?.name || '';
+					const { component, ...serializableConfig } = { ...config, componentName };
+
 					// Send message to parent window to open a new window
 					if (window.parent && window.parent !== window) {
 						window.parent.postMessage({
 							type: 'open-window-from-popout',
-							windowConfig: config
+							windowConfig: serializableConfig,
+							componentName
 						}, window.location.origin);
 					}
 				}
@@ -945,12 +960,15 @@
 
 	// Function to open notification window
 	function openNotificationWindow(notificationId: string | null = null) {
+		if (isDesktopInterfaceRoute) return;
+
 		const windowId = `notification-center-${Date.now()}`;
 		
 		openWindow({
 			id: windowId,
 			title: notificationId ? 'Notifications - Specific Item' : 'Notifications',
 			component: NotificationWindow,
+			componentName: 'NotificationWindow',
 			props: {
 				targetNotificationId: notificationId
 			},
@@ -1043,8 +1061,8 @@
 	
 	// Enhanced keyboard shortcuts
 	function handleGlobalKeydown(event: KeyboardEvent) {
-		// Only handle shortcuts if user is authenticated
-		if (!isAuthenticated) return;
+		// Desktop shortcuts are handled by the desktop route's own layout.
+		if (isDesktopInterfaceRoute || !isAuthenticated) return;
 		
 		// Ctrl+Shift+P or Cmd+Shift+P for command palette
 		if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'P') {
@@ -1077,6 +1095,7 @@
 	
 	// Check if current route is login page
 	// Page state management - detect mobile routes
+	$: isDesktopInterfaceRoute = $page.url.pathname === '/desktop-interface' || $page.url.pathname.startsWith('/desktop-interface/');
 	$: isLoginPage = $page.url.pathname === '/login' || $page.url.pathname.startsWith('/login/employee');
 	$: isMobileRoute = $page.url.pathname.startsWith('/mobile-interface');
 	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-interface/login');
@@ -1110,8 +1129,10 @@
 
 <svelte:window on:keydown={handleGlobalKeydown} />
 
-<!-- Show loading screen while checking authentication -->
-{#if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isGiftWheelPage && !isLoginPage && !isCareersAdminPage}
+<!-- Desktop routes provide their own loading screen and desktop interface. -->
+{#if isDesktopInterfaceRoute}
+	<slot />
+{:else if isLoading && !isMobileRoute && !isMobileLoginRoute && !isCashierRoute && !isCustomerInterfaceRoute && !isCustomerLoginRoute && !isPrivacyPage && !isGiftWheelPage && !isLoginPage && !isCareersAdminPage}
 	<div class="loading-screen">
 		<div class="loading-spinner"></div>
 		<div class="loading-text">

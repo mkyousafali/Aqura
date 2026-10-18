@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { windowManager } from '$lib/stores/windowManager';
 import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { lazyWindowComponent } from '$lib/utils/lazyWindowComponent';
 	import { currentLocale, switchLocaleManually, getAvailableLocales } from '$lib/i18n';
 	import { t } from '$lib/i18n';
 	import { onMount, createEventDispatcher } from 'svelte';
@@ -9,17 +10,18 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { notificationCounts, fetchNotificationCounts, refreshNotificationCounts } from '$lib/stores/notifications';
 	import { taskCounts, taskCountService } from '$lib/stores/taskCount';
 	import { approvalCounts, initApprovalCountMonitoring, refreshApprovalCounts } from '$lib/stores/approvalCounts';
-	import NotificationCenter from '$lib/components/desktop-interface/master/communication/NotificationCenter.svelte';
-	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
-	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
-	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
 	import { getSaudiDayOfWeek, isEmployeeDayOff, isAfterShiftStart, getShiftStartTime } from '$lib/utils/checklistHelpers';
 	import { persistentAuthService, currentUser, deviceSessions } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { supabase } from '$lib/utils/supabase';
-	import WALiveChat from '$lib/components/desktop-interface/whatsapp/WALiveChat.svelte';
-	import EmailCentre from '$lib/components/desktop-interface/email/EmailCentre.svelte';
 	import { waUnreadCounts, internalWaUnreadCounts, initWAUnreadMonitoring, stopWAUnreadMonitoring } from '$lib/stores/waUnreadCount';
+
+	const NotificationCenter = lazyWindowComponent('NotificationCenter', () => import('$lib/components/desktop-interface/master/communication/NotificationCenter.svelte'));
+	const ApprovalCenter = lazyWindowComponent('ApprovalCenter', () => import('$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte'));
+	const DailyChecklistWindow = lazyWindowComponent('DailyChecklistWindow', () => import('$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte'));
+	const IncidentManager = lazyWindowComponent('IncidentManager', () => import('$lib/components/desktop-interface/master/hr/IncidentManager.svelte'));
+	const WALiveChat = lazyWindowComponent('WALiveChat', () => import('$lib/components/desktop-interface/whatsapp/WALiveChat.svelte'));
+	const EmailCentre = lazyWindowComponent('EmailCentre', () => import('$lib/components/desktop-interface/email/EmailCentre.svelte'));
 
 	// Event dispatcher for communicating with layout
 	const dispatch = createEventDispatcher();
@@ -321,6 +323,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			id: windowId,
 			title: 'My Daily Checklist',
 			component: DailyChecklistWindow,
+			componentName: 'DailyChecklistWindow',
 			icon: '📒',
 			size: { width: 800, height: 600 },
 			position: { x: 150, y: 80 },
@@ -410,6 +413,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			id: windowId,
 			title: 'Incident Manager',
 			component: IncidentManager,
+			componentName: 'IncidentManager',
 			icon: '⚠️',
 			size: { width: 1200, height: 700 },
 			position: { x: 100, y: 50 },
@@ -482,6 +486,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			id: windowId,
 			title: 'My Notifications',
 			component: NotificationCenter,
+			componentName: 'NotificationCenter',
 			icon: '🔔',
 			size: { width: 800, height: 500 },
 			position: { x: 150, y: 100 },
@@ -531,6 +536,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 			id: windowId,
 			title: 'Approval Center',
 			component: ApprovalCenter,
+			componentName: 'ApprovalCenter',
 			icon: '✅',
 			size: { width: 1200, height: 700 },
 			position: { x: 100, y: 50 },

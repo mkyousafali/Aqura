@@ -19,188 +19,188 @@
 	import { interfacePreferenceService } from '$lib/utils/interfacePreference';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { approvalCounts } from '$lib/stores/approvalCounts';
-	import DancingCharacter from './DancingCharacter.svelte';
 	
-	// Component imports
-	import TaskMaster from '$lib/components/desktop-interface/master/TaskMaster.svelte';
-	import ManageVendor from '$lib/components/desktop-interface/master/vendor/ManageVendor.svelte';
-	import EditVendor from '$lib/components/desktop-interface/master/vendor/EditVendor.svelte';
-	import UploadVendor from '$lib/components/desktop-interface/master/vendor/UploadVendor.svelte';
-	import InternalExpenses from '$lib/components/desktop-interface/master/vendor/InternalExpenses.svelte';
-	import PayToCredit from '$lib/components/desktop-interface/master/vendor/PayToCredit.svelte';
-	import ApprovalCenter from '$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte';
-	import LCPlanner from '$lib/components/desktop-interface/master/finance/LCPlanner.svelte';
-	import ErpLedgers from '$lib/components/desktop-interface/master/finance/ErpLedgers.svelte';
-	import UserManagement from '$lib/components/desktop-interface/settings/UserManagement.svelte';
-	import Settings from '$lib/components/desktop-interface/settings/Settings.svelte';
-	import LoginSessions from '$lib/components/common/LoginSessions.svelte';
-	import AppPermissionsManager from '$lib/components/desktop-interface/settings/AppPermissionsManager.svelte';
-	import OtpLoginControl from '$lib/components/desktop-interface/settings/OtpLoginControl.svelte';
-	import StorageManager from '$lib/components/desktop-interface/settings/StorageManager.svelte';
-	import ApiKeysManager from '$lib/components/desktop-interface/settings/ApiKeysManager.svelte';
-	import SupportAppAccess from '$lib/components/desktop-interface/settings/SupportAppAccess.svelte';
-	import CommunicationCenter from '$lib/components/desktop-interface/master/CommunicationCenter.svelte';
-	import StartReceiving from '$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte';
-	import MonthlyManager from '$lib/components/desktop-interface/master/finance/MonthlyManager.svelte';
-	import MonthlyBreakdown from '$lib/components/desktop-interface/master/finance/MonthlyBreakdown.svelte';
-	import ExpensesManager from '$lib/components/desktop-interface/master/finance/ExpensesManager.svelte';
-	import DayBudgetPlanner from '$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte';
-	import BankPaymentPlanner from '$lib/components/desktop-interface/master/finance/BankPaymentPlanner.svelte';
-	import StatementsManager from '$lib/components/desktop-interface/master/finance/StatementsManager.svelte';
-	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
-	import PaidManager from '$lib/components/desktop-interface/master/finance/PaidManager.svelte';
-	import CategoryManager from '$lib/components/desktop-interface/master/finance/CategoryManager.svelte';
-	import PurchaseVoucherManager from '$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte';
-	import ManageReconciliations from '$lib/components/desktop-interface/master/finance/ManageReconciliations.svelte';
-	import AssetManager from '$lib/components/desktop-interface/master/finance/AssetManager.svelte';
-	import LeaseAndRent from '$lib/components/desktop-interface/master/finance/LeaseAndRent.svelte';
-	import Denomination from '$lib/components/desktop-interface/master/finance/Denomination.svelte';
-	import PettyCash from '$lib/components/desktop-interface/master/finance/PettyCash.svelte';
-	import ChangeRequests from '$lib/components/desktop-interface/master/finance/ChangeRequests.svelte';
-	import CustomerMaster from '$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte';
-	import CustomerAppManager from '$lib/components/desktop-interface/admin-customer-app/CustomerAppManager.svelte';
-	import LoyaltyDashboard from '$lib/components/desktop-interface/master/loyalty/LoyaltyDashboard.svelte';
-	import ManageTiers from '$lib/components/desktop-interface/master/loyalty/ManageTiers.svelte';
-	import AdManager from '$lib/components/desktop-interface/admin-customer-app/AdManager.svelte';
-	import SocialLinkManager from '$lib/components/desktop-interface/admin-customer-app/SocialLinkManager.svelte';
-	import DeliverySettings from '$lib/components/desktop-interface/admin-customer-app/DeliverySettings.svelte';
-	import ProductsManager from '$lib/components/desktop-interface/admin-customer-app/ProductsManager.svelte';
-	import ManageProductsWindow from '$lib/components/desktop-interface/admin-customer-app/products/ManageProductsWindow.svelte';
-	import OfferManagement from '$lib/components/desktop-interface/admin-customer-app/OfferManagement.svelte';
-	import ProductSelectorWindow from '$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte';
-	import OrdersManager from '$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte';
-	import FlyerMasterDashboard from '$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte';
-	import ProductsDashboard from '$lib/components/desktop-interface/marketing/products/ProductsDashboard.svelte';
-	import ProductMaster from '$lib/components/desktop-interface/marketing/flyer/ProductMaster.svelte';
-	import VariationManager from '$lib/components/desktop-interface/marketing/flyer/VariationManager.svelte';
-	import OfferTemplates from '$lib/components/desktop-interface/marketing/flyer/OfferTemplates.svelte';
-	import OfferProductSelector from '$lib/components/desktop-interface/marketing/flyer/OfferProductSelector.svelte';
-	import OfferManager from '$lib/components/desktop-interface/marketing/flyer/OfferManager.svelte';
-	import PricingManager from '$lib/components/desktop-interface/marketing/flyer/PricingManager.svelte';
-	import ErpEntryManager from '$lib/components/desktop-interface/marketing/flyer/ErpEntryManager.svelte';
-	import FlyerGenerator from '$lib/components/desktop-interface/marketing/flyer/FlyerGenerator.svelte';
-	import FlyerTemplates from '$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte';
-	import FlyerSettings from '$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte';
-	import DesignPlanner from '$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte';
-	import ShelfPaperTemplateDesigner from '$lib/components/desktop-interface/marketing/flyer/ShelfPaperTemplateDesigner.svelte';
-	import NearExpiryManager from '$lib/components/desktop-interface/marketing/flyer/NearExpiryManager.svelte';
-	import NormalPaperManager from '$lib/components/desktop-interface/marketing/flyer/NormalPaperManager.svelte';
-	import OneDayOfferManager from '$lib/components/desktop-interface/marketing/flyer/OneDayOfferManager.svelte';
-	import ExpenseTracker from '$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte';
-	import SalesReport from '$lib/components/desktop-interface/master/finance/reports/LiveSalesReport.svelte';
-	import VendorPendingPayments from '$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte';
-	import VendorRecords from '$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte';
-	import OverduesReport from '$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte';
-	import POSReport from '$lib/components/desktop-interface/master/finance/reports/POSReport.svelte';
-	import SalesAnalysis from '$lib/components/desktop-interface/master/finance/reports/SalesAnalysis.svelte';
-	import CentralPerformance from '$lib/components/desktop-interface/master/reports/CentralPerformance.svelte';
-	import ReceivingRecords from '$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte';
-	import PendingReceivingRecords from '$lib/components/desktop-interface/master/vendor/PendingReceivingRecords.svelte';
-	import Receiving from '$lib/components/desktop-interface/master/operations/Receiving.svelte';
-	import BreakRegisterManager from '$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte';
-	import AutoTaskManager from '$lib/components/desktop-interface/master/vendor/AutoTaskManager.svelte';
-	import CouponDashboard from '$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte';
-	import CampaignManager from '$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte';
-	import ViewOfferManager from '$lib/components/desktop-interface/marketing/coupon/ViewOfferManager.svelte';
-	import CustomerImporter from '$lib/components/desktop-interface/marketing/coupon/CustomerImporter.svelte';
-	import ProductManager from '$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte';
-	import CouponReports from '$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte';
-	import GiftWheelManager from '$lib/components/desktop-interface/marketing/gift-wheel/GiftWheelManager.svelte';
-	import SurpriseBoxManager from '$lib/components/desktop-interface/marketing/surprise-box/SurpriseBoxManager.svelte';
-	import VipCampaignWindow from '$lib/components/desktop-interface/marketing/vip/VipCampaignWindow.svelte';
-	import ERPConnections from '$lib/components/desktop-interface/settings/ERPConnections.svelte';
-	import ClearTables from '$lib/components/desktop-interface/settings/ClearTables.svelte';
-	import LocalUpdate from '$lib/components/desktop-interface/settings/LocalUpdate.svelte';
-	import HelperApps from '$lib/components/desktop-interface/settings/HelperApps.svelte';
-	import AIAgentTasks from '$lib/components/desktop-interface/settings/AIAgentTasks.svelte';
-	import PendingScanRequests from '$lib/components/desktop-interface/settings/PendingScanRequests.svelte';
-	import SidebarAnimationManager from '$lib/components/desktop-interface/settings/SidebarAnimationManager.svelte';
-	import AIChatGuide from '$lib/components/desktop-interface/settings/AIChatGuide.svelte';
-	import ErpProductManager from '$lib/components/desktop-interface/settings/ErpProductManager.svelte';
-	import ErpCredentials from '$lib/components/desktop-interface/settings/ErpCredentials.svelte';
-	import DrawerActionMonitor from '$lib/components/desktop-interface/settings/DrawerActionMonitor.svelte';
-	import PCLockGuard from '$lib/components/desktop-interface/settings/PCLockGuard.svelte';
-	import IconManager from '$lib/components/desktop-interface/settings/IconManager.svelte';
-	import BrandingManager from '$lib/components/desktop-interface/settings/BrandingManager.svelte';
-	import SupabaseSecretsManager from '$lib/components/desktop-interface/settings/SupabaseSecretsManager.svelte';
-	import CreateUser from '$lib/components/desktop-interface/settings/user/CreateUser.svelte';
-	import ManageAdminUsers from '$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte';
-	import ManageMasterAdmin from '$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte';
-	import EmployeeMaster from '$lib/components/desktop-interface/master/hr/EmployeeMaster.svelte';
-	import BoardingTransfer from '$lib/components/desktop-interface/master/hr/BoardingTransfer.svelte';
-	import BiometricExport from '$lib/components/desktop-interface/master/hr/BiometricExport.svelte';
-	import LinkID from '$lib/components/desktop-interface/master/hr/LinkID.svelte';
-	import FingerprintTransactions from '$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte';
-	import ProcessFingerprint from '$lib/components/desktop-interface/master/hr/ProcessFingerprint.svelte';
-	import EmployeeFiles from '$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte';
-	import SalaryAndWage from '$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte';
-	import PrepareSalaryStatementWindow from '$lib/components/desktop-interface/master/hr/PrepareSalaryStatementWindow.svelte';
-	import ShiftAndDayOff from '$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte';
-	import Shifts from '$lib/components/desktop-interface/master/hr/Shifts.svelte';
-	import Discipline from '$lib/components/desktop-interface/master/hr/Discipline.svelte';
-	import IncidentManager from '$lib/components/desktop-interface/master/hr/IncidentManager.svelte';
-	import ReportIncident from '$lib/components/desktop-interface/master/hr/ReportIncident.svelte';
-	import SecurityCodeWindow from '$lib/components/desktop-interface/master/hr/SecurityCodeWindow.svelte';
-	import QuickDashboardWindow from '$lib/components/desktop-interface/master/hr/QuickDashboardWindow.svelte';
-	import EmployeeDashboard from '$lib/components/desktop-interface/master/hr/EmployeeDashboard.svelte';
+	import { lazyWindowComponent } from '$lib/utils/lazyWindowComponent';
+
+	// Load feature components only when their window opens.
+	const TaskMaster = lazyWindowComponent('TaskMaster', () => import('$lib/components/desktop-interface/master/TaskMaster.svelte'));
+	const ManageVendor = lazyWindowComponent('ManageVendor', () => import('$lib/components/desktop-interface/master/vendor/ManageVendor.svelte'));
+	const EditVendor = lazyWindowComponent('EditVendor', () => import('$lib/components/desktop-interface/master/vendor/EditVendor.svelte'));
+	const UploadVendor = lazyWindowComponent('UploadVendor', () => import('$lib/components/desktop-interface/master/vendor/UploadVendor.svelte'));
+	const InternalExpenses = lazyWindowComponent('InternalExpenses', () => import('$lib/components/desktop-interface/master/vendor/InternalExpenses.svelte'));
+	const PayToCredit = lazyWindowComponent('PayToCredit', () => import('$lib/components/desktop-interface/master/vendor/PayToCredit.svelte'));
+	const ApprovalCenter = lazyWindowComponent('ApprovalCenter', () => import('$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte'));
+	const LCPlanner = lazyWindowComponent('LCPlanner', () => import('$lib/components/desktop-interface/master/finance/LCPlanner.svelte'));
+	const ErpLedgers = lazyWindowComponent('ErpLedgers', () => import('$lib/components/desktop-interface/master/finance/ErpLedgers.svelte'));
+	const UserManagement = lazyWindowComponent('UserManagement', () => import('$lib/components/desktop-interface/settings/UserManagement.svelte'));
+	const Settings = lazyWindowComponent('Settings', () => import('$lib/components/desktop-interface/settings/Settings.svelte'));
+	const LoginSessions = lazyWindowComponent('LoginSessions', () => import('$lib/components/common/LoginSessions.svelte'));
+	const AppPermissionsManager = lazyWindowComponent('AppPermissionsManager', () => import('$lib/components/desktop-interface/settings/AppPermissionsManager.svelte'));
+	const OtpLoginControl = lazyWindowComponent('OtpLoginControl', () => import('$lib/components/desktop-interface/settings/OtpLoginControl.svelte'));
+	const StorageManager = lazyWindowComponent('StorageManager', () => import('$lib/components/desktop-interface/settings/StorageManager.svelte'));
+	const ApiKeysManager = lazyWindowComponent('ApiKeysManager', () => import('$lib/components/desktop-interface/settings/ApiKeysManager.svelte'));
+	const SupportAppAccess = lazyWindowComponent('SupportAppAccess', () => import('$lib/components/desktop-interface/settings/SupportAppAccess.svelte'));
+	const CommunicationCenter = lazyWindowComponent('CommunicationCenter', () => import('$lib/components/desktop-interface/master/CommunicationCenter.svelte'));
+	const StartReceiving = lazyWindowComponent('StartReceiving', () => import('$lib/components/desktop-interface/master/operations/receiving/StartReceiving.svelte'));
+	const MonthlyManager = lazyWindowComponent('MonthlyManager', () => import('$lib/components/desktop-interface/master/finance/MonthlyManager.svelte'));
+	const MonthlyBreakdown = lazyWindowComponent('MonthlyBreakdown', () => import('$lib/components/desktop-interface/master/finance/MonthlyBreakdown.svelte'));
+	const ExpensesManager = lazyWindowComponent('ExpensesManager', () => import('$lib/components/desktop-interface/master/finance/ExpensesManager.svelte'));
+	const DayBudgetPlanner = lazyWindowComponent('DayBudgetPlanner', () => import('$lib/components/desktop-interface/master/finance/DayBudgetPlanner.svelte'));
+	const BankPaymentPlanner = lazyWindowComponent('BankPaymentPlanner', () => import('$lib/components/desktop-interface/master/finance/BankPaymentPlanner.svelte'));
+	const StatementsManager = lazyWindowComponent('StatementsManager', () => import('$lib/components/desktop-interface/master/finance/StatementsManager.svelte'));
+	const ManualScheduling = lazyWindowComponent('ManualScheduling', () => import('$lib/components/desktop-interface/master/finance/ManualScheduling.svelte'));
+	const PaidManager = lazyWindowComponent('PaidManager', () => import('$lib/components/desktop-interface/master/finance/PaidManager.svelte'));
+	const CategoryManager = lazyWindowComponent('CategoryManager', () => import('$lib/components/desktop-interface/master/finance/CategoryManager.svelte'));
+	const PurchaseVoucherManager = lazyWindowComponent('PurchaseVoucherManager', () => import('$lib/components/desktop-interface/master/finance/PurchaseVoucherManager.svelte'));
+	const ManageReconciliations = lazyWindowComponent('ManageReconciliations', () => import('$lib/components/desktop-interface/master/finance/ManageReconciliations.svelte'));
+	const AssetManager = lazyWindowComponent('AssetManager', () => import('$lib/components/desktop-interface/master/finance/AssetManager.svelte'));
+	const LeaseAndRent = lazyWindowComponent('LeaseAndRent', () => import('$lib/components/desktop-interface/master/finance/LeaseAndRent.svelte'));
+	const Denomination = lazyWindowComponent('Denomination', () => import('$lib/components/desktop-interface/master/finance/Denomination.svelte'));
+	const PettyCash = lazyWindowComponent('PettyCash', () => import('$lib/components/desktop-interface/master/finance/PettyCash.svelte'));
+	const ChangeRequests = lazyWindowComponent('ChangeRequests', () => import('$lib/components/desktop-interface/master/finance/ChangeRequests.svelte'));
+	const CustomerMaster = lazyWindowComponent('CustomerMaster', () => import('$lib/components/desktop-interface/admin-customer-app/CustomerMaster.svelte'));
+	const CustomerAppManager = lazyWindowComponent('CustomerAppManager', () => import('$lib/components/desktop-interface/admin-customer-app/CustomerAppManager.svelte'));
+	const LoyaltyDashboard = lazyWindowComponent('LoyaltyDashboard', () => import('$lib/components/desktop-interface/master/loyalty/LoyaltyDashboard.svelte'));
+	const ManageTiers = lazyWindowComponent('ManageTiers', () => import('$lib/components/desktop-interface/master/loyalty/ManageTiers.svelte'));
+	const AdManager = lazyWindowComponent('AdManager', () => import('$lib/components/desktop-interface/admin-customer-app/AdManager.svelte'));
+	const SocialLinkManager = lazyWindowComponent('SocialLinkManager', () => import('$lib/components/desktop-interface/admin-customer-app/SocialLinkManager.svelte'));
+	const DeliverySettings = lazyWindowComponent('DeliverySettings', () => import('$lib/components/desktop-interface/admin-customer-app/DeliverySettings.svelte'));
+	const ProductsManager = lazyWindowComponent('ProductsManager', () => import('$lib/components/desktop-interface/admin-customer-app/ProductsManager.svelte'));
+	const ManageProductsWindow = lazyWindowComponent('ManageProductsWindow', () => import('$lib/components/desktop-interface/admin-customer-app/products/ManageProductsWindow.svelte'));
+	const OfferManagement = lazyWindowComponent('OfferManagement', () => import('$lib/components/desktop-interface/admin-customer-app/OfferManagement.svelte'));
+	const ProductSelectorWindow = lazyWindowComponent('ProductSelectorWindow', () => import('$lib/components/desktop-interface/admin-customer-app/offers/ProductSelectorWindow.svelte'));
+	const OrdersManager = lazyWindowComponent('OrdersManager', () => import('$lib/components/desktop-interface/admin-customer-app/OrdersManager.svelte'));
+	const FlyerMasterDashboard = lazyWindowComponent('FlyerMasterDashboard', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerMasterDashboard.svelte'));
+	const ProductsDashboard = lazyWindowComponent('ProductsDashboard', () => import('$lib/components/desktop-interface/marketing/products/ProductsDashboard.svelte'));
+	const ProductMaster = lazyWindowComponent('ProductMaster', () => import('$lib/components/desktop-interface/marketing/flyer/ProductMaster.svelte'));
+	const VariationManager = lazyWindowComponent('VariationManager', () => import('$lib/components/desktop-interface/marketing/flyer/VariationManager.svelte'));
+	const OfferTemplates = lazyWindowComponent('OfferTemplates', () => import('$lib/components/desktop-interface/marketing/flyer/OfferTemplates.svelte'));
+	const OfferProductSelector = lazyWindowComponent('OfferProductSelector', () => import('$lib/components/desktop-interface/marketing/flyer/OfferProductSelector.svelte'));
+	const OfferManager = lazyWindowComponent('OfferManager', () => import('$lib/components/desktop-interface/marketing/flyer/OfferManager.svelte'));
+	const PricingManager = lazyWindowComponent('PricingManager', () => import('$lib/components/desktop-interface/marketing/flyer/PricingManager.svelte'));
+	const ErpEntryManager = lazyWindowComponent('ErpEntryManager', () => import('$lib/components/desktop-interface/marketing/flyer/ErpEntryManager.svelte'));
+	const FlyerGenerator = lazyWindowComponent('FlyerGenerator', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerGenerator.svelte'));
+	const FlyerTemplates = lazyWindowComponent('FlyerTemplates', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte'));
+	const FlyerSettings = lazyWindowComponent('FlyerSettings', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte'));
+	const DesignPlanner = lazyWindowComponent('DesignPlanner', () => import('$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte'));
+	const ShelfPaperTemplateDesigner = lazyWindowComponent('ShelfPaperTemplateDesigner', () => import('$lib/components/desktop-interface/marketing/flyer/ShelfPaperTemplateDesigner.svelte'));
+	const NearExpiryManager = lazyWindowComponent('NearExpiryManager', () => import('$lib/components/desktop-interface/marketing/flyer/NearExpiryManager.svelte'));
+	const NormalPaperManager = lazyWindowComponent('NormalPaperManager', () => import('$lib/components/desktop-interface/marketing/flyer/NormalPaperManager.svelte'));
+	const OneDayOfferManager = lazyWindowComponent('OneDayOfferManager', () => import('$lib/components/desktop-interface/marketing/flyer/OneDayOfferManager.svelte'));
+	const ExpenseTracker = lazyWindowComponent('ExpenseTracker', () => import('$lib/components/desktop-interface/master/finance/reports/ExpenseTracker.svelte'));
+	const SalesReport = lazyWindowComponent('LiveSalesReport', () => import('$lib/components/desktop-interface/master/finance/reports/LiveSalesReport.svelte'));
+	const VendorPendingPayments = lazyWindowComponent('VendorPendingPayments', () => import('$lib/components/desktop-interface/master/finance/reports/VendorPendingPayments.svelte'));
+	const VendorRecords = lazyWindowComponent('VendorRecords', () => import('$lib/components/desktop-interface/master/finance/reports/VendorRecords.svelte'));
+	const OverduesReport = lazyWindowComponent('OverduesReport', () => import('$lib/components/desktop-interface/master/finance/reports/OverduesReport.svelte'));
+	const POSReport = lazyWindowComponent('POSReport', () => import('$lib/components/desktop-interface/master/finance/reports/POSReport.svelte'));
+	const SalesAnalysis = lazyWindowComponent('SalesAnalysis', () => import('$lib/components/desktop-interface/master/finance/reports/SalesAnalysis.svelte'));
+	const CentralPerformance = lazyWindowComponent('CentralPerformance', () => import('$lib/components/desktop-interface/master/reports/CentralPerformance.svelte'));
+	const ReceivingRecords = lazyWindowComponent('ReceivingRecords', () => import('$lib/components/desktop-interface/master/operations/receiving/ReceivingRecords.svelte'));
+	const PendingReceivingRecords = lazyWindowComponent('PendingReceivingRecords', () => import('$lib/components/desktop-interface/master/vendor/PendingReceivingRecords.svelte'));
+	const Receiving = lazyWindowComponent('Receiving', () => import('$lib/components/desktop-interface/master/operations/Receiving.svelte'));
+	const BreakRegisterManager = lazyWindowComponent('BreakRegisterManager', () => import('$lib/components/desktop-interface/master/hr/BreakRegisterManager.svelte'));
+	const AutoTaskManager = lazyWindowComponent('AutoTaskManager', () => import('$lib/components/desktop-interface/master/vendor/AutoTaskManager.svelte'));
+	const CouponDashboard = lazyWindowComponent('CouponDashboard', () => import('$lib/components/desktop-interface/marketing/coupon/CouponDashboard.svelte'));
+	const CampaignManager = lazyWindowComponent('CampaignManager', () => import('$lib/components/desktop-interface/marketing/coupon/CampaignManager.svelte'));
+	const ViewOfferManager = lazyWindowComponent('ViewOfferManager', () => import('$lib/components/desktop-interface/marketing/coupon/ViewOfferManager.svelte'));
+	const CustomerImporter = lazyWindowComponent('CustomerImporter', () => import('$lib/components/desktop-interface/marketing/coupon/CustomerImporter.svelte'));
+	const ProductManager = lazyWindowComponent('ProductManager', () => import('$lib/components/desktop-interface/marketing/coupon/ProductManager.svelte'));
+	const CouponReports = lazyWindowComponent('CouponReports', () => import('$lib/components/desktop-interface/marketing/coupon/CouponReports.svelte'));
+	const GiftWheelManager = lazyWindowComponent('GiftWheelManager', () => import('$lib/components/desktop-interface/marketing/gift-wheel/GiftWheelManager.svelte'));
+	const SurpriseBoxManager = lazyWindowComponent('SurpriseBoxManager', () => import('$lib/components/desktop-interface/marketing/surprise-box/SurpriseBoxManager.svelte'));
+	const VipCampaignWindow = lazyWindowComponent('VipCampaignWindow', () => import('$lib/components/desktop-interface/marketing/vip/VipCampaignWindow.svelte'));
+	const ERPConnections = lazyWindowComponent('ERPConnections', () => import('$lib/components/desktop-interface/settings/ERPConnections.svelte'));
+	const ClearTables = lazyWindowComponent('ClearTables', () => import('$lib/components/desktop-interface/settings/ClearTables.svelte'));
+	const LocalUpdate = lazyWindowComponent('LocalUpdate', () => import('$lib/components/desktop-interface/settings/LocalUpdate.svelte'));
+	const HelperApps = lazyWindowComponent('HelperApps', () => import('$lib/components/desktop-interface/settings/HelperApps.svelte'));
+	const AIAgentTasks = lazyWindowComponent('AIAgentTasks', () => import('$lib/components/desktop-interface/settings/AIAgentTasks.svelte'));
+	const PendingScanRequests = lazyWindowComponent('PendingScanRequests', () => import('$lib/components/desktop-interface/settings/PendingScanRequests.svelte'));
+	const AIChatGuide = lazyWindowComponent('AIChatGuide', () => import('$lib/components/desktop-interface/settings/AIChatGuide.svelte'));
+	const ErpProductManager = lazyWindowComponent('ErpProductManager', () => import('$lib/components/desktop-interface/settings/ErpProductManager.svelte'));
+	const ErpCredentials = lazyWindowComponent('ErpCredentials', () => import('$lib/components/desktop-interface/settings/ErpCredentials.svelte'));
+	const DrawerActionMonitor = lazyWindowComponent('DrawerActionMonitor', () => import('$lib/components/desktop-interface/settings/DrawerActionMonitor.svelte'));
+	const PCLockGuard = lazyWindowComponent('PCLockGuard', () => import('$lib/components/desktop-interface/settings/PCLockGuard.svelte'));
+	const IconManager = lazyWindowComponent('IconManager', () => import('$lib/components/desktop-interface/settings/IconManager.svelte'));
+	const BrandingManager = lazyWindowComponent('BrandingManager', () => import('$lib/components/desktop-interface/settings/BrandingManager.svelte'));
+	const SupabaseSecretsManager = lazyWindowComponent('SupabaseSecretsManager', () => import('$lib/components/desktop-interface/settings/SupabaseSecretsManager.svelte'));
+	const CreateUser = lazyWindowComponent('CreateUser', () => import('$lib/components/desktop-interface/settings/user/CreateUser.svelte'));
+	const ManageAdminUsers = lazyWindowComponent('ManageAdminUsers', () => import('$lib/components/desktop-interface/settings/user/ManageAdminUsers.svelte'));
+	const ManageMasterAdmin = lazyWindowComponent('ManageMasterAdmin', () => import('$lib/components/desktop-interface/settings/user/ManageMasterAdmin.svelte'));
+	const EmployeeMaster = lazyWindowComponent('EmployeeMaster', () => import('$lib/components/desktop-interface/master/hr/EmployeeMaster.svelte'));
+	const BoardingTransfer = lazyWindowComponent('BoardingTransfer', () => import('$lib/components/desktop-interface/master/hr/BoardingTransfer.svelte'));
+	const BiometricExport = lazyWindowComponent('BiometricExport', () => import('$lib/components/desktop-interface/master/hr/BiometricExport.svelte'));
+	const LinkID = lazyWindowComponent('LinkID', () => import('$lib/components/desktop-interface/master/hr/LinkID.svelte'));
+	const FingerprintTransactions = lazyWindowComponent('FingerprintTransactions', () => import('$lib/components/desktop-interface/master/hr/FingerprintTransactions.svelte'));
+	const ProcessFingerprint = lazyWindowComponent('ProcessFingerprint', () => import('$lib/components/desktop-interface/master/hr/ProcessFingerprint.svelte'));
+	const EmployeeFiles = lazyWindowComponent('EmployeeFiles', () => import('$lib/components/desktop-interface/master/hr/EmployeeFiles.svelte'));
+	const SalaryAndWage = lazyWindowComponent('SalaryAndWage', () => import('$lib/components/desktop-interface/master/hr/SalaryAndWage.svelte'));
+	const PrepareSalaryStatementWindow = lazyWindowComponent('PrepareSalaryStatementWindow', () => import('$lib/components/desktop-interface/master/hr/PrepareSalaryStatementWindow.svelte'));
+	const ShiftAndDayOff = lazyWindowComponent('ShiftAndDayOff', () => import('$lib/components/desktop-interface/master/hr/ShiftAndDayOff.svelte'));
+	const Shifts = lazyWindowComponent('Shifts', () => import('$lib/components/desktop-interface/master/hr/Shifts.svelte'));
+	const Discipline = lazyWindowComponent('Discipline', () => import('$lib/components/desktop-interface/master/hr/Discipline.svelte'));
+	const IncidentManager = lazyWindowComponent('IncidentManager', () => import('$lib/components/desktop-interface/master/hr/IncidentManager.svelte'));
+	const ReportIncident = lazyWindowComponent('ReportIncident', () => import('$lib/components/desktop-interface/master/hr/ReportIncident.svelte'));
+	const SecurityCodeWindow = lazyWindowComponent('SecurityCodeWindow', () => import('$lib/components/desktop-interface/master/hr/SecurityCodeWindow.svelte'));
+	const QuickDashboardWindow = lazyWindowComponent('QuickDashboardWindow', () => import('$lib/components/desktop-interface/master/hr/QuickDashboardWindow.svelte'));
+	const EmployeeDashboard = lazyWindowComponent('EmployeeDashboard', () => import('$lib/components/desktop-interface/master/hr/EmployeeDashboard.svelte'));
 	// NOTE: EmployeeDashboard merged into EmployeeMaster tabs
-	import AnalyzeAllWindow from '$lib/components/desktop-interface/master/hr/AnalyzeAllWindow.svelte';
-	import DailyChecklistManager from '$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte';
-	import HRServices from '$lib/components/desktop-interface/master/hr/HRServices.svelte';
-	import TaskCreateForm from '$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte';
-	import TaskViewTable from '$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte';
-	import TaskAssignmentView from '$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte';
-	import MyTasksView from '$lib/components/desktop-interface/master/tasks/MyTasksView.svelte';
-	import MyAssignmentsView from '$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte';
-	import TaskStatusView from '$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte';
-	import BranchPerformanceWindow from '$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte';
-	import DailyChecklistWindow from '$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte';
-	import ErpEntries from '$lib/components/desktop-interface/master/tasks/ErpEntries.svelte';
-	import PushNotificationSettings from '$lib/components/common/PushNotificationSettings.svelte';
-	import CreateNotification from '$lib/components/desktop-interface/master/communication/CreateNotification.svelte';
-	import ProductRequestDesktop from '$lib/components/desktop-interface/master/stock/ProductRequestDesktop.svelte';
-	import PORequestsList from '$lib/components/desktop-interface/master/stock/PORequestsList.svelte';
-	import StockRequestsList from '$lib/components/desktop-interface/master/stock/StockRequestsList.svelte';
-	import BTRequestsList from '$lib/components/desktop-interface/master/stock/BTRequestsList.svelte';
-	import NearExpiryRequestsList from '$lib/components/desktop-interface/master/stock/NearExpiryRequestsList.svelte';
-	import CustomerProductRequestsList from '$lib/components/desktop-interface/master/stock/CustomerProductRequestsList.svelte';
-	import ErpProductsList from '$lib/components/desktop-interface/master/stock/ErpProductsList.svelte';
-	import OfferCostManager from '$lib/components/desktop-interface/master/stock/OfferCostManager.svelte';
-	import ProductClaimManager from '$lib/components/desktop-interface/master/stock/ProductClaimManager.svelte';
-	import ExpiryControl from '$lib/components/desktop-interface/master/stock/ExpiryControl.svelte';
-	import ActionFollowUps from '$lib/components/desktop-interface/master/vendor/ActionFollowUps.svelte';
-	import WADashboard from '$lib/components/desktop-interface/whatsapp/WADashboard.svelte';
-	import WALiveChat from '$lib/components/desktop-interface/whatsapp/WALiveChat.svelte';
-	import WABroadcasts from '$lib/components/desktop-interface/whatsapp/WABroadcasts.svelte';
-	import WATemplates from '$lib/components/desktop-interface/whatsapp/WATemplates.svelte';
-	import WAContacts from '$lib/components/desktop-interface/whatsapp/WAContacts.svelte';
-	import WAAutoReplyBot from '$lib/components/desktop-interface/whatsapp/WAAutoReplyBot.svelte';
-	import AIReply from '$lib/components/desktop-interface/whatsapp/AIReply.svelte';
-	import WAAccounts from '$lib/components/desktop-interface/whatsapp/WAAccounts.svelte';
-	import WASettings from '$lib/components/desktop-interface/whatsapp/WASettings.svelte';
-	import WACatalog from '$lib/components/desktop-interface/whatsapp/WACatalog.svelte';
-	import InternalWAAccounts from '$lib/components/desktop-interface/whatsapp/InternalWAAccounts.svelte';
-	import InternalWAContacts from '$lib/components/desktop-interface/whatsapp/InternalWAContacts.svelte';
+	const AnalyzeAllWindow = lazyWindowComponent('AnalyzeAllWindow', () => import('$lib/components/desktop-interface/master/hr/AnalyzeAllWindow.svelte'));
+	const DailyChecklistManager = lazyWindowComponent('DailyChecklistManager', () => import('$lib/components/desktop-interface/master/hr/DailyChecklistManager.svelte'));
+	const HRServices = lazyWindowComponent('HRServices', () => import('$lib/components/desktop-interface/master/hr/HRServices.svelte'));
+	const TaskCreateForm = lazyWindowComponent('TaskCreateForm', () => import('$lib/components/desktop-interface/master/tasks/TaskCreateForm.svelte'));
+	const TaskViewTable = lazyWindowComponent('TaskViewTable', () => import('$lib/components/desktop-interface/master/tasks/TaskViewTable.svelte'));
+	const TaskAssignmentView = lazyWindowComponent('TaskAssignmentView', () => import('$lib/components/desktop-interface/master/tasks/TaskAssignmentView.svelte'));
+	const MyTasksView = lazyWindowComponent('MyTasksView', () => import('$lib/components/desktop-interface/master/tasks/MyTasksView.svelte'));
+	const MyAssignmentsView = lazyWindowComponent('MyAssignmentsView', () => import('$lib/components/desktop-interface/master/tasks/MyAssignmentsView.svelte'));
+	const TaskStatusView = lazyWindowComponent('TaskStatusView', () => import('$lib/components/desktop-interface/master/tasks/TaskStatusView.svelte'));
+	const BranchPerformanceWindow = lazyWindowComponent('BranchPerformanceWindow', () => import('$lib/components/desktop-interface/master/tasks/BranchPerformanceWindow.svelte'));
+	const DailyChecklistWindow = lazyWindowComponent('DailyChecklistWindow', () => import('$lib/components/desktop-interface/master/tasks/DailyChecklistWindow.svelte'));
+	const ErpEntries = lazyWindowComponent('ErpEntries', () => import('$lib/components/desktop-interface/master/tasks/ErpEntries.svelte'));
+	const PushNotificationSettings = lazyWindowComponent('PushNotificationSettings', () => import('$lib/components/common/PushNotificationSettings.svelte'));
+	const CreateNotification = lazyWindowComponent('CreateNotification', () => import('$lib/components/desktop-interface/master/communication/CreateNotification.svelte'));
+	const ProductRequestDesktop = lazyWindowComponent('ProductRequestDesktop', () => import('$lib/components/desktop-interface/master/stock/ProductRequestDesktop.svelte'));
+	const PORequestsList = lazyWindowComponent('PORequestsList', () => import('$lib/components/desktop-interface/master/stock/PORequestsList.svelte'));
+	const StockRequestsList = lazyWindowComponent('StockRequestsList', () => import('$lib/components/desktop-interface/master/stock/StockRequestsList.svelte'));
+	const BTRequestsList = lazyWindowComponent('BTRequestsList', () => import('$lib/components/desktop-interface/master/stock/BTRequestsList.svelte'));
+	const NearExpiryRequestsList = lazyWindowComponent('NearExpiryRequestsList', () => import('$lib/components/desktop-interface/master/stock/NearExpiryRequestsList.svelte'));
+	const CustomerProductRequestsList = lazyWindowComponent('CustomerProductRequestsList', () => import('$lib/components/desktop-interface/master/stock/CustomerProductRequestsList.svelte'));
+	const ErpProductsList = lazyWindowComponent('ErpProductsList', () => import('$lib/components/desktop-interface/master/stock/ErpProductsList.svelte'));
+	const OfferCostManager = lazyWindowComponent('OfferCostManager', () => import('$lib/components/desktop-interface/master/stock/OfferCostManager.svelte'));
+	const ProductClaimManager = lazyWindowComponent('ProductClaimManager', () => import('$lib/components/desktop-interface/master/stock/ProductClaimManager.svelte'));
+	const ExpiryControl = lazyWindowComponent('ExpiryControl', () => import('$lib/components/desktop-interface/master/stock/ExpiryControl.svelte'));
+	const ActionFollowUps = lazyWindowComponent('ActionFollowUps', () => import('$lib/components/desktop-interface/master/vendor/ActionFollowUps.svelte'));
+	const WADashboard = lazyWindowComponent('WADashboard', () => import('$lib/components/desktop-interface/whatsapp/WADashboard.svelte'));
+	const WALiveChat = lazyWindowComponent('WALiveChat', () => import('$lib/components/desktop-interface/whatsapp/WALiveChat.svelte'));
+	const WABroadcasts = lazyWindowComponent('WABroadcasts', () => import('$lib/components/desktop-interface/whatsapp/WABroadcasts.svelte'));
+	const WATemplates = lazyWindowComponent('WATemplates', () => import('$lib/components/desktop-interface/whatsapp/WATemplates.svelte'));
+	const WAContacts = lazyWindowComponent('WAContacts', () => import('$lib/components/desktop-interface/whatsapp/WAContacts.svelte'));
+	const WAAutoReplyBot = lazyWindowComponent('WAAutoReplyBot', () => import('$lib/components/desktop-interface/whatsapp/WAAutoReplyBot.svelte'));
+	const AIReply = lazyWindowComponent('AIReply', () => import('$lib/components/desktop-interface/whatsapp/AIReply.svelte'));
+	const WAAccounts = lazyWindowComponent('WAAccounts', () => import('$lib/components/desktop-interface/whatsapp/WAAccounts.svelte'));
+	const WASettings = lazyWindowComponent('WASettings', () => import('$lib/components/desktop-interface/whatsapp/WASettings.svelte'));
+	const WACatalog = lazyWindowComponent('WACatalog', () => import('$lib/components/desktop-interface/whatsapp/WACatalog.svelte'));
+	const InternalWAAccounts = lazyWindowComponent('InternalWAAccounts', () => import('$lib/components/desktop-interface/whatsapp/InternalWAAccounts.svelte'));
+	const InternalWAContacts = lazyWindowComponent('InternalWAContacts', () => import('$lib/components/desktop-interface/whatsapp/InternalWAContacts.svelte'));
 
 	// Email Module Imports
-	import EmailDashboard from '$lib/components/desktop-interface/email/EmailDashboard.svelte';
-	import EmailAccounts from '$lib/components/desktop-interface/email/EmailAccounts.svelte';
-	import EmailTemplates from '$lib/components/desktop-interface/email/EmailTemplates.svelte';
-	import EmailSignatures from '$lib/components/desktop-interface/email/EmailSignatures.svelte';
-	import EmailGroups from '$lib/components/desktop-interface/email/EmailGroups.svelte';
-	import EmailSettings from '$lib/components/desktop-interface/email/EmailSettings.svelte';
-	import EmailAISettings from '$lib/components/desktop-interface/email/EmailAISettings.svelte';
-	import EmailCentre from '$lib/components/desktop-interface/email/EmailCentre.svelte';
-	import EmailCompose from '$lib/components/desktop-interface/email/EmailCompose.svelte';
-	import EmailBroadcast from '$lib/components/desktop-interface/email/EmailBroadcast.svelte';
-	import EmailQueue from '$lib/components/desktop-interface/email/EmailQueue.svelte';
-	import EmailScheduled from '$lib/components/desktop-interface/email/EmailScheduled.svelte';
-	import EmailLogs from '$lib/components/desktop-interface/email/EmailLogs.svelte';
-	import EmailDeliveryReports from '$lib/components/desktop-interface/email/EmailDeliveryReports.svelte';
-	import EmailCampaignReports from '$lib/components/desktop-interface/email/EmailCampaignReports.svelte';
-	import EmailFailed from '$lib/components/desktop-interface/email/EmailFailed.svelte';
-	import EmailSetupGuide from '$lib/components/desktop-interface/email/EmailSetupGuide.svelte';
-	import CreateCompany from '$lib/components/desktop-interface/master/company/CreateCompany.svelte';
+	const EmailDashboard = lazyWindowComponent('EmailDashboard', () => import('$lib/components/desktop-interface/email/EmailDashboard.svelte'));
+	const EmailAccounts = lazyWindowComponent('EmailAccounts', () => import('$lib/components/desktop-interface/email/EmailAccounts.svelte'));
+	const EmailTemplates = lazyWindowComponent('EmailTemplates', () => import('$lib/components/desktop-interface/email/EmailTemplates.svelte'));
+	const EmailSignatures = lazyWindowComponent('EmailSignatures', () => import('$lib/components/desktop-interface/email/EmailSignatures.svelte'));
+	const EmailGroups = lazyWindowComponent('EmailGroups', () => import('$lib/components/desktop-interface/email/EmailGroups.svelte'));
+	const EmailSettings = lazyWindowComponent('EmailSettings', () => import('$lib/components/desktop-interface/email/EmailSettings.svelte'));
+	const EmailAISettings = lazyWindowComponent('EmailAISettings', () => import('$lib/components/desktop-interface/email/EmailAISettings.svelte'));
+	const EmailCentre = lazyWindowComponent('EmailCentre', () => import('$lib/components/desktop-interface/email/EmailCentre.svelte'));
+	const EmailCompose = lazyWindowComponent('EmailCompose', () => import('$lib/components/desktop-interface/email/EmailCompose.svelte'));
+	const EmailBroadcast = lazyWindowComponent('EmailBroadcast', () => import('$lib/components/desktop-interface/email/EmailBroadcast.svelte'));
+	const EmailQueue = lazyWindowComponent('EmailQueue', () => import('$lib/components/desktop-interface/email/EmailQueue.svelte'));
+	const EmailScheduled = lazyWindowComponent('EmailScheduled', () => import('$lib/components/desktop-interface/email/EmailScheduled.svelte'));
+	const EmailLogs = lazyWindowComponent('EmailLogs', () => import('$lib/components/desktop-interface/email/EmailLogs.svelte'));
+	const EmailDeliveryReports = lazyWindowComponent('EmailDeliveryReports', () => import('$lib/components/desktop-interface/email/EmailDeliveryReports.svelte'));
+	const EmailCampaignReports = lazyWindowComponent('EmailCampaignReports', () => import('$lib/components/desktop-interface/email/EmailCampaignReports.svelte'));
+	const EmailFailed = lazyWindowComponent('EmailFailed', () => import('$lib/components/desktop-interface/email/EmailFailed.svelte'));
+	const EmailSetupGuide = lazyWindowComponent('EmailSetupGuide', () => import('$lib/components/desktop-interface/email/EmailSetupGuide.svelte'));
+	const CreateCompany = lazyWindowComponent('CreateCompany', () => import('$lib/components/desktop-interface/master/company/CreateCompany.svelte'));
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
@@ -614,7 +614,7 @@
 		ControlsReports: ["PC_LOCK_GUARD"],
 		SystemDashboard: [],
 		SystemManage: ["ERP_PRODUCT_MANAGER","ERP_CREDENTIALS","SETTINGS","BRANDING"],
-		SystemOperations: ["HELPER_APPS","AI_AGENT_TASKS","SIDEBAR_ANIMATION"],
+		SystemOperations: ["HELPER_APPS","AI_AGENT_TASKS"],
 		SystemReports: ["CENTRAL_PERFORMANCE","DRAWER_ACTION_MONITOR"],
 		WhatsAppDashboard: ["WA_DASHBOARD"],
 		WhatsAppManage: ["WA_ACCOUNTS","WA_TEMPLATES","WA_CONTACTS","WA_CATALOG","WA_SETTINGS"],
@@ -2204,29 +2204,6 @@ function openApprovalCenter() {
 			icon: '📷',
 			size: { width: 1250, height: 760 },
 			position: { x: 130 + (Math.random() * 100), y: 80 + (Math.random() * 100) },
-			resizable: true,
-			minimizable: true,
-			maximizable: true,
-			closable: true
-		});
-		collapseAllSubsections();
-	}
-
-	function openSidebarAnimationManager() {
-		const windowId = generateWindowId('sidebar-animation-manager');
-		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-
-		openWindow({
-			id: windowId,
-			title: `${t('nav.sidebarAnimation') || 'Sidebar Animation'} #${instanceNumber}`,
-			component: SidebarAnimationManager,
-			componentName: 'SidebarAnimationManager',
-			icon: '🎭',
-			size: { width: 780, height: 650 },
-			position: {
-				x: 130 + (Math.random() * 100),
-				y: 80 + (Math.random() * 100)
-			},
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
@@ -7011,14 +6988,6 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if isButtonAllowed('SIDEBAR_ANIMATION')}
-						<div class="submenu-item-container">
-							<button class="submenu-item" on:click={openSidebarAnimationManager}>
-								<span class="menu-icon">🎭</span>
-								<span class="menu-text">{t('nav.sidebarAnimation') || 'Sidebar Animation'}</span>
-							</button>
-						</div>
-					{/if}
 				</div>
 			{/if}
 
@@ -7533,11 +7502,6 @@ function openApprovalCenter() {
 		{/if}
 	</div>
 	{/if}
-
-	<!-- AI Chat Character -->
-	<div class="sidebar-character">
-		<DancingCharacter />
-	</div>
 
 	</div>
 
@@ -8286,17 +8250,6 @@ function openApprovalCenter() {
 			inset 0 1px 0 rgba(255, 255, 255, 0.12),
 			inset 0 -1px 0 rgba(0, 0, 0, 0.1);
 		flex-shrink: 0;
-	}
-
-	.sidebar-character {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 4px 0;
-		margin-top: auto;
-		flex-shrink: 0;
-		position: relative;
-		overflow: visible;
 	}
 
 	.sidebar.favorites-mode .bottom-controls-row {

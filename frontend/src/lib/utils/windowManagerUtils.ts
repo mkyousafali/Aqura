@@ -1,5 +1,6 @@
 import { windowManager } from "$lib/stores/windowManager";
 import type { WindowConfig } from "$lib/stores/windowManager";
+import { isLazyWindowComponent } from "$lib/utils/lazyWindowComponent";
 
 /**
  * Check if we're running inside a popout iframe
@@ -39,11 +40,13 @@ export function openWindow(
 ) {
   // If we're in a popout iframe, send the request to the main app
   if (isInPopoutContext()) {
-    const componentName = (config as any).componentName || config.component?.name || "";
+    const componentName = isLazyWindowComponent(config.component)
+      ? config.component.name
+      : config.componentName || config.component?.name || "";
     console.log("🪟 Popout context detected - sending open-window request:", componentName);
 
     // Strip non-serializable component reference
-    const { component, ...serializableConfig } = config;
+    const { component, ...serializableConfig } = { ...config, componentName };
     const message = {
       type: "open-window-from-popout",
       windowConfig: serializableConfig,

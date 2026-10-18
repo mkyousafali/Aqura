@@ -6342,20 +6342,6 @@ COMMENT ON FUNCTION public.deactivate_expired_media() IS 'Automatically deactiva
 
 
 --
--- Name: deactivate_sidebar_animation(uuid); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.deactivate_sidebar_animation(animation_id uuid) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-BEGIN
-    UPDATE public.sidebar_animations SET is_active = false WHERE id = animation_id AND is_active = true;
-END;
-$$;
-
-
---
 -- Name: debug_users(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6712,20 +6698,6 @@ $$;
 --
 
 COMMENT ON FUNCTION public.delete_salary_statement_edit_log_permission(p_requesting_user_id uuid, p_target_user_id uuid) IS 'Master-Admin-only removal of a user''s Edit/Log grant. Used by SalaryStatementPermissionsModal instead of a direct table delete.';
-
-
---
--- Name: delete_sidebar_animation(uuid); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.delete_sidebar_animation(animation_id uuid) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-BEGIN
-    DELETE FROM public.sidebar_animations WHERE id = animation_id;
-END;
-$$;
 
 
 --
@@ -9370,18 +9342,6 @@ BEGIN
         )
     ORDER BY o.priority DESC, o.created_at DESC;
 END;
-$$;
-
-
---
--- Name: get_active_sidebar_animation(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.get_active_sidebar_animation() RETURNS text
-    LANGUAGE sql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-    SELECT file_url FROM public.sidebar_animations WHERE is_active = true LIMIT 1;
 $$;
 
 
@@ -20612,20 +20572,6 @@ $$;
 
 
 --
--- Name: insert_sidebar_animation(text, text); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.insert_sidebar_animation(anim_name text, anim_url text) RETURNS uuid
-    LANGUAGE sql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-    INSERT INTO public.sidebar_animations (name, file_url, is_active)
-    VALUES (anim_name, anim_url, false)
-    RETURNING id;
-$$;
-
-
---
 -- Name: insert_vendor_from_excel(character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -20971,20 +20917,6 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     RETURN jsonb_build_object('success', false, 'error', SQLERRM);
 END;
-$$;
-
-
---
--- Name: list_sidebar_animations(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.list_sidebar_animations() RETURNS TABLE(id uuid, name text, file_url text, is_active boolean, uploaded_at timestamp with time zone)
-    LANGUAGE sql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-    SELECT id, name, file_url, is_active, uploaded_at
-    FROM public.sidebar_animations
-    ORDER BY uploaded_at DESC;
 $$;
 
 
@@ -23777,21 +23709,6 @@ BEGIN
     END LOOP;
 
     RETURN v_notification_id;
-END;
-$$;
-
-
---
--- Name: set_active_sidebar_animation(uuid); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.set_active_sidebar_animation(animation_id uuid) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-BEGIN
-    UPDATE public.sidebar_animations SET is_active = false WHERE is_active = true;
-    UPDATE public.sidebar_animations SET is_active = true WHERE id = animation_id;
 END;
 $$;
 
@@ -39330,19 +39247,6 @@ COMMENT ON COLUMN public.shelf_paper_templates.metadata IS 'Stores template meta
 
 
 --
--- Name: sidebar_animations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sidebar_animations (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name text NOT NULL,
-    file_url text NOT NULL,
-    is_active boolean DEFAULT false,
-    uploaded_at timestamp with time zone DEFAULT now()
-);
-
-
---
 -- Name: social_links; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -43924,14 +43828,6 @@ ALTER TABLE ONLY public.shelf_paper_fonts
 
 ALTER TABLE ONLY public.shelf_paper_templates
     ADD CONSTRAINT shelf_paper_templates_pkey PRIMARY KEY (id);
-
-
---
--- Name: sidebar_animations sidebar_animations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sidebar_animations
-    ADD CONSTRAINT sidebar_animations_pkey PRIMARY KEY (id);
 
 
 --
@@ -50588,13 +50484,6 @@ CREATE INDEX settlement_rules_rule_type_idx ON public.settlement_rules USING btr
 
 
 --
--- Name: sidebar_animations_active_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX sidebar_animations_active_unique ON public.sidebar_animations USING btree (is_active) WHERE (is_active = true);
-
-
---
 -- Name: surprise_box_settings_singleton; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -56838,13 +56727,6 @@ CREATE POLICY "Allow service role to manage sales data" ON public.erp_daily_sale
 
 
 --
--- Name: sidebar_animations Anyone can read sidebar_animations; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Anyone can read sidebar_animations" ON public.sidebar_animations FOR SELECT USING (true);
-
-
---
 -- Name: app_icons Anyone can view app icons; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -57074,13 +56956,6 @@ CREATE POLICY "Public can view active offer products" ON public.offer_products F
 --
 
 CREATE POLICY "Service role can insert reminder logs" ON public.task_reminder_logs FOR INSERT WITH CHECK (true);
-
-
---
--- Name: sidebar_animations Service role can manage sidebar_animations; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Service role can manage sidebar_animations" ON public.sidebar_animations USING (true) WITH CHECK (true);
 
 
 --
@@ -63747,12 +63622,6 @@ ALTER TABLE public.shelf_paper_fonts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shelf_paper_templates ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: sidebar_animations; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.sidebar_animations ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: social_links; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -65157,14 +65026,6 @@ GRANT ALL ON FUNCTION public.deactivate_expired_media() TO anon;
 
 
 --
--- Name: FUNCTION deactivate_sidebar_animation(animation_id uuid); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.deactivate_sidebar_animation(animation_id uuid) TO authenticated;
-GRANT ALL ON FUNCTION public.deactivate_sidebar_animation(animation_id uuid) TO anon;
-
-
---
 -- Name: FUNCTION debug_users(); Type: ACL; Schema: public; Owner: -
 --
 
@@ -65269,13 +65130,6 @@ GRANT ALL ON FUNCTION public.delete_my_task(p_id bigint, p_user_id uuid) TO anon
 
 GRANT ALL ON FUNCTION public.delete_receiving_records_permission(p_requesting_user_id uuid, p_target_user_id uuid) TO anon;
 GRANT ALL ON FUNCTION public.delete_receiving_records_permission(p_requesting_user_id uuid, p_target_user_id uuid) TO authenticated;
-
-
---
--- Name: FUNCTION delete_sidebar_animation(animation_id uuid); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.delete_sidebar_animation(animation_id uuid) TO authenticated;
 
 
 --
@@ -65594,14 +65448,6 @@ GRANT ALL ON FUNCTION public.get_active_offers(p_branch_id bigint) TO service_ro
 GRANT ALL ON FUNCTION public.get_active_offers_for_customer(p_customer_id uuid, p_branch_id integer, p_service_type character varying) TO authenticated;
 GRANT ALL ON FUNCTION public.get_active_offers_for_customer(p_customer_id uuid, p_branch_id integer, p_service_type character varying) TO service_role;
 GRANT ALL ON FUNCTION public.get_active_offers_for_customer(p_customer_id uuid, p_branch_id integer, p_service_type character varying) TO anon;
-
-
---
--- Name: FUNCTION get_active_sidebar_animation(); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.get_active_sidebar_animation() TO authenticated;
-GRANT ALL ON FUNCTION public.get_active_sidebar_animation() TO anon;
 
 
 --
@@ -67223,14 +67069,6 @@ GRANT ALL ON FUNCTION public.insert_order_items(p_order_items jsonb) TO anon;
 
 
 --
--- Name: FUNCTION insert_sidebar_animation(anim_name text, anim_url text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.insert_sidebar_animation(anim_name text, anim_url text) TO authenticated;
-GRANT ALL ON FUNCTION public.insert_sidebar_animation(anim_name text, anim_url text) TO anon;
-
-
---
 -- Name: FUNCTION insert_vendor_from_excel(p_erp_vendor_code character varying, p_vendor_name character varying, p_vat_number character varying); Type: ACL; Schema: public; Owner: -
 --
 
@@ -67334,14 +67172,6 @@ GRANT ALL ON FUNCTION public.list_salary_statement_logs(p_requesting_user_id uui
 GRANT ALL ON FUNCTION public.list_salary_statements() TO authenticated;
 GRANT ALL ON FUNCTION public.list_salary_statements() TO anon;
 GRANT ALL ON FUNCTION public.list_salary_statements() TO service_role;
-
-
---
--- Name: FUNCTION list_sidebar_animations(); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.list_sidebar_animations() TO authenticated;
-GRANT ALL ON FUNCTION public.list_sidebar_animations() TO anon;
 
 
 --
@@ -67702,13 +67532,6 @@ GRANT ALL ON FUNCTION public.select_random_product(p_campaign_id uuid) TO anon;
 
 GRANT ALL ON FUNCTION public.send_order_notification(p_order_id uuid, p_title text, p_message text, p_type text, p_priority text, p_performed_by uuid, p_target_user_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.send_order_notification(p_order_id uuid, p_title text, p_message text, p_type text, p_priority text, p_performed_by uuid, p_target_user_id uuid) TO anon;
-
-
---
--- Name: FUNCTION set_active_sidebar_animation(animation_id uuid); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.set_active_sidebar_animation(animation_id uuid) TO authenticated;
 
 
 --
@@ -71952,16 +71775,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.shelf_paper_templates TO anon;
 GRANT SELECT ON TABLE public.shelf_paper_templates TO authenticated;
 GRANT ALL ON TABLE public.shelf_paper_templates TO service_role;
 GRANT SELECT ON TABLE public.shelf_paper_templates TO replication_user;
-
-
---
--- Name: TABLE sidebar_animations; Type: ACL; Schema: public; Owner: -
---
-
-GRANT SELECT ON TABLE public.sidebar_animations TO anon;
-GRANT SELECT ON TABLE public.sidebar_animations TO authenticated;
-GRANT ALL ON TABLE public.sidebar_animations TO service_role;
-GRANT SELECT ON TABLE public.sidebar_animations TO replication_user;
 
 
 --

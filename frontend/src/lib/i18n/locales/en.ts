@@ -506,7 +506,6 @@ export const englishLocale: LocaleData = {
       helperApps: "Helper Apps",
       aiAgentTasks: "AI Agent Tasks",
       pendingScanRequests: "Pending Scan Requests",
-      sidebarAnimation: "Sidebar Animation",
       receiving: "Receiving",
       receivingRecords: "Receiving Records",
       flyerMaster: "Flyer Master",
@@ -4049,6 +4048,7 @@ export const englishLocale: LocaleData = {
       chooseBranch: "Choose Branch",
       selectBranch: "Select Branch",
       error: "An error occurred",
+      windowLoadError: "This window could not be loaded. Please try again.",
       retry: "Retry",
       records: "records",
       action: "Action",
@@ -5855,22 +5855,6 @@ export const englishLocale: LocaleData = {
           no: "No"
         }
       }
-    },
-    animManager: {
-      title: "Sidebar Animation Manager",
-      subtitle: "Upload and manage the sidebar dancing character animation",
-      uploadNew: "Upload New Animation",
-      uploading: "Uploading...",
-      dropHere: "Click to select a .lottie or .json animation file",
-      animations: "Animations",
-      noAnimations: "No animations uploaded yet.",
-      active: "Active",
-      activate: "Activate",
-      deactivate: "Deactivate",
-      preview: "Preview",
-      previewNote: "Preview requires dotlottie-player. The sidebar uses the @lottiefiles/dotlottie-web renderer.",
-      uploadSuccess: "Animation uploaded successfully!",
-      setActiveSuccess: "Animation activated! Reload sidebar to apply.",
     },
     actionFollowUps: {
       po: "PO",

@@ -508,7 +508,6 @@ export const arabicLocale: LocaleData = {
       helperApps: "التطبيقات المساعدة",
       aiAgentTasks: "مهام وكيل الذكاء الاصطناعي",
       pendingScanRequests: "طلبات المسح المعلقة",
-      sidebarAnimation: "رسوم الشريط الجانبي",
       receiving: "الاستلام",
       receivingRecords: "سجلات الاستلام",
       flyerMaster: "رئيسي النشرات",
@@ -4070,6 +4069,7 @@ export const arabicLocale: LocaleData = {
       chooseBranch: "اختر الفرع",
       selectBranch: "اختر الفرع",
       error: "حدث خطأ",
+      windowLoadError: "تعذر تحميل هذه النافذة. يرجى إعادة المحاولة.",
       retry: "إعادة المحاولة",
       records: "سجلات",
       action: "الإجراء",
@@ -5894,22 +5894,6 @@ export const arabicLocale: LocaleData = {
           no: "لا"
         }
       }
-    },
-    animManager: {
-      title: "مدير رسوم الشريط الجانبي",
-      subtitle: "رفع وإدارة رسوم متحركة الشخصية الراقصة في الشريط الجانبي",
-      uploadNew: "رفع رسوم متحركة جديدة",
-      uploading: "جارٍ الرفع...",
-      dropHere: "انقر لاختيار ملف رسوم متحركة .lottie أو .json",
-      animations: "الرسوم المتحركة",
-      noAnimations: "لا توجد رسوم متحركة محملة بعد.",
-      active: "نشط",
-      activate: "تفعيل",
-      deactivate: "إلغاء التفعيل",
-      preview: "معاينة",
-      previewNote: "تتطلب المعاينة dotlottie-player. يستخدم الشريط الجانبي معالج @lottiefiles/dotlottie-web.",
-      uploadSuccess: "تم رفع الرسوم المتحركة بنجاح!",
-      setActiveSuccess: "تم تفعيل الرسوم المتحركة! أعد تحميل الشريط الجانبي لتطبيق التغييرات.",
     },
     actionFollowUps: {
       po: "أوامر الشراء",

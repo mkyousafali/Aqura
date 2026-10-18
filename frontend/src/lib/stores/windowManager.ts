@@ -1,10 +1,11 @@
 import { writable, derived, get } from "svelte/store";
 import type { Writable, Readable } from "svelte/store";
+import { isLazyWindowComponent } from "$lib/utils/lazyWindowComponent";
 
 export interface WindowConfig {
   id: string;
   title: string;
-  component: any; // Svelte component
+  component: any; // Svelte component or a lazy window component descriptor
   componentName?: string; // Explicit component name for pop-out serialization
   props?: Record<string, any>;
   icon?: string;
@@ -105,7 +106,9 @@ class WindowManager {
       id: windowId,
       title: config.title,
       component: config.component,
-      componentName: config.componentName,
+      componentName: isLazyWindowComponent(config.component)
+        ? config.component.name
+        : config.componentName,
       props: config.props || {},
       icon: config.icon,
       position: config.position || defaultPosition,

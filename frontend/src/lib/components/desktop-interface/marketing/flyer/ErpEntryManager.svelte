@@ -1,10 +1,7 @@
 <script lang="ts">
 	import { supabase } from '\$lib/utils/supabase';
 	import { onMount, tick } from 'svelte';
-	import * as XLSX from 'xlsx';
 	import JsBarcode from 'jsbarcode';
-	import ExcelJS from 'exceljs';
-	import JSZip from 'jszip';
 	
 	let activeOffers: any[] = [];
 	let selectedOfferId: string | null = null;
@@ -393,6 +390,7 @@
 		const selectedOffer = getSelectedOffer();
 		
 		// Create a new workbook
+		const { default: ExcelJS } = await import('exceljs');
 		const workbook = new ExcelJS.Workbook();
 		const worksheet = workbook.addWorksheet('Products');
 		
@@ -507,6 +505,7 @@
 		
 		reader.onload = async (e) => {
 			try {
+				const XLSX = await import('xlsx');
 				const data = e.target?.result;
 				const workbook = XLSX.read(data, { type: 'binary' });
 				const sheetName = workbook.SheetNames[0];
@@ -2291,6 +2290,7 @@
 			return;
 		}
 
+		const { default: ExcelJS } = await import('exceljs');
 		const workbook = new ExcelJS.Workbook();
 		const worksheet = workbook.addWorksheet('Export for Entry');
 
@@ -2409,6 +2409,7 @@
 
 		// --- Also export separate XLSX files per offer type, bundled in a ZIP ---
 		try {
+			const { default: JSZip } = await import('jszip');
 			const zip = new JSZip();
 			const selectedOffer2 = getSelectedOffer();
 			const folderName = selectedOffer2
@@ -2511,6 +2512,7 @@
 			return;
 		}
 
+		const { default: ExcelJS } = await import('exceljs');
 		const workbook = new ExcelJS.Workbook();
 		const worksheet = workbook.addWorksheet('Export for Design');
 

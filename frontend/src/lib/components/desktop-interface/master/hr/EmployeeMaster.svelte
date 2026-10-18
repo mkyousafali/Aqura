@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t, locale } from '$lib/i18n';
-	import ExcelJS from 'exceljs';
 	import { currentUser } from '$lib/utils/persistentAuth';
 
 	let supabase: any = null;
@@ -390,6 +389,7 @@
 				return;
 			}
 
+			const { default: ExcelJS } = await import('exceljs');
 			const workbook = new ExcelJS.Workbook();
 			const sheet = workbook.addWorksheet('Employees');
 

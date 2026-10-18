@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { windowManager, type WindowConfig } from '$lib/stores/windowManager';
 	import { sidebar } from '$lib/stores/sidebar';
+	import LazyWindowContent from './LazyWindowContent.svelte';
+	import { isLazyWindowComponent } from '$lib/utils/lazyWindowComponent';
 	
 	export let window: WindowConfig;
 	
@@ -365,7 +367,11 @@
 	<!-- Window Content -->
 	<div class="window-content">
 		{#key window.refreshKey}
-			<svelte:component this={window.component} {...window.props} />
+			{#if isLazyWindowComponent(window.component)}
+				<LazyWindowContent component={window.component} componentProps={window.props || {}} />
+			{:else}
+				<svelte:component this={window.component} {...window.props} />
+			{/if}
 		{/key}
 	</div>
 

@@ -2,7 +2,6 @@
 	import { onMount, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
-	import html2canvas from 'html2canvas';
 	import { notificationService } from '$lib/utils/notificationManagement';
 	import { iconUrlMap } from '$lib/stores/iconStore';
 
@@ -602,6 +601,7 @@
 			
 			savingProgress = 20;
 			savingStatus = 'Capturing image...';
+			const { default: html2canvas } = await import('html2canvas');
 			const canvas = await html2canvas(template, {
 				scale: 2,
 				backgroundColor: '#ffffff',

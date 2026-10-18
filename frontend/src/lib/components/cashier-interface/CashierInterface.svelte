@@ -5,7 +5,6 @@
 	import WindowManager from '$lib/components/common/WindowManager.svelte';
 	import CashierTaskbar from '$lib/components/cashier-interface/CashierTaskbar.svelte';
 	import { cashierVersion } from '$lib/appVersion';
-	import DancingCharacter from '$lib/components/desktop-interface/common/DancingCharacter.svelte';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import CouponRedemption from '$lib/components/cashier-interface/CouponRedemption.svelte';
@@ -138,11 +137,6 @@
 		<WindowManager />
 	</main>
 
-	<!-- Dancing Character -->
-	<div class="cashier-dancing-character">
-		<DancingCharacter />
-	</div>
-
 	<!-- Cashier Taskbar -->
 	<CashierTaskbar 
 		{user} 
@@ -200,14 +194,6 @@
 		68% { right: 4%; bottom: 28%; opacity: .36; transform: scale(.94); }
 		80% { opacity: 0; }
 		100% { right: -14%; bottom: -42%; opacity: .65; transform: scale(1); }
-	}
-
-	.cashier-dancing-character {
-		position: fixed;
-		bottom: 56px;
-		left: 16px;
-		z-index: 100;
-		pointer-events: auto;
 	}
 
 	/* Main Area */

@@ -22,12 +22,14 @@
 	import { handleUserLogin } from '$lib/utils/mobileLoginHelper';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
+	import { isLazyWindowComponent, lazyWindowComponent } from '$lib/utils/lazyWindowComponent';
 	import { initPWAInstall } from '$lib/stores/pwaInstall';
 	import { updateAvailable, triggerUpdate } from '$lib/stores/appUpdate';
 	// import { cacheManager } from '$lib/utils/cacheManager'; // Removed - cacheManager deleted
 	import { startNotificationListener } from '$lib/stores/notifications';
-	import NotificationWindow from '$lib/components/desktop-interface/master/communication/NotificationWindow.svelte';
 	import { initPreload } from '$lib/utils/preload';
+
+	const NotificationWindow = lazyWindowComponent('NotificationWindow', () => import('$lib/components/desktop-interface/master/communication/NotificationWindow.svelte'));
 
 	// Import task badge debug utilities in development
 	if (import.meta.env.DEV) {
@@ -134,9 +136,11 @@
 	}
 	
 	// Build component loader map from all desktop-interface components (auto-discovery)
-	const _componentModules = import.meta.glob(
-		'../../lib/components/desktop-interface/**/*.svelte'
-	);
+	const _componentModules = import.meta.glob([
+		'../../lib/components/desktop-interface/**/*.svelte',
+		'../../lib/components/common/LoginSessions.svelte',
+		'../../lib/components/common/PushNotificationSettings.svelte'
+	]);
 	const componentLoaderMap: Record<string, () => Promise<any>> = {};
 	for (const [path, loader] of Object.entries(_componentModules)) {
 		const match = path.match(/([^/\\]+)\.svelte$/);
@@ -300,7 +304,7 @@
 						const windowData = {
 							id: targetWindow.id,
 							title: targetWindow.title,
-							componentName: targetWindow.component?.name || 'UnknownComponent',
+							componentName: targetWindow.componentName || targetWindow.component?.name || 'UnknownComponent',
 							props: targetWindow.props || {},
 							icon: targetWindow.icon,
 							size: targetWindow.size
@@ -375,8 +379,10 @@
 			window.windowManagerProxy = {
 				openWindow: (config) => {
 					// Extract componentName since component (Svelte class) can't be serialized
-					const componentName = config.componentName || config.component?.name || '';
-					const { component, ...serializableConfig } = config;
+					const componentName = isLazyWindowComponent(config.component)
+						? config.component.name
+						: config.componentName || config.component?.name || '';
+					const { component, ...serializableConfig } = { ...config, componentName };
 					const message = {
 						type: 'open-window-from-popout',
 						windowConfig: serializableConfig,
@@ -948,6 +954,7 @@
 			id: windowId,
 			title: notificationId ? 'Notifications - Specific Item' : 'Notifications',
 			component: NotificationWindow,
+			componentName: 'NotificationWindow',
 			props: {
 				targetNotificationId: notificationId
 			},
@@ -1261,74 +1268,6 @@
 		font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 		overflow: auto; /* Allow scrolling on mobile */
 		position: relative;
-	}
-
-	.app::before {
-		content: '';
-		position: fixed;
-		left: 12%;
-		top: -34%;
-		width: 760px;
-		height: 760px;
-		border: 0;
-		border-radius: 50%;
-		background:
-			radial-gradient(circle at 64% 68%, rgba(78, 230, 240, 0.22), rgba(14, 145, 184, 0.10) 46%, transparent 71%);
-		box-shadow:
-			0 0 150px rgba(32, 203, 228, 0.20);
-		filter: blur(5px);
-		pointer-events: none;
-		z-index: 0;
-		animation: desktopAuroraOne 24s ease-in-out infinite;
-	}
-
-	.app::after {
-		content: '';
-		position: fixed;
-		right: -14%;
-		bottom: -42%;
-		width: 920px;
-		height: 920px;
-		border: 0;
-		border-radius: 50%;
-		background:
-			radial-gradient(circle at 36% 30%, rgba(36, 205, 224, 0.24), rgba(6, 106, 154, 0.12) 48%, transparent 72%);
-		box-shadow:
-			0 0 170px rgba(17, 143, 185, 0.24);
-		filter: blur(7px);
-		pointer-events: none;
-		z-index: 0;
-		animation: desktopAuroraTwo 31s ease-in-out infinite;
-	}
-
-	@keyframes desktopAuroraOne {
-		0% { left: 12%; top: -34%; opacity: 0; transform: scale(0.78); }
-		12% { opacity: 0.82; }
-		34% { left: 42%; top: 4%; opacity: 0.48; transform: scale(1.04); }
-		49% { opacity: 0; }
-		62% { left: -8%; top: 36%; opacity: 0; transform: scale(0.72); }
-		74% { opacity: 0.72; }
-		90% { left: 26%; top: 16%; opacity: 0.38; transform: scale(0.92); }
-		100% { left: 12%; top: -34%; opacity: 0; transform: scale(0.78); }
-	}
-
-	@keyframes desktopAuroraTwo {
-		0% { right: -14%; bottom: -42%; opacity: 0.65; transform: scale(1); }
-		20% { opacity: 0; }
-		36% { right: 38%; bottom: 8%; opacity: 0; transform: scale(0.72); }
-		49% { opacity: 0.7; }
-		68% { right: 4%; bottom: 28%; opacity: 0.36; transform: scale(0.94); }
-		80% { opacity: 0; }
-		92% { right: 54%; bottom: -18%; opacity: 0.52; transform: scale(0.82); }
-		100% { right: -14%; bottom: -42%; opacity: 0.65; transform: scale(1); }
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.app::before,
-		.app::after {
-			animation: none;
-			opacity: 0.55;
-		}
 	}
 
 	.desktop {
