@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { currentUser } from '$lib/utils/persistentAuth';
+	import PermissionSectionIcon from './PermissionSectionIcon.svelte';
 
 	// ── State ──
 	let selectedBranch = '';
@@ -88,19 +89,23 @@
 	// (see [[button-permission-system-rewrite]]), which itself mirrors the
 	// live sidebar's SECTIONS/SUBSECTION_CODES and nav.* display strings.
 	const sectionIcons: Record<string, string> = {
+		'Company': '🏢',
 		'Delivery': '🚚',
-		'Sourcing': '🏪',
-		'Designer': '📸',
+		'Sourcing': '📦',
+		'Designer': '🎬',
 		'Campaigns': '🎁',
 		'Finance': '💰',
 		'HR': '👥',
 		'Tasks': '✅',
 		'Users': '👤',
-		'Loyalty': '⭐',
-		'Controls': '🎛️',
+		'Loyalty': '🏆',
+		'Controls': '⚙️',
 		'System': '🖥️',
-		'WhatsApp': '💬',
-		'Email': '📧'
+		// Native select options are text-only; the section headers below
+		// render the original WhatsApp logos through PermissionSectionIcon.
+		'WhatsApp': '',
+		'Internal WhatsApp': '',
+		'Email': '✉️'
 	};
 
 	function scrollToSection(section: string) {
@@ -828,7 +833,7 @@
 								{#each groupedFilteredRows as row (row.key)}
 									{#if row.type === 'section'}
 										<tr class="bg-sky-50/70 border-y border-sky-100" data-section={row.section}>
-											<td class="px-4 py-2 text-[11px] text-sky-700 font-black uppercase tracking-wide" colspan="5">{sectionIcons[row.section] ?? '📋'} {row.section}</td>
+											<td class="px-4 py-2 text-[11px] text-sky-700 font-black uppercase tracking-wide" colspan="5"><PermissionSectionIcon section={row.section} emoji={sectionIcons[row.section] ?? '📋'} /> {row.section}</td>
 										</tr>
 									{:else if row.type === 'subsection'}
 										<tr class="bg-slate-50/70">
@@ -914,7 +919,7 @@
 						{@const sectionOpen = !!buttonWiseSearch.trim() || expandedButtonWiseSections.has(section.name)}
 						<button class="w-full flex items-center gap-2 px-4 py-3 text-left bg-slate-100 hover:bg-slate-200 border-b border-slate-200 text-sm font-black text-slate-700 uppercase tracking-wide" on:click={() => toggleButtonWiseSection(section.name)}>
 							<span class="w-4 text-slate-400">{sectionOpen ? '▾' : '▸'}</span>
-							<span>{sectionIcons[section.name] || '📁'}</span>
+							<PermissionSectionIcon section={section.name} emoji={sectionIcons[section.name] ?? '📁'} />
 							<span class="flex-1">{section.name}</span>
 							<span class="text-[10px] bg-white px-2 py-0.5 rounded-full text-slate-500">{section.subsections.reduce((count, item) => count + item.buttons.length, 0)}</span>
 						</button>

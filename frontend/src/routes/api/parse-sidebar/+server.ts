@@ -37,6 +37,16 @@ function prettyButtonName(code: string): string {
 		WA_CATALOG: 'WhatsApp Catalog',
 		WA_ACCOUNTS: 'WhatsApp Accounts',
 		WA_DASHBOARD: 'WhatsApp Dashboard',
+		INTERNAL_WA_DASHBOARD: 'Dashboard',
+		INTERNAL_WA_LIVE_CHAT: 'Live Chat',
+		INTERNAL_WA_CONTACTS: 'Contacts',
+		INTERNAL_WA_BROADCASTS: 'Broadcasts',
+		INTERNAL_WA_TEMPLATES: 'Templates',
+		INTERNAL_WA_AUTO_REPLY: 'Auto Reply & Flows',
+		INTERNAL_WA_AI_BOT: 'AI Bot',
+		INTERNAL_WA_CATALOG: 'Catalog',
+		INTERNAL_WA_ACCOUNTS: 'Account',
+		INTERNAL_WA_SETTINGS: 'Settings',
 		LC_PLANNER: 'LC Planner',
 		ERP_LEDGERS: 'ERP Ledgers',
 		ERP_ENTRIES: 'ERP Entries',
@@ -215,6 +225,15 @@ const structure: Record<string, Record<string, string[]>> = {
 		OPERATIONS: ['WA_LIVE_CHAT', 'WA_BROADCASTS', 'WA_AUTO_REPLY', 'WA_AI_BOT'],
 		REPORTS: []
 	},
+	INTERNAL_WHATSAPP: {
+		// The internal sidebar is one flat submenu. Preserve its button order
+		// in a separate permission section, independent of customer WhatsApp.
+		OPERATIONS: [
+			'INTERNAL_WA_DASHBOARD', 'INTERNAL_WA_LIVE_CHAT', 'INTERNAL_WA_CONTACTS',
+			'INTERNAL_WA_BROADCASTS', 'INTERNAL_WA_TEMPLATES', 'INTERNAL_WA_AUTO_REPLY',
+			'INTERNAL_WA_AI_BOT', 'INTERNAL_WA_CATALOG', 'INTERNAL_WA_ACCOUNTS', 'INTERNAL_WA_SETTINGS'
+		]
+	},
 	EMAIL: {
 		DASHBOARD: ['EMAIL_DASHBOARD'],
 		MANAGE: ['EMAIL_ACCOUNTS', 'EMAIL_TEMPLATES', 'EMAIL_SIGNATURES', 'EMAIL_GROUPS', 'EMAIL_SETTINGS', 'EMAIL_AI_SETTINGS', 'EMAIL_SETUP_GUIDE'],
@@ -243,6 +262,7 @@ const SECTION_DISPLAY_NAMES: Record<string, string> = {
 	CONTROLS: 'Controls',
 	SYSTEM: 'System',
 	WHATSAPP: 'WhatsApp',
+	INTERNAL_WHATSAPP: 'Internal WhatsApp',
 	EMAIL: 'Email'
 };
 
