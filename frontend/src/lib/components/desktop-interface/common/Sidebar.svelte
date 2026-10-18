@@ -4456,7 +4456,7 @@ function openApprovalCenter() {
 	<div class="menu-section">
 		<button class="section-button" on:click={() => showCompanySubmenu = !showCompanySubmenu}>
 			<span class="section-icon">🏢</span>
-			<span class="section-text">{t('nav.company') || 'Company'}</span>
+			<span class="section-text">{t('nav.master') || 'Master'}</span>
 			<span class="arrow" class:expanded={showCompanySubmenu}>▼</span>
 		</button>
 	</div>

@@ -10,7 +10,7 @@ Commit the intended changes on `master`, then run from the repository root:
 .\deployment\push-and-deploy.cmd
 ```
 
-The process increments Desktop, Mobile, Cashier, and Customer version numbers together, commits the version, builds locally, pushes `master` to the configured `origin`, uploads the release to `8.213.42.21`, switches the active release, and performs a public health check. A failed health check restores the previous release automatically. After success, the server keeps the newest three releases and removes older release directories, stale incoming deployment files, and its dedicated temporary npm cache.
+The process increments the single shared version used by Desktop, Mobile, Cashier, and Customer (for example, `V-AQ86` to `V-AQ87`), commits the version, builds locally, pushes `master` to the configured `origin`, uploads the release to `8.213.42.21`, switches the active release, and performs a public health check. A failed health check restores the previous release automatically. After success, the server keeps the newest three releases and removes older release directories, stale incoming deployment files, and its dedicated temporary npm cache.
 
 ## Test only
 
@@ -37,7 +37,7 @@ SSH access is checked before changing the version or building. Git enforces LF l
 - `AGENTS.md`: mandatory instructions for AI agents and humans
 - `push-and-deploy.cmd`: recommended Windows entry point
 - `push-and-deploy.ps1`: build, package, push, and upload orchestration
-- `bump-version.mjs`: validates and increments all interface versions together
+- `bump-version.mjs`: validates and increments the single shared interface version
 - `activate-release.sh`: atomic server activation, health check, and rollback
 - `websocket-polyfill.mjs`: Node 20 runtime compatibility required by the frontend
 - `urbanaqura.com.http.conf`: bootstrap Nginx proxy used before Certbot enables HTTPS

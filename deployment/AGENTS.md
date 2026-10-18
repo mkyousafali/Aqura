@@ -10,7 +10,7 @@ From the repository root, run:
 .\deployment\push-and-deploy.cmd
 ```
 
-The command must remain the single production deployment entry point. It verifies that the current branch is `master` and that the working tree is clean, increments all four interface version numbers, commits that version, builds the frontend locally, pushes the commit to GitHub, uploads an isolated release through SSH, activates it atomically, tests the public URL, and rolls back if the health check fails. After a healthy deployment, it retains the newest three releases and deletes older deployment files safely.
+The command must remain the single production deployment entry point. It verifies that the current branch is `master` and that the working tree is clean, increments the single shared interface version (for example, `V-AQ86` to `V-AQ87`), commits that version, builds the frontend locally, pushes the commit to GitHub, uploads an isolated release through SSH, activates it atomically, tests the public URL, and rolls back if the health check fails. After a healthy deployment, it retains the newest three releases and deletes older deployment files safely.
 
 Do not manually copy frontend files, upload `.env` files, change DNS, edit Nginx, replace certificates, or restart unrelated services during a routine deployment.
 

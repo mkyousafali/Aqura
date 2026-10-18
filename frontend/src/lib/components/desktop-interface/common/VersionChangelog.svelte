@@ -1,13 +1,13 @@
 <script lang="ts">
 export let onClose: () => void;
-import { appVersion, interfaceVersions } from '$lib/appVersion';
+import { appVersion } from '$lib/appVersion';
 </script>
 
 <div class="version-changelog-window">
 <div class="window-content">
 <div class="version-format">
 <p class="version-title">Version {appVersion}</p>
-<p class="version-details">Desktop: {interfaceVersions.desktop} | Mobile: {interfaceVersions.mobile} | Cashier: {interfaceVersions.cashier} | Customer: {interfaceVersions.customer}</p>
+<p class="version-details">One shared version for Desktop, Mobile, Cashier, and Customer.</p>
 </div>
 
 <!-- App Value Summary -->

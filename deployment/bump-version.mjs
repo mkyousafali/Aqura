@@ -13,34 +13,16 @@ const versionFile = path.join(
 );
 const packageFile = path.join(repoRoot, "frontend", "package.json");
 const source = fs.readFileSync(versionFile, "utf8");
-const fields = ["desktop", "mobile", "cashier", "customer"];
-const current = Object.fromEntries(
-  fields.map((field) => {
-    const match = source.match(new RegExp(`\\b${field}:\\s*(\\d+)`));
-    if (!match)
-      throw new Error(`Cannot find ${field} version in ${versionFile}`);
-    return [field, Number(match[1])];
-  }),
-);
-const next = Object.fromEntries(
-  fields.map((field) => [field, current[field] + 1]),
-);
-const currentFull = `AQ${fields.map((field) => current[field]).join(".")}`;
-const nextFull = `AQ${fields.map((field) => next[field]).join(".")}`;
-
-if (process.argv.includes("--check")) {
-  console.log(`CURRENT_VERSION=${currentFull}`);
-  console.log(`NEXT_VERSION=${nextFull}`);
-  process.exit(0);
+const versionPattern = /\bexport const versionNumber\s*=\s*(\d+)\s*;/;
+const match = source.match(versionPattern);
+if (!match) throw new Error(`Cannot find shared versionNumber in ${versionFile}`);
+const current = Number(match[1]);
+const next = current + 1;
+if (!Number.isSafeInteger(current) || !Number.isSafeInteger(next)) {
+  throw new Error("Shared version number must be a safe integer");
 }
-
-let updatedSource = source;
-for (const field of fields) {
-  updatedSource = updatedSource.replace(
-    new RegExp(`(\\b${field}:\\s*)${current[field]}\\b`),
-    `$1${next[field]}`,
-  );
-}
+const currentFull = `V-AQ${current}`;
+const nextFull = `V-AQ${next}`;
 
 const packageJson = JSON.parse(fs.readFileSync(packageFile, "utf8"));
 if (packageJson.version !== currentFull) {
@@ -48,6 +30,14 @@ if (packageJson.version !== currentFull) {
     `frontend/package.json is ${packageJson.version}; expected ${currentFull}`,
   );
 }
+
+if (process.argv.includes("--check")) {
+  console.log(`CURRENT_VERSION=${currentFull}`);
+  console.log(`NEXT_VERSION=${nextFull}`);
+  process.exit(0);
+}
+
+const updatedSource = source.replace(versionPattern, `export const versionNumber = ${next};`);
 packageJson.version = nextFull;
 
 fs.writeFileSync(versionFile, updatedSource);

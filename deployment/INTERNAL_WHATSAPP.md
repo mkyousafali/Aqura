@@ -106,9 +106,11 @@ These UI checks control visibility only. Backend features that expose protected 
 
 ### Semantic intent routing
 
-Free-text internal requests are classified by Gemini into a small, structured tool intent before the general conversational reply runs. The classifier understands spelling/grammar mistakes, indirect wording, and Arabic or English; it does not depend on a fixed list of exact phrases. Current secured intents are own attendance today, own shift/schedule, assigned-employee attendance, and sales report. Interactive replies and active multi-step states remain deterministic.
+Free-text internal requests are classified by Gemini using up to 24 recent same-conversation messages, notification metadata, the exact quoted message (even outside that window), requester identity, fresh pending workflow state, and the internal account's editable AI guidance. The decision distinguishes ordinary conversation, clarification, an actual supported lookup, and an answer continuing a workflow. A pending state or a word such as “came” must never override that decision. Explicit interactive controls remain deterministic and permission-checked. No keyword-driven attendance, shift, sales, customer-trigger or flow fallback runs for internal free text.
 
-The classifier may choose a tool, language, and written employee name only. It cannot return operational facts or grant access. Each selected tool independently rechecks the sender, permission, branch scope, and authoritative Aqura/ERP data before replying. If classification is unavailable, the existing deterministic intent handlers remain as a fallback.
+The classifier may choose an allowlisted intent, language, employee name, date and a supplied outbound message reference only. It cannot return operational facts or grant access. Each selected tool independently rechecks the sender, permission, branch scope, and authoritative Aqura/ERP data before replying. If classification is unavailable, no keyword-driven tool runs; the conversational AI may give safe configured guidance or ask for clarification, without inventing a lookup result.
+
+Internal conversational replies use an employee-specific prompt and the same bounded context, not the customer products/offers prompt. Human takeover, AI-off and account-level bot controls gate both routing and responses. Leave-process guidance, including the distinction between a chat explanation and an Aqura application, is kept in editable internal AI configuration through `20261018_internal_whatsapp_contextual_ai.sql`; no case-specific canned leave response is coded into the webhook.
 
 ### Aqura Companion / مرافق أكورا
 
@@ -142,6 +144,17 @@ The answer is generated from `analyze-attendance`, not from AI. It can include:
 Only the requesting employee's record is returned.
 
 ### Assigned-employee arrival lookup
+
+Replies quoting an internal attendance alert use WhatsApp's replied-to message ID
+to resolve the original employee and shift date. Existing alerts are resolved
+through their successful WhatsApp delivery records; new attendance answers save
+the same context in message metadata so they can also be quoted. The lookup is
+limited to outbound messages in the sender's current conversation, rechecks
+current employee/branch permissions, refreshes attendance through the existing
+secured reporting path, and answers directly without the employee/date picker.
+Explicitly naming a different employee uses the normal lookup instead. Unrelated
+replies and Customer WhatsApp routing are unchanged. This requires deploying
+`whatsapp-webhook` with its local `attendanceReply.ts` helper, not a migration.
 
 An enabled attendance-notification recipient can ask whether one monitored employee arrived today.
 
