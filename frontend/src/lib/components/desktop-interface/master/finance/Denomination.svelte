@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { creditSelection, creditVendorName, loadPayToCreditItems } from '$lib/utils/payToCreditItems';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { iconUrlMap } from '$lib/stores/iconStore';
@@ -89,6 +90,7 @@
 	let processingPayToCredit: any = null;
 	let unpaidVendorBills: any[] = [];
 	let loadingUnpaidVendorBills = false;
+	let unpaidItemsRequest = 0;
 	let processError = '';
 	let pendingApprovalPayment: any = null;
 	let showApproverListModal = false;
@@ -1797,10 +1799,11 @@
 	}
 
 	function payToCreditVendorName(transaction: any) {
-		return String(transaction?.request_label || '').replace(/^Pay to Credit\s*[·Â]*\s*/, '').trim();
+		return creditVendorName(transaction?.request_label);
 	}
 
 	async function openPayToCreditProcess(transaction: any) {
+		const request = ++unpaidItemsRequest;
 		processingPayToCredit = transaction;
 		showPayToCreditProcess = true;
 		unpaidVendorBills = [];
@@ -1811,21 +1814,21 @@
 		payToCreditApplyMessage = '';
 		processError = '';
 		splitPayment = null;
-		const vendorName = payToCreditVendorName(transaction);
+		const vendorName = creditVendorName(transaction.request_label);
 		if (!vendorName) { processError = 'Vendor name is missing from this transaction.'; return; }
 		loadingUnpaidVendorBills = true;
-		const { data, error } = await supabase.from('vendor_payment_schedule_with_vendor')
-			.select('*')
-			.eq('branch_id', Number(selectedBranch))
-			.eq('is_paid', false)
-			.ilike('vendor_name', vendorName)
-			.order('due_date', { ascending: true });
-		if (error) processError = error.message;
-		else unpaidVendorBills = data || [];
-		loadingUnpaidVendorBills = false;
+		try {
+			const items = await loadPayToCreditItems(supabase, Number(selectedBranch), vendorName);
+			if (request === unpaidItemsRequest) unpaidVendorBills = items;
+		} catch (error: any) {
+			if (request === unpaidItemsRequest) processError = error.message || 'Unable to load unpaid bills and expenses.';
+		} finally {
+			if (request === unpaidItemsRequest) loadingUnpaidVendorBills = false;
+		}
 	}
 
 	function closePayToCreditProcess() {
+		unpaidItemsRequest++;
 		showPayToCreditProcess = false;
 		processingPayToCredit = null;
 		unpaidVendorBills = [];
@@ -1841,7 +1844,8 @@
 	}
 
 	function requestBillApproval(payment: any) {
-		pendingApprovalPayment = payment;
+		if (payment.source_type === 'Expense') return;
+		pendingApprovalPayment = { ...payment, id: payment.source_id };
 		showApproverListModal = true;
 	}
 
@@ -1874,7 +1878,7 @@
 			selectedUnpaidBillIds.includes(String(bill.id)) && bill.approval_status === 'approved'
 		);
 		if (candidates.length === 0) {
-			processError = 'Select at least one approved bill first.';
+			processError = 'Select at least one approved bill or expense first.';
 			return;
 		}
 		const availableCents = candidates.reduce((sum, bill) => sum + Math.round(Number(bill.final_bill_amount || bill.bill_amount || 0) * 100), 0);
@@ -1916,24 +1920,20 @@
 			if (plan.partialBill && plan.partialAmount > 0) {
 				const paymentDate = String(processingPayToCredit.completed_at || processingPayToCredit.created_at || new Date().toISOString()).slice(0, 10);
 				const expectedAmount = Number(plan.partialBill.final_bill_amount || plan.partialBill.bill_amount || 0);
-				const { data, error } = await supabase.rpc('denomination_split_vendor_payment', {
-					p_id: String(plan.partialBill.id), p_amount: plan.partialAmount,
+				const { data, error } = await supabase.rpc(plan.partialBill.source_type === 'Expense'
+					? 'denomination_split_expense_payment' : 'denomination_split_vendor_payment', {
+					p_id: String(plan.partialBill.source_id), p_amount: plan.partialAmount,
 					p_date: paymentDate, p_expected_amount: expectedAmount
 				});
 				if (error) throw error;
 				const splitId = String(data?.source_id || '');
 				if (!splitId) throw new Error('The split was created but its new record was not returned.');
-				selectedIds.push(splitId);
-				const vendorName = payToCreditVendorName(processingPayToCredit);
-				const { data: refreshedBills, error: refreshError } = await supabase.from('vendor_payment_schedule_with_vendor')
-					.select('*').eq('branch_id', Number(selectedBranch)).eq('is_paid', false)
-					.ilike('vendor_name', vendorName).order('due_date', { ascending: true });
-				if (refreshError) throw refreshError;
-				unpaidVendorBills = refreshedBills || [];
+				selectedIds.push(`${plan.partialBill.source_type}:${splitId}`);
+				unpaidVendorBills = await loadPayToCreditItems(supabase, Number(selectedBranch), creditVendorName(processingPayToCredit.request_label));
 			}
 			selectedUnpaidBillIds = selectedIds;
 			payToCreditAutoPlan = null;
-			payToCreditApplyMessage = `${Number(plan.targetAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR selected (${selectedIds.length} ${selectedIds.length === 1 ? 'bill' : 'bills'}).`;
+			payToCreditApplyMessage = `${Number(plan.targetAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR selected (${selectedIds.length} ${selectedIds.length === 1 ? 'item' : 'items'}).`;
 		} catch (autoError: any) {
 			processError = autoError?.message || 'Unable to apply this amount.';
 		} finally {
@@ -1946,13 +1946,15 @@
 		sendingPayToCreditTask = true;
 		processError = '';
 		try {
+			const selection = creditSelection(unpaidVendorBills, selectedUnpaidBillIds);
 			const response = await fetch('/api/assistant-tasks', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					task_type: processingPayToCredit.payment_account_type === 'cash' ? 'receiving_cash_payment' : 'receiving_bank_payment',
 					pay_to_credit_transaction_id: processingPayToCredit.id,
-					payment_schedule_ids: selectedUnpaidBillIds
+					payment_schedule_ids: selection.bills,
+					expense_schedule_ids: selection.expenses
 				})
 			});
 			const result = await response.json();
@@ -1988,8 +1990,9 @@
 		}
 		savingSplit = true;
 		processError = '';
-		const { error: splitError } = await supabase.rpc('denomination_split_vendor_payment', {
-			p_id: String(splitPayment.id), p_amount: amountToSplit,
+		const { error: splitError } = await supabase.rpc(splitPayment.source_type === 'Expense'
+			? 'denomination_split_expense_payment' : 'denomination_split_vendor_payment', {
+			p_id: String(splitPayment.source_id), p_amount: amountToSplit,
 			p_date: splitDate, p_expected_amount: originalAmount
 		});
 		if (splitError) processError = splitError.message;
@@ -3679,15 +3682,15 @@
 	<div class="popup-overlay" role="presentation" on:click={closePayToCreditProcess} on:keydown={(event) => event.key === 'Escape' && closePayToCreditProcess()}>
 		<div class="pay-credit-process-popup" role="dialog" aria-modal="true" aria-label="Process vendor payment" on:click|stopPropagation>
 			<div class="pay-credit-slip-header">
-				<div><strong>Unpaid Vendor Bills</strong><div class="process-vendor-name">{payToCreditVendorName(processingPayToCredit)}</div></div>
+				<div><strong>Unpaid Vendor Bills &amp; Expenses</strong><div class="process-vendor-name">{payToCreditVendorName(processingPayToCredit)}</div></div>
 				<button type="button" on:click={closePayToCreditProcess} aria-label="Close">×</button>
 			</div>
 			<div class="pay-credit-process-body">
 				{#if processError}<div class="process-error">{processError}</div>{/if}
 				{#if loadingUnpaidVendorBills}
-					<div class="empty-state">Loading unpaid bills...</div>
+					<div class="empty-state">Loading unpaid bills and expenses...</div>
 				{:else if unpaidVendorBills.length === 0}
-					<div class="empty-state">No unpaid bills found for this vendor.</div>
+					<div class="empty-state">No unpaid bills or expenses found for this vendor.</div>
 				{:else}
 					<div class="pay-credit-auto-bar">
 						<label>
@@ -3702,11 +3705,11 @@
 					</div>
 					{#if payToCreditAutoPlan}
 						<div class="pay-credit-auto-confirm">
-							<strong>Apply {Number(payToCreditAutoPlan.targetAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR to these bills?</strong>
+							<strong>Apply {Number(payToCreditAutoPlan.targetAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR to these bills and expenses?</strong>
 							<p>
-								{payToCreditAutoPlan.fullBills.length} full {payToCreditAutoPlan.fullBills.length === 1 ? 'bill' : 'bills'}: {Number(payToCreditAutoPlan.fullTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.
+								{payToCreditAutoPlan.fullBills.length} full {payToCreditAutoPlan.fullBills.length === 1 ? 'item' : 'items'}: {Number(payToCreditAutoPlan.fullTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR.
 								{#if payToCreditAutoPlan.partialBill}
-									Split {Number(payToCreditAutoPlan.partialAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR from bill {payToCreditAutoPlan.partialBill.bill_number || '—'}; the remaining {(Number(payToCreditAutoPlan.partialBill.final_bill_amount || payToCreditAutoPlan.partialBill.bill_amount || 0) - Number(payToCreditAutoPlan.partialAmount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR stays on the original bill.
+									Split {Number(payToCreditAutoPlan.partialAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR from bill {payToCreditAutoPlan.partialBill.bill_number || '—'}; the remaining {(Number(payToCreditAutoPlan.partialBill.final_bill_amount || payToCreditAutoPlan.partialBill.bill_amount || 0) - Number(payToCreditAutoPlan.partialAmount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR stays on the original item.
 								{:else}
 									No split is required.
 								{/if}
@@ -3719,11 +3722,12 @@
 					{/if}
 					{#if payToCreditApplyMessage}<div class="pay-credit-apply-message">{payToCreditApplyMessage}</div>{/if}
 					<table class="transactions-table">
-						<thead><tr><th>Select</th><th>Bill No.</th><th>Due Date</th><th>Amount</th><th>Approval</th><th>Action</th></tr></thead>
+						<thead><tr><th>Select</th><th>Type</th><th>Bill / Expense</th><th>Due Date</th><th>Amount</th><th>Approval</th><th>Action</th></tr></thead>
 						<tbody>
 							{#each unpaidVendorBills as bill (bill.id)}
 								<tr>
-									<td><input type="checkbox" checked={selectedUnpaidBillIds.includes(String(bill.id))} on:change={() => toggleUnpaidBillSelection(bill.id)} aria-label="Select bill {bill.bill_number || ''}" /></td>
+									<td><input type="checkbox" checked={selectedUnpaidBillIds.includes(String(bill.id))} on:change={() => toggleUnpaidBillSelection(bill.id)} aria-label="Select {bill.source_type} {bill.bill_number || ''}" /></td>
+									<td>{bill.source_type}</td>
 									<td class="entity-cell">{bill.bill_number || '—'}</td>
 									<td class="date-cell">{bill.due_date ? new Date(bill.due_date).toLocaleDateString() : '—'}</td>
 									<td class="amount-cell">{Number(bill.final_bill_amount || bill.bill_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR</td>
@@ -3731,6 +3735,8 @@
 									<td>
 										{#if bill.approval_status === 'approved'}
 											<button type="button" class="pay-credit-process-btn" on:click={() => beginBillSplit(bill)}>Split</button>
+										{:else if bill.source_type === 'Expense'}
+											<span>Approve linked expense requisition first</span>
 										{:else}
 											<button type="button" class="approval-request-btn" on:click={() => requestBillApproval(bill)} disabled={bill.approval_status === 'sent_for_approval'}>{bill.approval_status === 'sent_for_approval' ? 'Approval Requested' : 'Send Approval Request'}</button>
 										{/if}
@@ -3748,14 +3754,14 @@
 					</div>
 					{#if selectedBillsExceedPaidAmount}
 						<div class="selected-total-warning">
-							Selected bills exceed the Pay to Credit amount. Paid: {payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR · Selected: {selectedUnpaidBillsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR · Excess: {(selectedUnpaidBillsTotal - payToCreditPaidAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
+							Selected bills and expenses exceed the Pay to Credit amount. Paid: {payToCreditPaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR · Selected: {selectedUnpaidBillsTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR · Excess: {(selectedUnpaidBillsTotal - payToCreditPaidAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR
 						</div>
 					{/if}
 				{/if}
 
 				{#if splitPayment}
 					<div class="process-split-panel">
-						<strong>Split Bill #{splitPayment.bill_number || '—'}</strong>
+						<strong>Split {splitPayment.source_type} #{splitPayment.bill_number || '—'}</strong>
 						<div class="process-split-fields">
 							<label>Split Amount<input type="number" min="0" step="0.01" bind:value={splitAmount} /></label>
 							<label>Pay to Credit Date<input type="date" bind:value={splitDate} readonly /></label>

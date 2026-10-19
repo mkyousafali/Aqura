@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import { databaseClient, requireBreakUser } from '$lib/server/breakRegisterAuth';
+import { creditVendorName, loadPayToCreditItems } from '$lib/utils/payToCreditItems';
 
 function db() {
 	return createClient(env.VITE_SUPABASE_URL || '', env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '');
@@ -264,7 +265,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			if (body.pay_to_credit_transaction_id) {
 				const transactionId = String(body.pay_to_credit_transaction_id);
 				const selectedBillIds = Array.isArray(body.payment_schedule_ids) ? body.payment_schedule_ids.map(String) : [];
-				if (!selectedBillIds.length) return json({ success: false, error: 'Select at least one unpaid vendor bill' }, { status: 400 });
+				const selectedExpenseIds = Array.isArray(body.expense_schedule_ids) ? body.expense_schedule_ids.map(String) : [];
+				if (!selectedBillIds.length && !selectedExpenseIds.length) return json({ success: false, error: 'Select at least one unpaid bill or expense' }, { status: 400 });
 				const { data: transaction, error: transactionError } = await secureDb.from('pos_scan_requests')
 					.select('id,branch_id,request_type,request_label,extracted_amount,payment_account_type,status')
 					.eq('id', transactionId).maybeSingle();
@@ -272,15 +274,15 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				if (!await canPostReceivingPaymentTask(secureDb, actor, Number(transaction.branch_id))) {
 					return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
 				}
-				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule_with_vendor')
-					.select('id,bill_number,vendor_name,final_bill_amount,bill_amount,is_paid,branch_id')
-					.in('id', selectedBillIds)
-					.eq('branch_id', transaction.branch_id)
-					.eq('is_paid', false);
-				if (billsError) throw billsError;
-				if (!bills || bills.length !== selectedBillIds.length) return json({ success: false, error: 'One or more selected unpaid bills could not be found' }, { status: 400 });
-				const vendorNames = [...new Set(bills.map((bill) => String(bill.vendor_name || '').trim()).filter(Boolean))];
-				if (vendorNames.length !== 1) return json({ success: false, error: 'All selected bills must belong to the same vendor' }, { status: 400 });
+				const vendorName = creditVendorName(transaction.request_label);
+				if (!vendorName) return json({ success: false, error: 'Vendor name is missing from this transaction' }, { status: 400 });
+				const bills = await loadPayToCreditItems(secureDb, Number(transaction.branch_id), vendorName, {
+					bills: selectedBillIds, expenses: selectedExpenseIds
+				});
+				if (bills.length !== selectedBillIds.length + selectedExpenseIds.length) return json({ success: false, error: 'One or more selected unpaid bills or expenses do not belong to this supplier and branch, or are no longer unpaid' }, { status: 400 });
+				if (bills.some(item => item.approval_status !== 'approved')) return json({ success: false, error: 'Only approved bills and expenses can be posted' }, { status: 400 });
+				if (bills.some(item => !Number.isFinite(item.final_bill_amount) || item.final_bill_amount <= 0)) return json({ success: false, error: 'One or more selected items have no valid unpaid amount' }, { status: 400 });
+				const vendorNames = [vendorName];
 				const amount = bills.reduce((total, bill) => total + Number(bill.final_bill_amount ?? bill.bill_amount ?? 0), 0);
 				if (!(amount > 0)) return json({ success: false, error: 'The selected bills have no valid unpaid amount' }, { status: 400 });
 				const paidAmount = Number(transaction.extracted_amount || 0);
@@ -301,11 +303,12 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				const payload = {
 					pay_to_credit_transaction_id: transaction.id,
 					payment_schedule_ids: selectedBillIds,
+					expense_schedule_ids: selectedExpenseIds,
 					bank_account_id: defaults.bank_delivery_ledger_id,
 					bank_account: defaults.bank_delivery_ledger_name,
 					ledger_name: vendorNames[0],
 					amount: amount.toFixed(2),
-					narration: `Pay to Credit - bills ${billNumbers.join(', ')}`,
+					narration: `Pay to Credit - ${selectedExpenseIds.length ? 'bills/expenses' : 'bills'} ${billNumbers.join(', ')}`,
 					bill_number: billNumbers.join(', '),
 					received_by: actor.username || 'Aqura user'
 				};
@@ -373,22 +376,25 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			if (body.pay_to_credit_transaction_id) {
 				const transactionId = String(body.pay_to_credit_transaction_id);
 				const selectedBillIds = Array.isArray(body.payment_schedule_ids) ? body.payment_schedule_ids.map(String) : [];
-				if (!selectedBillIds.length) return json({ success: false, error: 'Select at least one unpaid vendor bill' }, { status: 400 });
+				const selectedExpenseIds = Array.isArray(body.expense_schedule_ids) ? body.expense_schedule_ids.map(String) : [];
+				if (!selectedBillIds.length && !selectedExpenseIds.length) return json({ success: false, error: 'Select at least one unpaid bill or expense' }, { status: 400 });
 				const { data: transaction, error: transactionError } = await secureDb.from('pos_scan_requests')
-					.select('id,branch_id,request_type,extracted_amount,payment_account_type')
+					.select('id,branch_id,request_type,request_label,extracted_amount,payment_account_type')
 					.eq('id', transactionId).maybeSingle();
 				if (transactionError || !transaction || transaction.request_type !== 'pay_to_credit_slip') return json({ success: false, error: 'Pay to Credit transaction was not found' }, { status: 404 });
 				if (!await canPostReceivingPaymentTask(secureDb, actor, Number(transaction.branch_id))) {
 					return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
 				}
 				if (transaction.payment_account_type !== 'cash') return json({ success: false, error: 'This Pay to Credit transaction is not a cash payment' }, { status: 400 });
-				const { data: bills, error: billsError } = await secureDb.from('vendor_payment_schedule_with_vendor')
-					.select('id,bill_number,vendor_name,final_bill_amount,bill_amount,is_paid,branch_id')
-					.in('id', selectedBillIds).eq('branch_id', transaction.branch_id).eq('is_paid', false);
-				if (billsError) throw billsError;
-				if (!bills || bills.length !== selectedBillIds.length) return json({ success: false, error: 'One or more selected unpaid bills could not be found' }, { status: 400 });
-				const vendorNames = [...new Set(bills.map((bill) => String(bill.vendor_name || '').trim()).filter(Boolean))];
-				if (vendorNames.length !== 1) return json({ success: false, error: 'All selected bills must belong to the same vendor' }, { status: 400 });
+				const vendorName = creditVendorName(transaction.request_label);
+				if (!vendorName) return json({ success: false, error: 'Vendor name is missing from this transaction' }, { status: 400 });
+				const bills = await loadPayToCreditItems(secureDb, Number(transaction.branch_id), vendorName, {
+					bills: selectedBillIds, expenses: selectedExpenseIds
+				});
+				if (bills.length !== selectedBillIds.length + selectedExpenseIds.length) return json({ success: false, error: 'One or more selected unpaid bills or expenses do not belong to this supplier and branch, or are no longer unpaid' }, { status: 400 });
+				if (bills.some(item => item.approval_status !== 'approved')) return json({ success: false, error: 'Only approved bills and expenses can be posted' }, { status: 400 });
+				if (bills.some(item => !Number.isFinite(item.final_bill_amount) || item.final_bill_amount <= 0)) return json({ success: false, error: 'One or more selected items have no valid unpaid amount' }, { status: 400 });
+				const vendorNames = [vendorName];
 				const amount = bills.reduce((total, bill) => total + Number(bill.final_bill_amount ?? bill.bill_amount ?? 0), 0);
 				if (!(amount > 0)) return json({ success: false, error: 'The selected bills have no valid unpaid amount' }, { status: 400 });
 				const paidAmount = Number(transaction.extracted_amount || 0);
@@ -404,8 +410,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				const payload = {
 					pay_to_credit_transaction_id: transaction.id,
 					payment_schedule_ids: selectedBillIds,
+					expense_schedule_ids: selectedExpenseIds,
 					ledger_name: vendorNames[0], amount: amount.toFixed(2),
-					narration: `Pay to Credit - bills ${billNumbers.join(', ')}`,
+					narration: `Pay to Credit - ${selectedExpenseIds.length ? 'bills/expenses' : 'bills'} ${billNumbers.join(', ')}`,
 					bill_number: billNumbers.join(', '), received_by: actor.username || 'Aqura user'
 				};
 				const { data, error } = await secureDb.from('assistant_workflow_tasks').insert({
