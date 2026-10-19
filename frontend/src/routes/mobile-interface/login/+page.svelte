@@ -521,7 +521,6 @@
 				<button class="change-code-link" on:click={() => showChangeAccessCode = true}>
 					🔑 {t('auth.changeAccessCode') || 'Change Access Code'}
 				</button>
-				<p class="secure-footnote">🔒 {t('mobile.login.secureLogin')}</p>
 
 				<!-- Tagline + security note, same copy as the desktop employee login -->
 				<div class="brand-copy">
@@ -554,20 +553,37 @@
 
 <style>
 	.change-code-link {
-		background: none;
-		border: none;
-		color: #8FE9F2;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 44px;
+		background: #F5FAFC;
+		border: 1px solid #B9DFED;
+		border-radius: 12px;
+		color: #0B3C68;
 		font-size: 13px;
+		font-weight: 650;
 		cursor: pointer;
-		padding: 8px 0;
+		padding: 11px 20px;
 		margin-top: 12px;
-		text-decoration: underline;
-		transition: color 0.2s;
+		text-decoration: none;
+		box-shadow: 0 3px 10px rgba(6, 27, 56, 0.16);
+		transition: background-color 0.2s, border-color 0.2s;
 		align-self: center;
 	}
 
 	.change-code-link:hover {
-		color: #FFFFFF;
+		background: #E8F7FD;
+		border-color: #79CFE6;
+	}
+
+	.change-code-link:active {
+		background: #D6EFF9;
+	}
+
+	.change-code-link:focus-visible {
+		outline: 2px solid #FFFFFF;
+		outline-offset: 3px;
 	}
 
 	/* Mobile-first login page - fixed Aqura theme (navy aurora background, cyan accents),
@@ -582,11 +598,11 @@
 		min-height: 100dvh;
 		display: flex;
 		flex-direction: column;
-		background:
-			radial-gradient(ellipse 70% 30% at 78% 8%, rgba(52, 221, 237, 0.22), transparent 67%),
-			radial-gradient(ellipse 60% 40% at 6% 55%, rgba(18, 184, 211, 0.17), transparent 72%),
-			radial-gradient(ellipse 70% 34% at 92% 88%, rgba(15, 130, 181, 0.24), transparent 70%),
-			linear-gradient(155deg, #051f3f 0%, #053a66 52%, #045b7d 100%);
+		background-color: #164d8c;
+		background-image: url('/images/backgrounds/aqura-minimal-bright-blue-v1.png');
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
 		background-attachment: fixed;
 		position: relative;
 		overflow-x: hidden;
@@ -602,7 +618,7 @@
 	/* Drifting aurora glows - same motion as the desktop/cashier backgrounds */
 	.mobile-login-page::before,
 	.mobile-login-page::after {
-		content: '';
+		content: none;
 		position: fixed;
 		border-radius: 50%;
 		z-index: 0;
@@ -908,7 +924,7 @@
 		margin: 0;
 		font-size: 0.92rem;
 		line-height: 1.7;
-		color: rgba(231, 248, 255, 0.76);
+		color: #FFFFFF;
 		animation: headlineFadeIn 5.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s infinite both;
 	}
 

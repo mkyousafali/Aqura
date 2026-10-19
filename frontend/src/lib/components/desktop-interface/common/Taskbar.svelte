@@ -1108,7 +1108,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	/* Fixed desktop taskbar — matches the approved preview. */
 	.taskbar {
-		background: linear-gradient(180deg, #0B3C68 0%, #061F55 100%);
+		background-color: #061d3e;
+		background-image:
+			linear-gradient(180deg, rgba(6, 27, 56, 0.45), rgba(6, 27, 56, 0.72)),
+			url('/images/backgrounds/aqura-blue-waves-v1.png');
+		background-size: cover;
+		background-position: center 78%;
+		background-repeat: no-repeat;
 		border-top-color: rgba(255, 255, 255, 0.42);
 		box-shadow: 0 -4px 20px rgba(17, 24, 39, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.18);
 	}

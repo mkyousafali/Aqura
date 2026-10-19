@@ -1125,6 +1125,7 @@
 </script>
 
 <div class="wa-live-chat absolute inset-0 flex overflow-hidden font-sans"
+    class:internal-theme={accountScope === 'internal'}
     class:narrow
     class:chat-open={mobileShowChat}
     bind:this={rootEl}
@@ -1147,7 +1148,7 @@
             </div>
         </div>
         <!-- Search & Filters -->
-        <div class="px-3 py-2 border-b border-slate-100">
+        <div class="conversation-filters px-3 py-2 border-b border-slate-100">
             <div class="relative">
                 <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
                 <input type="text" bind:value={searchQuery} placeholder={$locale === 'ar' ? 'ابحث في المحادثات...' : 'Search conversations...'}
@@ -1710,7 +1711,7 @@
             </div>
         {:else}
             <!-- No conversation selected -->
-            <div class="flex-1 flex items-center justify-center">
+            <div class="empty-chat-state flex-1 flex items-center justify-center">
                 <div class="text-center">
                     <div class="w-20 h-20 mx-auto rounded-2xl bg-orange-50 flex items-center justify-center mb-4 border border-orange-100">
                         <span class="text-3xl">💬</span>
@@ -1882,6 +1883,142 @@
 
     .wa-live-chat {
         background: white;
+    }
+
+    /* Internal account theme: shared by desktop and mobile, without changing
+       customer chat or the semantic colors of alerts and handling statuses. */
+    .wa-live-chat.internal-theme {
+        background: #164d8c url('/images/backgrounds/aqura-minimal-bright-blue-v1.png') center / cover no-repeat;
+    }
+    .internal-theme .left-panel {
+        background: rgb(6 29 62 / 35%);
+        border-color: rgb(191 219 254 / 25%);
+    }
+    .internal-theme .left-panel-header,
+    .internal-theme .chat-header {
+        background: rgb(6 29 62 / 72%);
+        border-color: rgb(191 219 254 / 25%);
+    }
+    .internal-theme .right-panel {
+        background: transparent;
+    }
+    .internal-theme .conv-card {
+        background: rgb(8 43 90 / 76%);
+        border-color: rgb(147 197 253 / 28%);
+        box-shadow: 0 3px 10px rgb(4 20 48 / 14%);
+    }
+    .internal-theme .conv-card:not(.conv-card-sos):not(.conv-card-help):hover {
+        background: rgb(20 78 146 / 90%);
+        border-color: #93c5fd;
+        box-shadow: 0 3px 12px rgb(4 20 48 / 20%);
+    }
+    .internal-theme .conv-card-active {
+        background: rgb(29 93 177 / 92%) !important;
+        border-color: #93c5fd !important;
+        box-shadow: 0 3px 12px rgb(4 20 48 / 20%), inset 0 0 0 1px rgb(191 219 254 / 20%) !important;
+    }
+    .internal-theme .conv-card-sos { border-left-color: #ef4444; }
+    .internal-theme .conv-card-help { border-left-color: #f59e0b; }
+    .internal-theme .left-panel-header h2,
+    .internal-theme .chat-header h3,
+    .internal-theme .conv-card :global(.text-slate-800),
+    .internal-theme .empty-chat-state h3 {
+        color: #ffffff;
+    }
+    .internal-theme .left-panel-header p,
+    .internal-theme .chat-header p,
+    .internal-theme .conv-card :global(.text-slate-400),
+    .internal-theme .conv-card .conv-preview,
+    .internal-theme .empty-chat-state p {
+        color: #dbeafe;
+    }
+    .internal-theme .conversation-filters {
+        border-color: rgb(191 219 254 / 25%);
+    }
+    .internal-theme .conversation-filters button:not(.bg-orange-500) {
+        color: #dbeafe;
+    }
+    .internal-theme .conversation-filters button:not(.bg-orange-500):hover {
+        background: rgb(147 197 253 / 20%);
+    }
+    .internal-theme .empty-chat-state > div > div {
+        background: rgb(8 43 90 / 65%);
+        border-color: rgb(191 219 254 / 40%);
+    }
+    .internal-theme .unread-badge {
+        background: #2563eb;
+    }
+    .internal-theme .chat-messages-area {
+        background: rgb(6 29 62 / 10%);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    .internal-theme .msg-outbound {
+        background: #eef6ff;
+        border-color: #93c5fd;
+        color: #102e54;
+        box-shadow: 0 4px 14px rgb(3 18 45 / 25%);
+    }
+    .internal-theme .msg-outbound > p {
+        color: #102e54;
+        font-weight: 500;
+    }
+    .internal-theme .msg-outbound :global([class~="text-slate-400"]),
+    .internal-theme .msg-outbound :global([class~="text-slate-400/80"]),
+    .internal-theme .msg-outbound :global([class~="text-slate-400/70"]),
+    .internal-theme .msg-outbound :global([class~="text-slate-400/60"]) {
+        color: #475569;
+    }
+    .internal-theme .msg-outbound :global([class~="text-purple-500"]) {
+        color: #7e22ce;
+    }
+    .internal-theme .msg-inbound {
+        background: #ffffff;
+        border-color: #dbe8f8;
+    }
+    .internal-theme .input-area {
+        background: rgb(6 29 62 / 72%);
+        border-color: rgb(191 219 254 / 25%);
+    }
+    .internal-theme .attach-menu,
+    .internal-theme .template-picker {
+        border-color: #cbdff5;
+    }
+    .internal-theme .attach-menu-item:hover,
+    .internal-theme .back-btn:hover,
+    .internal-theme .back-btn:active {
+        background: #dbeafe;
+        border-color: #93c5fd;
+        color: #1d4ed8;
+    }
+
+    /* Scope utility accents to this account, including hover/focus states. */
+    .internal-theme :global([class~="bg-orange-500"]) { background-color: #2563eb; }
+    .internal-theme :global([class~="bg-orange-50"]) { background-color: #eff6ff; }
+    .internal-theme :global([class~="hover:bg-orange-50"]:hover) { background-color: #eff6ff; }
+    .internal-theme :global([class~="hover:bg-orange-100"]:hover) { background-color: #dbeafe; }
+    .internal-theme :global([class~="text-orange-500"]) { color: #2563eb; }
+    .internal-theme :global([class~="text-orange-600"]),
+    .internal-theme :global([class~="hover:text-orange-600"]:hover) { color: #1d4ed8; }
+    .internal-theme :global([class~="border-orange-100"]),
+    .internal-theme :global([class~="border-orange-100/50"]) { border-color: #dbeafe; }
+    .internal-theme :global([class~="border-orange-200"]),
+    .internal-theme :global([class~="border-orange-200/60"]) { border-color: #bfdbfe; }
+    .internal-theme :global([class~="border-orange-300"]),
+    .internal-theme :global([class~="hover:border-orange-200"]:hover) { border-color: #93c5fd; }
+    .internal-theme :global([class~="border-t-orange-500"]) { border-top-color: #2563eb; }
+    .internal-theme :global([class~="ring-orange-300/40"]) { --tw-ring-color: rgb(147 197 253 / 40%); }
+    .internal-theme :global([class~="focus:ring-orange-300"]:focus),
+    .internal-theme :global([class~="focus:ring-orange-400/40"]:focus) { --tw-ring-color: rgb(96 165 250 / 40%); }
+    .internal-theme :global([class~="focus:border-orange-300"]:focus),
+    .internal-theme :global([class~="focus:border-orange-400"]:focus) { border-color: #3b82f6; }
+    .internal-theme :global([class~="from-orange-500"]),
+    .internal-theme :global([class~="from-green-500"]) {
+        background-image: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    }
+    .internal-theme :global([class~="from-orange-500"]:hover),
+    .internal-theme :global([class~="from-green-500"]:hover) {
+        background-image: linear-gradient(135deg, #2563eb, #1e40af);
     }
 
     /* --- Left Panel Header --- */

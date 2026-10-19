@@ -430,7 +430,13 @@
 		left: 0;
 		right: 0;
 		height: 56px;
-		background: linear-gradient(to bottom, #0b3c68, #051f3f);
+		background-color: #061d3e;
+		background-image:
+			linear-gradient(180deg, rgba(6, 27, 56, 0.45), rgba(6, 27, 56, 0.72)),
+			url('/images/backgrounds/aqura-blue-waves-v1.png');
+		background-size: cover;
+		background-position: center 78%;
+		background-repeat: no-repeat;
 		border-top: 1px solid rgba(7, 152, 174, 0.65);
 		display: flex;
 		align-items: center;

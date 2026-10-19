@@ -59,6 +59,7 @@
 	
 	// Menu state
 	let showMenu = false;
+	let showSettingsMenu = false;
 	
 	// HR Menu state
 	let showHRMenu = false;
@@ -963,7 +964,7 @@
 		<header class="global-mobile-header">
 			<div class="header-content">
 				<div class="user-info">
-					<button class="menu-btn" on:click={() => showMenu = !showMenu} aria-label="Menu">
+					<button class="menu-btn" on:click={() => { showMenu = !showMenu; showFinanceMenu = false; showSettingsMenu = false; showOrdersMenu = false; }} aria-label="Menu">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<line x1="3" y1="6" x2="21" y2="6"/>
 							<line x1="3" y1="12" x2="21" y2="12"/>
@@ -1004,15 +1005,6 @@
 							</svg>
 						</button>
 					{/if}
-					<button class="header-nav-btn header-logout-btn" on:click={logout} aria-label={getTranslation('mobile.logout')} title={getTranslation('mobile.logout')}>
-						<div class="nav-icon-container">
-							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-								<polyline points="16 17 21 12 16 7"/>
-								<line x1="21" y1="12" x2="9" y2="12"/>
-							</svg>
-						</div>
-					</button>
 				</div>
 			</div>
 		</header>
@@ -1021,29 +1013,6 @@
 	{#if showMenu}
 		<div class="menu-overlay" on:click={() => showMenu = false}></div>
 		<div class="menu-dropdown">
-			<a href="/mobile-interface/login-sessions" class="menu-item" on:click={() => showMenu = false} title={$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}>
-				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-				</svg>
-				<span class="menu-item-text">{$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}</span>
-			</a>
-			{#if hasReportsPermission}
-				<a href="/mobile-interface/reports" class="menu-item" on:click={() => showMenu = false} title={getTranslation('reports.salesReport')}>
-					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M9 2v4"/>
-						<path d="M15 2v4"/>
-						<rect width="18" height="18" x="3" y="4" rx="2"/>
-						<path d="M3 10h18"/>
-						<path d="M8 14h.01"/>
-						<path d="M12 14h.01"/>
-						<path d="M16 14h.01"/>
-						<path d="M8 18h.01"/>
-						<path d="M12 18h.01"/>
-						<path d="M16 18h.01"/>
-					</svg>
-					<span class="menu-item-text">{getTranslation('reports.salesReport')}</span>
-				</a>
-			{/if}
 			<a href="/mobile-interface/approval-center" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.approvals')}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -1053,67 +1022,100 @@
 					<span class="menu-badge">{approvalCount > 99 ? '99+' : approvalCount}</span>
 				{/if}
 			</a>
-			{#if hasPVPermission}
-				<a href="/mobile-interface/purchase-voucher" class="menu-item" on:click={() => showMenu = false} title={getTranslation('mobile.bottomNav.purchaseVoucher')}>
-					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<rect x="2" y="4" width="20" height="16" rx="2"/>
-						<path d="M7 9h10M7 13h6M7 17h4"/>
-						<circle cx="17" cy="15" r="2"/>
-					</svg>
-					<span class="menu-item-text">{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
-				</a>
-			{/if}
-			<div class="menu-item menu-language" title={getTranslation('mobile.language')} on:click={(e) => {
-				const languageBtn = e.currentTarget.querySelector('.language-btn');
-				if (languageBtn) languageBtn.click();
-			}}>
-				<LanguageToggle />
-				<span class="menu-item-text">{getTranslation('mobile.language')}</span>
-			</div>
-			<div class="menu-item menu-version-item">
-				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<circle cx="12" cy="12" r="10"/>
-					<line x1="12" y1="16" x2="12" y2="12"/>
-					<line x1="12" y1="8" x2="12.01" y2="8"/>
-				</svg>
-				<span class="menu-item-text">{mobileVersion}</span>
-			</div>
-			{#if $updateAvailable}
-				<button class="menu-item menu-update" on:click={() => { handleUpdateClick(); showMenu = false; }} title={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}>
-					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-						<path d="M3 3v5h5"/>
-						<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-						<path d="M16 16h5v5"/>
-					</svg>
-					<span class="menu-item-text" style="color: #10B981; font-weight: 600;">{$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}</span>
-					<span class="update-dot" style="width:8px;height:8px;background:#10B981;border-radius:50%;animation:pulse-update 2s ease-in-out infinite;"></span>
-				</button>
-			{:else}
-				<div class="menu-item menu-version-status">
-					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M20 6L9 17l-5-5"/>
-					</svg>
-					<span class="menu-item-text" style="opacity: 0.6;">{$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}</span>
+			<!-- Finance section in the top-bar dropdown -->
+			{#if hasExpenseManagerPermission || hasLCPlannerPermission || hasPVPermission || hasReportsPermission}
+				<div class="finance-menu-group">
+					<button type="button" class="menu-item finance-menu-btn" aria-expanded={showFinanceMenu} aria-controls="finance-top-submenu" on:click={() => { showFinanceMenu = !showFinanceMenu; showSettingsMenu = false; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/reports') || $page.url.pathname.startsWith('/mobile-interface/purchase-voucher') || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler') || $page.url.pathname.startsWith('/mobile-interface/vendor-payments') || $page.url.pathname.startsWith('/mobile-interface/planner')}>
+						<div class="finance-menu-icon">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<rect x="2" y="5" width="20" height="14" rx="2"/>
+								<line x1="2" y1="10" x2="22" y2="10"/>
+								<line x1="6" y1="15" x2="10" y2="15"/>
+							</svg>
+						</div>
+						<span class="menu-item-text">{$currentLocale === 'ar' ? 'المالية' : 'Finance'}</span>
+						<svg class="finance-chevron" class:expanded={showFinanceMenu} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+					</button>
+
+					<!-- Finance Submenu -->
+					{#if showFinanceMenu}
+						<div id="finance-top-submenu" class="finance-submenu">
+							{#if hasReportsPermission}
+								<a href="/mobile-interface/reports" class="finance-submenu-item" on:click={() => { showFinanceMenu = false; showMenu = false; }} title={getTranslation('reports.salesReport')} class:active={$page.url.pathname.startsWith('/mobile-interface/reports')}>
+									<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M9 2v4"/>
+										<path d="M15 2v4"/>
+										<rect width="18" height="18" x="3" y="4" rx="2"/>
+										<path d="M3 10h18"/>
+										<path d="M8 14h.01"/>
+										<path d="M12 14h.01"/>
+										<path d="M16 14h.01"/>
+										<path d="M8 18h.01"/>
+										<path d="M12 18h.01"/>
+										<path d="M16 18h.01"/>
+									</svg>
+									<span >{getTranslation('reports.salesReport')}</span>
+								</a>
+							{/if}
+							{#if hasPVPermission}
+								<a href="/mobile-interface/purchase-voucher" class="finance-submenu-item" on:click={() => { showFinanceMenu = false; showMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/purchase-voucher')}>
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<rect x="2" y="4" width="20" height="16" rx="2"/>
+										<path d="M7 9h10M7 13h6M7 17h4"/>
+										<circle cx="17" cy="15" r="2"/>
+									</svg>
+									<span>{getTranslation('mobile.bottomNav.purchaseVoucher')}</span>
+								</a>
+							{/if}
+							{#if hasExpenseManagerPermission}
+							<a href="/mobile-interface/request-generator" class="finance-submenu-item" on:click={() => { showFinanceMenu = false; showMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/request-generator')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+									<polyline points="14 2 14 8 20 8"/>
+									<line x1="12" y1="18" x2="12" y2="12"/>
+									<line x1="9" y1="15" x2="15" y2="15"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'مولد الطلبات' : 'Request Generator'}</span>
+							</a>
+							<a href="/mobile-interface/scheduler" class="finance-submenu-item" on:click={() => { showFinanceMenu = false; showMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/scheduler')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+									<line x1="16" y1="2" x2="16" y2="6"/>
+									<line x1="8" y1="2" x2="8" y2="6"/>
+									<line x1="3" y1="10" x2="21" y2="10"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'الجدولة' : 'Scheduler'}</span>
+							</a>
+							{/if}
+							{#if hasVendorPaymentsPermission}
+								<a href="/mobile-interface/vendor-payments" class="finance-submenu-item" on:click={() => { showFinanceMenu = false; showMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/vendor-payments')}>
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="1" y="4" width="22" height="16" rx="2"/>
+										<line x1="1" y1="10" x2="23" y2="10"/>
+									</svg>
+									<span>{$currentLocale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments'}</span>
+								</a>
+							{/if}
+							{#if hasLCPlannerPermission}
+								<a href="/mobile-interface/planner" class="finance-submenu-item" on:click={() => { showFinanceMenu = false; showMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/planner')}>
+									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+										<polyline points="14 2 14 8 20 8"/>
+										<line x1="8" y1="13" x2="16" y2="13"/>
+										<line x1="8" y1="17" x2="13" y2="17"/>
+									</svg>
+									<span>{$currentLocale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner'}</span>
+								</a>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/if}
-		</div>
-	{/if}
-	
-	<!-- Mobile content goes here -->
-	<main class="mobile-content" class:leave-request-content={$page.url.pathname.startsWith('/mobile-interface/day-off-request')} class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')} class:home-content={$page.url.pathname === '/mobile-interface' || $page.url.pathname === '/mobile-interface/'}>
-			<slot />
-		</main>
-		
-		<!-- Global Bottom Navigation Bar -->
-		<nav class="bottom-nav">
-			<!-- Orders / Delivery Menu Button (FIRST) -->
-			<div class="nav-item-menu-container">
-				<button class="nav-item orders-btn" on:click={() => { showOrdersMenu = !showOrdersMenu; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showOrdersMenu || $page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
-					<div class="nav-icon">
-						{#if newOrdersCount > 0}
-							<span class="nav-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
-						{/if}
+
+			<!-- Orders section in the top-bar dropdown -->
+			<div class="orders-menu-group">
+				<button type="button" class="menu-item orders-menu-btn" aria-expanded={showOrdersMenu} aria-controls="orders-top-submenu" on:click={() => { showOrdersMenu = !showOrdersMenu; showSettingsMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showOrdersMenu || $page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
+					<div class="finance-menu-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<rect x="1" y="3" width="15" height="13" rx="2"/>
 							<path d="M16 8h4l3 3v5a2 2 0 0 1-2 2h-1"/>
@@ -1121,16 +1123,17 @@
 							<circle cx="18.5" cy="18.5" r="2.5"/>
 						</svg>
 					</div>
-					<span class="nav-label">{$currentLocale === 'ar' ? 'الطلبات' : 'Orders'}</span>
+					<span class="menu-item-text">{$currentLocale === 'ar' ? 'الطلبات' : 'Orders'}</span>
+						{#if newOrdersCount > 0}
+							<span class="menu-badge">{newOrdersCount > 99 ? '99+' : newOrdersCount}</span>
+						{/if}
+					<svg class="settings-chevron" class:expanded={showOrdersMenu} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
 				</button>
 				
 				<!-- Orders Submenu -->
 				{#if showOrdersMenu}
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div class="orders-submenu-overlay" on:click={() => showOrdersMenu = false}></div>
-					<div class="orders-submenu">
-						<a href="/mobile-interface/orders-manager" class="orders-submenu-item" on:click={() => showOrdersMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
+					<div id="orders-top-submenu" class="finance-submenu">
+						<a href="/mobile-interface/orders-manager" class="orders-submenu-item" on:click={() => { showOrdersMenu = false; showSettingsMenu = false; showMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/orders-manager')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<rect x="1" y="3" width="15" height="13" rx="2"/>
 								<path d="M16 8h4l3 3v5a2 2 0 0 1-2 2h-1"/>
@@ -1146,6 +1149,82 @@
 				{/if}
 			</div>
 
+			<div class="settings-menu-group">
+				<button type="button" class="menu-item settings-menu-btn" aria-expanded={showSettingsMenu} aria-controls="settings-top-submenu" on:click={() => { showSettingsMenu = !showSettingsMenu; showFinanceMenu = false; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }}>
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-1 3-3 1-2 5 2 5 3 1 1 3h6l1-3 3-1 2-5-2-5-3-1-1-3Z"/><circle cx="12" cy="12" r="3"/></svg>
+					<span class="menu-item-text">{$currentLocale === 'ar' ? 'الإعدادات' : 'Settings'}</span>
+					<svg class="settings-chevron" class:expanded={showSettingsMenu} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+				</button>
+				{#if showSettingsMenu}
+					<div id="settings-top-submenu" class="settings-submenu">
+						<a href="/mobile-interface/my-profile" class="menu-item" on:click={() => { showSettingsMenu = false; showMenu = false; }}>
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M20 21a8 8 0 0 0-16 0"/>
+								<circle cx="12" cy="7" r="4"/>
+							</svg>
+							<span class="menu-item-text">{$currentLocale === 'ar' ? 'ملفي الشخصي' : 'My Profile'}</span>
+						</a>
+						<a href="/mobile-interface/login-sessions" class="menu-item" on:click={() => { showSettingsMenu = false; showMenu = false; }} title={$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}>
+							<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+							</svg>
+							<span class="menu-item-text">{$currentLocale === 'ar' ? 'جلسات تسجيل الدخول' : 'Login Sessions'}</span>
+						</a>
+					<div class="menu-item menu-language" title={getTranslation('mobile.language')} on:click={(e) => {
+						const languageBtn = e.currentTarget.querySelector('.language-btn');
+						if (languageBtn) languageBtn.click();
+					}}>
+						<LanguageToggle />
+						<span class="menu-item-text">{getTranslation('mobile.language')}</span>
+					</div>
+					<div class="menu-item menu-version-item">
+						<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="16" x2="12" y2="12"/>
+							<line x1="12" y1="8" x2="12.01" y2="8"/>
+						</svg>
+						<span class="menu-item-text">{mobileVersion}</span>
+					</div>
+					{#if $updateAvailable}
+						<button class="menu-item menu-update" on:click={() => { handleUpdateClick(); showSettingsMenu = false; showMenu = false; }} title={$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}>
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+								<path d="M3 3v5h5"/>
+								<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+								<path d="M16 16h5v5"/>
+							</svg>
+							<span class="menu-item-text" style="color: #10B981; font-weight: 600;">{$currentLocale === 'ar' ? 'تحديث متاح' : 'Update Available'}</span>
+							<span class="update-dot" style="width:8px;height:8px;background:#10B981;border-radius:50%;animation:pulse-update 2s ease-in-out infinite;"></span>
+						</button>
+					{:else}
+						<div class="menu-item menu-version-status">
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M20 6L9 17l-5-5"/>
+							</svg>
+							<span class="menu-item-text" style="opacity: 0.6;">{$currentLocale === 'ar' ? 'محدّث' : 'Up to Date'}</span>
+						</div>
+					{/if}
+						<button type="button" class="menu-item menu-logout" on:click={() => { showSettingsMenu = false; showMenu = false; logout(); }}>
+							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+								<polyline points="16 17 21 12 16 7"/>
+								<line x1="21" y1="12" x2="9" y2="12"/>
+							</svg>
+							<span class="menu-item-text">{getTranslation('mobile.logout')}</span>
+						</button>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+	
+	<!-- Mobile content goes here -->
+	<main class="mobile-content" class:leave-request-content={$page.url.pathname.startsWith('/mobile-interface/day-off-request')} class:break-log-content={$page.url.pathname.startsWith('/mobile-interface/break-register-log')} class:home-content={$page.url.pathname === '/mobile-interface' || $page.url.pathname === '/mobile-interface/'}>
+			<slot />
+		</main>
+		
+		<!-- Global Bottom Navigation Bar -->
+		<nav class="bottom-nav">
 			<!-- Tasks Menu Button -->
 			<div class="nav-item-menu-container">
 				<button class="nav-item tasks-btn" on:click={() => { showTasksMenu = !showTasksMenu; showOrdersMenu = false; showHRMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showTasksMenu || $page.url.pathname.startsWith('/mobile-interface/tasks') || $page.url.pathname.startsWith('/mobile-interface/assignments') || $page.url.pathname.startsWith('/mobile-interface/branch-performance')}>
@@ -1210,7 +1289,7 @@
 
 			<!-- Emergencies Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager') || $page.url.pathname.startsWith('/mobile-interface/support')}>
+				<button class="nav-item emergencies-btn" on:click={() => { showEmergenciesMenu = !showEmergenciesMenu; showOrdersMenu = false; showHRMenu = false; showTasksMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showEmergenciesMenu || $page.url.pathname.startsWith('/mobile-interface/report-incident') || $page.url.pathname.startsWith('/mobile-interface/incident-manager')}>
 					<div class="nav-icon">
 						{#if incidentCount > 0}
 							<span class="nav-badge incident-badge">{incidentCount > 99 ? '99+' : incidentCount}</span>
@@ -1248,43 +1327,13 @@
 								<span>{getTranslation('mobile.incidentManager')}</span>
 							</a>
 						{/if}
-						{#if hasLiveChatPermission}
-							<!-- Loyalty Program Support -->
-							<a href="/mobile-interface/support" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/support')}>
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
-								</svg>
-								<span>{$currentLocale === 'ar' ? 'الدعم' : 'Support'}</span>
-								{#if $waUnreadCounts.total > 0}
-									<span class="wa-unread-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
-								{/if}
-							</a>
-						{/if}
-						{#if hasInternalLiveChatPermission}
-							<a href="/mobile-interface/internal-whatsapp" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/internal-whatsapp')}>
-								<img class="internal-whatsapp-icon" src="/icons/internal-whatsapp-aqura.png" alt="" /><span>{$currentLocale === 'ar' ? 'واتساب الداخلي' : 'Internal WhatsApp'}</span>
-							</a>
-						{/if}
-						<!-- Break Register Log -->
-						{#if hasBreakRegisterPermission}
-							<a href="/mobile-interface/break-register-log" class="emergencies-submenu-item" on:click={() => showEmergenciesMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/break-register-log')}>
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M18 8h1a4 4 0 010 8h-1"/>
-									<path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/>
-									<line x1="6" y1="1" x2="6" y2="4"/>
-									<line x1="10" y1="1" x2="10" y2="4"/>
-									<line x1="14" y1="1" x2="14" y2="4"/>
-								</svg>
-								<span>{$currentLocale === 'ar' ? 'سجل الاستراحات' : 'Break Log'}</span>
-							</a>
-						{/if}
 					</div>
 				{/if}
 			</div>
 
 			<!-- Human Resources Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/day-off-request') || $page.url.pathname.startsWith('/mobile-interface/shifts')}>
+				<button class="nav-item hr-menu-btn" on:click={() => { showHRMenu = !showHRMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={showHRMenu || $page.url.pathname.startsWith('/mobile-interface/break-register-log') || $page.url.pathname.startsWith('/mobile-interface/day-off-request') || $page.url.pathname.startsWith('/mobile-interface/shifts')}>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -1300,6 +1349,19 @@
 				{#if showHRMenu}
 					<div class="hr-submenu-overlay" on:click={() => showHRMenu = false}></div>
 					<div class="hr-submenu">
+						<!-- Break Register Log -->
+						{#if hasBreakRegisterPermission}
+							<a href="/mobile-interface/break-register-log" class="hr-submenu-item" on:click={() => showHRMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/break-register-log')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M18 8h1a4 4 0 010 8h-1"/>
+									<path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/>
+									<line x1="6" y1="1" x2="6" y2="4"/>
+									<line x1="10" y1="1" x2="10" y2="4"/>
+									<line x1="14" y1="1" x2="14" y2="4"/>
+								</svg>
+								<span>{$currentLocale === 'ar' ? 'سجل الاستراحات' : 'Break Log'}</span>
+							</a>
+						{/if}
 						<a href="/mobile-interface/day-off-request" class="hr-submenu-item" on:click={() => showHRMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/day-off-request')}>
 							<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M8 2v4m8-4v4M4 4h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
@@ -1407,69 +1469,30 @@
 				{/if}
 			</div>
 
-			<!-- Finance Menu Button -->
-			{#if hasExpenseManagerPermission || hasLCPlannerPermission}
-				<div class="nav-item-menu-container">
-					<button class="nav-item finance-btn" on:click={() => { showFinanceMenu = !showFinanceMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; }} class:active={showFinanceMenu || $page.url.pathname.startsWith('/mobile-interface/request-generator') || $page.url.pathname.startsWith('/mobile-interface/scheduler') || $page.url.pathname.startsWith('/mobile-interface/vendor-payments') || $page.url.pathname.startsWith('/mobile-interface/planner')}>
-						<div class="nav-icon">
-							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<rect x="2" y="5" width="20" height="14" rx="2"/>
-								<line x1="2" y1="10" x2="22" y2="10"/>
-								<line x1="6" y1="15" x2="10" y2="15"/>
-							</svg>
-						</div>
-						<span class="nav-label">{$currentLocale === 'ar' ? 'المالية' : 'Finance'}</span>
-					</button>
 
-					<!-- Finance Submenu -->
-					{#if showFinanceMenu}
-						<div class="finance-submenu-overlay" on:click={() => showFinanceMenu = false}></div>
-						<div class="finance-submenu">
-							{#if hasExpenseManagerPermission}
-							<a href="/mobile-interface/request-generator" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/request-generator')}>
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-									<polyline points="14 2 14 8 20 8"/>
-									<line x1="12" y1="18" x2="12" y2="12"/>
-									<line x1="9" y1="15" x2="15" y2="15"/>
-								</svg>
-								<span>{$currentLocale === 'ar' ? 'مولد الطلبات' : 'Request Generator'}</span>
-							</a>
-							<a href="/mobile-interface/scheduler" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/scheduler')}>
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-									<line x1="16" y1="2" x2="16" y2="6"/>
-									<line x1="8" y1="2" x2="8" y2="6"/>
-									<line x1="3" y1="10" x2="21" y2="10"/>
-								</svg>
-								<span>{$currentLocale === 'ar' ? 'الجدولة' : 'Scheduler'}</span>
-							</a>
-							{/if}
-							{#if hasVendorPaymentsPermission}
-								<a href="/mobile-interface/vendor-payments" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/vendor-payments')}>
-									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<rect x="1" y="4" width="22" height="16" rx="2"/>
-										<line x1="1" y1="10" x2="23" y2="10"/>
-									</svg>
-									<span>{$currentLocale === 'ar' ? 'مدفوعات الموردين' : 'Vendor Payments'}</span>
-								</a>
-							{/if}
-							{#if hasLCPlannerPermission}
-								<a href="/mobile-interface/planner" class="finance-submenu-item" on:click={() => showFinanceMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/planner')}>
-									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-										<polyline points="14 2 14 8 20 8"/>
-										<line x1="8" y1="13" x2="16" y2="13"/>
-										<line x1="8" y1="17" x2="13" y2="17"/>
-									</svg>
-									<span>{$currentLocale === 'ar' ? 'مخطط الاعتماد المستندي' : 'LC Planner'}</span>
-								</a>
+			{#if hasLiveChatPermission}
+				<div class="nav-item-menu-container">
+					<a href="/mobile-interface/support" class="nav-item whatsapp-support-btn" on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/support')} aria-label={$currentLocale === 'ar' ? 'الدعم' : 'Support'}>
+						<div class="nav-icon">
+							<img class="customer-whatsapp-icon" src="/icons/whatsapp-support-transparent.svg" alt="" width="24" height="24" />
+							{#if $waUnreadCounts.total > 0}
+								<span class="nav-badge">{$waUnreadCounts.total > 99 ? '99+' : $waUnreadCounts.total}</span>
 							{/if}
 						</div>
-					{/if}
+						<span class="nav-label">{$currentLocale === 'ar' ? 'الدعم' : 'Support'}</span>
+					</a>
 				</div>
 			{/if}
-
+			{#if hasInternalLiveChatPermission}
+				<div class="nav-item-menu-container">
+					<a href="/mobile-interface/internal-whatsapp" class="nav-item internal-whatsapp-btn" on:click={() => { showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showStockMenu = false; showFinanceMenu = false; }} class:active={$page.url.pathname.startsWith('/mobile-interface/internal-whatsapp')} aria-label={$currentLocale === 'ar' ? 'داخلي' : 'Internal'}>
+						<div class="nav-icon">
+							<img class="internal-whatsapp-icon" src="/icons/internal-whatsapp-white-fill-v1.png" alt="" width="24" height="24" />
+						</div>
+						<span class="nav-label">{$currentLocale === 'ar' ? 'داخلي' : 'Internal'}</span>
+					</a>
+				</div>
+			{/if}
 		</nav>
 
 		<!-- Contact Info Overlay - mask over content, below header & bottom-nav -->
@@ -1593,7 +1616,7 @@
 		left: 0 !important;
 		right: 0 !important;
 		bottom: 0 !important;
-		width: 100vw !important;
+		width: 100% !important;
 		height: 100vh !important;
 		height: 100dvh !important;
 		z-index: 9999 !important;
@@ -1651,7 +1674,7 @@
 		left: 0;
 		right: 0;
 		bottom: 0;
-		width: 100vw;
+		width: 100%;
 		height: 100vh;
 		height: 100dvh;
 		background: #F5FAFC;
@@ -1800,6 +1823,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
+		max-width: calc(100% - 20px);
+		overflow-y: auto;
+		padding: 4px;
 	}
 
 	.menu-item {
@@ -1811,6 +1837,8 @@
 		border: 1px solid rgba(16, 220, 229, 0.45);
 		min-width: 48px;
 		height: 48px;
+		min-height: 48px;
+		flex-shrink: 0;
 		border-radius: 24px;
 		color: white;
 		cursor: pointer;
@@ -2066,21 +2094,20 @@
 		scroll-padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
 	}
 
-	/* Home screen: same animated navy "aurora" background as the desktop and cashier
-	   interfaces. Sub-pages paint their own light backgrounds, so it is scoped to home. */
+	/* Match the approved desktop wallpaper on home; sub-pages retain their backgrounds. */
 	.mobile-content.home-content {
 		position: relative;
 		isolation: isolate;
-		background:
-			radial-gradient(ellipse 70% 30% at 78% 8%, rgba(52, 221, 237, 0.22), transparent 67%),
-			radial-gradient(ellipse 60% 40% at 6% 55%, rgba(18, 184, 211, 0.17), transparent 72%),
-			radial-gradient(ellipse 70% 34% at 92% 88%, rgba(15, 130, 181, 0.24), transparent 70%),
-			linear-gradient(155deg, #051f3f 0%, #053a66 52%, #045b7d 100%);
+		background-color: #164d8c;
+		background-image: url('/images/backgrounds/aqura-minimal-bright-blue-v1.png');
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
 	}
 
 	.mobile-content.home-content::before,
 	.mobile-content.home-content::after {
-		content: '';
+		content: none;
 		position: fixed;
 		border-radius: 50%;
 		pointer-events: none;
@@ -2143,10 +2170,18 @@
 	.bottom-nav {
 		position: fixed;
 		bottom: 0.3rem;
-		left: 0.35rem;
-		right: 0.35rem;
+		left: max(0.5rem, env(safe-area-inset-left));
+		right: max(0.5rem, env(safe-area-inset-right));
+		box-sizing: border-box;
+		min-width: 0;
 		height: 3.6rem; /* Reduced from 4.5rem (20% smaller) */
-		background: #ffffff;
+		background-color: #061d3e;
+		background-image:
+			linear-gradient(180deg, rgba(6, 27, 56, 0.45), rgba(6, 27, 56, 0.72)),
+			url('/images/backgrounds/aqura-blue-waves-v1.png');
+		background-size: cover;
+		background-position: center 78%;
+		background-repeat: no-repeat;
 		border: 1px solid #CFE3EC;
 		border-radius: 14px;
 		display: flex;
@@ -2185,6 +2220,24 @@
 		border-radius: 6px; /* Reduced from 8px */
 		min-width: 3rem;
 		touch-action: manipulation;
+	}
+
+	.customer-whatsapp-icon {
+		display: block;
+		width: 24px;
+		height: 24px;
+		object-fit: contain;
+	}
+
+	/* Keep inactive navigation readable on the desktop-style dark background. */
+	.bottom-nav .nav-item {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+	}
+
+	.bottom-nav .nav-item:not(.active):not(.emergencies-btn) {
+		color: #edf6ff;
 	}
 
 	.nav-item:hover {
@@ -2268,11 +2321,15 @@
 		white-space: nowrap;
 	}
 
-	/* Fixed Aqura theme: the active bottom-nav item always uses the brand cyan (emergencies stay red). */
-	.bottom-nav .nav-item.active:not(.emergencies-btn),
-	.bottom-nav .nav-item.active:not(.emergencies-btn) .nav-icon,
-	.bottom-nav .nav-item.active:not(.emergencies-btn) .nav-label {
-		color: #079FD0;
+	/* Keep every bottom-bar icon and label white in all interaction states. */
+	.bottom-nav .nav-item .nav-icon,
+	.bottom-nav .nav-item .nav-icon > svg,
+	.bottom-nav .nav-item .nav-label {
+		color: #FFFFFF !important;
+	}
+
+	.bottom-nav .nav-item.active .nav-icon {
+		background: rgba(255, 255, 255, 0.16);
 	}
 
 	/* Special styling for quick task button */
@@ -2358,6 +2415,8 @@
 	/* Human Resources Menu Styles */
 	.nav-item-menu-container {
 		position: relative;
+		flex: 1 1 0;
+		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -2637,8 +2696,8 @@
 	}
 
 	.internal-whatsapp-icon {
-		width: 22px;
-		height: 22px;
+		width: 24px;
+		height: 24px;
 		object-fit: contain;
 		flex-shrink: 0;
 	}
@@ -2907,65 +2966,86 @@
 		color: #0B3C68;
 	}
 
+	/* Expandable Settings section in the top-bar dropdown. */
+	.settings-menu-group {
+		width: 100%;
+		flex-shrink: 0;
+	}
+
+	.settings-menu-btn {
+		width: 100%;
+	}
+
+	.settings-chevron {
+		margin-inline-start: auto;
+		transition: transform 0.2s ease;
+	}
+
+	.settings-chevron.expanded {
+		transform: rotate(180deg);
+	}
+
+	.settings-submenu {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding-inline-start: 10px;
+		margin-top: 8px;
+	}
+
+	.settings-submenu .menu-item {
+		width: 100%;
+	}
+
+	.settings-submenu .menu-logout {
+		background: #B91C1C;
+		border-color: #FCA5A5;
+	}
+
+	.settings-submenu .menu-logout:hover {
+		background: #991B1B;
+	}
+
 	/* Finance Menu Styles */
-	.nav-item.finance-btn {
-		border: none;
-		background: none;
-		cursor: pointer;
-		color: #0B3C68;
+	.finance-menu-group,
+	.orders-menu-group {
+		width: 100%;
+		flex-shrink: 0;
 	}
 
-	.nav-item.finance-btn:hover {
-		color: #079FD0;
-		background: rgba(7, 159, 208, 0.05);
+	.finance-menu-btn,
+	.orders-menu-btn {
+		width: 100%;
 	}
 
-	.nav-item.finance-btn.active {
-		color: #0B3C68;
+	.finance-menu-btn.active,
+	.orders-menu-btn.active {
+		border-color: #10DCE5;
 	}
 
-	.nav-item.finance-btn.active .nav-icon {
-		background: rgba(7, 159, 208, 0.1);
-		color: #0B3C68;
+	.finance-menu-icon {
+		display: flex;
+		align-items: center;
 	}
 
-	.nav-item.finance-btn .nav-icon {
-		color: #0B3C68;
+	.finance-chevron {
+		margin-inline-start: auto;
+		transition: transform 0.2s ease;
 	}
 
-	.nav-item.finance-btn .nav-label {
-		font-weight: 600;
-		color: #0B3C68;
-	}
-
-	.finance-submenu-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		z-index: 95;
+	.finance-chevron.expanded {
+		transform: rotate(180deg);
 	}
 
 	.finance-submenu {
-		position: fixed;
-		bottom: 3.8rem;
-		left: 50%;
-		transform: translateX(-50%);
+		margin-top: 8px;
 		background: white;
 		border-radius: 12px;
 		box-shadow: 0 -2px 16px rgba(7, 159, 208, 0.2);
-		min-width: 180px;
-		max-width: calc(100vw - 32px);
-		z-index: 100;
+		width: 100%;
 		overflow: hidden;
-		animation: slideUp 0.2s ease;
+		animation: fadeIn 0.2s ease;
 		border: 1px solid rgba(7, 159, 208, 0.2);
-	}
-
-	:global([dir="rtl"]) .finance-submenu {
-		left: 50%;
-		transform: translateX(-50%);
 	}
 
 	.finance-submenu-item {

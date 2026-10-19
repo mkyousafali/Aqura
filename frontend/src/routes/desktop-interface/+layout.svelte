@@ -1281,6 +1281,12 @@
 	.main-content {
 		width: 100%;
 		height: 100%;
+		/* Wallpaper stays below all content without adding hit targets. */
+		background-color: #061d3e;
+		background-image: url('/images/backgrounds/aqura-minimal-bright-blue-v1.png');
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
 		display: flex;
 		align-items: stretch;
 		justify-content: stretch;

@@ -149,11 +149,11 @@
 <style>
 	.cashier-desktop {
 		min-height: 100vh;
-		background:
-			radial-gradient(ellipse 48% 38% at 72% 12%, rgba(52, 221, 237, 0.22), transparent 67%),
-			radial-gradient(ellipse 36% 54% at 8% 58%, rgba(18, 184, 211, 0.17), transparent 72%),
-			radial-gradient(ellipse 46% 42% at 88% 82%, rgba(15, 130, 181, 0.24), transparent 70%),
-			linear-gradient(155deg, #051f3f 0%, #053a66 52%, #045b7d 100%);
+		background-color: #164d8c;
+		background-image: url('/images/backgrounds/aqura-minimal-bright-blue-v1.png');
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
 		position: relative;
 		display: flex;
 		flex-direction: column;
@@ -162,7 +162,7 @@
 
 	.cashier-desktop::before,
 	.cashier-desktop::after {
-		content: '';
+		content: none;
 		position: fixed;
 		width: 760px;
 		height: 760px;

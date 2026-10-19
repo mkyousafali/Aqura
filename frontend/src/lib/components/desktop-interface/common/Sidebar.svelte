@@ -8767,7 +8767,13 @@ function openApprovalCenter() {
 	/* Fixed light desktop navigation — matches the approved preview. */
 	.sidebar,
 	.sidebar.favorites-mode {
-		background: linear-gradient(180deg, #0B3C68 0%, #082E61 48%, #061F55 100%);
+		background-color: #061d3e;
+		background-image:
+			linear-gradient(180deg, rgba(6, 27, 56, 0.35), rgba(6, 27, 56, 0.65)),
+			url('/images/backgrounds/aqura-blue-waves-v1.png');
+		background-size: cover;
+		background-position: 60% center;
+		background-repeat: no-repeat;
 		border-right: 1px solid #2B658F;
 		box-shadow: 4px 0 22px rgba(17, 24, 39, 0.22), inset -1px 0 0 rgba(255, 255, 255, 0.24);
 	}

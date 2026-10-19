@@ -664,6 +664,22 @@
 	{:else}
 		<!-- Stats Grid -->
 		<section class="stats-section">
+			<div class="time-grid">
+				<div class="stat-card date-time">
+					<div class="stat-icon">
+						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+							<line x1="16" y1="2" x2="16" y2="6"/>
+							<line x1="8" y1="2" x2="8" y2="6"/>
+							<line x1="3" y1="10" x2="21" y2="10"/>
+						</svg>
+					</div>
+					<div class="stat-info">
+						<h3>{formattedTime}</h3>
+						<p>{formattedDate}</p>
+					</div>
+				</div>
+			</div>
 			<div class="stats-grid">
 			<!-- ERP Access Card -->
 			<div class="stat-card blank clickable erp-access-card" on:click={() => goto('/mobile-interface/erp-access')}>
@@ -674,19 +690,6 @@
 				</div>
 				<div class="stat-info">
 					<p>{$localeData.code === 'ar' ? 'دخول ERP' : 'ERP Access'}</p>
-				</div>
-			</div>
-
-			<!-- My Profile Card -->
-			<div class="stat-card blank clickable my-profile-card" on:click={() => goto('/mobile-interface/my-profile')}>
-				<div class="stat-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M20 21a8 8 0 0 0-16 0"/>
-						<circle cx="12" cy="7" r="4"/>
-					</svg>
-				</div>
-				<div class="stat-info">
-					<p>{$localeData.code === 'ar' ? 'ملفي الشخصي' : 'My Profile'}</p>
 				</div>
 			</div>
 
@@ -714,20 +717,6 @@
 				<div class="stat-info"><p>{$localeData.code === 'ar' ? 'طلبات إيصالات البنك' : 'Bank Slip Requests'}</p></div>
 			</div>
 
-			<div class="stat-card date-time">
-				<div class="stat-icon">
-					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-						<line x1="16" y1="2" x2="16" y2="6"/>
-						<line x1="8" y1="2" x2="8" y2="6"/>
-						<line x1="3" y1="10" x2="21" y2="10"/>
-					</svg>
-				</div>
-				<div class="stat-info">
-					<h3>{formattedTime}</h3>
-					<p>{formattedDate}</p>
-				</div>
-			</div>
 			<div class="stat-card pending clickable" on:click={() => goto('/mobile-interface/tasks')}>
 				<div class="stat-icon">
 					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1144,34 +1133,76 @@
 	}
 	/* Stats Section */
 	.stats-section {
-		padding: 1.2rem; /* Reduced from 1.5rem (20% smaller) */
+		padding: 1rem;
+	}
+
+	.time-grid {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		margin-bottom: 0.65rem;
+	}
+
+	.time-grid .stat-card {
+		min-height: 48px;
+		padding: 0.45rem 0.65rem;
+		border-radius: 12px;
+	}
+
+	.time-grid .stat-icon {
+		width: 28px;
+		height: 28px;
+		border-radius: 8px;
+	}
+
+	.time-grid .stat-icon svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.time-grid .stat-info {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 0.25rem 0.75rem;
+	}
+
+	.time-grid .stat-info h3 {
+		font-size: 0.95rem;
+		margin: 0;
+	}
+
+	.time-grid .stat-info p {
+		font-size: 0.68rem;
 	}
 
 	.stats-grid {
 		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.8rem; /* Reduced from 1rem (20% smaller) */
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.65rem;
 	}
 	.stat-card {
 		background: white;
-		border-radius: 8px;
-		padding: 0.6rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		border-radius: 16px;
+		padding: 0.75rem;
+		min-height: 76px;
+		min-width: 0;
+		box-sizing: border-box;
+		box-shadow: 0 3px 10px rgba(6, 27, 56, 0.10);
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
-		transition: all 0.3s ease;
+		gap: 0.6rem;
+		transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 		text-decoration: none;
 		color: inherit;
 	}
 	.stat-card:hover {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 3px 10px rgba(6, 27, 56, 0.10);
 	}
 	.stat-icon {
-		width: 38px; /* Reduced from 48px (20% smaller) */
-		height: 38px; /* Reduced from 48px (20% smaller) */
-		border-radius: 10px; /* Reduced from 12px (20% smaller) */
+		width: 36px;
+		height: 36px;
+		border-radius: 12px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1273,6 +1304,11 @@
 		font-weight: 600;
 		margin: 0.1rem 0 0 0 !important;
 	}
+	.stat-info {
+		min-width: 0;
+		flex: 1;
+	}
+
 	.stat-info h3 {
 		font-size: 1rem;
 		font-weight: 700;
@@ -1280,7 +1316,10 @@
 		color: #1F2937;
 	}
 	.stat-info p {
-		font-size: 0.625rem;
+		font-size: 0.72rem;
+		font-weight: 500;
+		line-height: 1.45;
+		overflow-wrap: break-word;
 		color: #6B7280;
 		margin: 0;
 	}
@@ -1330,8 +1369,7 @@
 
 	.stat-card.clickable {
 		cursor: pointer;
-		border: 2px solid transparent;
-		transition: all 0.3s ease;
+		border: 1px solid transparent;
 		position: relative;
 		overflow: hidden;
 	}
@@ -1578,13 +1616,13 @@
 	}
 
 	.stat-card.clickable:hover {
-		transform: translateY(-5px);
-		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+		transform: translateY(-1px);
+		box-shadow: 0 5px 14px rgba(6, 27, 56, 0.14);
 		border-color: rgba(0, 0, 0, 0.1);
 	}
 	
 	.stat-card.clickable:active {
-		transform: translateY(-2px);
+		transform: translateY(0);
 	}
 
 	.click-hint {
@@ -1850,17 +1888,17 @@
 		--aq-gradient: linear-gradient(135deg, #3EEFF7 0%, #0AAEE8 40%, #0B5FA5 100%);
 	}
 
-	/* The dashboard sits on the layout's dark aurora background (see +layout.svelte). */
+	/* Soft, simple cards over the shared blue wallpaper. */
 	.mobile-dashboard .loading-content { color: rgba(255, 255, 255, 0.82); }
 	.mobile-dashboard .loading-spinner { border-color: rgba(255, 255, 255, 0.2); border-top-color: #10DCE5; }
 
 	.mobile-dashboard .stat-card {
-		border: 1px solid rgba(255, 255, 255, 0.55);
-		box-shadow: 0 6px 18px rgba(2, 16, 38, 0.28);
+		border: 1px solid #E0EAF4;
+		box-shadow: 0 3px 10px rgba(6, 27, 56, 0.10);
 	}
 	.mobile-dashboard .stat-card.clickable:hover {
-		border-color: #10DCE5;
-		box-shadow: 0 12px 26px rgba(2, 16, 38, 0.36), 0 0 0 1px rgba(16, 220, 229, 0.35);
+		border-color: #B6D5EC;
+		box-shadow: 0 5px 14px rgba(6, 27, 56, 0.14);
 	}
 	.mobile-dashboard .stat-info h3 { color: var(--aq-ink); }
 	.mobile-dashboard .stat-info p { color: var(--aq-muted); }
@@ -1918,13 +1956,13 @@
 
 	/* Follow-Ups: featured card using the logo's cyan-to-blue sweep */
 	.mobile-dashboard .followups-card {
-		background: linear-gradient(135deg, #FFFFFF 0%, #EEF9FD 100%) !important;
-		border: 1px solid rgba(10, 174, 232, 0.35) !important;
-		box-shadow: 0 4px 16px rgba(11, 95, 165, 0.14) !important;
+		background: #FFFFFF !important;
+		border: 1px solid #E0EAF4 !important;
+		box-shadow: 0 3px 10px rgba(6, 27, 56, 0.10) !important;
 	}
 	.mobile-dashboard .followups-card .stat-icon {
-		background: var(--aq-gradient) !important;
-		color: #FFFFFF !important;
+		background: var(--aq-cyan-tint) !important;
+		color: var(--aq-cyan) !important;
 	}
 	.mobile-dashboard .followups-card .stat-info p { color: var(--aq-royal) !important; }
 </style>
