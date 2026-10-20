@@ -1,6 +1,6 @@
 // This is the single version source for every web interface.
 // deployment/bump-version.mjs increments this shared release number.
-export const versionNumber = 90;
+export const versionNumber = 91;
 
 export const appVersion = `V-AQ${versionNumber}`;
 export const desktopVersion = appVersion;
