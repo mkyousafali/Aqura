@@ -41,8 +41,51 @@
         created_at: string;
     }
 
-    // Cache for user display names
+    interface EmployeeNames {
+        name_en: string | null;
+        name_ar: string | null;
+    }
+    let employeeNamesByPhone: Record<string, EmployeeNames> = {};
+    let userNames: Record<string, EmployeeNames> = {};
     let userNameCache: Record<string, string> = {};
+    $: userNameCache = Object.fromEntries(Object.entries(userNames).map(([id, names]) =>
+        [id, localizedEmployeeName(names, $locale || 'en')]));
+
+    function localizedEmployeeName(names: EmployeeNames, language: string): string {
+        return (language === 'ar' ? names.name_ar : names.name_en)?.trim()
+            || names.name_en?.trim() || names.name_ar?.trim() || '';
+    }
+
+    function employeePhoneKey(phone: string): string {
+        const digits = (phone || '').replace(/\D/g, '').replace(/^00/, '');
+        return /^05\d{8}$/.test(digits) ? `966${digits.slice(1)}` : digits;
+    }
+
+    function conversationName(conv: Conversation, language: string, names: Record<string, EmployeeNames>): string {
+        const employee = accountScope === 'internal' ? names[employeePhoneKey(conv.customer_phone)] : null;
+        return (employee && localizedEmployeeName(employee, language)) || conv.customer_name || conv.customer_phone;
+    }
+
+    async function loadInternalEmployeeNames() {
+        if (accountScope !== 'internal') return;
+        try {
+            const names: Record<string, EmployeeNames> = {};
+            for (let offset = 0; ; offset += 1000) {
+                const { data, error } = await supabase.from('hr_employee_master')
+                    .select('id, whatsapp_number, name_en, name_ar')
+                    .not('whatsapp_number', 'is', null).order('id').range(offset, offset + 999);
+                if (error) throw error;
+                for (const employee of data || []) {
+                    const phone = employeePhoneKey(employee.whatsapp_number);
+                    if (phone) names[phone] = employee;
+                }
+                if (!data || data.length < 1000) break;
+            }
+            employeeNamesByPhone = names;
+        } catch (error) {
+            console.error('Internal chat employee names error:', error);
+        }
+    }
 
     // Generate a consistent HSL color from a string (name or phone)
     function avatarColor(str: string): string {
@@ -241,7 +284,7 @@
                         }
                     }).catch(() => {});
                 }
-                await Promise.all([loadConversations(), loadPriorityConversations(), loadTemplates()]);
+                await Promise.all([loadInternalEmployeeNames(), loadConversations(), loadPriorityConversations(), loadTemplates()]);
             } else {
                 loading = false;
             }
@@ -472,15 +515,14 @@
     }
 
     async function loadUserNames(msgs: Message[]) {
-        const userIds = [...new Set(msgs.filter((m: Message) => m.sent_by_user_id && !userNameCache[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
+        const userIds = [...new Set(msgs.filter((m: Message) => m.sent_by_user_id && !userNames[m.sent_by_user_id]).map((m: Message) => m.sent_by_user_id))];
         if (userIds.length > 0) {
             const { data: employees } = await supabase.from('hr_employee_master').select('user_id, name_en, name_ar').in('user_id', userIds);
             if (employees) {
-                const isAr = $locale === 'ar';
                 for (const emp of employees) {
-                    userNameCache[emp.user_id] = (isAr ? emp.name_ar : emp.name_en) || emp.name_en || emp.name_ar || 'User';
+                    userNames[emp.user_id] = { name_en: emp.name_en, name_ar: emp.name_ar };
                 }
-                userNameCache = { ...userNameCache };
+                userNames = { ...userNames };
             }
         }
     }
@@ -1199,13 +1241,13 @@
                                 on:keydown={(e) => e.key === 'Enter' && selectConversation(conv)}>
                                 <div class="relative flex-shrink-0">
                                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
-                                        {(conv.customer_name || '?')[0].toUpperCase()}
+                                        {conversationName(conv, $locale || 'en', employeeNamesByPhone)[0]?.toUpperCase()}
                                     </div>
                                     <span class="absolute -bottom-0.5 -right-0.5 text-[9px]">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between">
-                                        <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
+                                    <div class="conv-title-row flex items-center justify-between">
+                                        <span class="conv-name font-semibold text-[13px] text-slate-800 truncate">{conversationName(conv, $locale || 'en', employeeNamesByPhone)}</span>
                                         <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
                                     </div>
                                     <div class="conv-meta-row flex items-center justify-between mt-0.5">
@@ -1237,13 +1279,13 @@
                                 on:keydown={(e) => e.key === 'Enter' && selectConversation(conv)}>
                                 <div class="relative flex-shrink-0">
                                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
-                                        {(conv.customer_name || '?')[0].toUpperCase()}
+                                        {conversationName(conv, $locale || 'en', employeeNamesByPhone)[0]?.toUpperCase()}
                                     </div>
                                     <span class="absolute -bottom-0.5 -right-0.5 text-[9px]">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="flex items-center justify-between">
-                                        <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
+                                    <div class="conv-title-row flex items-center justify-between">
+                                        <span class="conv-name font-semibold text-[13px] text-slate-800 truncate">{conversationName(conv, $locale || 'en', employeeNamesByPhone)}</span>
                                         <span class="text-[10px] text-slate-400 flex-shrink-0">{conv.last_message_at ? formatTime(conv.last_message_at) : ''}</span>
                                     </div>
                                     <div class="conv-meta-row flex items-center justify-between mt-0.5">
@@ -1284,15 +1326,15 @@
                         <!-- Avatar -->
                         <div class="relative flex-shrink-0">
                             <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:{avatarColor(conv.customer_name || conv.customer_phone)}">
-                                {(conv.customer_name || '?')[0].toUpperCase()}
+                                {conversationName(conv, $locale || 'en', employeeNamesByPhone)[0]?.toUpperCase()}
                             </div>
                             <span class="absolute -bottom-0.5 -right-0.5 text-[9px]">{conv.is_inside_24hr ? '🟢' : '🔴'}</span>
                         </div>
                         <!-- Info -->
                         <div class="flex-1 min-w-0">
-                            <div class="flex items-center justify-between gap-1.5">
-                                <span class="font-semibold text-[13px] text-slate-800 truncate">{conv.customer_name || conv.customer_phone}</span>
-                                <div class="flex items-center gap-1 flex-shrink-0">
+                            <div class="conv-title-row flex items-center justify-between gap-1.5">
+                                <span class="conv-name font-semibold text-[13px] text-slate-800 truncate">{conversationName(conv, $locale || 'en', employeeNamesByPhone)}</span>
+                                <div class="conv-status-row flex items-center gap-1 flex-shrink-0">
                                     <!-- Badge 1: Who is handling now -->
                                     {#if (conv as any).handled_by === 'human'}
                                         <span class="conv-badge badge-human">👤 {$locale === 'ar' ? 'بشري' : 'Human'}</span>
@@ -1359,10 +1401,10 @@
                         </button>
                     {/if}
                     <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm flex-shrink-0" style="background:{avatarColor(selectedConv.customer_name || selectedConv.customer_phone)}">
-                        {(selectedConv.customer_name || '?')[0].toUpperCase()}
+                        {conversationName(selectedConv, $locale || 'en', employeeNamesByPhone)[0]?.toUpperCase()}
                     </div>
                     <div class="min-w-0">
-                        <h3 class="font-semibold text-sm text-slate-800 truncate">{selectedConv.customer_name || ($locale === 'ar' ? 'غير معروف' : 'Unknown')}</h3>
+                        <h3 class="font-semibold text-sm text-slate-800 truncate">{conversationName(selectedConv, $locale || 'en', employeeNamesByPhone)}</h3>
                         <p class="text-slate-400 text-[11px] font-mono truncate">{selectedConv.customer_phone}</p>
                     </div>
                     {#if narrow}
@@ -1503,7 +1545,7 @@
                                     {/if}
                                 {:else if msg.direction === 'inbound'}
                                     <div class="text-[10px] font-semibold text-slate-500 mb-1">💬 {accountScope === 'internal'
-                                        ? (selectedConv?.customer_name || selectedConv?.customer_phone || ($locale === 'ar' ? 'الموظف' : 'Employee'))
+                                        ? conversationName(selectedConv, $locale || 'en', employeeNamesByPhone)
                                         : ($locale === 'ar' ? 'العميل' : 'Customer')}</div>
                                 {/if}
                                 {#if msg.message_type === 'image' && msg.media_url}
@@ -1789,7 +1831,7 @@
                         <span class="text-lg">⚠️</span>
                         <h3 class="text-white font-bold text-sm">{$locale === 'ar' ? 'الإبلاغ عن حادثة' : 'Report Incident'}</h3>
                         {#if selectedConv}
-                            <span class="text-white/70 text-xs">— {selectedConv.customer_name || selectedConv.customer_phone}</span>
+                            <span class="text-white/70 text-xs">— {conversationName(selectedConv, $locale || 'en', employeeNamesByPhone)}</span>
                         {/if}
                     </div>
                     <button class="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/30 text-sm transition-colors"
@@ -1919,6 +1961,25 @@
     }
     .internal-theme .conv-card-sos { border-left-color: #ef4444; }
     .internal-theme .conv-card-help { border-left-color: #f59e0b; }
+    .internal-theme .conv-title-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+    }
+    .internal-theme .conv-name,
+    .internal-theme .chat-header h3 {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        overflow-wrap: anywhere;
+        line-height: 1.5;
+        text-align: start;
+    }
+    .internal-theme .conv-status-row {
+        flex-wrap: wrap;
+        min-width: 0;
+        row-gap: 4px;
+    }
     .internal-theme .left-panel-header h2,
     .internal-theme .chat-header h3,
     .internal-theme .conv-card :global(.text-slate-800),
