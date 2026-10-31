@@ -2264,7 +2264,7 @@ function openApprovalCenter() {
 	}
 
 	function openPolosysProductCreation() {
-		if (!$currentUser?.isMasterAdmin) return;
+		if (!$currentUser?.id) return;
 		openWindow({
 			id: 'polosys-product-creation',
 			title: 'ERP Product Creation',
@@ -6939,7 +6939,7 @@ function openApprovalCenter() {
 							</button>
 						</div>
 					{/if}
-					{#if $currentUser?.isMasterAdmin}
+					{#if $currentUser?.id}
 						<div class="submenu-item-container">
 							<button class="submenu-item" on:click={openPolosysProductCreation}>
 								<span class="menu-icon">📦</span>

@@ -7,8 +7,7 @@ const headers = { 'Cache-Control': 'no-store' };
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	try {
-		const actor = await requireBreakUser(cookies, request.headers.get('x-aqura-interface') === 'mobile' ? 'mobile' : 'desktop');
-		if (!actor.isMasterAdmin) return json({ error: 'Master Admin access is required.' }, { status: 403, headers });
+		await requireBreakUser(cookies, request.headers.get('x-aqura-interface') === 'mobile' ? 'mobile' : 'desktop');
 	} catch {
 		return json({ error: 'An active session is required.' }, { status: 401, headers });
 	}

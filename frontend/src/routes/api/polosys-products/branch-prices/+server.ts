@@ -7,10 +7,9 @@ const validPrice = (value: unknown): value is number => typeof value === 'number
 type UnitPrice = { unit_id: string; barcode: string; quantity_in_base_units: number; price: number };
 type ProductUnit = { unit_id: string; barcode: string; quantity_in_base_units: number; price?: number };
 
-export const GET: RequestHandler = async ({ cookies }) => {
+export const GET: RequestHandler = async ({ cookies, request }) => {
 	try {
-		const actor = await requireBreakUser(cookies, 'desktop');
-		if (!actor.isMasterAdmin) return json({ error: 'Master Admin access is required.' }, { status: 403, headers });
+		await requireBreakUser(cookies, request.headers.get('x-aqura-interface') === 'mobile' ? 'mobile' : 'desktop');
 		const db = databaseClient();
 		const { data: connections, error } = await db.from('erp_connections').select('branch_id, branch_name, erp_branch_id').eq('is_active', true).order('branch_name');
 		if (error) throw error;
@@ -22,14 +21,13 @@ export const GET: RequestHandler = async ({ cookies }) => {
 			return { id: Number(connection.branch_id), name: branch?.location_en ? `${name} - ${branch.location_en}` : name };
 		}) }, { headers });
 	} catch {
-		return json({ error: 'Unable to load branches. An active Master Admin desktop session is required.' }, { status: 400, headers });
+		return json({ error: 'Unable to load branches. An active signed-in session is required.' }, { status: 400, headers });
 	}
 };
 
 export const POST: RequestHandler = async ({ cookies, request }) => {
 	try {
-		const actor = await requireBreakUser(cookies, 'desktop');
-		if (!actor.isMasterAdmin) return json({ error: 'Master Admin access is required.' }, { status: 403, headers });
+		await requireBreakUser(cookies, request.headers.get('x-aqura-interface') === 'mobile' ? 'mobile' : 'desktop');
 		const body = await request.json();
 		const branchId = Number(body.branchId);
 		if (!Number.isSafeInteger(branchId) || branchId <= 0 || typeof body.productId !== 'string' || !['fetch', 'save'].includes(body.action)) {

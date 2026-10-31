@@ -3,12 +3,14 @@
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import SearchableDropdown from '$lib/components/desktop-interface/marketing/flyer/SearchableDropdown.svelte';
+	import PolosysGroupSelect from './PolosysGroupSelect.svelte';
 
 	type Unit = { id: string; name: string; name_ar?: string | null };
 	export let units: Unit[] = [];
 	export let value = '';
 	export let label = 'Unit name';
 	export let disabled = false;
+	export let mobile = false;
 	export let excludedIds: string[] = [];
 	const dispatch = createEventDispatcher<{ saved: Unit; change: void; saving: boolean }>();
 	let open = false;
@@ -25,9 +27,9 @@
 		const index = preferredUnits.findIndex(unit => unit.toLowerCase() === name.toLowerCase());
 		return index < 0 ? preferredUnits.length : index;
 	};
-	$: options = units.filter(unit => !excludedIds.includes(unit.id) || unit.id === value)
-		.sort((a, b) => unitPriority(a.name) - unitPriority(b.name) || a.name.localeCompare(b.name, 'en', { numeric: true }))
-		.map(unit => ({ id: unit.id, name_en: unit.name }));
+	$: availableUnits = units.filter(unit => !excludedIds.includes(unit.id) || unit.id === value)
+		.sort((a, b) => unitPriority(a.name) - unitPriority(b.name) || a.name.localeCompare(b.name, 'en', { numeric: true }));
+	$: options = availableUnits.map(unit => ({ id: unit.id, name_en: unit.name }));
 
 	async function openPopup() {
 		newName = ''; newArabicName = ''; error = ''; message = ''; open = true;
@@ -42,7 +44,7 @@
 	}
 
 	async function save() {
-		if (!$currentUser?.isMasterAdmin || saving || disabled) return;
+		if (!$currentUser?.id || saving || disabled) return;
 		const name = newName.trim();
 		const nameAr = newArabicName.trim();
 		if (!name) {
@@ -99,7 +101,10 @@
 <div class="unit-picker">
 	<span>{label}</span>
 	<fieldset disabled={disabled || saving} aria-label={label}>
-		<div class="selector"><SearchableDropdown {options} bind:value placeholder="Search and select unit" on:change={() => { message = ''; dispatch('change'); }} /></div>
+		<div class="selector">
+			{#if mobile}<PolosysGroupSelect groups={availableUnits} bind:value disabled={disabled || saving} title={`Select ${label.toLowerCase()}`} placeholder="Select unit" searchLabel="Search units" emptyMessage="No matching units." on:change={() => { message = ''; dispatch('change'); }} />
+			{:else}<SearchableDropdown {options} bind:value placeholder="Search and select unit" on:change={() => { message = ''; dispatch('change'); }} />{/if}
+		</div>
 		<button type="button" class="add" bind:this={addButton} aria-label="Create unit" aria-expanded={open} on:click={openPopup}>+</button>
 	</fieldset>
 	{#if message}<span class="message" role="status">{message}</span>{/if}

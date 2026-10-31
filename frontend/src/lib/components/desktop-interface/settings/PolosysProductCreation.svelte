@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
-	import { WandSparkles, LoaderCircle, Search, Camera } from 'lucide-svelte';
+	import { WandSparkles, LoaderCircle, Search, Camera, Check } from 'lucide-svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { supabase } from '$lib/utils/supabase';
 	import SearchableDropdown from '$lib/components/desktop-interface/marketing/flyer/SearchableDropdown.svelte';
 	import PolosysUnitSelect from './PolosysUnitSelect.svelte';
+	import PolosysGroupSelect from './PolosysGroupSelect.svelte';
 	import PolosysTablePrices from './PolosysTablePrices.svelte';
 	import PolosysBarcodeCamera from './PolosysBarcodeCamera.svelte';
 	export let mobile = false;
@@ -16,14 +17,14 @@
 	type SavedProduct = { id: string; product_group_id: string; base_unit_id: string; data: ProductData; created_at: string; updated_at: string; creation_status?: Record<string, { status: string; branch_name?: string; error?: string }> };
 	const creationStatusLabels: Record<string, string> = { filling: 'Filling — not saved', saving: 'Saving — awaiting confirmation', prepared_unsaved: 'Prepared — NOT SAVED', created: 'Created', failed: 'Failed', needs_verification: 'Needs verification', not_created: 'Not created' };
 	let editingProduct: SavedProduct | null = null;
-	let activeView: 'create' | 'view' | 'manage' = 'create';
+	let activeView: 'create' | 'view' | 'manage' | 'coming-soon' = 'coming-soon';
 	let editReturnView: 'view' | 'manage' = 'view';
 	let scanBarcode = '';
 	let scanError = '';
 	let scanningProduct = false;
 	let showBarcodeCamera = false;
-	let barcodeCameraTarget: 'manage' | 'base' | number = 'manage';
-	let barcodeCameraView: 'create' | 'view' | 'manage' = 'manage';
+	let barcodeCameraTarget: 'manage' | 'base' | 'checker' | number = 'manage';
+	let barcodeCameraView: 'create' | 'view' | 'manage' | 'coming-soon' = 'manage';
 	$: if (showBarcodeCamera && activeView !== barcodeCameraView) showBarcodeCamera = false;
 	let scanInput: HTMLInputElement;
 	let scanTimer: ReturnType<typeof setTimeout> | undefined;
@@ -36,6 +37,164 @@
 	let priceBranches: { id: number; name: string }[] = [];
 	let loadingPriceBranches = false;
 	let priceBranchError = '';
+	let checkerBranchId = '';
+	let checkerSearch = '';
+	let checkerSearchInput: HTMLInputElement;
+	type CheckerProduct = {
+		id: string;
+		barcode: string;
+		checkedAt: string | null;
+		name: string;
+		arabicName: string;
+		groupId: string;
+		purchasePrice?: number;
+		hasBranchPrices: boolean;
+		prices: { barcode: string; unitId: string; multi_factor: number; sprice?: number }[];
+	};
+	let checkerProduct: CheckerProduct | null = null;
+	let checkerLoading = false;
+	let checkerError = '';
+	let checkerCheckError = '';
+	let checkerSavingCheck = false;
+	let checkerTimer: ReturnType<typeof setTimeout> | undefined;
+	let checkerController: AbortController | undefined;
+	let checkerRequest = 0;
+	onDestroy(() => resetCheckerLookup());
+	$: if (activeView !== 'coming-soon') resetCheckerLookup();
+
+	function resetCheckerLookup() {
+		clearTimeout(checkerTimer);
+		checkerController?.abort();
+		checkerRequest++;
+		checkerLoading = false;
+		checkerProduct = null;
+		checkerError = '';
+		checkerCheckError = '';
+	}
+
+	function scheduleCheckerLookup() {
+		resetCheckerLookup();
+		if (checkerSearch.trim() && checkerBranchId) checkerTimer = setTimeout(lookupCheckerProduct, 400);
+	}
+
+	function prepareNextCheckerScan() {
+		if (activeView !== 'coming-soon' || showBarcodeCamera) return;
+		checkerSearch = '';
+		checkerSearchInput?.focus({ preventScroll: true });
+	}
+
+	async function lookupCheckerProduct() {
+		resetCheckerLookup();
+		const scanned = checkerSearch.trim();
+		const branchId = checkerBranchId;
+		if (activeView !== 'coming-soon' || !scanned || !branchId || !$currentUser?.id) return;
+		const requestId = checkerRequest;
+		checkerController = new AbortController();
+		checkerLoading = true;
+		try {
+			const query = new URLSearchParams({ interface: mobile ? 'mobile' : 'desktop', barcode: scanned, branchId });
+			const response = await fetch(`/api/polosys-products/checker?${query}`, { signal: checkerController.signal });
+			const result = await response.json();
+			if (requestId !== checkerRequest) return;
+			if (!response.ok) throw new Error(result.error || 'Unable to load product details.');
+			const product = result.product as SavedProduct;
+			const branchPrices = product.data.branch_prices?.[branchId];
+			const legacyPrices = product.data.selected_branch_id === Number(branchId) ? product.data : undefined;
+			const basePrices = branchPrices || legacyPrices;
+			checkerProduct = {
+				id: product.id,
+				barcode: scanned,
+				checkedAt: result.check?.checked_at || null,
+				name: product.data.name,
+				arabicName: product.data.arabic_name,
+				groupId: product.product_group_id,
+				purchasePrice: basePrices?.purchase_price,
+				hasBranchPrices: !!basePrices,
+				prices: [
+					{ barcode: product.data.barcode, unitId: product.base_unit_id, multi_factor: 1, sprice: basePrices?.sales_price },
+					...(product.data.multi_units || []).map(unit => {
+						const savedPrice = branchPrices?.multi_units?.find(price => price.unit_id === unit.unit_id && price.barcode === unit.barcode.trim() && price.quantity_in_base_units === unit.quantity_in_base_units);
+						return { barcode: unit.barcode, unitId: unit.unit_id, multi_factor: unit.quantity_in_base_units, sprice: branchPrices ? savedPrice?.price : legacyPrices ? unit.price : undefined };
+					})
+				]
+			};
+		} catch (error) {
+			if (requestId === checkerRequest) checkerError = error instanceof Error ? error.message : 'Unable to load product details. Please try again.';
+		} finally {
+			if (requestId === checkerRequest) {
+				checkerLoading = false;
+				await tick();
+				if (requestId === checkerRequest) prepareNextCheckerScan();
+			}
+		}
+	}
+
+	function checkerPrice(value: unknown) {
+		return value != null && Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} SAR` : '—';
+	}
+
+	async function saveCheckerCheck() {
+		if (!checkerProduct || checkerProduct.checkedAt || checkerSavingCheck || !checkerBranchId) return;
+		const product = checkerProduct;
+		const branchId = checkerBranchId;
+		const requestId = checkerRequest;
+		checkerSavingCheck = true;
+		checkerCheckError = '';
+		try {
+			const response = await fetch(`/api/polosys-products/checker?interface=${mobile ? 'mobile' : 'desktop'}`, {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ productId: product.id, barcode: product.barcode, branchId: Number(branchId) })
+			});
+			const result = await response.json();
+			if (!response.ok || !result.check?.checked_at) throw new Error(result.error || 'Unable to save checked status. Please try again.');
+			if (requestId === checkerRequest) checkerProduct = { ...product, checkedAt: result.check.checked_at };
+		} catch (error) {
+			if (requestId === checkerRequest) checkerCheckError = error instanceof Error ? error.message : 'Unable to save checked status. Please try again.';
+		} finally {
+			checkerSavingCheck = false;
+			await tick();
+			if (requestId === checkerRequest) prepareNextCheckerScan();
+		}
+	}
+	let checkerDefaultBranchId = '';
+	let checkerPreferenceError = '';
+	let checkerPreferenceMessage = '';
+
+	async function showChecker() {
+		resetCheckerLookup();
+		activeView = 'coming-soon';
+		checkerBranchId = '';
+		checkerDefaultBranchId = '';
+		checkerPreferenceError = '';
+		checkerPreferenceMessage = '';
+		const userId = $currentUser?.id;
+		if (!userId) return;
+		try {
+			checkerDefaultBranchId = localStorage.getItem(`polosys-checker-default-branch:${userId}`) || '';
+		} catch {
+			checkerPreferenceError = 'Unable to read your default branch on this device.';
+		}
+		await loadPriceBranches();
+		if ($currentUser?.id !== userId) return;
+		if (priceBranches.some(branch => String(branch.id) === checkerDefaultBranchId)) {
+			checkerBranchId = checkerDefaultBranchId;
+		}
+		if (activeView === 'coming-soon') scheduleCheckerLookup();
+	}
+
+	function saveCheckerDefaultBranch() {
+		const userId = $currentUser?.id;
+		if (!userId || !priceBranches.some(branch => String(branch.id) === checkerBranchId)) return;
+		checkerPreferenceError = '';
+		checkerPreferenceMessage = '';
+		try {
+			localStorage.setItem(`polosys-checker-default-branch:${userId}`, checkerBranchId);
+			checkerDefaultBranchId = checkerBranchId;
+			checkerPreferenceMessage = 'Default branch saved for you on this device.';
+		} catch {
+			checkerPreferenceError = 'Unable to save your default branch. Please try again.';
+		}
+	}
 	$: priceBranchOptions = [...new Map([
 		...savedProducts.flatMap(product => Object.values(product.data.branch_prices || {}).map(branch => [String(branch.branch_id), { id: branch.branch_id, name: branch.branch_name || `Branch ${branch.branch_id}` }] as const)),
 		...priceBranches.map(branch => [String(branch.id), branch] as const)
@@ -84,6 +243,8 @@
 	let addGroupButton: HTMLButtonElement;
 	$: groupOptions = groups.map(group => ({ id: group.id, name_en: group.name }));
 	$: baseUnitName = units.find(unit => unit.id === baseUnitId)?.name || 'base units';
+	$: canAddUnit = !!name.trim() && !!arabicName.trim() && !!barcode.trim()
+		&& groups.some(group => group.id === groupId) && units.some(unit => unit.id === baseUnitId);
 	$: groupName = groups.find(group => group.id === groupId)?.name || '';
 	$: groupArabicName = groups.find(group => group.id === groupId)?.name_ar || '';
 	const unitName = (id: string) => units.find(unit => unit.id === id)?.name || '';
@@ -99,7 +260,7 @@
 	}
 
 	async function loadLookups() {
-		if (!$currentUser?.isMasterAdmin || loading || savingGroup || savingUnit) return;
+		if (!$currentUser?.id || loading || savingGroup || savingUnit) return;
 		loading = true;
 		loadError = '';
 		try {
@@ -110,23 +271,25 @@
 			loading = false;
 		}
 	}
-	onMount(loadLookups);
+	onMount(() => { void showChecker(); });
 
 	async function loadPriceBranches() {
-		if (!$currentUser?.isMasterAdmin || loadingPriceBranches) return;
+		if (!$currentUser?.id || loadingPriceBranches) return;
 		loadingPriceBranches = true; priceBranchError = '';
 		try {
-			const response = await fetch('/api/polosys-products/branch-prices');
+			const response = await fetch(`/api/polosys-products/checker?interface=${mobile ? 'mobile' : 'desktop'}`);
 			const result = await response.json();
 			if (!response.ok) throw new Error(result.error || 'Unable to load branch filter.');
 			priceBranches = result.branches || [];
+			groups = result.groups || [];
+			units = result.units || [];
 		} catch (failure) {
 			priceBranchError = failure instanceof Error ? failure.message : 'Unable to load branch filter.';
 		} finally { loadingPriceBranches = false; }
 	}
 
 	async function loadProducts() {
-		if (!$currentUser?.isMasterAdmin || loadingProducts) return;
+		if (!$currentUser?.id || loadingProducts) return;
 		loadingProducts = true;
 		productsError = '';
 		try {
@@ -181,7 +344,7 @@
 	}
 
 	async function saveProduct() {
-		if (!$currentUser?.isMasterAdmin || savingProduct || savingGroup || savingUnit || namesBusy || loading) return;
+		if (!$currentUser?.id || savingProduct || savingGroup || savingUnit || namesBusy || loading) return;
 		productSaveError = ''; productMessage = '';
 		if (!review()) return;
 		const returnToManage = !!editingProduct && editReturnView === 'manage';
@@ -284,7 +447,7 @@
 		if (scanBarcode.trim()) scanTimer = setTimeout(() => findScannedProduct(), 400);
 	}
 
-	function openBarcodeCamera(target: 'manage' | 'base' | number = 'manage') {
+	function openBarcodeCamera(target: 'manage' | 'base' | 'checker' | number = 'manage') {
 		clearTimeout(scanTimer);
 		scanError = '';
 		barcodeCameraTarget = target;
@@ -294,6 +457,7 @@
 
 	function focusBarcodeTarget() {
 		const inputId = barcodeCameraTarget === 'manage' ? 'polosys-manage-barcode'
+			: barcodeCameraTarget === 'checker' ? 'polosys-checker-search'
 			: barcodeCameraTarget === 'base' ? 'polosys-product-barcode' : `polosys-unit-barcode-${barcodeCameraTarget}`;
 		document.getElementById(inputId)?.focus();
 	}
@@ -307,6 +471,7 @@
 	async function useCameraBarcode(value: string) {
 		showBarcodeCamera = false;
 		if (barcodeCameraTarget === 'manage') scanBarcode = value;
+		else if (barcodeCameraTarget === 'checker') checkerSearch = value;
 		else if (barcodeCameraTarget === 'base') {
 			barcode = value;
 			barcodeLookupError = ''; barcodeSource = null; reviewed = false;
@@ -316,12 +481,13 @@
 		}
 		await tick();
 		if (barcodeCameraTarget === 'manage') await findScannedProduct();
+		else if (barcodeCameraTarget === 'checker') await lookupCheckerProduct();
 		focusBarcodeTarget();
 	}
 
 	async function findScannedProduct() {
 		clearTimeout(scanTimer);
-		if (!$currentUser?.isMasterAdmin || activeView !== 'manage' || scanningProduct || savingProduct || namesBusy || savingGroup || savingUnit) return;
+		if (!$currentUser?.id || activeView !== 'manage' || scanningProduct || savingProduct || namesBusy || savingGroup || savingUnit) return;
 		const scanned = scanBarcode.trim();
 		if (!scanned) return;
 		scanningProduct = true; scanError = '';
@@ -378,7 +544,7 @@
 	}
 
 	async function saveGroup() {
-		if (!$currentUser?.isMasterAdmin || savingGroup || savingUnit) return;
+		if (!$currentUser?.id || savingGroup || savingUnit) return;
 		const groupName = newGroupName.trim();
 		const arabicGroupName = newGroupArabicName.trim();
 		if (!groupName) {
@@ -414,7 +580,7 @@
 	}
 
 	async function correctProductNames() {
-		if (!$currentUser?.isMasterAdmin || namesBusy) return;
+		if (!$currentUser?.id || namesBusy) return;
 		const source = name.trim();
 		if (!source) { translationError = 'Enter the English product name first.'; return; }
 		translatingName = true;
@@ -446,7 +612,7 @@
 	}
 
 	async function lookupBarcode() {
-		if (!$currentUser?.isMasterAdmin || namesBusy) return;
+		if (!$currentUser?.id || namesBusy) return;
 		const sourceBarcode = barcode.trim();
 		if (!/^[0-9]{8,14}$/.test(sourceBarcode)) {
 			barcodeLookupError = 'Enter a numeric product barcode of 8 to 14 digits.';
@@ -486,7 +652,7 @@
 	}
 
 	function addUnit() {
-		if (extraUnits.length >= 9) return;
+		if (!canAddUnit || extraUnits.length >= 9) return;
 		extraUnits = [...extraUnits, { key: ++nextKey, unitId: '', quantity: undefined, barcode: '' }];
 		reviewed = false;
 	}
@@ -526,15 +692,63 @@
 	}
 </script>
 
-<div class="creation-window" class:mobile-product-window={mobile} class:viewing-products={activeView === 'view' && !mobile}>
-	{#if !$currentUser?.isMasterAdmin}
-		<p role="alert">Master Admin access is required.</p>
+<div class="creation-window" class:mobile-product-window={mobile} class:viewing-products={activeView === 'view' && !mobile} class:viewing-coming-soon={activeView === 'coming-soon'} class:editing-products={activeView === 'create' || activeView === 'manage'}>
+	{#if !$currentUser?.id}
+		<p role="alert">Sign in to access ERP Products.</p>
 	{:else}
 		<nav class="product-tabs" aria-label="Product views">
 			<button type="button" class:active={activeView === 'create'} aria-pressed={activeView === 'create'} disabled={savingProduct || savingGroup || savingUnit || namesBusy || loadingProducts || tablePricingBusy} on:click={() => { if (editingProduct) clearDraft(); activeView = 'create'; }}>Create Product</button>
 			{#if !mobile}<button type="button" class:active={activeView === 'view'} aria-pressed={activeView === 'view'} disabled={savingProduct || savingGroup || savingUnit || namesBusy || loadingProducts || tablePricingBusy} on:click={showProducts}>View Products</button>{/if}
 			<button type="button" class:active={activeView === 'manage'} aria-pressed={activeView === 'manage'} disabled={savingProduct || savingGroup || savingUnit || namesBusy || loadingProducts || tablePricingBusy || scanningProduct} on:click={showManageProducts}>Manage Products</button>
+			<button type="button" class:active={activeView === 'coming-soon'} aria-pressed={activeView === 'coming-soon'} disabled={savingProduct || savingGroup || savingUnit || namesBusy || loadingProducts || tablePricingBusy || scanningProduct || loadingPriceBranches} on:click={showChecker}>Checker</button>
 		</nav>
+		{#if activeView === 'coming-soon'}
+			<section class="checker-branch" aria-label="Checker branch selection">
+				<label for="polosys-checker-branch">{mobile ? 'Branch' : 'Step 1: Select branch'}
+					<select id="polosys-checker-branch" bind:value={checkerBranchId} disabled={loadingPriceBranches || !!priceBranchError} on:change={() => { checkerPreferenceMessage = ''; checkerPreferenceError = ''; scheduleCheckerLookup(); }}>
+						<option value="">{loadingPriceBranches ? 'Loading branches…' : 'Select a branch'}</option>
+						{#each priceBranches as branch}<option value={String(branch.id)}>{branch.name}</option>{/each}
+					</select>
+				</label>
+				<button type="button" disabled={!checkerBranchId || loadingPriceBranches || !!priceBranchError || checkerBranchId === checkerDefaultBranchId} on:click={saveCheckerDefaultBranch}>{checkerBranchId && checkerBranchId === checkerDefaultBranchId ? 'Default branch' : 'Set as default'}</button>
+				{#if priceBranchError}<p class="translation-error" role="alert">{priceBranchError} <button type="button" disabled={loadingPriceBranches} on:click={showChecker}>Retry</button></p>
+				{:else if !loadingPriceBranches && !priceBranches.length}<p>No branches available.</p>{/if}
+				{#if checkerPreferenceError}<p class="translation-error" role="alert">{checkerPreferenceError}</p>{/if}
+				{#if checkerPreferenceMessage}<p role="status">{checkerPreferenceMessage}</p>{/if}
+			</section>
+			<form class="checker-search" role="search" on:submit|preventDefault={lookupCheckerProduct}>
+				<label for="polosys-checker-search">Search barcode</label>
+				<div class="barcode-controls">
+					<input id="polosys-checker-search" type="search" bind:this={checkerSearchInput} bind:value={checkerSearch} on:input={scheduleCheckerLookup} placeholder="Enter or scan a barcode" autocomplete="off" disabled={!checkerBranchId || loadingPriceBranches || !!priceBranchError || showBarcodeCamera} />
+					<button class="camera-scan-button" type="button" aria-label="Open camera to scan a barcode for Checker" disabled={!checkerBranchId || loadingPriceBranches || !!priceBranchError || showBarcodeCamera} on:click={() => openBarcodeCamera('checker')}><Camera size={18} aria-hidden="true" /> Scan</button>
+				</div>
+			</form>
+			{#if checkerLoading}
+				<p role="status">Loading product details…</p>
+			{:else if checkerError}
+				<p class="translation-error" role="alert">{checkerError} <button type="button" on:click={lookupCheckerProduct}>Retry</button></p>
+			{:else if checkerProduct}
+				<section class="checker-details" aria-label="Product details">
+					<div class="checker-product-name">
+						<h3>{checkerProduct.name || checkerProduct.arabicName || 'Product details'}</h3>
+						{#if checkerProduct.arabicName}<p lang="ar" dir="rtl">{checkerProduct.arabicName}</p>{/if}
+					</div>
+					<dl><dt>Branch</dt><dd>{priceBranches.find(branch => String(branch.id) === checkerBranchId)?.name || checkerBranchId}</dd><dt>Product group</dt><dd>{groups.find(group => group.id === checkerProduct?.groupId)?.name || '—'}</dd><dt>Base purchase price</dt><dd>{checkerPrice(checkerProduct.purchasePrice)}</dd></dl>
+					{#if !checkerProduct.hasBranchPrices}<p>No saved prices for the selected branch.</p>{/if}
+					{#if checkerCheckError}<p class="translation-error" role="alert">{checkerCheckError}</p>{/if}
+					{#if checkerProduct.prices.length}
+						<div class="table-scroll"><table><thead><tr><th>Unit</th><th>Barcode</th><th title="Quantity in base units" aria-label="Quantity in base units">Base qty</th><th>Sales price</th><th>Check</th></tr></thead><tbody>
+							{#each checkerProduct.prices as price}<tr class:scanned-unit={String(price.barcode) === checkerProduct.barcode}><td>{unitName(price.unitId) || '—'}</td><td>{price.barcode}</td><td>{price.multi_factor ?? '—'}</td><td>{checkerPrice(price.sprice)}</td><td>
+								{#if String(price.barcode) === checkerProduct.barcode}
+									{#if checkerProduct.checkedAt}<span class="checker-checked" role="status" aria-label="Checked for this branch"><Check size={20} aria-hidden="true" /></span>
+									{:else}<button class="primary checker-check-button" type="button" disabled={checkerSavingCheck} on:click={saveCheckerCheck}>{checkerSavingCheck ? 'Saving…' : 'Check'}</button>{/if}
+								{/if}
+							</td></tr>{/each}
+						</tbody></table></div>
+					{:else}<p>No unit prices available for this product.</p>{/if}
+				</section>
+			{:else if !mobile}<p class="empty">Select a branch, then enter or scan a barcode to view product details.</p>{/if}
+		{/if}
 		{#if productMessage}<div class="product-success" role="status">{productMessage}</div>{/if}
 		{#if loadError}
 			<div class="error" role="alert">{loadError} <button type="button" on:click={loadLookups} disabled={loading}>Retry</button></div>
@@ -551,7 +765,7 @@
 		{/if}
 		{#if showBarcodeCamera}<PolosysBarcodeCamera on:scan={(event) => useCameraBarcode(event.detail)} on:close={closeBarcodeCamera} />{/if}
 		<div hidden={activeView !== 'create' && !(activeView === 'manage' && editingProduct)}>
-		{#if editingProduct}<h3>Edit Product</h3><p>Changing barcodes or units clears saved prices for this product. Fetch prices again after saving.</p>{/if}
+		{#if editingProduct}<h3>Edit Product</h3>{#if !mobile}<p>Changing barcodes or units clears saved prices for this product. Fetch prices again after saving.</p>{/if}{/if}
 		<form on:submit|preventDefault={saveProduct} on:input={() => { reviewed = false; productMessage = ''; }} on:change={() => reviewed = false}>
 			<fieldset class="product-editor" disabled={savingProduct}>
 			<section aria-label="Product details">
@@ -567,7 +781,10 @@
 					<div class="group-field">
 						<span>Product group</span>
 						<fieldset class="group-controls" disabled={loading || savingGroup || savingUnit} aria-label="Product group">
-							<div class="group-selector"><SearchableDropdown options={groupOptions} bind:value={groupId} placeholder="Search and select product group" on:change={() => { reviewed = false; groupMessage = ''; }} /></div>
+							<div class="group-selector">
+								{#if mobile}<PolosysGroupSelect {groups} bind:value={groupId} disabled={loading || savingGroup || savingUnit} on:change={() => { reviewed = false; groupMessage = ''; }} />
+								{:else}<SearchableDropdown options={groupOptions} bind:value={groupId} placeholder="Search and select product group" on:change={() => { reviewed = false; groupMessage = ''; }} />{/if}
+							</div>
 							<button type="button" class="add-group" bind:this={addGroupButton} aria-label="Create product group" aria-expanded={showGroupPopup} on:click={openGroupPopup}>+</button>
 						</fieldset>
 						{#if groupMessage}<span class="group-message" role="status">{groupMessage}</span>{/if}
@@ -581,7 +798,7 @@
 							</div>
 						{/if}
 					</div>
-					<PolosysUnitSelect {units} bind:value={baseUnitId} label="Base unit" excludedIds={extraUnits.map(unit => unit.unitId)} disabled={loading || savingGroup || savingUnit} on:saved={(event) => rememberUnit(event.detail)} on:change={() => reviewed = false} on:saving={(event) => savingUnit = event.detail} />
+					<PolosysUnitSelect {units} {mobile} bind:value={baseUnitId} label="Base unit" excludedIds={extraUnits.map(unit => unit.unitId)} disabled={loading || savingGroup || savingUnit} on:saved={(event) => rememberUnit(event.detail)} on:change={() => reviewed = false} on:saving={(event) => savingUnit = event.detail} />
 					<div class="barcode-field full">
 						<label for="polosys-product-barcode">Barcode</label>
 						<div class="barcode-controls">
@@ -598,21 +815,21 @@
 				</div>
 			</section>
 			<section class="multi-units" aria-label="Additional units">
-				<div class="unit-heading"><div><h3>Multi Units</h3><p>Enter how many {baseUnitName} each additional unit contains.</p></div><button type="button" on:click={addUnit} disabled={extraUnits.length >= 9}>+ Add unit</button></div>
+				<div class="unit-heading"><div><h3>Multi Units</h3>{#if !mobile}<p>Enter how many {baseUnitName} each additional unit contains.</p>{/if}</div>{#if canAddUnit}<button type="button" on:click={addUnit} disabled={extraUnits.length >= 9}>+ Add unit</button>{/if}</div>
 				<div class="base-unit">Unit 1 · {baseUnitId ? baseUnitName : 'Select a base unit in Details'} · Quantity 1</div>
-				{#if !extraUnits.length}<p class="empty">No additional units. Add a row for each pack, carton, or other unit.</p>{/if}
+				{#if !mobile && !extraUnits.length}<p class="empty">No additional units. Add a row for each pack, carton, or other unit.</p>{/if}
 				{#each extraUnits as unit, index (unit.key)}
 					<div class="unit-row">
 						<div class="row-heading"><h3>Unit {index + 2}</h3><button type="button" class="remove" disabled={savingUnit} on:click={() => { extraUnits = extraUnits.filter(item => item.key !== unit.key); reviewed = false; }}>Remove</button></div>
 						<div class="unit-fields">
-							<PolosysUnitSelect {units} bind:value={unit.unitId} excludedIds={[baseUnitId, ...extraUnits.filter(other => other.key !== unit.key).map(other => other.unitId)]} disabled={loading || savingGroup || savingUnit} on:saved={(event) => rememberUnit(event.detail)} on:change={() => reviewed = false} on:saving={(event) => savingUnit = event.detail} />
+							<PolosysUnitSelect {units} {mobile} bind:value={unit.unitId} excludedIds={[baseUnitId, ...extraUnits.filter(other => other.key !== unit.key).map(other => other.unitId)]} disabled={loading || savingGroup || savingUnit} on:saved={(event) => rememberUnit(event.detail)} on:change={() => reviewed = false} on:saving={(event) => savingUnit = event.detail} />
 							<label>Contains ({baseUnitName})<input type="number" min="0.000001" step="any" bind:value={unit.quantity} placeholder="e.g. 30" /></label>
 							<div class="barcode-field"><label for={`polosys-unit-barcode-${unit.key}`}>Unit barcode</label><div class="barcode-controls"><input id={`polosys-unit-barcode-${unit.key}`} bind:value={unit.barcode} placeholder="Separate barcode" /><button type="button" class="correct-names" title="Scan unit barcode" aria-label={`Open camera to scan unit ${index + 2} barcode`} on:click={() => openBarcodeCamera(unit.key)}><Camera size={18} aria-hidden="true" /></button></div></div>
 						</div>
 						{#if unit.unitId && unit.quantity}<p class="conversion">1 {unitName(unit.unitId)} = {unit.quantity} {baseUnitName}</p>{/if}
 					</div>
 				{/each}
-				<p class="hint">Up to 9 additional units, matching Polosys Unit 2 through Unit 10.</p>
+				{#if !mobile}<p class="hint">Up to 9 additional units, matching Polosys Unit 2 through Unit 10.</p>{/if}
 			</section>
 			{#if errors.length}<div class="error" role="alert"><ul>{#each errors as error}<li>{error}</li>{/each}</ul></div>{/if}
 			{#if productSaveError}<div class="error" role="alert">{productSaveError}</div>{/if}
@@ -694,6 +911,14 @@
 </div>
 
 <style>
+	.checker-details{margin-top:20px;padding:20px;background:white;border:1px solid #e2e8f0;border-radius:10px}
+	.checker-details .scanned-unit{background:#ecfeff}
+	.checker-search{display:flex;flex-direction:column;gap:8px;margin-top:20px;flex-shrink:0}
+	.checker-branch{display:flex;align-items:end;gap:12px;flex-wrap:wrap;flex-shrink:0;padding:20px;background:white;border:1px solid #e2e8f0;border-radius:10px}
+	.checker-branch label{flex:1;min-width:0;max-width:420px}
+	.checker-branch p{flex-basis:100%;margin:0}
+	.creation-window.viewing-coming-soon{display:flex;flex-direction:column;min-height:0}
+	.viewing-coming-soon>.product-tabs{flex-shrink:0;flex-wrap:wrap}
 	.row-actions{display:flex;gap:8px;white-space:nowrap}
 	.camera-scan-button{display:inline-flex;align-items:center;gap:8px}
 	.manage-scan{display:flex;align-items:end;gap:12px;margin-bottom:20px;flex-wrap:wrap}.manage-scan label{flex:1;min-width:220px}.manage-scan button{white-space:nowrap}
@@ -732,4 +957,52 @@
 	.mobile-product-window input,.mobile-product-window select{font-size:16px;min-height:44px}.mobile-product-window button{min-height:44px}
 	.mobile-product-window .manage-scan{gap:8px}.mobile-product-window .manage-scan label{flex-basis:100%;min-width:0}.mobile-product-window .manage-scan button{flex:1;justify-content:center}
 	.mobile-product-window footer{gap:8px}.mobile-product-window footer button{flex:1}.mobile-product-window .group-popup{position:static;margin-top:6px}
+	.viewing-coming-soon .checker-branch{padding:6px 8px;gap:6px;align-items:center}
+	.viewing-coming-soon .checker-branch label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:6px;font-size:12px;max-width:none}
+	.viewing-coming-soon .checker-branch select{min-height:36px;padding:6px;font-size:16px}
+	.viewing-coming-soon .checker-branch button{min-height:36px;padding:6px;font-size:12px;white-space:nowrap}
+	.viewing-coming-soon .checker-search{margin:10px 0 0;gap:4px}
+	.viewing-coming-soon .checker-search label{font-size:13px}
+	.viewing-coming-soon .checker-details{margin-top:10px;padding:12px;font-size:13px}
+	.checker-product-name{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+	.checker-product-name h3{font-size:14px;overflow-wrap:anywhere}
+	.checker-details p{margin:4px 0;line-height:1.35}
+	.checker-details dl{grid-template-columns:minmax(80px,110px) minmax(0,1fr);gap:4px 8px;margin:8px 0;line-height:1.35}
+	.checker-details th,.checker-details td{padding:6px 5px;font-size:12px;line-height:1.3}
+	.checker-details .checker-check-button{min-height:36px;padding:6px 8px;font-size:12px}
+	.checker-checked{display:inline-flex;align-items:center;color:#16a34a}
+	.mobile-product-window.viewing-coming-soon{padding:8px}
+	.mobile-product-window.viewing-coming-soon .product-tabs{gap:6px;padding-bottom:8px;margin-bottom:8px}
+	.mobile-product-window.viewing-coming-soon .product-tabs button{padding:6px;font-size:13px}
+	.editing-products .product-tabs{gap:6px;padding-bottom:8px;margin-bottom:10px}
+	.editing-products .product-tabs button{padding:6px 8px;font-size:13px}
+	.editing-products .fields{padding:12px;gap:10px}
+	.editing-products label,.editing-products .group-field,.editing-products .barcode-field{gap:4px;font-size:13px}
+	.editing-products :global(.unit-picker){gap:4px;font-size:13px}
+	.editing-products .product-names-row{gap:8px}
+	.editing-products input,.editing-products select{padding:8px 10px}
+	.editing-products .barcode-controls{gap:6px}
+	.editing-products p{margin:4px 0;line-height:1.35}
+	.editing-products .multi-units{margin-top:12px}
+	.editing-products .unit-heading,.editing-products .row-heading{gap:8px;margin-bottom:8px}
+	.editing-products .base-unit{padding:8px 10px;font-size:13px}
+	.editing-products .empty{padding:10px}
+	.editing-products .unit-row{padding:10px;margin-top:8px}
+	.editing-products .unit-fields{gap:8px}
+	.editing-products footer{margin-top:12px;padding-top:10px;gap:8px}
+	.editing-products footer button{padding:8px;font-size:13px}
+	.editing-products .review{margin-top:12px;padding:12px}
+	.editing-products .review dl{grid-template-columns:90px minmax(0,1fr);gap:4px 8px;margin:8px 0;font-size:13px}
+	.editing-products .review th,.editing-products .review td{padding:6px;font-size:12px}
+	.editing-products .manage-scan{gap:6px;margin-bottom:10px}
+	.editing-products .manage-scan button{padding:8px;font-size:13px}
+	.mobile-product-window.editing-products{padding:8px}
+	.mobile-product-window.editing-products .fields{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px;gap:8px}
+	.mobile-product-window.editing-products .product-names-row{grid-template-columns:minmax(0,1fr) auto;gap:8px}
+	.mobile-product-window.editing-products .product-names-row>label{grid-column:1}
+	.mobile-product-window.editing-products .product-names-row>.correct-names{grid-column:2;grid-row:1 / span 2;align-self:center}
+	.mobile-product-window.editing-products .unit-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+	.mobile-product-window.editing-products .unit-fields>.barcode-field{grid-column:1 / -1}
+	.creation-window.mobile-product-window .product-tabs{gap:4px;padding-bottom:6px;margin-bottom:8px}
+	.creation-window.mobile-product-window .product-tabs button{min-height:36px;padding:4px 6px;font-size:12px;line-height:1.15}
 </style>
