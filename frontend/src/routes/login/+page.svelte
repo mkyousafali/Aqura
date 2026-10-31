@@ -910,6 +910,18 @@
 		</div>
 	</header>
 
+	{#snippet hoursAnnouncementImage()}
+		<img
+			src="/images/announcements/store-hours-6am-2am-v4.png"
+			width="1774"
+			height="887"
+			alt={isAr
+				? 'ايربن ماركت: يعمل فرعا أبو عريش والعارضة يوميًا من ٦ صباحًا إلى ٢ صباحًا من اليوم التالي.'
+				: 'Urban Market: Abu Arish and Al Aridah stores open daily from 6 AM to 2 AM the following day.'}
+			decoding="async"
+		/>
+	{/snippet}
+
 	<!-- Hero -->
 	<section class="hero" id="home">
 		<div class="hero-inner">
@@ -925,6 +937,12 @@
 						{taglineText}
 					</p>
 				{/if}
+				<section
+					class="hours-announcement hours-announcement--mobile"
+					aria-label={isAr ? 'إعلان تحديث أوقات عمل الفروع' : 'Updated store opening hours'}
+				>
+					{@render hoursAnnouncementImage()}
+				</section>
 				<div class="hero-actions">
 					{#if homeBlockEnabled.contactBtn}
 						<button
@@ -965,6 +983,13 @@
 				{/each}
 			</div>
 		{/if}
+	</section>
+
+	<section
+		class="hours-announcement hours-announcement--desktop"
+		aria-label={isAr ? 'إعلان تحديث أوقات عمل الفروع' : 'Updated store opening hours'}
+	>
+		{@render hoursAnnouncementImage()}
 	</section>
 
 	<!-- About -->
@@ -1877,6 +1902,51 @@
 		margin: 0;
 		font-size: 0.85rem;
 		color: #777;
+	}
+
+	.hours-announcement {
+		max-width: 1440px;
+		margin: 3rem auto 0;
+		border: 5px solid #dc2626;
+		border-radius: 24px;
+		overflow: hidden;
+		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+		animation: announcement-heartbeat 3s ease-in-out infinite;
+		transform-origin: center;
+	}
+
+	@keyframes announcement-heartbeat {
+		0%, 30%, 100% { transform: scale(1); }
+		10%, 22% { transform: scale(1.015); }
+		16% { transform: scale(1.004); }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.hours-announcement {
+			animation: none;
+		}
+	}
+
+	.hours-announcement img {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+
+	.hours-announcement--mobile {
+		display: none;
+	}
+
+	@media (max-width: 768px) {
+		.hours-announcement--desktop {
+			display: none;
+		}
+
+		.hours-announcement--mobile {
+			display: block;
+			margin: 1.5rem 0;
+			border-radius: 16px;
+		}
 	}
 
 	/* About */

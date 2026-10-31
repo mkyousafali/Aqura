@@ -11,12 +11,12 @@ export const deliveryTiers = writable([]);
 // Store for delivery service settings
 export const deliverySettings = writable({
   minimumOrderAmount: 15.00,
-  is24Hours: true,
+  is24Hours: false,
   operatingStartTime: null,
   operatingEndTime: null,
-  isActive: true,
-  displayMessageAr: 'التوصيل متاح على مدار الساعة (24/7)',
-  displayMessageEn: 'Delivery available 24/7'
+  isActive: false,
+  displayMessageAr: 'توفر التوصيل حسب الفرع المحدد',
+  displayMessageEn: 'Delivery availability depends on the selected branch'
 });
 
 // Loading state
@@ -87,12 +87,12 @@ export const deliveryActions = {
         console.log('✅ [Delivery] Settings loaded from database:', data);
         const settings = {
           minimumOrderAmount: data.minimum_order_amount || 0,
-          is24Hours: data.is_24_hours !== false,
-          operatingStartTime: data.operating_start_time || '00:00',
-          operatingEndTime: data.operating_end_time || '23:59',
-          isActive: data.is_active !== false,
-          displayMessageAr: data.display_message_ar || 'خدمة التوصيل متاحة',
-          displayMessageEn: data.display_message_en || 'Delivery service available'
+          is24Hours: data.is_24_hours === true,
+          operatingStartTime: data.operating_start_time || null,
+          operatingEndTime: data.operating_end_time || null,
+          isActive: data.is_active === true,
+          displayMessageAr: data.display_message_ar || 'توفر التوصيل حسب الفرع المحدد',
+          displayMessageEn: data.display_message_en || 'Delivery availability depends on the selected branch'
         };
         deliverySettings.set(settings);
         console.log('✅ [Delivery] Settings applied:', settings);
@@ -101,12 +101,12 @@ export const deliveryActions = {
         console.warn('⚠️ [Delivery] No settings in database, using defaults');
         const defaults = {
           minimumOrderAmount: 0,
-          is24Hours: true,
-          operatingStartTime: '00:00',
-          operatingEndTime: '23:59',
-          isActive: true,
-          displayMessageAr: 'خدمة التوصيل متاحة',
-          displayMessageEn: 'Delivery service available'
+          is24Hours: false,
+          operatingStartTime: null,
+          operatingEndTime: null,
+          isActive: false,
+          displayMessageAr: 'توفر التوصيل حسب الفرع المحدد',
+          displayMessageEn: 'Delivery availability depends on the selected branch'
         };
         deliverySettings.set(defaults);
         return null;
@@ -116,12 +116,12 @@ export const deliveryActions = {
       // Fallback to defaults on error
       const defaults = {
         minimumOrderAmount: 0,
-        is24Hours: true,
-        operatingStartTime: '00:00',
-        operatingEndTime: '23:59',
-        isActive: true,
-        displayMessageAr: 'خدمة التوصيل متاحة',
-        displayMessageEn: 'Delivery service available'
+        is24Hours: false,
+        operatingStartTime: null,
+        operatingEndTime: null,
+        isActive: false,
+        displayMessageAr: 'توفر التوصيل حسب الفرع المحدد',
+        displayMessageEn: 'Delivery availability depends on the selected branch'
       };
       deliverySettings.set(defaults);
       return null;

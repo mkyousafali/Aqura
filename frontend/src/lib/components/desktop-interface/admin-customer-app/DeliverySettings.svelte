@@ -31,8 +31,8 @@
 		operatingStartTime: null,
 		operatingEndTime: null,
 		isActive: true,
-		displayMessageAr: 'التوصيل متاح على مدار الساعة (24/7)',
-		displayMessageEn: 'Delivery available 24/7'
+		displayMessageAr: 'توفر التوصيل حسب الفرع المحدد',
+		displayMessageEn: 'Delivery availability depends on the selected branch'
 	};
 	
 	// Branch services
@@ -54,8 +54,8 @@
 		pickupIs24Hours: true,
 		pickupStartTime: null,
 		pickupEndTime: null,
-		deliveryMessageAr: 'التوصيل متاح على مدار الساعة',
-		deliveryMessageEn: 'Delivery available 24/7'
+		deliveryMessageAr: 'توفر التوصيل حسب الفرع المحدد',
+		deliveryMessageEn: 'Delivery availability depends on the selected branch'
 	};
 	
 	onMount(async () => {
@@ -148,8 +148,8 @@
 			pickupIs24Hours: branch.pickup_is_24_hours ?? true,
 			pickupStartTime: branch.pickup_start_time || null,
 			pickupEndTime: branch.pickup_end_time || null,
-			deliveryMessageAr: branch.delivery_message_ar || 'التوصيل متاح على مدار الساعة',
-			deliveryMessageEn: branch.delivery_message_en || 'Delivery available 24/7'
+			deliveryMessageAr: branch.delivery_message_ar || 'توفر التوصيل حسب الفرع المحدد',
+			deliveryMessageEn: branch.delivery_message_en || 'Delivery availability depends on the selected branch'
 		};
 	}
 	

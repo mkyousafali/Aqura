@@ -4,6 +4,7 @@
   import { orderFlowActions } from '$lib/stores/orderFlow.js';
   import { deliveryActions } from '$lib/stores/delivery.js';
   import { supabase } from '$lib/utils/supabase';
+  import { isServiceAvailable } from '$lib/utils/serviceHours.js';
   import { iconUrlMap } from '$lib/stores/iconStore';
 
   let currentLanguage = 'ar';
@@ -192,56 +193,6 @@
     setTimeout(() => {
       goto('/customer-interface/products');
     }, 100);
-  }
-
-  // Check if service is available based on Saudi Arabia timezone
-  function isServiceAvailable(branch, serviceType) {
-    // Get current time in Saudi Arabia timezone (UTC+3)
-    const now = new Date();
-    const saudiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
-    const currentHour = saudiTime.getHours();
-    const currentMinute = saudiTime.getMinutes();
-    const currentTimeInMinutes = currentHour * 60 + currentMinute;
-    
-    if (serviceType === 'delivery') {
-      // Check if delivery is 24/7
-      if (branch.delivery_is_24_hours) return true;
-      
-      // Check delivery hours
-      if (branch.delivery_start_time && branch.delivery_end_time) {
-        const start = branch.delivery_start_time.split(':');
-        const end = branch.delivery_end_time.split(':');
-        const startMinutes = parseInt(start[0]) * 60 + parseInt(start[1]);
-        const endMinutes = parseInt(end[0]) * 60 + parseInt(end[1]);
-        
-        // Handle overnight hours (e.g., 20:00 - 02:00)
-        if (startMinutes > endMinutes) {
-          return currentTimeInMinutes >= startMinutes || currentTimeInMinutes < endMinutes;
-        } else {
-          return currentTimeInMinutes >= startMinutes && currentTimeInMinutes < endMinutes;
-        }
-      }
-    } else if (serviceType === 'pickup') {
-      // Check if pickup is 24/7
-      if (branch.pickup_is_24_hours) return true;
-      
-      // Check pickup hours
-      if (branch.pickup_start_time && branch.pickup_end_time) {
-        const start = branch.pickup_start_time.split(':');
-        const end = branch.pickup_end_time.split(':');
-        const startMinutes = parseInt(start[0]) * 60 + parseInt(start[1]);
-        const endMinutes = parseInt(end[0]) * 60 + parseInt(end[1]);
-        
-        // Handle overnight hours
-        if (startMinutes > endMinutes) {
-          return currentTimeInMinutes >= startMinutes || currentTimeInMinutes < endMinutes;
-        } else {
-          return currentTimeInMinutes >= startMinutes && currentTimeInMinutes < endMinutes;
-        }
-      }
-    }
-    
-    return true; // Default to available if no hours set
   }
 
   $: texts = currentLanguage === 'ar' ? {

@@ -2361,9 +2361,24 @@ Reply with ONLY one word: "GENERAL", "COMPLAINT", or "CONTINUE" (if it does not 
       ? `\nBEHAVIOR RULES:\n${config.bot_rules}\n`
       : "";
     
-    const infoSection = config.custom_instructions
+    // Give customer replies a fresh Saudi clock and the editable schedule so
+    // old conversation history cannot imply that a closed store is open now.
+    let businessHoursContext = "";
+    if (!internalContext) {
+      const { data: hoursSettings } = await supabase.from("wa_settings")
+        .select("business_hours,outside_hours_message").eq("wa_account_id", accountId).maybeSingle();
+      if (hoursSettings?.business_hours && Object.keys(hoursSettings.business_hours).length > 0) {
+        const saudiNow = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Riyadh", weekday: "long", year: "numeric", month: "2-digit",
+          day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+        }).format(new Date());
+        businessHoursContext = `\nCURRENT STORE SCHEDULE CONTEXT:\nCurrent Saudi time: ${saudiNow} (Asia/Riyadh).\nConfigured business hours: ${JSON.stringify(hoursSettings.business_hours)}\nOutside-hours guidance: ${hoursSettings.outside_hours_message || "Use the configured store hours."}\nUse this current schedule when answering whether the store is open; closing time is exclusive. Automated chat can still answer outside store hours. Human support hours are separate.\n`;
+      }
+    }
+
+    const infoSection = (config.custom_instructions
       ? `\nREFERENCE INFORMATION:\n${config.custom_instructions}`
-      : "";
+      : "") + businessHoursContext;
 
     // Services info — DB-driven (wa_ai_bot_config.services_information), no hardcoded fallback
     const servicesSection = config.services_information
