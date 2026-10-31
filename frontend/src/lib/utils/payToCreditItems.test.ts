@@ -55,6 +55,16 @@ const post = async (taskType = 'receiving_cash_payment', overrides = {}) => {
 };
 
 describe('Pay to Credit bills and expenses', () => {
+	it.each(['approved', 'completed', 'closed'])('recognizes %s requisitions as approved for apply and split', async status => {
+		state.tables.expense_requisitions[0].status = status;
+		const items = await loadPayToCreditItems(client, 2, supplier);
+		expect(items.find(item => item.source_type === 'Expense')?.approval_status).toBe('approved');
+	});
+	it.each(['pending', 'rejected', 'sent_for_approval'])('does not approve a %s requisition', async status => {
+		state.tables.expense_requisitions[0].status = status;
+		const items = await loadPayToCreditItems(client, 2, supplier);
+		expect(items.find(item => item.source_type === 'Expense')?.approval_status).toBe(status);
+	});
 	it('includes expenses when the supplier has no vendor bills', async () => {
 		state.tables.vendor_payment_schedule_with_vendor = [];
 		const items = await loadPayToCreditItems(client, 2, supplier);
@@ -107,6 +117,12 @@ describe('Pay to Credit bills and expenses', () => {
 });
 
 describe('Pay to Credit task creation', () => {
+	it.each(['receiving_cash_payment', 'receiving_bank_payment'])('accepts already-closed requisitions for %s', async type => {
+		state.tables.expense_requisitions[0].status = 'closed';
+		if (type === 'receiving_bank_payment') state.tables.pos_scan_requests[0].payment_account_type = 'bank';
+		expect((await post(type)).status).toBe(200);
+		expect(state.inserted[0].payload.expense_schedule_ids).toEqual(['1']);
+	});
 	it.each(['receiving_cash_payment', 'receiving_bank_payment'])('accepts mixed bill and expense selections for %s', async type => {
 		if (type === 'receiving_bank_payment') state.tables.pos_scan_requests[0].payment_account_type = 'bank';
 		const result = await post(type);

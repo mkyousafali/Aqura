@@ -994,6 +994,8 @@ async function loadHistoricalData() {
 					.from('expense_scheduler')
 					.insert([{
 						schedule_type: scheduleData.schedule_type,
+                        vendor_id: scheduleData.vendor_id ?? null,
+                        vendor_name: scheduleData.vendor_name ?? null,
 						branch_id: scheduleData.branch_id,
 						branch_name: scheduleData.branch_name,
 						expense_category_id: scheduleData.expense_category_id,
@@ -2617,7 +2619,10 @@ async function loadHistoricalData() {
 							</div>
 						</div>
 
-						{#if selectedRequisition.co_user_name}
+						{#if selectedRequisition.vendor_name}
+                            <div class="detail-item"><label>Vendor</label><div class="detail-value">{selectedRequisition.vendor_name} ? {selectedRequisition.vendor_id}</div></div>
+                        {/if}
+                        {#if selectedRequisition.co_user_name}
 							<div class="detail-item">
 								<label>{t('approvalCenter.coUser')}</label>
 								<div class="detail-value">{selectedRequisition.co_user_name}</div>

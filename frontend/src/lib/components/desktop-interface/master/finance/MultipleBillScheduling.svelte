@@ -1,5 +1,9 @@
 <script>
 	import { onMount } from 'svelte';
+	import SchedulerVendorPicker from './SchedulerVendorPicker.svelte';
+	import { schedulerVendorFields } from '$lib/utils/schedulerVendor';
+	let selectedVendor = null;
+	let vendorSelectionValid = true;
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -357,6 +361,8 @@
 	}
 
 	function validateStep2() {
+		try { schedulerVendorFields(selectedVendor, selectedBranchId, vendorSelectionValid); }
+		catch (error) { alert(error.message); return false; }
 		if (!selectedCoUserId) {
 			alert('Please select a c/o user');
 			return false;
@@ -497,6 +503,8 @@
 	}
 
 	async function saveBill(billIndex) {
+		try { schedulerVendorFields(selectedVendor, selectedBranchId, vendorSelectionValid); }
+		catch (error) { alert(error.message); return false; }
 		const bill = bills[billIndex];
 
 		// Validate approver - now always required
@@ -545,6 +553,7 @@
 			}
 
 			const schedulerData = {
+				...schedulerVendorFields(selectedVendor, selectedBranchId, vendorSelectionValid),
 				branch_id: parseInt(selectedBranchId),
 				branch_name: selectedBranchName,
 				expense_category_id: parseInt(selectedCategoryId),
@@ -719,6 +728,8 @@
 	}
 
 	function resetForm() {
+		selectedVendor = null;
+		vendorSelectionValid = true;
 		currentStep = 1;
 		selectedBranchId = '';
 		selectedBranchName = '';
@@ -933,6 +944,7 @@
 	<!-- Step 2: User Selection -->
 	{#if currentStep === 2}
 		<div class="step-content">
+			<SchedulerVendorPicker branchId={selectedBranchId} bind:selectedVendor bind:valid={vendorSelectionValid} />
 			<h2>Step 2: Select C/O User</h2>
 
 			<!-- User Selection (Mandatory) -->

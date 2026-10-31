@@ -1,5 +1,9 @@
 <script>
 	import { onMount } from 'svelte';
+	import SchedulerVendorPicker from './SchedulerVendorPicker.svelte';
+	import { schedulerVendorFields } from '$lib/utils/schedulerVendor';
+	let selectedVendor = null;
+	let vendorSelectionValid = true;
 	import { supabase } from '$lib/utils/supabase';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { notificationService } from '$lib/utils/notificationManagement';
@@ -274,6 +278,8 @@
 	}
 
 	function validateStep3() {
+		try { schedulerVendorFields(selectedVendor, selectedBranchId, vendorSelectionValid); }
+		catch (error) { alert(error.message); return false; }
 		if (!amount || parseFloat(amount) <= 0) {
 			alert('Please enter a valid amount');
 			return false;
@@ -406,6 +412,7 @@
 
 	async function saveToNonApprovedScheduler() {
 		const scheduleData = {
+			...schedulerVendorFields(selectedVendor, selectedBranchId, vendorSelectionValid),
 			schedule_type: 'recurring',
 			branch_id: parseInt(selectedBranchId),
 			branch_name: selectedBranchName,
@@ -498,6 +505,8 @@
 	}
 
 	function resetForm() {
+		selectedVendor = null;
+		vendorSelectionValid = true;
 		// Reset to step 1
 		currentStep = 1;
 		
@@ -770,6 +779,7 @@
 	<!-- Step 2: Payment Details & Recurring Schedule -->
 	{#if currentStep === 2}
 		<div class="step-content">
+			<SchedulerVendorPicker branchId={selectedBranchId} bind:selectedVendor bind:valid={vendorSelectionValid} />
 			<h3 class="step-title">Payment Details and Recurring Schedule</h3>
 
 			<!-- Payment Method -->

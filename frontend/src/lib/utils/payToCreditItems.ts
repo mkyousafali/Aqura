@@ -81,7 +81,9 @@ export async function loadPayToCreditItems(client: any, branchId: number, vendor
 		...bills.map(bill => creditItem(bill, 'Bill')),
 		...supplierExpenses.map(expense => {
 			const status = expense.requisition_id == null ? 'approved' : statuses.get(String(expense.requisition_id));
-			return creditItem(expense, 'Expense', status === 'completed' ? 'approved' : status || 'unknown');
+			// Closure follows approval; unpaid scheduled bills remain payable after
+			// the parent requisition has been closed.
+			return creditItem(expense, 'Expense', ['approved', 'completed', 'closed'].includes(status || '') ? 'approved' : status || 'unknown');
 		})
 	].sort((a, b) => String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')) || a.id.localeCompare(b.id));
 }
