@@ -268,6 +268,7 @@
 	function cancelOtp() { clearForm(); }
 
 	async function handleQuickAccessLogin() {
+		if (isLoading) return;
 		if (!validateQuickAccess()) {
 			errorMessage = 'Please enter a valid 6-digit access code.';
 			return;

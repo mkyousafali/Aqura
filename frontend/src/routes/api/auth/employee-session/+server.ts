@@ -76,7 +76,9 @@ export const POST: RequestHandler = async ({
   } catch (error) {
     console.error(
       "[EmployeeSession] Login failed:",
-      error instanceof Error ? error.message : "Unknown error",
+      error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : "Unknown error",
     );
     return failure("Authentication service unavailable", 503);
   }

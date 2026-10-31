@@ -11,7 +11,12 @@ const attempts = new Map<string, AttemptState>();
 
 function currentState(key: string, now: number): AttemptState {
   const existing = attempts.get(key);
-  if (!existing || now - existing.windowStartedAt >= WINDOW_MS) {
+  if (
+    !existing ||
+    (existing.blockedUntil > 0
+      ? now >= existing.blockedUntil
+      : now - existing.windowStartedAt >= WINDOW_MS)
+  ) {
     const fresh = { failures: 0, windowStartedAt: now, blockedUntil: 0 };
     attempts.set(key, fresh);
     return fresh;

@@ -25,7 +25,9 @@ function otpFailure(data: any): LoginFlowResult {
 async function userFromAccessCode(code: string): Promise<{ id: string } | null> {
 	if (!/^[0-9]{6}$/.test(code)) return null;
 	const { data, error } = await databaseClient().rpc('verify_quick_access_code', { p_code: code });
-	return !error && data?.success && data.user?.id ? { id: data.user.id } : null;
+	// An unavailable database must not count as an incorrect access code.
+	if (error) throw error;
+	return data?.success && data.user?.id ? { id: data.user.id } : null;
 }
 
 async function challengeUser(challengeId: string, interfaceType: EmployeeInterface): Promise<string | null> {
