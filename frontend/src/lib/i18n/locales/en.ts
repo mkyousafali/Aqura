@@ -4798,6 +4798,8 @@ export const englishLocale: LocaleData = {
       loyaltyOtpLabel: "Verification Code (6 digits)",
       loyaltyOtpConfirm: "✅ Confirm Redemption",
       loyaltyOtpVerifying: "Verifying…",
+      loyaltyOtpResend: "Resend OTP",
+      loyaltyOtpSendFailed: "Could not send the WhatsApp code. Please try Resend OTP.",
       loyaltyOtpCancel: "Cancel",
       loyaltySuccessTitle: "Redemption Successful!",
       loyaltyCouponCode: "Voucher Code",

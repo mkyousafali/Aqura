@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { closingCashSales } from '$lib/utils/closingSales';
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { get } from 'svelte/store';
 	import { cashierSessionToken } from '$lib/stores/cashierAuth';
+	import { isWindowsApp } from '$lib/utils/cashierDevice';
 	import { onMount, onDestroy } from 'svelte';
 	import html2canvas from 'html2canvas';
 	import { supabase } from '$lib/utils/supabase';
@@ -32,20 +34,20 @@
 	// Parse notes JSON to get names and POS number
 	let operationData: any = {};
 	let selectedPosNumber = 1;
-	
+
 	console.log('📦 CloseBox received operation:', operation);
-	
+
 	try {
 		if (operation?.notes) {
-			operationData = typeof operation.notes === 'string' 
-				? JSON.parse(operation.notes) 
+			operationData = typeof operation.notes === 'string'
+				? JSON.parse(operation.notes)
 				: operation.notes;
 			selectedPosNumber = operationData.pos_number || 1;
 		}
 	} catch (e) {
 		console.error('Error parsing operation notes:', e);
 	}
-	
+
 	console.log('📝 Parsed operation data:', operationData);
 
 	// operationData.cashier_name is a frozen string captured into operation.notes when the counter
@@ -182,6 +184,80 @@
 	// Calculate cash sales (closing total - checked amount)
 	$: cashSales = subtractMoney(closingTotal, operation?.total_after);
 
+	// Loyalty coupons count as cash sales, alongside purchase vouchers.
+	let loyaltyVouchers: Array<{ serial: string; amount: number }> = [];
+	$: loyaltyVouchersTotal = loyaltyVouchers.reduce((sum, voucher) => addMoney(sum, voucher.amount), 0);
+	let loyaltyCouponNumber = '';
+	let loyaltyCouponAmount: number | null = null;
+	let loyaltyLookupStatus: 'idle' | 'loading' | 'found' | 'not_found' | 'used' | 'error' | 'invalid' = 'idle';
+	let loyaltyLookupTimer: ReturnType<typeof setTimeout>;
+	let loyaltyLookupSequence = 0;
+
+	function scheduleLoyaltyLookup(event: Event) {
+		loyaltyCouponNumber = (event.currentTarget as HTMLInputElement).value;
+		clearTimeout(loyaltyLookupTimer);
+		loyaltyLookupSequence++;
+		loyaltyCouponAmount = null;
+		loyaltyLookupStatus = 'idle';
+		if (/^LYL-[A-Z0-9]{8}$/i.test(loyaltyCouponNumber.trim())) {
+			loyaltyLookupTimer = setTimeout(lookupLoyaltyCoupon, 350);
+		}
+	}
+
+	async function lookupLoyaltyCoupon() {
+		clearTimeout(loyaltyLookupTimer);
+		const sequence = ++loyaltyLookupSequence;
+		const couponCode = loyaltyCouponNumber.trim().toUpperCase();
+		loyaltyCouponAmount = null;
+		if (!/^LYL-[A-Z0-9]{8}$/.test(couponCode)) {
+			loyaltyLookupStatus = couponCode ? 'invalid' : 'idle';
+			return;
+		}
+		loyaltyLookupStatus = 'loading';
+		try {
+			const response = await fetch('/api/loyalty/coupon-lookup', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ couponCode }), signal: AbortSignal.timeout(10000)
+			});
+			const result = await response.json();
+			if (sequence !== loyaltyLookupSequence) return;
+			if (!response.ok) { loyaltyLookupStatus = response.status === 409 ? 'used' : response.status === 404 ? 'not_found' : 'error'; return; }
+			if (typeof result.amount !== 'number' || !Number.isFinite(result.amount) || result.amount <= 0) throw new Error('Invalid amount');
+			loyaltyCouponAmount = result.amount;
+			loyaltyLookupStatus = 'found';
+		} catch { if (sequence === loyaltyLookupSequence) loyaltyLookupStatus = 'error'; }
+	}
+
+	function addLoyaltyVoucher() {
+		if (loyaltyLookupStatus !== 'found' || loyaltyCouponAmount === null) return;
+		const serial = loyaltyCouponNumber.trim().toUpperCase();
+		if (loyaltyVouchers.some(voucher => voucher.serial === serial)) {
+			alert($currentLocale === 'ar' ? 'تمت إضافة هذه القسيمة بالفعل.' : 'This coupon has already been added.');
+			return;
+		}
+		loyaltyVouchers = [...loyaltyVouchers, { serial, amount: money(loyaltyCouponAmount) }];
+		clearTimeout(loyaltyLookupTimer); loyaltyLookupSequence++;
+		loyaltyCouponNumber = ''; loyaltyCouponAmount = null; loyaltyLookupStatus = 'idle';
+	}
+
+	onDestroy(() => { clearTimeout(loyaltyLookupTimer); loyaltyLookupSequence++; });
+
+	let charitySales: Array<{ serial: string; amount: number }> = [];
+	let newCharitySerial = '';
+	let newCharityAmount: number | '' = '';
+	$: charitySalesTotal = charitySales.reduce((sum, row) => addMoney(sum, row.amount), 0);
+	function addCharitySale() {
+		const serial = newCharitySerial.trim();
+		const amount = money(newCharityAmount);
+		if (!serial || amount <= 0) return;
+		if (charitySales.some(row => row.serial === serial)) {
+			alert($currentLocale === 'ar' ? 'تمت إضافة هذا الرقم بالفعل.' : 'This serial number has already been added.');
+			return;
+		}
+		charitySales = [...charitySales, { serial, amount }];
+		newCharitySerial = ''; newCharityAmount = '';
+	}
+
 	// Purchase vouchers
 	let vouchers: Array<{serial: string, amount: number}> = [];
 	let newVoucherSerial = '';
@@ -190,10 +266,10 @@
 	function addVoucher() {
 		if (newVoucherSerial && newVoucherAmount) {
 			// Check for duplicates (same serial and amount)
-			const isDuplicate = vouchers.some(v => 
+			const isDuplicate = vouchers.some(v =>
 				v.serial === newVoucherSerial && v.amount === Number(newVoucherAmount)
 			);
-			
+
 			if (isDuplicate) {
 				alert($currentLocale === 'ar' ? 'هذه القسيمة (نفس الرقم التسلسلي والمبلغ) موجودة بالفعل!' : 'This voucher (same serial and amount) already exists!');
 				return;
@@ -215,8 +291,8 @@
 	// Calculate vouchers total
 	$: vouchersTotal = vouchers.reduce((sum, v) => addMoney(sum, v.amount), 0);
 
-	// Calculate total cash sales (cash sales + vouchers - recharge sales)
-	$: totalCashSales = subtractMoney(addMoney(cashSales, vouchersTotal), sales);
+	// Calculate total cash sales including purchase and loyalty vouchers.
+	$: totalCashSales = closingCashSales(cashSales, vouchersTotal, loyaltyVouchersTotal, sales, charitySalesTotal);
 
 	// Bank reconciliation payment methods (kept for backward compat in save)
 	let madaAmount: number | '' = '';
@@ -822,6 +898,38 @@
 		}
 	}
 
+	// Keep steps mounted so navigating Back preserves inputs and scan results.
+	const keepClosingStepsMounted = true;
+	let closingStep = 1;
+	let closingWizardHeading: HTMLHeadingElement;
+	const closingSteps = [
+		{ en: 'Enter Closing Cash', ar: 'إدخال نقدية الإغلاق' },
+		{ en: 'Recharge Cards', ar: 'بطاقات الشحن' },
+		{ en: 'Sales through Purchase Voucher', ar: 'المبيعات عبر قسائم الشراء' },
+		{ en: 'Sales through Loyalty Redemption', ar: 'المبيعات عبر قسائم الولاء' },
+		{ en: 'Charity Sales', ar: 'المبيعات الخيرية' },
+		{ en: 'Bank Reconciliation', ar: 'تسوية البنك' },
+		{ en: 'Get Closing Details', ar: 'جلب تفاصيل الإغلاق' },
+		{ en: 'Confirm ERP Values', ar: 'تأكيد قيم النظام' },
+		{ en: 'Review and Close', ar: 'المراجعة والإغلاق' }
+	];
+	function moveClosingStep(direction: -1 | 1) {
+		if (direction === 1) {
+			if (closingStep === 1) checkbox1 = true;
+			if (closingStep === 2) checkbox3 = true;
+			if (closingStep === 3) checkbox2 = true;
+			if (closingStep === 6) checkbox5 = true;
+			if (closingStep === 7 && (!erpSalesDetails || loadingErpSales)) return;
+			if (closingStep === 8) {
+				if (!erpSalesDetails || !erpLabelChecked) return;
+				checkbox4 = true;
+			}
+		}
+		closingStep = Math.max(1, Math.min(closingSteps.length, closingStep + direction));
+		closingWizardHeading?.focus({ preventScroll: true });
+		closingWizardHeading?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	}
+
 	// Progressive disclosure checkbox states
 	let checkbox1 = false; // Enter Closing Cash
 	let checkbox2 = false; // Sales through Purchase Voucher
@@ -840,12 +948,7 @@
 	}
 
 	function closeErpPopup() {
-		if (!erpLabelChecked) {
-			checkbox3 = false;
-		} else {
-			// If ERP label is checked, enable ERP Closing Details (checkbox4)
-			checkbox4 = true;
-		}
+		checkbox4 = erpLabelChecked;
 		showErpPopup = false;
 	}
 
@@ -919,7 +1022,7 @@
 		const el = document.getElementById(`${field}-sig-${focusIdx}`) as HTMLInputElement;
 		if (el) el.focus();
 	}
-	
+
 	let closingSaved: boolean = false;
 	let showSuccessModal: boolean = false;
 	let successMessage: string = '';
@@ -1051,14 +1154,14 @@
 	async function loadCloseChecklist() {
 		loadingCloseChecklist = true;
 		showCloseChecklistPopup = true;
-		
+
 		// Load CL2 checklist
 		const { data: cl, error: clError } = await supabase
 			.from('hr_checklists')
 			.select('id, checklist_name_en, checklist_name_ar, question_ids')
 			.eq('id', 'CL2')
 			.single();
-		
+
 		if (clError || !cl) {
 			console.error('CL2 checklist not found');
 			// If CL2 not found, skip checklist
@@ -1067,21 +1170,21 @@
 			loadingCloseChecklist = false;
 			return;
 		}
-		
+
 		closeChecklistData = cl;
-		
+
 		if (!cl.question_ids || cl.question_ids.length === 0) {
 			closeChecklistQuestions = [];
 			loadingCloseChecklist = false;
 			return;
 		}
-		
+
 		// Fetch questions
 		const { data: questions, error: qError } = await supabase
 			.from('hr_checklist_questions')
 			.select('*')
 			.in('id', cl.question_ids);
-		
+
 		if (!qError) {
 			closeChecklistQuestions = questions || [];
 			closeSelectedAnswers = {};
@@ -1099,16 +1202,16 @@
 	function openIncidentReport() {
 		const windowId = generateWindowId('report-incident');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
-		
+
 		openWindow({
 			id: windowId,
 			title: `Report Incident #${instanceNumber}`,
 			component: ReportIncident,
 			icon: '📝',
 			size: { width: 900, height: 700 },
-			position: { 
+			position: {
 				x: 50 + (Math.random() * 100),
-				y: 50 + (Math.random() * 100) 
+				y: 50 + (Math.random() * 100)
 			},
 			resizable: true,
 			minimizable: true,
@@ -1200,16 +1303,16 @@
 		// Lookup employee_id from hr_employee_master using cashier's user_id from operation
 		let employeeId: string | null = null;
 		let userId: string | null = verifiedCashierUserId;
-		
+
 		try {
 			if (userId) {
-				
+
 				const { data: empData } = await supabase
 					.from('hr_employee_master')
 					.select('id')
 					.eq('user_id', userId)
 					.single();
-				
+
 				if (empData) {
 					employeeId = empData.id;
 				}
@@ -1314,6 +1417,10 @@
 				}
 			}
 
+			loyaltyVouchers = (savedData.loyalty_vouchers || []).map((voucher: any) => ({ serial: String(voucher.serial), amount: money(voucher.amount) }));
+
+			charitySales = (savedData.charity_sales || []).map((row: any) => ({ serial: String(row.serial), amount: money(row.amount) }));
+
 			// Restore vouchers
 			if (savedData.vouchers && Array.isArray(savedData.vouchers)) {
 				vouchers = savedData.vouchers.map((voucher: any) => ({ ...voucher, amount: money(voucher.amount) }));
@@ -1404,7 +1511,7 @@
 					cash_sales: cashSales,
 					total_cash_sales: totalCashSales,
 					supervisor_name: supervisorName,
-					
+
 					// Bank reconciliation
 					bank_mada: money(madaAmount),
 					bank_visa: money(visaAmount),
@@ -1412,17 +1519,17 @@
 					bank_google_pay: money(googlePayAmount),
 					bank_other: money(otherAmount),
 					bank_total: bankTotal,
-					
+
 					// ERP details
 					system_cash_sales: money(systemCashSales),
 					system_card_sales: money(systemCardSales),
 					system_return: money(systemReturn),
-					
+
 					// Differences
 					difference_cash_sales: differenceInCashSales,
 					difference_card_sales: differenceInCardSales,
 					total_difference: totalDifference,
-					
+
 				// Recharge card transaction details
 				recharge_opening_balance: money(openingBalance),
 				recharge_close_balance: money(closeBalance),
@@ -1431,14 +1538,18 @@
 				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
 				recharge_transaction_end_date: endDateInput,
 				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
-				
+
 				// Purchase vouchers
 				vouchers: vouchers,
 				vouchers_total: vouchersTotal,
-				
+				loyalty_vouchers: loyaltyVouchers,
+				loyalty_vouchers_total: loyaltyVouchersTotal,
+				charity_sales: charitySales,
+				charity_sales_total: charitySalesTotal,
+
 				// Bank reconciliation rows (for restore before final close)
 				reconciliations: reconciliations,
-				
+
 				total_sales: totalSales,
 				total_system_sales: totalSystemSales
 			};
@@ -1463,6 +1574,8 @@
 	$: if (systemCashSales !== undefined || systemCardSales !== undefined || systemReturn !== undefined) autoSaveClosingDetails();
 	$: if (openingBalance !== undefined || closeBalance !== undefined) autoSaveClosingDetails();
 	$: if (vouchers) autoSaveClosingDetails();
+	$: if (loyaltyVouchers) autoSaveClosingDetails();
+	$: if (charitySales) autoSaveClosingDetails();
 	$: if (reconciliations) autoSaveClosingDetails();
 	$: if (startDateInput !== undefined || startHour !== undefined || startMinute !== undefined || startAmPm !== undefined) autoSaveClosingDetails();
 	$: if (endDateInput !== undefined || endHour !== undefined || endMinute !== undefined || endAmPm !== undefined) autoSaveClosingDetails();
@@ -1474,15 +1587,18 @@
 
 		try {
 			const sessionToken = get(cashierSessionToken);
-			if (!sessionToken || !operation?.user_id || !branch?.id) {
+			if (!operation?.user_id || !branch?.id || (isWindowsApp() && !sessionToken)) {
 				supervisorCodeError = 'Cashier session is unavailable. Reload the POS before closing.';
 				return;
 			}
+			const sessionHeaders: Record<string, string> = { 'x-cashier-user-id': String(operation.user_id) };
+			if (sessionToken) sessionHeaders['x-cashier-session-token'] = sessionToken;
 			const openResponse = await fetch(`/api/change-requests/inbox?branchId=${encodeURIComponent(branch.id)}`, {
-				cache: 'no-store', headers: { 'x-cashier-user-id': operation.user_id, 'x-cashier-session-token': sessionToken }
+				cache: 'no-store', credentials: 'same-origin', headers: sessionHeaders
 			});
 			const openResult = await openResponse.json();
 			if (!openResponse.ok) throw new Error(openResult.error || 'Could not check open change requests.');
+			if (!Array.isArray(openResult)) throw new Error('Could not verify pending change requests. Please try again.');
 			if (openResult.length) {
 				const pending = openResult[0];
 				supervisorCodeError = `Counter cannot be closed. Complete or cancel change request ${pending.request_number} (${pending.status}) first.`;
@@ -1504,7 +1620,7 @@
 				cash_sales: cashSales,
 				total_cash_sales: totalCashSales,
 				supervisor_name: supervisorName,
-				
+
 				// Bank reconciliation
 				bank_mada: money(madaAmount),
 				bank_visa: money(visaAmount),
@@ -1512,17 +1628,17 @@
 				bank_google_pay: money(googlePayAmount),
 				bank_other: money(otherAmount),
 				bank_total: bankTotal,
-				
+
 				// ERP details
 				system_cash_sales: money(systemCashSales),
 				system_card_sales: money(systemCardSales),
 				system_return: money(systemReturn),
-				
+
 				// Differences
 				difference_cash_sales: differenceInCashSales,
 				difference_card_sales: differenceInCardSales,
 				total_difference: totalDifference,
-				
+
 				// Recharge card transaction details
 				recharge_opening_balance: money(openingBalance),
 				recharge_close_balance: money(closeBalance),
@@ -1531,10 +1647,14 @@
 				recharge_transaction_start_time: startTimeInput || `${startHour}:${startMinute} ${startAmPm}`,
 				recharge_transaction_end_date: endDateInput,
 				recharge_transaction_end_time: endTimeInput || `${endHour}:${endMinute} ${endAmPm}`,
-				
+
 				// Purchase vouchers
 				vouchers: vouchers,
 				vouchers_total: vouchersTotal,
+				loyalty_vouchers: loyaltyVouchers,
+				loyalty_vouchers_total: loyaltyVouchersTotal,
+				charity_sales: charitySales,
+				charity_sales_total: charitySalesTotal,
 				total_system_cash_sales: totalSystemCashSales,
 				total_sales: totalSales,
 				total_system_sales: totalSystemSales
@@ -1560,7 +1680,7 @@
 			// Update both closing_details and status to pending_close with supervisor info
 			const { error: statusError } = await supabase
 				.from('box_operations')
-				.update({ 
+				.update({
 					closing_details: updatedClosingDetails,
 					erp_closing_details: erpClosingDetails,
 					status: 'pending_close',
@@ -1582,7 +1702,7 @@
 			if (reconciliations.length > 0) {
 				// First delete old reconciliations for this operation
 				await supabase.from('bank_reconciliations').delete().eq('operation_id', operation.id);
-				
+
 				// Use stored cashier user ID from verification
 				const cashierUserId = verifiedCashierUserId;
 
@@ -1607,7 +1727,7 @@
 				const { error: reconError } = await supabase
 					.from('bank_reconciliations')
 					.insert(reconRows);
-				
+
 				if (reconError) {
 					console.error('❌ Error saving reconciliations:', reconError);
 				} else {
@@ -1646,7 +1766,7 @@
 	function handlePrint() {
 		console.log('🖨️ Printing - Branch:', branch?.name, 'Supervisor:', supervisorName);
 		const html = document.getElementById('print-template-content')?.innerHTML || '';
-		
+
 		// Create a minimal HTML document with aggressive print styles
 		const printHtml = `
 			<!DOCTYPE html>
@@ -1657,16 +1777,16 @@
 				<style>
 					* { margin: 0; padding: 0; border: 0; box-sizing: border-box; }
 					html { margin: 0; padding: 0; }
-					body { 
-						margin: 0; 
-						padding: 0; 
-						width: 72.1mm; 
+					body {
+						margin: 0;
+						padding: 0;
+						width: 72.1mm;
 						font-family: 'Courier New', monospace;
 						font-size: 10pt;
 						font-weight: bold;
 						overflow: visible;
 					}
-					
+
 					.thermal-receipt { width: 72.1mm; margin: 0; padding: 0; overflow: visible; }
 					.receipt-container { margin: 0; padding: 0; overflow: visible; }
 					.receipt-divider { border-top: 1px dashed #000; margin: 0; padding: 0; }
@@ -1682,28 +1802,30 @@
 					.receipt-section { margin: 0; padding: 0; overflow: visible; }
 					.receipt-footer { margin: 0; padding: 0; }
 					.receipt-row-bilingual { margin: 0; padding: 0; overflow: visible; width: 100%; }
-					
+
 					@page {
 						size: 72.1mm auto;
 						margin: 0;
 						padding: 0;
 					}
-					
+
 					@media print {
 						* { margin: 0 !important; padding: 0 !important; }
 						html, body { width: 72.1mm; margin: 0; padding: 0; }
 						body { page-break-after: avoid; }
 					}
-				</style>
+
+
+</style>
 			</head>
 			<body>${html}</body>
 			</html>
 		`;
-		
+
 		const printWindow = window.open('', 'PRINT', 'width=100,height=600');
 		printWindow.document.write(printHtml);
 		printWindow.document.close();
-		
+
 		setTimeout(() => {
 			printWindow.print();
 			printWindow.close();
@@ -1723,7 +1845,10 @@
 </script>
 
 <div class="close-box-container">
-	<div class="top-info-row">
+	<div class="closing-layout">
+	<div class="closing-workspace">
+		<aside class="closing-totals-sidebar" aria-label={$currentLocale === 'ar' ? 'ملخص الإغلاق' : 'Closing totals'}>
+	<section class="top-info-row closing-sidebar-info">
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
 			<span class="info-value">{displayCashierName || 'N/A'}</span>
@@ -1750,11 +1875,54 @@
 			<span class="info-label">{$currentLocale === 'ar' ? 'المشرف الفاحص:' : 'Checked Supervisor:'}</span>
 			<span class="info-value">{operationData.supervisor_name || 'N/A'}</span>
 		</div>
+	</section>
+			<h2>{$currentLocale === 'ar' ? 'ملخص الإغلاق' : 'Closing Totals'}</h2>
+				<div class="closing-total">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="cash-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'المبيعات النقدية (حسب عد الإغلاق):' : 'Cash Sales (as per Closing Count):'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="total-cash-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="total-bank-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="total-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+		</aside>
+		<div class="closing-wizard-main">
+	<div class="closing-wizard-header">
+		<p>{$currentLocale === 'ar' ? 'الخطوة' : 'Step'} {closingStep} / {closingSteps.length}</p>
+		<h2 bind:this={closingWizardHeading} tabindex="-1" aria-live="polite">{$currentLocale === 'ar' ? closingSteps[closingStep - 1].ar : closingSteps[closingStep - 1].en}</h2>
+		<div class="closing-wizard-progress" aria-hidden="true">{#each closingSteps as step, index}<span class:current={index + 1 === closingStep} class:done={index + 1 < closingStep}>{index + 1}</span>{/each}</div>
 	</div>
-
-	<div class="two-cards-row">
+	<div class="two-cards-row closing-wizard">
 		<div class="half-card split-card">
-			<div class="split-section">
+			<div class="split-section" data-closing-step="1" hidden={closingStep !== 1}>
+				<div class="closing-cash-card">
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'إدخال نقد الإغلاق' : 'Enter Closing Cash'}</div>
 					<label class="checkbox-container">
@@ -1858,44 +2026,11 @@
 						</div>
 					{/each}
 				</div>
-				<div class="closing-total">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="cash-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'المبيعات النقدية (حسب عد الإغلاق):' : 'Cash Sales (as per Closing Count):'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="total-cash-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="total-bank-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="total-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
 				</div>
 			</div>
-			{#if checkbox1}
-			<div class="split-section">
+			{#if keepClosingStepsMounted || checkbox1}
+			<div class="split-section purchase-voucher-section" data-closing-step="3" hidden={closingStep !== 3}>
+				<div class="purchase-voucher-card">
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'Sales through Purchase Voucher'}</div>
 					<label class="checkbox-container">
@@ -1904,7 +2039,7 @@
 						<span class="checkmark"></span>
 					</label>
 				</div>
-				
+
 				<div class="voucher-input-row">
 					<input
 						type="text"
@@ -1963,12 +2098,57 @@
 						</div>
 					</div>
 				{/if}
+				</div>
 			</div>
 			{/if}
+			<section class="split-section loyalty-redemption-section" data-closing-step="4" hidden={closingStep !== 4} aria-label={$currentLocale === 'ar' ? 'المبيعات عبر قسائم الولاء' : 'Sales through Loyalty Redemption'}>
+				<div class="loyalty-sales-card">
+				<div class="card-header-with-checkbox"><div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسائم الولاء' : 'Sales through Loyalty Redemption'}</div></div>
+				<div class="loyalty-coupon-fields">
+					<label for={'loyalty-coupon-' + windowId}>{$currentLocale === 'ar' ? 'رقم القسيمة' : 'Coupon number'}
+						<input id={'loyalty-coupon-' + windowId} class="voucher-serial-input" type="text" bind:value={loyaltyCouponNumber} on:input={scheduleLoyaltyLookup} on:keydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); lookupLoyaltyCoupon(); } }} placeholder="LYL-XXXXXXXX" autocomplete="off" spellcheck="false" dir="ltr" maxlength="32" />
+					</label>
+					<label for={'loyalty-amount-' + windowId}>{$currentLocale === 'ar' ? 'المبلغ (ر.س)' : 'Amount (SAR)'}
+						<input id={'loyalty-amount-' + windowId} class="voucher-amount-input" type="text" value={loyaltyCouponAmount === null ? '' : loyaltyCouponAmount.toFixed(2)} readonly />
+					</label>
+					<button type="button" class="add-voucher-btn" on:click={addLoyaltyVoucher} disabled={loyaltyLookupStatus !== 'found' || loyaltyCouponAmount === null} aria-label={$currentLocale === 'ar' ? 'إضافة قسيمة الولاء' : 'Add loyalty coupon'}>+</button>
+				</div>
+				<div class="loyalty-lookup-feedback" role="status" aria-live="polite">
+					{#if loyaltyLookupStatus === 'loading'}{$currentLocale === 'ar' ? 'جارٍ البحث...' : 'Looking up coupon...'}
+					{:else if loyaltyLookupStatus === 'not_found'}{$currentLocale === 'ar' ? 'لم يتم العثور على قسيمة مؤكدة.' : 'Confirmed coupon not found.'}
+					{:else if loyaltyLookupStatus === 'used'}{$currentLocale === 'ar' ? 'تم استخدام قسيمة الولاء هذه بالفعل.' : 'This loyalty coupon has already been used.'}
+					{:else if loyaltyLookupStatus === 'invalid'}{$currentLocale === 'ar' ? 'أدخل رقم قسيمة صحيحاً.' : 'Enter a valid coupon number.'}
+					{:else if loyaltyLookupStatus === 'error'}{$currentLocale === 'ar' ? 'تعذر البحث. تحقق من الاتصال وجلسة الدخول ثم حاول مجدداً.' : 'Lookup failed. Check your connection and cashier session, then try again.'}{/if}
+				</div>
+				{#if loyaltyVouchers.length > 0}
+					<div class="vouchers-table"><table><thead><tr><th>{$currentLocale === 'ar' ? 'رقم القسيمة' : 'Coupon'}</th><th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th><th></th></tr></thead><tbody>
+						{#each loyaltyVouchers as voucher (voucher.serial)}<tr><td>{voucher.serial}</td><td>{voucher.amount.toFixed(2)}</td><td><button type="button" class="remove-btn" on:click={() => loyaltyVouchers = loyaltyVouchers.filter(row => row.serial !== voucher.serial)} aria-label={$currentLocale === 'ar' ? 'حذف القسيمة' : 'Remove coupon'}>&times;</button></td></tr>{/each}
+					</tbody></table></div>
+					<div class="vouchers-total"><span class="label">{$currentLocale === 'ar' ? 'إجمالي قسائم الولاء:' : 'Loyalty Coupons Total:'}</span><div class="amount">{loyaltyVouchersTotal.toFixed(2)}</div></div>
+				{/if}
+				</div>
+			</section>
+			<section class="split-section charity-sales-section" data-closing-step="5" hidden={closingStep !== 5} aria-label={$currentLocale === 'ar' ? 'المبيعات الخيرية' : 'Charity Sales'}>
+				<div class="charity-sales-card">
+				<div class="card-header-with-checkbox"><div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات الخيرية' : 'Charity Sales'}</div></div>
+				<div class="voucher-input-row">
+					<input type="text" class="voucher-serial-input" bind:value={newCharitySerial} placeholder={$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial Number'} aria-label={$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Charity serial number'} />
+					<input type="number" class="voucher-amount-input" bind:value={newCharityAmount} min="0.01" step="0.01" placeholder={$currentLocale === 'ar' ? 'المبلغ' : 'Amount'} aria-label={$currentLocale === 'ar' ? 'المبلغ' : 'Charity amount'} />
+					<button type="button" class="add-voucher-btn" on:click={addCharitySale} disabled={!newCharitySerial.trim() || money(newCharityAmount) <= 0} aria-label={$currentLocale === 'ar' ? 'إضافة مبيعات خيرية' : 'Add charity sale'}>+</button>
+				</div>
+				{#if charitySales.length > 0}
+					<div class="vouchers-table"><table><thead><tr><th>{$currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial'}</th><th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount'}</th><th></th></tr></thead><tbody>
+						{#each charitySales as row (row.serial)}<tr><td>{row.serial}</td><td>{row.amount.toFixed(2)}</td><td><button type="button" class="remove-btn" on:click={() => charitySales = charitySales.filter(item => item.serial !== row.serial)} aria-label={$currentLocale === 'ar' ? 'حذف' : 'Remove charity sale'}>&times;</button></td></tr>{/each}
+					</tbody></table></div>
+					<div class="vouchers-total"><span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات الخيرية:' : 'Charity Sales Total:'}</span><div class="amount">{charitySalesTotal.toFixed(2)}</div></div>
+				{/if}
+				</div>
+			</section>
 		</div>
 		<div class="half-card split-card">
-			{#if checkbox2}
-			<div class="split-section">
+			{#if keepClosingStepsMounted || checkbox2}
+			<div class="split-section" data-closing-step="6" hidden={closingStep !== 6}>
+				<div class="bank-reconciliation-card">
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
 					<button class="add-voucher-btn" on:click={() => openReconPopup()} style="width: 22px; height: 22px; font-size: 14px; padding: 0; line-height: 1;">
@@ -2153,10 +2333,15 @@
 						</div>
 					</div>
 				</div>
+				</div>
 			</div>
 			{/if}
-			{#if checkbox4 && erpSalesDetails}
-			<div class="split-section">
+			{#if keepClosingStepsMounted || (checkbox4 && erpSalesDetails)}
+			<div class="split-section" data-closing-step="7" hidden={closingStep !== 7}>
+				<div class="erp-details-card">
+
+				{#if erpSalesError}<p class="closing-wizard-message" role="status">{erpSalesError}</p>{/if}
+
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
 					<label class="checkbox-container">
@@ -2165,7 +2350,7 @@
 						<span class="checkmark"></span>
 					</label>
 				</div>
-				
+
 				<div class="system-sales-row">
 					<div class="system-input-group">
 						<label>{$currentLocale === 'ar' ? 'المبيعات النقدية' : 'Cash Sales'}</label>
@@ -2217,10 +2402,15 @@
 						<span>{totalSystemSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
 					</div>
 				</div>
+				<div class="closing-wizard-erp-actions">
+					<button type="button" class="btn-get-erp-details" on:click={fetchErpSalesDetails} disabled={loadingErpSales}>{loadingErpSales ? ($currentLocale === 'ar' ? 'جارٍ التحميل...' : 'Loading...') : ($currentLocale === 'ar' ? 'جلب تفاصيل الإغلاق' : 'Get Closing Details')}</button>
+				</div>
+				</div>
 			</div>
 			{/if}
-			{#if checkbox5}
-			<div class="split-section recharge-card-section-11">
+			{#if keepClosingStepsMounted || checkbox5}
+			<div class="split-section recharge-card-section-11" data-closing-step="2" hidden={closingStep !== 2}>
+				<div class="recharge-sales-card">
 				<div class="card-header-with-checkbox">
 					<div class="card-header-text">{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'Recharge Cards'}</div>
 					<label class="checkbox-container">
@@ -2229,7 +2419,7 @@
 						<span class="checkmark"></span>
 					</label>
 				</div>
-				
+
 				<div class="recharge-time-fields">
 					<div class="date-time-field-row">
 						<div class="date-field-group">
@@ -2291,7 +2481,7 @@
 						</div>
 					</div>
 				</div>
-				
+
 				<div class="balance-row">
 					<div class="balance-group">
 						<label>{$currentLocale === 'ar' ? 'الرصيد الافتتاحي' : 'Opening Balance'}</label>
@@ -2326,13 +2516,31 @@
 						/>
 					</div>
 				</div>
+				</div>
 			</div>
 			{/if}
-			<div class="split-section">
-				
+			<div class="split-section" data-closing-step="8" hidden={closingStep !== 8}>
+				<div class="card-header-with-checkbox"><div class="card-header-text">{$currentLocale === 'ar' ? 'تأكيد قيم النظام' : 'Confirm ERP Values'}</div></div>
+			<div class="erp-popup-content">
+				<label class="erp-checkbox-label">
+					<input type="checkbox" bind:checked={erpLabelChecked} class="erp-checkbox-input" />
+					<span class="erp-checkbox-text">
+						{$currentLocale === 'ar' ? 'المبلغ المراد إدخاله' : 'Amount to Enter'}
+					</span>
+					<span class="erp-checkbox-value">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon-small" />
+						{(totalCashSales + (operation?.total_after || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+					</span>
+				</label>
+			</div>
+
+			</div>
+			<div class="split-section" data-closing-step="9" hidden={closingStep !== 9}>
+
 				<div class="sub-cards-row">
 					{#if erpSalesDetails}
 					<div class="sub-card">
+						<div class="sub-card-header">{$currentLocale === 'ar' ? 'فروق المبيعات' : 'Sales Differences'}</div>
 						<div class="sub-card-content">
 							<div class="difference-row">
 								<div class="difference-group">
@@ -2361,6 +2569,7 @@
 								</div>
 							</div>
 							<div style="display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.3rem;">
+								<span class="review-field-label">{$currentLocale === 'ar' ? 'إجمالي الفرق' : 'Total Difference'}</span>
 								<input
 									type="number"
 									value={totalDifference}
@@ -2473,7 +2682,7 @@
 					{/if}
 
 					{#if checkbox1 && checkbox2 && checkbox3 && checkbox4 && checkbox5 && erpSalesDetails?.rawStatus === 'C'}
-					<div class="sub-card">
+					<div class="sub-card review-signature-card">
 						<div class="sub-card-header" style="font-size: 0.7rem; font-weight: 700; color: #15803d; letter-spacing: 1px; margin-bottom: 0.1rem; text-align: center; border-bottom: 1px solid #fed7aa; padding-bottom: 0.1rem;">
 							{$currentLocale === 'ar' ? 'التوقيع الإلكتروني' : 'ELECTRONIC SIGNATURE'}
 						</div>
@@ -2541,7 +2750,7 @@
 									</div>
 								{/if}
 							</div>
-							
+
 							<button
 								on:click={saveSupervisorCode}
 								class="save-button"
@@ -2579,6 +2788,13 @@
 			</div>
 		</div>
 	</div>
+	<div class="closing-wizard-navigation">
+		<button type="button" on:click={() => moveClosingStep(-1)} disabled={closingStep === 1}>{$currentLocale === 'ar' ? 'السابق' : 'Back'}</button>
+		{#if closingStep < closingSteps.length}<button type="button" class="wizard-next" on:click={() => moveClosingStep(1)} disabled={(closingStep === 7 && (!erpSalesDetails || loadingErpSales)) || (closingStep === 8 && (!erpSalesDetails || !erpLabelChecked))}>{$currentLocale === 'ar' ? 'التالي' : 'Next'}</button>{/if}
+	</div>
+		</div>
+	</div>
+	</div>
 </div>
 
 {#if showPrintTemplate}
@@ -2588,7 +2804,7 @@
 				<h3>{$currentLocale === 'ar' ? 'طباعة الإيصال' : 'Print Receipt'}</h3>
 				<button class="close-modal-btn" on:click={closePrintTemplate}>✕</button>
 			</div>
-			
+
 			<div class="print-modal-content">
 				<div id="print-template-content" class="thermal-receipt">
 					<!-- 80mm Thermal Receipt Template -->
@@ -2683,6 +2899,18 @@
 					<hr class="receipt-divider" />
 				{/if}
 
+				{#if loyaltyVouchers.length > 0}
+					<div class="receipt-section"><div class="section-title-en">LOYALTY COUPONS</div>
+						{#each loyaltyVouchers as voucher (voucher.serial)}<div class="receipt-row-stacked"><div class="receipt-row-en">{voucher.serial}: {voucher.amount.toFixed(2)}</div></div>{/each}
+						<div class="receipt-row-en receipt-total">Total: {loyaltyVouchersTotal.toFixed(2)}</div>
+					</div><hr class="receipt-divider" />
+				{/if}
+				{#if charitySales.length > 0}
+					<div class="receipt-section"><div class="section-title-en">CHARITY SALES</div>
+						{#each charitySales as row (row.serial)}<div class="receipt-row-stacked"><div class="receipt-row-en">{row.serial}: {row.amount.toFixed(2)}</div></div>{/each}
+						<div class="receipt-row-en receipt-total">Total: {charitySalesTotal.toFixed(2)}</div>
+					</div><hr class="receipt-divider" />
+				{/if}
 				<!-- Recharge Cards -->
 				<div class="receipt-section">
 					<div class="section-title-ar">بطاقات الشحن</div>
@@ -2877,7 +3105,7 @@
 			<div class="erp-popup-header">
 				<h3>{$currentLocale === 'ar' ? 'يرجى إدخال القيمة إلى النظام' : 'Please Enter the Value to ERP'}</h3>
 			</div>
-			
+
 			<div class="erp-popup-content">
 				<label class="erp-checkbox-label">
 					<input type="checkbox" bind:checked={erpLabelChecked} class="erp-checkbox-input" />
@@ -2890,7 +3118,7 @@
 					</span>
 				</label>
 			</div>
-			
+
 			<div class="erp-popup-actions">
 				<button class="btn-close-erp" on:click={closeErpPopup}>
 					{$currentLocale === 'ar' ? 'إغلاق' : 'Close'}
@@ -3007,22 +3235,22 @@
 							</div>
 							<div class="nav-btn-wrapper">
 								{#if closeCurrentQuestionIndex > 0}
-									<button 
-										class="back-question-btn" 
+									<button
+										class="back-question-btn"
 										on:click={() => { closeCurrentQuestionIndex--; }}
 									>
 										← {$currentLocale === 'ar' ? 'السابق' : 'Back'}
 									</button>
 								{/if}
-								<button 
-									class="next-question-btn" 
+								<button
+									class="next-question-btn"
 									disabled={!closeSelectedAnswers[q.id]}
 									on:click={() => { if (closeCurrentQuestionIndex < closeChecklistQuestions.length) closeCurrentQuestionIndex++; }}
 								>
 									{$currentLocale === 'ar' ? 'التالي' : 'Next'} →
 								</button>
-								<button 
-									class="incident-btn" 
+								<button
+									class="incident-btn"
 									on:click={openIncidentReport}
 								>
 									⚠️ {$currentLocale === 'ar' ? 'الإبلاغ عن مشكلة' : 'Report a Problem'}
@@ -3039,6 +3267,9 @@
 
 <style>
 	.close-box-container {
+		box-sizing: border-box;
+		min-height: 0;
+		overflow: hidden;
 		width: 100%;
 		height: 100%;
 		background: white;
@@ -3160,6 +3391,31 @@
 		flex: none;
 		min-height: 350px;
 	}
+
+	/* Purchase vouchers start at one input row and grow as entries are added. */
+	.half-card:first-child .split-section.purchase-voucher-section {
+		flex: 0 0 auto;
+		min-height: 0;
+		height: auto;
+	}
+
+	.purchase-voucher-section .vouchers-table,
+	.loyalty-redemption-section .vouchers-table,
+	.charity-sales-section .vouchers-table {
+		flex: none;
+		max-height: none;
+		overflow-y: visible;
+	}
+
+	.half-card:first-child .split-section.loyalty-redemption-section { flex: 0 0 auto; min-height: 0; height: auto; }
+	.loyalty-coupon-fields { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto; align-items: end; gap: 0.5rem; }
+	.loyalty-coupon-fields label { min-width: 0; font-size: 0.65rem; }
+	.loyalty-coupon-fields input { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin-top: 0.25rem; }
+	.loyalty-coupon-fields input[readonly] { background: #f0fdf4; }
+	.loyalty-lookup-feedback { font-size: 0.65rem; color: #92400e; margin-top: 0.25rem; }
+
+	.half-card:first-child .split-section.charity-sales-section { flex: 0 0 auto; min-height: 0; height: auto; }
+	.charity-sales-section .voucher-input-row input { min-width: 0; }
 
 	/* Recharge Cards Card 11 Styling */
 	.recharge-card-section-11 {
@@ -6518,6 +6774,262 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
+	}
+	.closing-wizard-header { padding: 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.5rem; margin-bottom: 0.5rem; }
+	.closing-wizard-header p { margin: 0 0 0.25rem; font-size: 0.75rem; color: #475569; }
+	.closing-wizard-header h2 { margin: 0; font-size: 1rem; color: #075985; outline: none; }
+	.closing-wizard-progress { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+	.closing-wizard-progress span { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #e2e8f0; color: #475569; font-size: 0.7rem; }
+	.closing-wizard-progress .current { background: #0284c7; color: white; }
+	.closing-wizard-progress .done { background: #dcfce7; color: #166534; }
+	.two-cards-row.closing-wizard { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; gap: 0; }
+	.closing-wizard > .half-card { display: contents; }
+	.closing-wizard [data-closing-step] { width: 100%; box-sizing: border-box; min-height: 0 !important; max-height: none !important; height: auto; flex: 1 0 auto !important; min-height: 100% !important; }
+	.closing-wizard [data-closing-step][hidden] { display: none !important; }
+	.closing-wizard .checkbox-container { display: none; }
+	.closing-wizard-navigation { display: flex; justify-content: space-between; gap: 1rem; padding: 0.75rem 0; }
+	.closing-wizard-navigation button { border: 1px solid #cbd5e1; border-radius: 0.375rem; padding: 0.5rem 1.25rem; background: white; cursor: pointer; font-weight: 600; }
+	.closing-wizard-navigation .wizard-next { background: #0284c7; color: white; border-color: #0284c7; }
+	.closing-wizard-navigation button:disabled { opacity: 0.45; cursor: not-allowed; }
+	.closing-wizard-erp-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+	.closing-wizard-message { font-size: 0.75rem; color: #b91c1c; }
+
+
+	.closing-layout { container-type: inline-size; container-name: closing-layout; flex: 1; min-height: 0; }
+	.closing-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100%; min-height: 0; overflow: hidden; align-items: stretch; gap: 0.75rem; }
+	.closing-wizard-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+	.closing-totals-sidebar { position: static; overflow-y: auto; box-sizing: border-box; padding: 0.65rem; border: 1px solid #bfdbfe; border-radius: 0.5rem; background: #f8fafc; min-width: 0; }
+	.closing-totals-sidebar h2 { font-size: 0.85rem; color: #075985; margin: 0 0 0.5rem; }
+	.closing-totals-sidebar > div { display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem; padding: 0.6rem; margin-top: 0.4rem; }
+	.closing-totals-sidebar .label { font-size: 0.7rem; line-height: 1.4; }
+	.closing-totals-sidebar .amount { justify-content: flex-end; font-size: 1rem; font-weight: 700; }
+	@container closing-layout (max-width: 720px) {
+		.closing-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+		.closing-totals-sidebar { position: static; max-height: 180px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.4rem; }
+		.closing-totals-sidebar h2 { grid-column: 1 / -1; margin: 0; }
+		.closing-totals-sidebar > div { margin: 0; }
+	}
+
+	.closing-totals-sidebar .closing-sidebar-info { display: flex; flex-direction: column; gap: 0.35rem; margin: 0 0 0.75rem; padding-bottom: 0.65rem; border-bottom: 1px solid #cbd5e1; }
+	.closing-sidebar-info .info-group { min-width: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem; padding: 0.4rem; }
+	.closing-sidebar-info .info-label { font-size: 0.65rem; }
+	.closing-sidebar-info .info-value { font-size: 0.75rem; overflow-wrap: anywhere; }
+	.closing-sidebar-info .pos-display-inline { font-size: 0.75rem; }
+	@container closing-layout (max-width: 720px) {
+		.closing-totals-sidebar .closing-sidebar-info { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+	}
+	.closing-wizard-header, .closing-wizard-navigation { flex-shrink: 0; }
+	.closing-wizard [data-closing-step="7"] .closing-wizard-erp-actions {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 120px;
+		margin: 0;
+	}
+	.closing-wizard [data-closing-step="7"] .closing-wizard-erp-actions button {
+		width: auto;
+		min-width: 180px;
+		padding: 0.75rem 1.5rem;
+		font-size: 0.9rem;
+	}
+
+	.closing-wizard [data-closing-step="9"] .sub-cards-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; align-content: start; gap: 1rem; flex: none; }
+	.closing-wizard [data-closing-step="9"] .sub-card { min-width: 0; height: auto; padding: 1rem; gap: 0.75rem; }
+	.closing-wizard [data-closing-step="9"] .sub-card-header { font-size: 0.95rem !important; margin-bottom: 0.5rem !important; padding-bottom: 0.5rem !important; }
+	.closing-wizard [data-closing-step="9"] .sub-card-content { flex: none; gap: 1rem !important; }
+	.closing-wizard [data-closing-step="9"] .difference-row { flex: none; gap: 0.75rem; }
+	.closing-wizard [data-closing-step="9"] .difference-group { min-width: 0; gap: 0.4rem; }
+	.closing-wizard [data-closing-step="9"] .difference-group label, .review-field-label { font-size: 0.85rem; font-weight: 600; }
+	.closing-wizard [data-closing-step="9"] .difference-input { box-sizing: border-box; min-height: 48px; font-size: 1.25rem; padding: 0.6rem; }
+	.closing-wizard [data-closing-step="9"] .difference-label { font-size: 0.8rem; padding: 0.4rem; line-height: 1.4; overflow-wrap: anywhere; }
+	.closing-wizard [data-closing-step="9"] .btn-get-erp-details { min-height: 42px; padding: 0.6rem 1rem !important; font-size: 0.85rem; margin-top: 0 !important; }
+	.closing-wizard [data-closing-step="9"] .review-signature-card { grid-column: 1 / -1; }
+	.review-signature-card .sub-card-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+	.review-signature-card .sub-card-content > div { min-width: 0; flex-wrap: wrap; }
+	.review-signature-card .sub-card-content > button { grid-column: 1 / -1; min-height: 48px; font-size: 1rem; }
+	.review-signature-card .sig-code-label { font-size: 0.9rem; margin-bottom: 0.5rem; }
+	.review-signature-card .sig-digit-row { gap: 0.4rem; }
+	.review-signature-card .sig-digit-box { width: clamp(30px, 5cqw, 44px); height: 54px; font-size: 1.5rem; }
+	.review-signature-card .sub-card-content div[style*="font-size"] { font-size: 0.8rem !important; }
+	@container closing-layout (max-width: 1000px) {
+		.closing-wizard [data-closing-step="9"] .sub-cards-row, .review-signature-card .sub-card-content { grid-template-columns: minmax(0, 1fr); }
+	}
+
+	.closing-wizard [data-closing-step="8"] .erp-popup-content {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1.5rem;
+	}
+	.closing-wizard [data-closing-step="8"] .erp-checkbox-label {
+		width: 100%;
+		max-width: 560px;
+		min-width: 0;
+		box-sizing: border-box;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1.25rem;
+		padding: 2rem;
+		border-radius: 1rem;
+		text-align: center;
+	}
+	.closing-wizard [data-closing-step="8"] .erp-checkbox-input { width: 28px; height: 28px; flex-shrink: 0; }
+	.closing-wizard [data-closing-step="8"] .erp-checkbox-text { font-size: 1.25rem; flex: none; }
+	.closing-wizard [data-closing-step="8"] .erp-checkbox-value { font-size: 2.25rem; padding: 0.75rem 1.25rem; margin: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+
+	.closing-wizard [data-closing-step="7"] { align-items: center; justify-content: center; padding: 1.5rem; }
+	.erp-details-card { width: 100%; max-width: 900px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.erp-details-card .card-header-text { font-size: 1rem; }
+	.erp-details-card .card-header-with-checkbox { margin-bottom: 1rem; }
+	.erp-details-card .system-sales-row { gap: 1rem; flex-wrap: wrap; }
+	.erp-details-card .system-input-group { min-width: 140px; flex: 1; }
+	.erp-details-card .system-input-group label { font-size: 0.9rem; margin-bottom: 0.5rem; }
+	.erp-details-card .system-input { min-height: 52px; padding: 0.75rem; box-sizing: border-box; font-size: 1.25rem; }
+	.erp-details-card .system-total-1, .erp-details-card .system-total-2 { padding: 0.85rem; margin-top: 0.75rem; gap: 0.75rem; flex-wrap: wrap; }
+	.erp-details-card .label { font-size: 0.85rem; }
+	.erp-details-card .amount { font-size: 1.25rem; }
+	.closing-wizard [data-closing-step="7"] .closing-wizard-erp-actions { flex: none; min-height: 0; margin: 1.5rem 0 0; }
+	.closing-wizard [data-closing-step="7"] .closing-wizard-erp-actions button { min-width: 200px; min-height: 52px; font-size: 1rem; }
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="7"] { padding: 0.75rem; }
+		.erp-details-card { padding: 1rem; }
+	}
+
+	.closing-wizard [data-closing-step="6"] { align-items: center; justify-content: flex-start; padding: 1.5rem; }
+	.bank-reconciliation-card { width: 100%; max-width: 1000px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.bank-reconciliation-card .card-header-with-checkbox { gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+	.bank-reconciliation-card .card-header-text { flex: 1; font-size: 1rem; }
+	.bank-reconciliation-card .card-header-with-checkbox .add-voucher-btn { width: 44px !important; height: 44px !important; font-size: 1.5rem !important; flex-shrink: 0; }
+	.bank-reconciliation-card .btn-scan-request { min-height: 44px; padding: 0.65rem 1rem; font-size: 0.9rem; }
+	.bank-reconciliation-card .bank-fields-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; }
+	.bank-reconciliation-card .bank-input-group { min-width: 0; }
+	.bank-reconciliation-card .bank-input-group label { font-size: 0.85rem; margin-bottom: 0.4rem; }
+	.bank-reconciliation-card .bank-input { min-height: 48px; width: 100%; box-sizing: border-box; font-size: 1.1rem; padding: 0.65rem; }
+	.bank-reconciliation-card .recon-overall-totals { padding: 1rem; }
+	.bank-reconciliation-card .recon-overall-header { font-size: 0.95rem; margin-bottom: 1rem; }
+	.bank-reconciliation-card .bank-total { padding: 0.85rem; gap: 0.75rem; flex-wrap: wrap; }
+	.bank-reconciliation-card .bank-total .label { font-size: 0.9rem; }
+	.bank-reconciliation-card .bank-total .amount { font-size: 1.4rem; }
+	.bank-reconciliation-card .recon-inline-card-header { font-size: 0.95rem; }
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="6"] { padding: 0.75rem; }
+		.bank-reconciliation-card { padding: 1rem; }
+	}
+
+	.closing-wizard [data-closing-step="5"] { align-items: center; justify-content: flex-start; padding: 1.5rem; }
+	.charity-sales-card { width: 100%; max-width: 900px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.charity-sales-card .card-header-text { font-size: 1rem; }
+	.charity-sales-card .card-header-with-checkbox { margin-bottom: 1rem; }
+	.charity-sales-card .voucher-input-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
+	.charity-sales-card .voucher-serial-input, .charity-sales-card .voucher-amount-input { width: 100%; box-sizing: border-box; min-height: 50px; padding: 0.75rem; font-size: 1rem; }
+	.charity-sales-card .add-voucher-btn { width: 50px; height: 50px; font-size: 1.75rem; }
+	.charity-sales-card .vouchers-table { margin-top: 1rem; }
+	.charity-sales-card .vouchers-table table { font-size: 0.95rem; }
+	.charity-sales-card .vouchers-table th, .charity-sales-card .vouchers-table td { padding: 0.75rem; }
+	.charity-sales-card .remove-btn { min-width: 32px; min-height: 32px; font-size: 1.1rem; }
+	.charity-sales-card .vouchers-total { padding: 1rem; gap: 0.75rem; flex-wrap: wrap; }
+	.charity-sales-card .vouchers-total .label { font-size: 0.95rem; }
+	.charity-sales-card .vouchers-total .amount { font-size: 1.4rem; }
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="5"] { padding: 0.75rem; }
+		.charity-sales-card { padding: 1rem; }
+		.charity-sales-card .voucher-input-row { grid-template-columns: minmax(0, 1fr) auto; }
+		.charity-sales-card .voucher-serial-input { grid-column: 1 / -1; }
+	}
+
+	.closing-wizard [data-closing-step="4"] { align-items: center; justify-content: flex-start; padding: 1.5rem; }
+	.loyalty-sales-card { width: 100%; max-width: 900px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.loyalty-sales-card .card-header-text { font-size: 1rem; }
+	.loyalty-sales-card .card-header-with-checkbox { margin-bottom: 1rem; }
+	.loyalty-sales-card .loyalty-coupon-fields { gap: 0.75rem; }
+	.loyalty-sales-card .loyalty-coupon-fields label { font-size: 0.85rem; }
+	.loyalty-sales-card .voucher-serial-input, .loyalty-sales-card .voucher-amount-input { min-height: 50px; padding: 0.75rem; font-size: 1rem; }
+	.loyalty-sales-card .add-voucher-btn { width: 50px; height: 50px; font-size: 1.75rem; }
+	.loyalty-sales-card .loyalty-lookup-feedback { font-size: 0.85rem; margin: 0.5rem 0; }
+	.loyalty-sales-card .vouchers-table { margin-top: 1rem; }
+	.loyalty-sales-card .vouchers-table table { font-size: 0.95rem; }
+	.loyalty-sales-card .vouchers-table th, .loyalty-sales-card .vouchers-table td { padding: 0.75rem; }
+	.loyalty-sales-card .remove-btn { min-width: 32px; min-height: 32px; font-size: 1.1rem; }
+	.loyalty-sales-card .vouchers-total { padding: 1rem; gap: 0.75rem; flex-wrap: wrap; }
+	.loyalty-sales-card .vouchers-total .label { font-size: 0.95rem; }
+	.loyalty-sales-card .vouchers-total .amount { font-size: 1.4rem; }
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="4"] { padding: 0.75rem; }
+		.loyalty-sales-card { padding: 1rem; }
+		.loyalty-sales-card .loyalty-coupon-fields { grid-template-columns: minmax(0, 1fr) auto; }
+		.loyalty-sales-card .loyalty-coupon-fields label:first-child { grid-column: 1 / -1; }
+	}
+
+	.closing-wizard [data-closing-step="3"] { align-items: center; justify-content: flex-start; padding: 1.5rem; }
+	.purchase-voucher-card { width: 100%; max-width: 900px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.purchase-voucher-card .card-header-text { font-size: 1rem; }
+	.purchase-voucher-card .card-header-with-checkbox { margin-bottom: 1rem; }
+	.purchase-voucher-card .voucher-input-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
+	.purchase-voucher-card .voucher-serial-input, .purchase-voucher-card .voucher-amount-input { width: 100%; box-sizing: border-box; min-height: 50px; padding: 0.75rem; font-size: 1rem; }
+	.purchase-voucher-card .add-voucher-btn { width: 50px; height: 50px; font-size: 1.75rem; }
+	.purchase-voucher-card .vouchers-table { margin-top: 1rem; }
+	.purchase-voucher-card .vouchers-table table { font-size: 0.95rem; }
+	.purchase-voucher-card .vouchers-table th, .purchase-voucher-card .vouchers-table td { padding: 0.75rem; }
+	.purchase-voucher-card .remove-btn { min-width: 32px; min-height: 32px; font-size: 1.1rem; }
+	.purchase-voucher-card .vouchers-total { padding: 1rem; gap: 0.75rem; flex-wrap: wrap; }
+	.purchase-voucher-card .vouchers-total .label { font-size: 0.95rem; }
+	.purchase-voucher-card .vouchers-total .amount { font-size: 1.4rem; }
+
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="3"] { padding: 0.75rem; }
+		.purchase-voucher-card { padding: 1rem; }
+		.purchase-voucher-card .voucher-input-row { grid-template-columns: minmax(0, 1fr) auto; }
+		.purchase-voucher-card .voucher-serial-input { grid-column: 1 / -1; }
+	}
+
+	.closing-wizard [data-closing-step="2"] { align-items: center; justify-content: flex-start; padding: 1.5rem !important; }
+	.recharge-sales-card { width: 100%; max-width: 900px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.recharge-sales-card .card-header-text { font-size: 1rem; }
+	.recharge-sales-card .card-header-with-checkbox { margin-bottom: 1rem; }
+	.recharge-sales-card .recharge-time-fields { flex: none; padding: 1rem; margin: 0 0 1.25rem; gap: 1rem; }
+	.recharge-sales-card .date-time-field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; flex: none; }
+	.recharge-sales-card .date-field-group, .recharge-sales-card .time-field-group { min-width: 0; }
+	.recharge-sales-card label { font-size: 0.9rem; margin-bottom: 0.5rem; }
+	.recharge-sales-card .date-input-field { width: 100%; min-height: 50px; box-sizing: border-box; font-size: 1rem; padding: 0.6rem; }
+	.recharge-sales-card .time-input-controls { gap: 0.5rem; flex-wrap: wrap; }
+	.recharge-sales-card .time-input-hm, .recharge-sales-card .time-input-ampm { min-height: 50px; min-width: 60px; width: auto; font-size: 1rem; padding: 0.5rem; }
+	.recharge-sales-card .balance-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; flex: none; margin: 0; }
+	.recharge-sales-card .balance-group { min-width: 0; }
+	.recharge-sales-card .balance-input { width: 100%; min-height: 52px; box-sizing: border-box; font-size: 1.25rem; padding: 0.75rem; }
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="2"] { padding: 0.75rem !important; }
+		.recharge-sales-card { padding: 1rem; }
+		.recharge-sales-card .date-time-field-row, .recharge-sales-card .balance-row { grid-template-columns: minmax(0, 1fr); }
+	}
+
+	.closing-wizard [data-closing-step="1"] { align-items: center; justify-content: flex-start; padding: 1.5rem; }
+	.closing-cash-card { width: 100%; max-width: 1400px; box-sizing: border-box; padding: 1.5rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #f8fafc; box-shadow: 0 8px 24px #0f172a0a; }
+	.closing-cash-card .card-header-text { font-size: 1.25rem; }
+	.closing-cash-card .card-header-with-checkbox { margin-bottom: 1rem; }
+	.closing-cash-card .closing-cash-grid-2row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.1rem; }
+	.closing-cash-card .denom-input-group { min-width: 0; padding: 1.15rem; gap: 0.85rem; }
+	.closing-cash-card .denom-input-group label { font-size: 1.5rem; }
+	.closing-cash-card .denom-header-row { gap: 0.5rem; flex-wrap: wrap; }
+	.closing-cash-card .denom-total { font-size: 1.1rem; }
+	.closing-cash-card .denom-stepper { width: 100%; gap: 0.5rem; }
+	.closing-cash-card .stepper-btn { min-width: 58px; width: 58px; height: 64px; font-size: 1.8rem; }
+	.closing-cash-card .stepper-btn.clear { width: auto; min-width: 0; padding: 0 0.5rem; font-size: 0.75rem; }
+	.closing-cash-card .denom-dropdown-wrap { flex: 1; min-width: 0; }
+	.closing-cash-card .denom-select { min-width: 0; width: 100%; height: 64px; box-sizing: border-box; font-size: 1.6rem; }
+	.closing-cash-card .coins-input { flex: 1; }
+	@container closing-layout (max-width: 1000px) {
+		.closing-cash-card .closing-cash-grid-2row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	}
+	@container closing-layout (max-width: 720px) {
+		.closing-wizard [data-closing-step="1"] { padding: 0.75rem; }
+		.closing-cash-card { padding: 1rem; }
+	}
+	@container closing-layout (max-width: 520px) {
+		.closing-cash-card .closing-cash-grid-2row { grid-template-columns: minmax(0, 1fr); }
 	}
 </style>
 

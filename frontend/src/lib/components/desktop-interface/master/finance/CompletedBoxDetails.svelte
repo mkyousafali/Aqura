@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { buildPosClosingEntries } from '$lib/utils/posClosingEntries';
+	import { nonCashPostingAccounts, missingNonCashLedgerLinks } from '$lib/utils/posNonCashEntries';
+	import { closingCashSales } from '$lib/utils/closingSales';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale } from '$lib/i18n';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -8,7 +11,12 @@
 	import PostMJVTaskDialog from './PostMJVTaskDialog.svelte';
 
 	export let windowId: string;
-	export let operation: any;
+	// Window layout updates reapply the original props from ClosedBoxes. Keep
+	// the freshly loaded database record local so maximize/restore cannot
+	// replace it with the older list snapshot (which may lack the saved MJV).
+	let incomingOperation: any;
+	export { incomingOperation as operation };
+	let operation: any = incomingOperation;
 	export let branch: any;
 
 	// Generated in CompleteBox and persisted on box_operations. Keep the saved
@@ -107,7 +115,9 @@
 
 		const normalized = String(name || '').toLowerCase();
 		let accountKey = '';
-		if (normalized.includes('pos bank')) accountKey = 'pos_bank';
+		const nonCashAccount = nonCashPostingAccounts.find(account => account.label.toLowerCase() === normalized);
+		if (nonCashAccount) accountKey = nonCashAccount.key;
+		else if (normalized.includes('pos bank')) accountKey = 'pos_bank';
 		else if (normalized.includes('pos short')) accountKey = 'pos_short';
 		else if (normalized.includes('pos excess')) accountKey = 'pos_excess';
 		else if (normalized === 'pos cash' || /pos\s*\d+\s*\(cash\)/i.test(name)) accountKey = 'pos_cash';
@@ -126,6 +136,43 @@
 			{ ledger_account: entry.debit_account, debit: entry.debit_amount, credit: 0, narration: entry.narration },
 			{ ledger_account: entry.credit_account, debit: 0, credit: entry.credit_amount, narration: entry.narration }
 		]);
+	}
+
+	let isGeneratingEntries = false;
+	let generateEntriesError = '';
+	let completedOperationLoaded = false;
+	$: hasPostedEntries = !!generatedEntries?.entries?.some((entry: any) => entry.posted);
+
+	async function generateCompletedEntries() {
+		if (isGeneratingEntries || !completedOperationLoaded || hasPostedEntries) return;
+		isGeneratingEntries = true;
+		generateEntriesError = '';
+		try {
+			await loadPostingLedgerLinks(Number(operation?.branch_id ?? branch?.id));
+			const totals = { totalCashSales, vouchersTotal, charitySalesTotal, loyaltyVouchersTotal };
+			const missing = missingNonCashLedgerLinks(totals, postingLedgerLinks);
+			if (missing.length) throw new Error('Configure ERP Ledger Links for: ' + missing.join(', '));
+			const result = buildPosClosingEntries({
+				posNumber: selectedPosNumber,
+				cashierName: cashierName || operation?.cashier_name || operationData.cashier_name,
+				shiftDate: operation?.erp_shift_start_date || (operation?.start_time ? String(operation.start_time).split('T')[0].split(' ')[0] : ''),
+				shiftId: operation?.erp_counter_shift_id ?? '',
+				cashDiff: differenceInCashSales,
+				cardDiff: differenceInCardSales,
+				totalDiff: totalDifference,
+				totals
+			});
+			const { data, error } = await supabase.from('box_operations')
+				.update({ ai_generated_entries: result }).eq('id', operation.id)
+				.select('id').single();
+			if (error) throw error;
+			if (!data) throw new Error('The journal could not be saved.');
+			operation = { ...operation, ai_generated_entries: result };
+		} catch (error: any) {
+			generateEntriesError = error?.message || 'Failed to generate MJV';
+		} finally {
+			isGeneratingEntries = false;
+		}
 	}
 
 	let mjvCopied = false;
@@ -187,7 +234,10 @@
 		// If completed_by_name exists, closing has been started
 		if (op?.completed_by_name) {
 			console.log('✅ Closing already started, loading state');
-			operation = op;
+			// A partial refresh must not drop an already loaded saved journal.
+			operation = Object.prototype.hasOwnProperty.call(op, 'ai_generated_entries')
+				? { ...operation, ...op }
+				: { ...operation, ...op, ai_generated_entries: operation.ai_generated_entries };
 			completedByName = op.completed_by_name;
 			closingStarted = true;
 			
@@ -204,6 +254,8 @@
 		}
 	} catch (e) {
 		console.error('❌ Exception checking operation:', e);
+	} finally {
+		completedOperationLoaded = true;
 	}
 }
 
@@ -369,6 +421,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			// Vouchers data (already updated)
 			vouchers: vouchers,
 			vouchers_total: vouchersTotal,
+			loyalty_vouchers: loyaltyVouchers,
+			loyalty_vouchers_total: loyaltyVouchersTotal,
+			charity_sales: charitySales,
+			charity_sales_total: charitySalesTotal,
 			// Bank reconciliation (already updated)
 			bank_mada: Number(madaAmount) || 0,
 			bank_visa: Number(visaAmount) || 0,
@@ -457,6 +513,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	
 	// Ensure closingCounts is always initialized properly
 	function initializeClosingCounts() {
+		const originalClosingDetails = typeof operation?.closing_details === 'string'
+			? JSON.parse(operation.closing_details)
+			: operation?.closing_details || {};
 		console.log('🔄 Initializing closing counts from operation:', operation);
 		
 		// Load from complete_details FIRST (this is where edits are stored)
@@ -521,6 +580,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			
 			// Load vouchers
 			vouchers = completeDetails.vouchers || [];
+			loyaltyVouchers = completeDetails.loyalty_vouchers ?? originalClosingDetails.loyalty_vouchers ?? [];
+			charitySales = completeDetails.charity_sales ?? originalClosingDetails.charity_sales ?? [];
 			
 			// Load all edit and verification states from complete_details
 			voucherEditedValues = completeDetails.voucher_edits || {};
@@ -580,6 +641,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			}
 			
 			vouchers = details.vouchers || [];
+			loyaltyVouchers = details.loyalty_vouchers || [];
+			charitySales = details.charity_sales || [];
 			
 		} else if (operation?.counts_after) {
 			// Fallback to counts_after if neither available
@@ -611,6 +674,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Purchase vouchers
 	let vouchers: Array<{serial: string, amount: number}> = [];
+	let charitySales: Array<{serial: string, amount: number}> = [];
+	$: charitySalesTotal = charitySales.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+	let loyaltyVouchers: Array<{serial: string, amount: number}> = [];
+	$: loyaltyVouchersTotal = loyaltyVouchers.reduce((sum, voucher) => sum + Number(voucher.amount || 0), 0);
 	let newVoucherSerial = '';
 	let newVoucherAmount: number | '' = '';
 
@@ -643,7 +710,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	$: vouchersTotal = vouchers.reduce((sum, v) => sum + v.amount, 0);
 
 	// Calculate total cash sales (cash sales + vouchers - recharge sales)
-	$: totalCashSales = (cashSales + vouchersTotal) - (Number(sales) || 0);
+	$: totalCashSales = closingCashSales(cashSales, vouchersTotal, loyaltyVouchersTotal, sales, charitySalesTotal);
 
 	// Bank reconciliation payment methods
 	let madaAmount: number | '' = '';
@@ -1474,6 +1541,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				// Sales totals
 				total_cash_sales: totalCashSales,
 				vouchers_total: vouchersTotal,
+			loyalty_vouchers: loyaltyVouchers,
+			loyalty_vouchers_total: loyaltyVouchersTotal,
+			charity_sales: charitySales,
+			charity_sales_total: charitySalesTotal,
 				total_system_cash_sales: totalSystemCashSales,
 				total_sales: totalSales,
 				total_system_sales: totalSystemSales
@@ -1990,8 +2061,37 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					</div>
 				{/if}
 			</div>
+			{#each [
+				{ title: $currentLocale === 'ar' ? '3. المبيعات عبر استبدال الولاء' : '3. Sales through Loyalty Redemption', rows: loyaltyVouchers, total: loyaltyVouchersTotal, coupon: true },
+				{ title: $currentLocale === 'ar' ? '4. المبيعات الخيرية' : '4. Charity Sales', rows: charitySales, total: charitySalesTotal, coupon: false }
+			] as section}
+				<div class="split-section completed-noncash-section">
+					<div class="card-header-text">{section.title}</div>
+					{#if section.rows.length > 0}
+						<div class="vouchers-table">
+							<table>
+								<thead><tr>
+									<th>{section.coupon ? ($currentLocale === 'ar' ? 'رقم القسيمة' : 'Coupon number') : ($currentLocale === 'ar' ? 'الرقم التسلسلي' : 'Serial Number')}</th>
+									<th>{$currentLocale === 'ar' ? 'المبلغ (ر.س)' : 'Amount (SAR)'}</th>
+								</tr></thead>
+								<tbody>
+									{#each section.rows as row}
+										<tr><td>{row.serial}</td><td>{Number(row.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{:else}
+						<p>{$currentLocale === 'ar' ? 'لا توجد قيود محفوظة.' : 'No saved entries.'}</p>
+					{/if}
+					<div class="vouchers-total">
+						<span class="label">{$currentLocale === 'ar' ? 'الإجمالي:' : 'Total:'}</span>
+						<div class="amount"><img src={currencySymbolUrl} alt="SAR" class="currency-icon" /><span>{section.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+					</div>
+				</div>
+			{/each}
 			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '3. تسوية البنك' : '3. Bank Reconciliation'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '5. تسوية البنك' : '5. Bank Reconciliation'}</div>
 				
 				<div class="bank-fields-row">
 					<!-- Mada -->
@@ -2244,7 +2344,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				</div>
 			</div>
 			<div class="split-section erp-closing-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '4. تفاصيل إغلاق النظام' : '4. ERP Closing Details'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '6. تفاصيل إغلاق النظام' : '6. ERP Closing Details'}</div>
 				
 				<div class="system-sales-row">
 					<!-- Cash Sales -->
@@ -2409,7 +2509,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				</div>
 			</div>
 			<div class="split-section recharge-card-section-11">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '5. بطاقات الشحن' : '5. Recharge Cards'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '7. بطاقات الشحن' : '7. Recharge Cards'}</div>
 				
 				<div class="date-time-row">
 					<!-- Start Date -->
@@ -2712,7 +2812,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				</div>
 			</div>
 			<div class="split-section comparison-signature-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '6. المقارنة والتوقيع الإلكتروني' : '6. Comparison & Electronic Signature'}</div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? '8. المقارنة والتوقيع الإلكتروني' : '8. Comparison & Electronic Signature'}</div>
 				<div class="sub-cards-row">
 					<div class="sub-card">
 						<div class="sub-card-content">
@@ -2827,6 +2927,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				<div style="font-size: 0.75rem; color: white; font-weight: 700; text-align: center; letter-spacing: 0.5px;">📝 Entry to Pass</div>
 			</div>
 			
+			<div class="completed-jv-toolbar">
+				<button class="generate-mjv-btn" on:click={generateCompletedEntries}
+					disabled={!completedOperationLoaded || isGeneratingEntries || hasPostedEntries}
+					title={hasPostedEntries ? 'Posted entries cannot be regenerated' : ''}>
+					{isGeneratingEntries ? 'Generating MJV...' : generatedEntries ? 'Regenerate MJV' : 'Generate MJV'}
+				</button>
+				{#if generateEntriesError}<p role="alert">{generateEntriesError}</p>{/if}
+			</div>
 			{#if generatedEntries}
 				<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 0.75rem; width: 100%; gap: 0.5rem; margin-bottom: 0.5rem;">
 					<div style="display:flex; align-items:center; justify-content:space-between; width:100%; color:#3730a3; font-weight:700; font-size:0.8rem; gap:0.5rem;">
@@ -3237,6 +3345,23 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 						</div>
 					</div>
 
+					<div class="print-cards-row">
+						{#each [
+							{ title: 'Sales through Loyalty Redemption', rows: loyaltyVouchers, total: loyaltyVouchersTotal },
+							{ title: 'Charity Sales', rows: charitySales, total: charitySalesTotal }
+						] as section}
+							<div class="print-card">
+								<div class="print-card-header">{section.title}</div>
+								<div class="print-card-content print-small-text">
+									{#each section.rows as row}
+										<div class="print-info-row"><span class="print-label">{row.serial}</span><span class="print-value">{Number(row.amount || 0).toFixed(2)} SAR</span></div>
+									{:else}<div class="print-info-row">No saved entries.</div>{/each}
+									<div class="print-info-row"><span class="print-label">Total:</span><span class="print-value">{section.total.toFixed(2)} SAR</span></div>
+								</div>
+							</div>
+						{/each}
+					</div>
+
 					<!-- Row 4: Sales Through Vouchers (Left) & Comparison & Signature (Right) -->
 					<div class="print-cards-row">
 						<!-- Card 4 Left: Sales Through Vouchers -->
@@ -3600,6 +3725,38 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 {/if}
 
 <style>
+	.completed-jv-toolbar {
+		position: sticky;
+		top: 0;
+		z-index: 2;
+		flex: 0 0 auto;
+		padding: 0.5rem;
+		background: white;
+		border-bottom: 1px solid #e5e7eb;
+	}
+	.generate-mjv-btn {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		border: 1px solid #4338ca;
+		border-radius: 0.35rem;
+		background: #4338ca;
+		color: white;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.generate-mjv-btn:disabled { opacity: 0.6; cursor: default; }
+	.completed-jv-toolbar p { color: #b91c1c; margin: 0.4rem 0 0; }
+
+	.half-card:first-child .split-section.completed-noncash-section {
+		flex: 0 0 auto;
+		min-height: 0;
+	}
+	.completed-noncash-section .vouchers-table {
+		flex: none;
+		min-height: 0;
+		max-height: none;
+	}
+
 	.close-box-container {
 		width: 100%;
 		height: 100%;

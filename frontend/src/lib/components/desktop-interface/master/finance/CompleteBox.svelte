@@ -1,4 +1,9 @@
 <script lang="ts">
+	import { buildPosClosingEntries } from '$lib/utils/posClosingEntries';
+	import { missingNonCashLedgerLinks, nonCashPostingAccounts } from '$lib/utils/posNonCashEntries';
+	import AccessCodeInput from '$lib/components/shared/AccessCodeInput.svelte';
+	import { accountantStepVerified, checkAllAccountantStep } from '$lib/utils/accountantWizard';
+	import { closingCashSales } from '$lib/utils/closingSales';
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
@@ -61,6 +66,7 @@
 			operation = op;
 			completedByName = op.completed_by_name;
 			closingStarted = true;
+			accountantStep = 2;
 
 			// Load branch name from the branch prop passed to component
 			console.log('🏢 Branch prop received:', branch);
@@ -419,6 +425,44 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Voucher verification and edit tracking
 	let voucherVerified: Record<number, boolean> = {};
+	let loyaltyVerified: Record<string, boolean> = {};
+	let charityVerified: Record<string, boolean> = {};
+	let accountantStep = 1;
+	let accountantHeading: HTMLHeadingElement;
+	const accountantSteps = [
+		{ en: 'Enter Access Code', ar: 'إدخال رمز الوصول' },
+		{ en: 'Closing Cash', ar: 'نقدية الإغلاق' },
+		{ en: 'Recharge Cards', ar: 'بطاقات الشحن' },
+		{ en: 'Purchase Vouchers', ar: 'قسائم الشراء' },
+		{ en: 'Loyalty Redemption', ar: 'قسائم الولاء' },
+		{ en: 'Charity Sales', ar: 'المبيعات الخيرية' },
+		{ en: 'Bank Reconciliation', ar: 'تسوية البنك' },
+		{ en: 'ERP Closing Details', ar: 'تفاصيل إغلاق النظام' },
+		{ en: 'Review and Signatures', ar: 'المراجعة والتوقيعات' },
+		{ en: 'Accounting Entries', ar: 'القيود المحاسبية' },
+		{ en: 'Denomination and Complete', ar: 'الفئات والإكمال' }
+	];
+	$: accountantVerification = {
+		denominations: denomVerified, recharge: rechargeVerified, vouchers: voucherVerified,
+		bank: bankVerified, system: systemVerified, loyalty: loyaltyVerified, charity: charityVerified,
+		purchaseRows: vouchers, loyaltyRows: loyaltyVouchers, charityRows: charitySales
+	};
+	$: accountantStepReady = accountantStep === 1 ? closingStarted : accountantStepVerified(accountantStep - 1, accountantVerification);
+	function checkAllSection(step: number) {
+		if (!closingStarted || editPhase !== 'locked') return;
+		const checked = checkAllAccountantStep(step - 1, accountantVerification);
+		denomVerified = checked.denominations; rechargeVerified = checked.recharge;
+		voucherVerified = checked.vouchers; loyaltyVerified = checked.loyalty;
+		charityVerified = checked.charity; bankVerified = checked.bank; systemVerified = checked.system;
+		checkForChanges();
+	}
+	function moveAccountantStep(direction: -1 | 1) {
+		if (!closingStarted || (direction === 1 && (!accountantStepReady || (accountantStep === 10 && editPhase !== 'locked')))) return;
+		accountantStep = Math.max(1, Math.min(accountantSteps.length, accountantStep + direction));
+		accountantHeading?.focus({ preventScroll: true });
+		accountantHeading?.scrollIntoView({ block: 'nearest' });
+	}
+
 	let voucherEditedValues: Record<number, {serial?: string, amount?: number}> = {};
 	
 	// Builds the full complete_details record from current in-memory state.
@@ -452,6 +496,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			total_sales: totalSales,
 			vouchers: vouchers,
 			vouchers_total: vouchersTotal,
+			loyalty_vouchers: loyaltyVouchers,
+			loyalty_vouchers_total: loyaltyVouchersTotal,
+			charity_sales: charitySales,
+			charity_sales_total: charitySalesTotal,
 			bank_mada: Number(madaAmount) || 0,
 			bank_visa: Number(visaAmount) || 0,
 			bank_mastercard: Number(masterCardAmount) || 0,
@@ -486,6 +534,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			},
 			denom_verified: denomVerified,
 			voucher_verified: voucherVerified,
+			loyalty_verified: loyaltyVerified,
+			charity_verified: charityVerified,
 			bank_verified: bankVerified,
 			system_verified: systemVerified,
 			recharge_verified: rechargeVerified
@@ -830,10 +880,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			
 			// Load vouchers
 			vouchers = completeDetails.vouchers || [];
+			loyaltyVouchers = completeDetails.loyalty_vouchers || [];
+			charitySales = completeDetails.charity_sales || [];
 			
 			// Load all edit and verification states from complete_details
 			voucherEditedValues = completeDetails.voucher_edits || {};
 			voucherVerified = completeDetails.voucher_verified || {};
+			loyaltyVerified = completeDetails.loyalty_verified || {};
+			charityVerified = completeDetails.charity_verified || {};
 			bankEditedValues = completeDetails.bank_edits || {};
 			bankVerified = completeDetails.bank_verified || {};
 			systemEditedValues = completeDetails.system_edits || {};
@@ -889,6 +943,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			}
 			
 			vouchers = details.vouchers || [];
+			loyaltyVouchers = details.loyalty_vouchers || [];
+			charitySales = details.charity_sales || [];
 			
 		} else if (operation?.counts_after) {
 			// Fallback to counts_after if neither available
@@ -920,6 +976,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 	// Purchase vouchers
 	let vouchers: Array<{serial: string, amount: number}> = [];
+	let charitySales: Array<{serial: string, amount: number}> = [];
+	$: charitySalesTotal = charitySales.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+	let loyaltyVouchers: Array<{serial: string, amount: number}> = [];
+	$: loyaltyVouchersTotal = loyaltyVouchers.reduce((sum, voucher) => sum + Number(voucher.amount || 0), 0);
 	let newVoucherSerial = '';
 	let newVoucherAmount: number | '' = '';
 
@@ -957,7 +1017,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	$: vouchersTotal = vouchers.reduce((sum, v) => sum + v.amount, 0);
 
 	// Calculate total cash sales (cash sales + vouchers - recharge sales)
-	$: totalCashSales = (cashSales + vouchersTotal) - (Number(sales) || 0);
+	$: totalCashSales = closingCashSales(cashSales, vouchersTotal, loyaltyVouchersTotal, sales, charitySalesTotal);
 
 	// Bank reconciliation payment methods
 	let madaAmount: number | '' = '';
@@ -1298,8 +1358,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	async function generatePosEntries() {
 		isGeneratingEntries = true;
 		generateEntriesError = '';
-		generatedEntries = null;
 		try {
+			await loadPostingLedgerLinks(Number(operation?.branch_id ?? branch?.id));
+			const missingLinks = missingNonCashLedgerLinks({ vouchersTotal, charitySalesTotal, loyaltyVouchersTotal }, postingLedgerLinks);
+			if (missingLinks.length) throw new Error('Configure ERP Ledger Links for: ' + missingLinks.join(', '));
 			const payload = {
 				posNumber: selectedPosNumber,
 				branchName,
@@ -1319,6 +1381,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					closingTotal,
 					cashSales,
 					vouchersTotal,
+					charitySalesTotal,
+					loyaltyVouchersTotal,
 					totalCashSales,
 					rechargeSales: sales
 				},
@@ -1338,16 +1402,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				erp: erpClosingDetails
 			};
 
-			const response = await fetch('/api/generate-pos-entries', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(payload)
-			});
-
-			const data = await response.json();
-			if (!response.ok) {
-				throw new Error(data?.error || 'Failed to generate entries');
-			}
+			// Calculate from this window's current totals, even when a deployed API is older.
+			const data = { result: buildPosClosingEntries(payload) };
 
 			generatedEntries = data.result;
 			hasLoadedSavedEntries = true; // this result is now the source of truth, not a load-from-DB
@@ -1386,7 +1442,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 
 		const normalized = String(name || '').toLowerCase();
 		let accountKey = '';
-		if (normalized.includes('pos bank')) accountKey = 'pos_bank';
+		const nonCashAccount = nonCashPostingAccounts.find(account => account.label.toLowerCase() === normalized);
+		if (nonCashAccount) accountKey = nonCashAccount.key;
+		else if (normalized.includes('pos bank')) accountKey = 'pos_bank';
 		else if (normalized.includes('pos short')) accountKey = 'pos_short';
 		else if (normalized.includes('pos excess')) accountKey = 'pos_excess';
 		else if (normalized === 'pos cash' || /pos\s*\d+\s*\(cash\)/i.test(name)) accountKey = 'pos_cash';
@@ -1692,6 +1750,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			
 			// Show the cards
 			closingStarted = true;
+			accountantStep = 2;
 			
 			// Reinitialize closing counts from completed data
 			initializeClosingCounts();
@@ -1702,28 +1761,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	}
 
 	// Check if all checkboxes are verified
-	$: allCheckboxesVerified = (() => {
-		// Check denominations (11 denominations)
-		const denomKeys = ['d500', 'd200', 'd100', 'd50', 'd20', 'd10', 'd5', 'd2', 'd1', 'd05', 'd025', 'coins'];
-		const allDenomsVerified = denomKeys.every(key => denomVerified[key] === true);
-		
-		// Check vouchers (all vouchers must be verified)
-		const allVouchersVerified = vouchers.length === 0 || vouchers.every((_, index) => voucherVerified[index] === true);
-		
-		// Check bank fields (5 fields)
-		const bankKeys = ['mada', 'visa', 'mastercard', 'googlepay', 'other'];
-		const allBankVerified = bankKeys.every(key => bankVerified[key] === true);
-		
-		// Check system fields (3 fields)
-		const systemKeys = ['cashSales', 'cardSales', 'return'];
-		const allSystemVerified = systemKeys.every(key => systemVerified[key] === true);
-		
-		// Check recharge fields (2 balance fields + 4 date/time fields)
-		const rechargeKeys = ['openingBalance', 'closeBalance', 'startDate', 'startTime', 'endDate', 'endTime'];
-		const allRechargeVerified = rechargeKeys.every(key => rechargeVerified[key] === true);
-		
-		return allDenomsVerified && allVouchersVerified && allBankVerified && allSystemVerified && allRechargeVerified;
-	})();
+	$: allCheckboxesVerified = [1, 2, 3, 4, 5, 6, 7].every(step => accountantStepVerified(step, accountantVerification));
 
 	// Complete box operation
 	async function completeBox() {
@@ -1737,11 +1775,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			return;
 		}
 
+		if (!closingStarted || accountantStep !== 11 || editPhase !== 'locked' || !hasClosurePermission || (!denominationsAdded && !skipDenomination)) return;
+
 		try {
 			const { error } = await supabase
 				.from('box_operations')
 				.update({ 
 					status: 'completed',
+					complete_details: buildCompleteDetailsSnapshot(),
 					total_difference: totalDifference
 				})
 				.eq('id', operation.id);
@@ -2150,6 +2191,10 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				// Sales totals
 				total_cash_sales: totalCashSales,
 				vouchers_total: vouchersTotal,
+			loyalty_vouchers: loyaltyVouchers,
+			loyalty_vouchers_total: loyaltyVouchersTotal,
+			charity_sales: charitySales,
+			charity_sales_total: charitySalesTotal,
 				total_system_cash_sales: totalSystemCashSales,
 				total_sales: totalSales,
 				total_system_sales: totalSystemSales
@@ -2200,6 +2245,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				// Initialize verification states
 				denom_verified: {},
 				voucher_verified: {},
+				loyalty_verified: {},
+				charity_verified: {},
 				bank_verified: {},
 				system_verified: {},
 				recharge_verified: {},
@@ -2280,12 +2327,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		const branchId = operation?.branch_id ?? branch?.id;
 		if (!completedByUserId || branchId == null) return;
 		checkingClosurePermission = true;
+		const permissionUserId = completedByUserId;
 		try {
 			const { data, error } = await supabase.rpc('can_user_close_branch', {
 				p_user_id: completedByUserId,
 				p_branch_id: branchId
 			});
 			if (error) throw error;
+			if (permissionUserId !== completedByUserId) return;
 			hasClosurePermission = !!data;
 			if (!hasClosurePermission) {
 				closurePermissionError = $currentLocale === 'ar'
@@ -2307,17 +2356,18 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		hasClosurePermission = false;
 		closurePermissionError = '';
 
-		if (!completedByCode) {
+		const code = completedByCode;
+		if (!/^\d{6}$/.test(code)) {
 			return;
 		}
 
 		try {
-			console.log('🔍 Verifying completed by code:', completedByCode);
 			// Use RPC for bcrypt hash verification
 			const { data: verifyResult, error } = await supabase.rpc('verify_quick_access_code', {
-				p_code: completedByCode
+				p_code: code
 			});
 
+			if (code !== completedByCode) return;
 			if (error) {
 				console.error('Error verifying code:', error);
 				completedByCodeError = 'Error verifying code';
@@ -2331,13 +2381,14 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				console.log('⏳ Code incomplete or not found');
 			}
 		} catch (error) {
+			if (code !== completedByCode) return;
 			console.error('Exception verifying code:', error);
 			completedByCodeError = 'Error verifying code';
 		}
 	}
 
 	// Auto-verify completed by code as user types
-	$: if (completedByCode) {
+	$: if (/^\d{6}$/.test(completedByCode)) {
 		verifyCompletedByCode();
 	} else {
 		completedByName = '';
@@ -2372,7 +2423,7 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	$: console.log('📸 Image URL check:', { url: posBeforeUrl, hasImage: hasClosingImage });
 </script>
 
-<div class="close-box-container">
+<div class="close-box-container accountant-completion" class:accountant-started={closingStarted}>
 	<div class="button-row">
 		<button 
 			class="view-closing-btn" 
@@ -2382,39 +2433,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 		>
 			{$currentLocale === 'ar' ? 'عرض الإغلاق' : 'View Closing'}
 		</button>
-		<div class="completed-by-wrapper">
-			<input 
-				type="password" 
-				class="completed-by-code-input"
-				bind:value={completedByCode}
-				disabled={closingStarted}
-				placeholder={$currentLocale === 'ar' ? 'أدخل رمز الوصول السريع' : 'Enter your quick access code'}
-			/>
-			{#if completedByName}
-				<div class="completed-by-name">
-					{completedByName}
-				</div>
-			{/if}
-			{#if completedByCodeError}
-				<div class="completed-by-error">
-					{completedByCodeError}
-				</div>
-			{/if}
-			{#if closurePermissionError}
-				<div class="completed-by-error">
-					{closurePermissionError}
-				</div>
-			{/if}
-		</div>
+
 		<div style="display: flex; gap: 0.5rem;">
-			<button
-				class="start-closing-btn"
-				disabled={!completedByName || closingStarted || !hasClosurePermission || checkingClosurePermission}
-				on:click={startClosingProcess}
-				title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : !hasClosurePermission ? closurePermissionError : ''}
-			>
-				{checkingClosurePermission ? ($currentLocale === 'ar' ? 'جارٍ التحقق...' : 'Checking...') : closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
-			</button>
+
 			{#if editPhase === 'locked'}
 				<button
 					class="edit-toggle-btn"
@@ -2493,35 +2514,15 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					{resolvingEdit ? ($currentLocale === 'ar' ? 'جارٍ الحفظ...' : 'Saving...') : ($currentLocale === 'ar' ? '💾 حفظ' : '💾 Save')}
 				</button>
 			{/if}
-			<button
-				class="add-to-denomination-btn"
-				disabled={!closingStarted || editPhase !== 'locked' || !allCheckboxesVerified || denominationsAdded || skipDenomination}
-				on:click={addToDenomination}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : editPhase !== 'locked' ? ($currentLocale === 'ar' ? 'أنهِ التعديل أولاً' : 'Finish the edit first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : skipDenomination ? ($currentLocale === 'ar' ? 'تم التخطي' : 'Skipped') : ''}
-			>
-				{denominationsAdded ? ($currentLocale === 'ar' ? '✓ تمت الإضافة' : '✓ Added') : skipDenomination ? ($currentLocale === 'ar' ? '⏭ تم التخطي' : '⏭ Skipped') : ($currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination')}
-			</button>
-			<label class="skip-denomination-label" title={$currentLocale === 'ar' ? 'إكمال بدون إضافة الفئات النقدية' : 'Complete without adding denominations'}>
-				<input
-					type="checkbox"
-					bind:checked={skipDenomination}
-					disabled={denominationsAdded || operation?.status === 'completed'}
-					class="skip-denomination-checkbox"
-				/>
-				<span class="skip-denomination-text">{$currentLocale === 'ar' ? 'تخطي الفئات' : 'Skip Denomination'}</span>
-			</label>
-			<button
-				class="complete-btn"
-				disabled={!closingStarted || editPhase !== 'locked' || !allCheckboxesVerified || (!denominationsAdded && !skipDenomination) || operation?.status === 'completed'}
-				on:click={completeBox}
-				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : editPhase !== 'locked' ? ($currentLocale === 'ar' ? 'أنهِ التعديل (حفظ أو إلغاء) أولاً' : 'Finish the edit (save or cancel) first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : (!denominationsAdded && !skipDenomination) ? ($currentLocale === 'ar' ? 'أضف الفئات أو تخطاها أولاً' : 'Add denomination or skip first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
-			>
-				{operation?.status === 'completed' ? ($currentLocale === 'ar' ? '✓ مكتمل' : '✓ Completed') : ($currentLocale === 'ar' ? 'إكمال' : 'Complete')}
-			</button>
+
 		</div>
+	<div class="accountant-wizard-header accountant-toolbar-steps"><p>{$currentLocale === 'ar' ? 'الخطوة' : 'Step'} {accountantStep} / {accountantSteps.length}</p><h2 bind:this={accountantHeading} tabindex="-1" aria-live="polite">{$currentLocale === 'ar' ? accountantSteps[accountantStep - 1].ar : accountantSteps[accountantStep - 1].en}</h2><div class="accountant-progress" aria-hidden="true">{#each accountantSteps as step, index}<span class:active={index + 1 === accountantStep}>{index + 1}</span>{/each}</div></div>
 	</div>
 
-	<div class="top-info-row">
+
+	<div class="accountant-layout"><div class="accountant-workspace">
+		<aside class="accountant-sidebar" aria-label={$currentLocale === 'ar' ? 'ملخص الصندوق' : 'Box summary'}>
+	<section class="top-info-row accountant-info">
 		<div class="info-group">
 			<span class="info-label">{$currentLocale === 'ar' ? 'الكاشير (بدأ):' : 'Cashier (Started):'}</span>
 			<span class="info-value">{operationData.cashier_name || 'N/A'}</span>
@@ -2548,13 +2549,83 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			<span class="info-label">{$currentLocale === 'ar' ? 'رقم نقطة البيع:' : 'POS Number:'}</span>
 			<div class="pos-display-inline">POS {selectedPosNumber}</div>
 		</div>
-	</div>
+	</section>
 
+			{#if closingStarted}<h3>{$currentLocale === 'ar' ? 'الإجماليات' : 'Totals'}</h3>
+				<div class="closing-total">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="cash-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'المبيعات النقدية (حسب عد الإغلاق):' : 'Cash Sales (as per Closing Count):'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="total-cash-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="total-bank-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+				<div class="total-sales">
+					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
+					<div class="amount">
+						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
+						<span>{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+					</div>
+				</div>
+			{/if}
+		</aside>
+		<div class="accountant-main">
+	<section class="accountant-start-card accountant-code-step" data-accountant-step="1" hidden={accountantStep !== 1}>
+		<h3>{$currentLocale === 'ar' ? 'إدخال رمز الوصول' : 'Enter Access Code'}</h3>
+		<p>{$currentLocale === 'ar' ? 'أدخل رمز الوصول السريع ثم اضغط بدء الإغلاق.' : 'Enter your quick access code, then select Start Closing.'}</p>
+		<div class="completed-by-wrapper">
+			<AccessCodeInput bind:value={completedByCode} disabled={closingStarted} label={$currentLocale === 'ar' ? 'رمز الوصول' : 'Access code'} />
+			{#if completedByName}
+				<div class="completed-by-name">
+					{completedByName}
+				</div>
+			{/if}
+			{#if completedByCodeError}
+				<div class="completed-by-error">
+					{completedByCodeError}
+				</div>
+			{/if}
+			{#if closurePermissionError}
+				<div class="completed-by-error">
+					{closurePermissionError}
+				</div>
+			{/if}
+		</div>
+			<button
+				class="start-closing-btn"
+				disabled={!completedByName || closingStarted || !hasClosurePermission || checkingClosurePermission}
+				on:click={startClosingProcess}
+				title={!completedByName ? ($currentLocale === 'ar' ? 'تحقق من رمز الوصول السريع أولاً' : 'Verify quick access code first') : closingStarted ? ($currentLocale === 'ar' ? 'تم بدء الإغلاق' : 'Closing started') : !hasClosurePermission ? closurePermissionError : ''}
+			>
+				{checkingClosurePermission ? ($currentLocale === 'ar' ? 'جارٍ التحقق...' : 'Checking...') : closingStarted ? ($currentLocale === 'ar' ? '✓ تم البدء' : '✓ Started') : ($currentLocale === 'ar' ? 'بدء الإغلاق' : 'Start Closing')}
+			</button>
+	</section>
 	{#if closingStarted}
-	<div class="two-cards-row">
+	<div class="two-cards-row accountant-wizard" hidden={accountantStep === 1}>
 		<div class="half-card split-card">
-			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '1. تفاصيل الإغلاق المدخلة' : '1. Closing Details Entered'}</div>
+			<div class="split-section" data-accountant-step="2" hidden={accountantStep !== 2}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(2)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(1, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل الإغلاق المدخلة' : 'Closing Details Entered'}</div>
 				<div class="closing-cash-grid-2row">
 					{#each Object.entries(denomLabels) as [key, label] (key)}
 						{@const originalCount = beforeEditSnapshot ? (beforeEditSnapshot.closing_counts?.[key] ?? 0) : closingCounts[key]}
@@ -2616,44 +2687,11 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 						</div>
 					{/each}
 				</div>
-				<div class="closing-total">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي النقد الإغلاق:' : 'Closing Cash Total:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{closingTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="cash-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'المبيعات النقدية (حسب عد الإغلاق):' : 'Cash Sales (as per Closing Count):'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{cashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="total-cash-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات النقدية:' : 'Total Cash Sales:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{totalCashSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="total-bank-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات البنكية:' : 'Total Bank Sales:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{bankTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
-				<div class="total-sales">
-					<span class="label">{$currentLocale === 'ar' ? 'إجمالي المبيعات:' : 'Total Sales:'}</span>
-					<div class="amount">
-						<img src={currencySymbolUrl} alt="SAR" class="currency-icon" />
-						<span>{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-					</div>
-				</div>
+
 			</div>
-			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '2. المبيعات عبر قسيمة الشراء' : '2. Sales through Purchase Voucher'}</div>
+			<div class="split-section" data-accountant-step="4" hidden={accountantStep !== 4}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(4)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(3, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'المبيعات عبر قسيمة الشراء' : 'Sales through Purchase Voucher'}</div>
 				
 				<!-- Voucher Input Row -->
 				<div class="voucher-input-row">
@@ -2809,8 +2847,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					</div>
 				{/if}
 			</div>
-			<div class="split-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '3. تسوية البنك' : '3. Bank Reconciliation'}</div>
+			<div class="split-section" data-accountant-step="7" hidden={accountantStep !== 7}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(7)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(6, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'تسوية البنك' : 'Bank Reconciliation'}</div>
 				
 				<div class="bank-fields-row">
 					<!-- Mada -->
@@ -3032,8 +3071,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					</div>
 				</div>
 			</div>
-			<div class="split-section erp-closing-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '4. تفاصيل إغلاق النظام' : '4. ERP Closing Details'}</div>
+			<div class="split-section erp-closing-section" data-accountant-step="8" hidden={accountantStep !== 8}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(8)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(7, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'تفاصيل إغلاق النظام' : 'ERP Closing Details'}</div>
 				
 				<div class="system-sales-row">
 					<!-- Cash Sales -->
@@ -3179,8 +3219,9 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					</div>
 				</div>
 			</div>
-			<div class="split-section recharge-card-section-11">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '5. بطاقات الشحن' : '5. Recharge Cards'}</div>
+			<div class="split-section recharge-card-section-11" data-accountant-step="3" hidden={accountantStep !== 3}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(3)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(2, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'بطاقات الشحن' : 'Recharge Cards'}</div>
 				
 				<div class="date-time-row">
 					<!-- Start Date -->
@@ -3446,8 +3487,8 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					</div>
 				</div>
 			</div>
-			<div class="split-section comparison-signature-section">
-				<div class="card-header-text">{$currentLocale === 'ar' ? '6. المقارنة والتوقيع الإلكتروني' : '6. Comparison & Electronic Signature'}</div>
+			<div class="split-section comparison-signature-section" data-accountant-step="9" hidden={accountantStep !== 9}>
+				<div class="card-header-text">{$currentLocale === 'ar' ? 'المقارنة والتوقيع الإلكتروني' : 'Comparison & Electronic Signature'}</div>
 				<div class="sub-cards-row">
 					<div class="sub-card">
 						<div class="sub-card-content">
@@ -3556,8 +3597,58 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 					</button>
 				</div>
 			</div>
+			<section class="split-section accountant-vouchers" data-accountant-step="5" hidden={accountantStep !== 5}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(5)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(4, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<h3>{$currentLocale === 'ar' ? 'قسائم الولاء' : 'Loyalty Redemption'}</h3>
+				{#if loyaltyVouchers.length === 0}<p>{$currentLocale === 'ar' ? 'لا توجد بنود مسجلة.' : 'No saved entries.'}</p>{:else}
+				<div class="accountant-table-wrap"><table><thead><tr><th>{$currentLocale === 'ar' ? 'تحقق' : 'Verify'}</th><th>{$currentLocale === 'ar' ? 'الرقم' : 'Serial / Coupon'}</th><th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount (SAR)'}</th></tr></thead><tbody>
+				{#each loyaltyVouchers as row (row.serial)}<tr><td><input type="checkbox" bind:checked={loyaltyVerified[row.serial]} disabled={!closingStarted || editPhase !== 'locked'} aria-label={($currentLocale === 'ar' ? 'تحقق ' : 'Verify ') + row.serial} /></td><td>{row.serial}</td><td>{Number(row.amount).toFixed(2)}</td></tr>{/each}
+				</tbody></table></div>{/if}
+				<div class="vouchers-total"><span>{$currentLocale === 'ar' ? 'الإجمالي' : 'Total'}</span><strong>{loyaltyVouchersTotal.toFixed(2)}</strong></div>
+			</section>
+			<section class="split-section accountant-vouchers" data-accountant-step="6" hidden={accountantStep !== 6}>
+				<div class="accountant-check-all-row"><button type="button" class="accountant-check-all" on:click={() => checkAllSection(6)} disabled={!closingStarted || editPhase !== 'locked' || accountantStepVerified(5, accountantVerification)}>{$currentLocale === 'ar' ? 'تحديد الكل' : 'Check All'}</button></div>
+				<h3>{$currentLocale === 'ar' ? 'المبيعات الخيرية' : 'Charity Sales'}</h3>
+				{#if charitySales.length === 0}<p>{$currentLocale === 'ar' ? 'لا توجد بنود مسجلة.' : 'No saved entries.'}</p>{:else}
+				<div class="accountant-table-wrap"><table><thead><tr><th>{$currentLocale === 'ar' ? 'تحقق' : 'Verify'}</th><th>{$currentLocale === 'ar' ? 'الرقم' : 'Serial / Coupon'}</th><th>{$currentLocale === 'ar' ? 'المبلغ' : 'Amount (SAR)'}</th></tr></thead><tbody>
+				{#each charitySales as row (row.serial)}<tr><td><input type="checkbox" bind:checked={charityVerified[row.serial]} disabled={!closingStarted || editPhase !== 'locked'} aria-label={($currentLocale === 'ar' ? 'تحقق ' : 'Verify ') + row.serial} /></td><td>{row.serial}</td><td>{Number(row.amount).toFixed(2)}</td></tr>{/each}
+				</tbody></table></div>{/if}
+				<div class="vouchers-total"><span>{$currentLocale === 'ar' ? 'الإجمالي' : 'Total'}</span><strong>{charitySalesTotal.toFixed(2)}</strong></div>
+			</section>
+			<section class="split-section accountant-final" data-accountant-step="11" hidden={accountantStep !== 11}>
+				<h3>{$currentLocale === 'ar' ? 'الفئات والإكمال' : 'Denomination and Complete'}</h3>
+				<p>{$currentLocale === 'ar' ? 'أضف الفئات أو اختر التخطي، ثم أكمل العملية.' : 'Add the denominations or choose Skip Denomination, then complete the box.'}</p>
+				<div class="accountant-final-actions">
+			<button
+				class="add-to-denomination-btn"
+				disabled={!closingStarted || editPhase !== 'locked' || !allCheckboxesVerified || denominationsAdded || skipDenomination}
+				on:click={addToDenomination}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : editPhase !== 'locked' ? ($currentLocale === 'ar' ? 'أنهِ التعديل أولاً' : 'Finish the edit first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : denominationsAdded ? ($currentLocale === 'ar' ? 'تمت الإضافة' : 'Already added') : skipDenomination ? ($currentLocale === 'ar' ? 'تم التخطي' : 'Skipped') : ''}
+			>
+				{denominationsAdded ? ($currentLocale === 'ar' ? '✓ تمت الإضافة' : '✓ Added') : skipDenomination ? ($currentLocale === 'ar' ? '⏭ تم التخطي' : '⏭ Skipped') : ($currentLocale === 'ar' ? 'إضافة إلى الفئات' : 'Add to Denomination')}
+			</button>
+			<label class="skip-denomination-label" title={$currentLocale === 'ar' ? 'إكمال بدون إضافة الفئات النقدية' : 'Complete without adding denominations'}>
+				<input
+					type="checkbox"
+					bind:checked={skipDenomination}
+					disabled={denominationsAdded || operation?.status === 'completed'}
+					class="skip-denomination-checkbox"
+				/>
+				<span class="skip-denomination-text">{$currentLocale === 'ar' ? 'تخطي الفئات' : 'Skip Denomination'}</span>
+			</label>
+			<button
+				class="complete-btn"
+				disabled={!closingStarted || editPhase !== 'locked' || !allCheckboxesVerified || (!denominationsAdded && !skipDenomination) || operation?.status === 'completed'}
+				on:click={completeBox}
+				title={!closingStarted ? ($currentLocale === 'ar' ? 'يجب بدء الإغلاق أولاً' : 'Must start closing first') : editPhase !== 'locked' ? ($currentLocale === 'ar' ? 'أنهِ التعديل (حفظ أو إلغاء) أولاً' : 'Finish the edit (save or cancel) first') : !allCheckboxesVerified ? ($currentLocale === 'ar' ? 'يجب التحقق من جميع الحقول أولاً' : 'All fields must be verified first') : (!denominationsAdded && !skipDenomination) ? ($currentLocale === 'ar' ? 'أضف الفئات أو تخطاها أولاً' : 'Add denomination or skip first') : operation?.status === 'completed' ? ($currentLocale === 'ar' ? 'تم الإكمال' : 'Completed') : ''}
+			>
+				{operation?.status === 'completed' ? ($currentLocale === 'ar' ? '✓ مكتمل' : '✓ Completed') : ($currentLocale === 'ar' ? 'إكمال' : 'Complete')}
+			</button>
+				</div>
+			</section>
 		</div>
-		<div class="half-card split-card">
+		<div class="half-card split-card accountant-accounting" data-accountant-step="10" hidden={accountantStep !== 10}>
+			<div class="accounting-left-half">
 			<!-- ERP Closing Details Match Card -->
 		<div class="blank-card" style="background: #f0fdf4; border: 2px solid #22c55e; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15); padding: 0.5rem; width: 100%;">
 			<div style="font-weight: 600; color: #15803d; margin-bottom: 0.3rem; width: 100%; font-size: 0.65rem;">📡 ERP Closing Details</div>
@@ -3637,11 +3728,13 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 			</div>
 		{/if}
 
+			</div>
+			<div class="accounting-right-half">
 		{#if generatedEntries}
 			<div class="blank-card" style="background: #eef2ff; border: 2px solid #4338ca; min-height: auto; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; box-shadow: 0 2px 8px rgba(67, 56, 202, 0.15); padding: 1rem; width: 100%; gap: 0.75rem;">
-				<div style="display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem;">
+				<div class="accounting-entry-header" style="display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem;">
 					<div style="font-weight:700; color:#3730a3; font-size:1rem;"><span style="background:#4338ca; color:white; border-radius:4px; padding:0.15rem 0.5rem; margin-right:0.5rem; font-size:0.8rem;">MJV</span>Complete POS Closing Entry</div>
-					<div style="display:flex; align-items:center; gap:0.6rem;">
+					<div class="accounting-entry-controls" style="display:flex; align-items:center; gap:0.6rem;">
 						<label style="display:flex; align-items:center; gap:0.3rem; font-size:0.75rem; font-weight:700; color:{generatedEntries.entries?.every((entry: any) => entry.posted) ? '#15803d' : '#6b7280'}; cursor:pointer; white-space:nowrap;">
 							<input type="checkbox" checked={!!generatedEntries.entries?.length && generatedEntries.entries.every((entry: any) => entry.posted)} on:change={toggleMjvPosted} />
 							{generatedEntries.entries?.every((entry: any) => entry.posted) ? '✓ Posted' : 'Posted?'}
@@ -3675,9 +3768,13 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 				</div>
 			</div>
 		{/if}
+			</div>
 	</div>
 	</div>
+	<div class="accountant-navigation"><button type="button" on:click={() => moveAccountantStep(-1)} disabled={accountantStep === 1}>{$currentLocale === 'ar' ? 'السابق' : 'Back'}</button><div>{#if !accountantStepReady}<span role="status">{$currentLocale === 'ar' ? 'تحقق من جميع حقول هذه الخطوة للمتابعة.' : 'Verify every field in this step to continue.'}</span>{/if}{#if accountantStep < accountantSteps.length}<button type="button" class="accountant-next" on:click={() => moveAccountantStep(1)} disabled={!accountantStepReady || (accountantStep === 10 && editPhase !== 'locked')}>{$currentLocale === 'ar' ? 'التالي' : 'Next'}</button>{/if}</div></div>
 	{/if}
+		</div>
+	</div></div>
 </div>
 
 <!-- Voucher Status Modal -->
@@ -7345,6 +7442,186 @@ $: if (operation?.id && !hasCheckedForCompleted) {
 	.ledger-name { font-weight: 700; unicode-bidi: plaintext; }
 	.ledger-code { direction: ltr; unicode-bidi: isolate; background: #dbeafe; color: #1e3a8a; border-radius: 4px; padding: 0.1rem 0.32rem; font-weight: 700; white-space: nowrap; }
 	.mjv-table tfoot td { background: #eef2ff; color: #3730a3; font-weight: 700; border-bottom: 0; }
+
+	.accountant-completion { box-sizing: border-box; min-height: 0; overflow: hidden; }
+	.accountant-completion .button-row { flex-shrink: 0; flex-wrap: wrap; gap: 0.65rem; padding: 0.5rem; }
+	.accountant-completion .button-row button { min-height: 40px; font-size: 0.85rem; }
+	.accountant-completion .completed-by-code-input { min-height: 44px; min-width: 240px; font-size: 1rem; }
+	.accountant-started .completed-by-wrapper, .accountant-started .start-closing-btn { display: none; }
+	.accountant-completion:not(.accountant-started) .edit-toggle-btn { display: none; }
+	.accountant-layout { container-type: inline-size; container-name: accountant-layout; flex: 1; min-height: 0; }
+	.accountant-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0.75rem; height: 100%; min-height: 0; overflow: hidden; }
+	.accountant-sidebar { padding: 0.75rem; border: 1px solid #bfdbfe; border-radius: 0.6rem; background: #f8fafc; min-width: 0; overflow: auto; }
+	.accountant-sidebar .accountant-info { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 0.75rem; }
+	.accountant-sidebar .info-group { min-width: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.3rem; padding: 0.5rem; }
+	.accountant-sidebar .info-label { font-size: 0.7rem; }
+	.accountant-sidebar .info-value { font-size: 0.8rem; overflow-wrap: anywhere; }
+	.accountant-sidebar > div { display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem; padding: 0.65rem; margin: 0.4rem 0; }
+	.accountant-sidebar .label { font-size: 0.7rem; }
+	.accountant-sidebar .amount { justify-content: flex-end; font-size: 1rem; }
+	.accountant-sidebar h3 { font-size: 0.85rem; color: #075985; }
+	.accountant-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+	.accountant-start-card { margin: auto; max-width: 600px; padding: 2rem; border: 1px solid #bfdbfe; border-radius: 1rem; background: #eff6ff; }
+	.accountant-start-card h2 { font-size: 1.5rem; color: #075985; }
+	.accountant-start-card p { font-size: 1rem; line-height: 1.7; }
+	.accountant-wizard-header { padding: 0.85rem; border: 1px solid #bfdbfe; border-radius: 0.6rem; background: #eff6ff; margin-bottom: 0.5rem; flex-shrink: 0; }
+	.accountant-wizard-header p { margin: 0 0 0.3rem; font-size: 0.8rem; color: #475569; }
+	.accountant-wizard-header h2 { margin: 0; font-size: 1.15rem; color: #075985; outline: none; }
+	.accountant-progress { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+	.accountant-progress span { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: #e2e8f0; font-size: 0.75rem; color: #475569; }
+	.accountant-progress .active { background: #0284c7; color: white; }
+	.two-cards-row.accountant-wizard { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; gap: 0; padding: 0.75rem; border: 1px solid #fed7aa; border-radius: 0.6rem; }
+	.accountant-wizard > .half-card:not([data-accountant-step]) { display: contents; }
+	.accountant-wizard [data-accountant-step] { flex: none !important; width: 100%; max-width: 1100px; min-height: 0 !important; max-height: none !important; box-sizing: border-box; height: auto; margin-inline: auto; padding: 1.25rem; border: 1px solid #bfdbfe; border-radius: 0.85rem; background: #f8fafc; }
+	.accountant-wizard [data-accountant-step][hidden] { display: none !important; }
+	.accountant-wizard .card-header-text { font-size: 1rem; margin-bottom: 1rem; }
+	.accountant-wizard input:not([type="checkbox"]), .accountant-wizard select { min-height: 44px; box-sizing: border-box; font-size: 1rem; padding: 0.5rem; min-width: 0; }
+	.accountant-wizard input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; }
+	.accountant-wizard label { font-size: 0.85rem; }
+	.accountant-wizard .bank-fields-row, .accountant-wizard .system-sales-row, .accountant-wizard .balance-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.85rem; flex: none; }
+	.accountant-wizard .recharge-time-fields { flex: none; }
+	.accountant-wizard .sub-cards-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; flex: none; align-items: start; }
+	.accountant-wizard .sub-card-content, .accountant-wizard .difference-row { flex: none; gap: 0.75rem; }
+	.accountant-wizard .difference-group { min-width: 0; }
+	.accountant-wizard .difference-label { font-size: 0.8rem; padding: 0.4rem; }
+	.accountant-wizard .vouchers-table { max-height: none; flex: none; overflow: auto; }
+	.accountant-wizard .vouchers-table table { font-size: 0.9rem; }
+	.accountant-wizard .vouchers-table td, .accountant-wizard .vouchers-table th { padding: 0.65rem; }
+	.accountant-table-wrap { overflow: auto; }
+	.accountant-table-wrap table { width: 100%; border-collapse: collapse; font-size: 1rem; }
+	.accountant-table-wrap th, .accountant-table-wrap td { padding: 0.85rem; text-align: start; border-bottom: 1px solid #dbeafe; }
+	.accountant-vouchers .vouchers-total { padding: 1rem; font-size: 1.1rem; }
+	.accountant-final p { font-size: 1rem; line-height: 1.6; }
+	.accountant-final-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 1rem; }
+	.accountant-final-actions button { min-height: 48px; padding: 0.75rem 1.25rem; font-size: 1rem; }
+	.accountant-navigation { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 0; flex-shrink: 0; }
+	.accountant-navigation > div { display: flex; gap: 0.75rem; align-items: center; }
+	.accountant-navigation span { font-size: 0.8rem; color: #92400e; }
+	.accountant-navigation button { min-height: 44px; padding: 0.6rem 1.25rem; border: 1px solid #cbd5e1; border-radius: 0.4rem; background: white; cursor: pointer; font-size: 0.9rem; }
+	.accountant-navigation .accountant-next { background: #0284c7; color: white; border-color: #0284c7; }
+	.accountant-navigation button:disabled { opacity: 0.45; cursor: not-allowed; }
+	@container accountant-layout (max-width: 720px) {
+		.accountant-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+		.accountant-sidebar { max-height: 180px; }
+		.accountant-sidebar .accountant-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+		.accountant-wizard [data-accountant-step] { padding: 0.85rem; }
+		.accountant-wizard .sub-cards-row { grid-template-columns: minmax(0, 1fr); }
+		.accountant-navigation span { max-width: 160px; }
+	}
+
+	.accountant-main > [data-accountant-step][hidden], .accountant-wizard[hidden] { display: none !important; }
+	.accountant-code-step { width: min(100%, 560px); box-sizing: border-box; }
+	.accountant-code-step h3 { font-size: 1.3rem; color: #075985; }
+	.accountant-code-step .completed-by-wrapper, .accountant-started .accountant-code-step .completed-by-wrapper { display: flex; flex-direction: column; gap: 0.65rem; margin: 1rem 0; }
+	.accountant-code-step .completed-by-code-input { width: 100%; min-width: 0; min-height: 56px; box-sizing: border-box; font-size: 1.2rem; padding: 0.8rem; }
+	.accountant-code-step .completed-by-error, .accountant-code-step .completed-by-name { font-size: 0.9rem; }
+	.accountant-code-step .start-closing-btn { min-height: 48px; width: 100%; font-size: 1rem; padding: 0.75rem; }
+
+	.accountant-wizard [data-accountant-step="2"] { max-width: 1400px; padding: 1.5rem; }
+	.accountant-wizard [data-accountant-step="2"] .card-header-text { font-size: 1.25rem; }
+	.accountant-wizard [data-accountant-step="2"] .closing-cash-grid-2row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+	.accountant-wizard [data-accountant-step="2"] .denom-input-group { display: flex; flex-direction: column; min-width: 0; padding: 1rem; gap: 0.75rem; border: 1px solid #dbeafe; border-radius: 0.6rem; background: white; }
+	.accountant-wizard [data-accountant-step="2"] .denom-label-with-checkbox { justify-content: space-between; gap: 0.75rem; }
+	.accountant-wizard [data-accountant-step="2"] .denom-input-group label { font-size: 1.5rem; }
+	.accountant-wizard [data-accountant-step="2"] .denom-verify-checkbox { width: 30px; height: 30px; }
+	.accountant-wizard [data-accountant-step="2"] .denom-input-wrapper { width: 100%; min-width: 0; }
+	.accountant-wizard [data-accountant-step="2"] .denom-input-wrapper input { width: 100%; min-height: 64px; font-size: 1.6rem; padding: 0.75rem; box-sizing: border-box; }
+	.accountant-wizard [data-accountant-step="2"] .denom-total, .accountant-wizard [data-accountant-step="2"] .denom-original-value { font-size: 1rem; }
+	@container accountant-layout (max-width: 1000px) {
+		.accountant-wizard [data-accountant-step="2"] .closing-cash-grid-2row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	}
+	@container accountant-layout (max-width: 520px) {
+		.accountant-wizard [data-accountant-step="2"] .closing-cash-grid-2row { grid-template-columns: minmax(0, 1fr); }
+	}
+
+	.accountant-wizard [data-accountant-step="3"] { max-width: 1400px; padding: 1.5rem !important; }
+	.accountant-wizard [data-accountant-step="3"] .card-header-text { font-size: 1.25rem; margin-bottom: 1.25rem; }
+	.accountant-wizard [data-accountant-step="3"] .date-time-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; flex: none; margin-bottom: 1.5rem; }
+	.accountant-wizard [data-accountant-step="3"] .date-time-group, .accountant-wizard [data-accountant-step="3"] .balance-group { min-width: 0; padding: 1rem; background: white; border: 1px solid #dbeafe; border-radius: 0.6rem; }
+	.accountant-wizard [data-accountant-step="3"] .datetime-field-header, .accountant-wizard [data-accountant-step="3"] .recharge-field-header { gap: 0.75rem; margin-bottom: 0.75rem; }
+	.accountant-wizard [data-accountant-step="3"] label { font-size: 1.1rem; }
+	.accountant-wizard [data-accountant-step="3"] input[type="checkbox"] { width: 30px; height: 30px; }
+	.accountant-wizard [data-accountant-step="3"] input:not([type="checkbox"]) { width: 100%; min-height: 64px; box-sizing: border-box; padding: 0.75rem; font-size: 1.4rem; }
+	.accountant-wizard [data-accountant-step="3"] .balance-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem; }
+	.accountant-wizard [data-accountant-step="3"] .datetime-original-value, .accountant-wizard [data-accountant-step="3"] .recharge-original-value { font-size: 0.9rem; }
+	@container accountant-layout (max-width: 720px) {
+		.accountant-wizard [data-accountant-step="3"] .date-time-row, .accountant-wizard [data-accountant-step="3"] .balance-row { grid-template-columns: minmax(0, 1fr); }
+		.accountant-wizard [data-accountant-step="3"] { padding: 1rem !important; }
+	}
+
+	/* Consistent large controls throughout the accountant review wizard. */
+	.accountant-wizard [data-accountant-step] { max-width: 1400px; padding: 1.5rem; }
+	.accountant-wizard .card-header-text, .accountant-vouchers h3, .accountant-final h3 { font-size: 1.25rem; margin-bottom: 1.25rem; }
+	.accountant-wizard input:not([type="checkbox"]), .accountant-wizard select { min-height: 64px; padding: 0.75rem; font-size: 1.4rem; }
+	.accountant-wizard input[type="checkbox"] { width: 30px; height: 30px; }
+	.accountant-wizard label { font-size: 1.05rem; }
+	.accountant-wizard .bank-field-header, .accountant-wizard .system-field-header { gap: 0.75rem; margin-bottom: 0.75rem; }
+	.accountant-wizard .bank-fields-row, .accountant-wizard .system-sales-row { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; }
+	.accountant-wizard .bank-input-group, .accountant-wizard .system-input-group { min-width: 0; padding: 1rem; border: 1px solid #dbeafe; border-radius: 0.6rem; background: white; }
+	.accountant-wizard .bank-editable-input, .accountant-wizard .system-editable-input, .accountant-wizard .voucher-editable-input { width: 100%; min-width: 0; box-sizing: border-box; }
+	.accountant-wizard .voucher-input-row { gap: 1rem; margin-bottom: 1.25rem; align-items: center; }
+	.accountant-wizard .voucher-input-row input { min-width: 0; }
+	.accountant-wizard .add-voucher-btn { width: 58px; min-width: 58px; height: 64px; font-size: 1.75rem; }
+	.accountant-wizard .vouchers-table table, .accountant-table-wrap table { font-size: 1.1rem; }
+	.accountant-wizard .vouchers-table th, .accountant-wizard .vouchers-table td, .accountant-table-wrap th, .accountant-table-wrap td { padding: 1rem; }
+	.accountant-wizard .vouchers-table .remove-btn { min-width: 44px; min-height: 44px; font-size: 1.25rem; }
+	.accountant-wizard .vouchers-total, .accountant-wizard .bank-total, .accountant-wizard .system-total-1, .accountant-wizard .system-total-2 { padding: 1rem; gap: 0.75rem; flex-wrap: wrap; }
+	.accountant-wizard .vouchers-total .label, .accountant-wizard .bank-total .label, .accountant-wizard .system-total-1 .label, .accountant-wizard .system-total-2 .label { font-size: 1rem; }
+	.accountant-wizard .vouchers-total .amount, .accountant-wizard .bank-total .amount, .accountant-wizard .system-total-1 .amount, .accountant-wizard .system-total-2 .amount, .accountant-vouchers .vouchers-total strong { font-size: 1.5rem; }
+	.accountant-wizard .sub-card { min-width: 0; padding: 1.25rem; }
+	.accountant-wizard .sub-card-header { font-size: 1.1rem !important; padding-bottom: 0.65rem !important; }
+	.accountant-wizard .difference-group label { font-size: 1rem; }
+	.accountant-wizard .difference-label { font-size: 1rem; padding: 0.65rem; }
+	.accountant-wizard [data-accountant-step] [style*="font-size"] { font-size: 1rem !important; }
+	.accountant-wizard .mjv-table { font-size: 1.05rem; }
+	.accountant-wizard .mjv-table th, .accountant-wizard .mjv-table td { padding: 0.85rem; }
+	.accountant-wizard [data-accountant-step] button:not(.add-voucher-btn):not(.remove-btn) { min-height: 48px; padding: 0.7rem 1rem; font-size: 1rem; }
+	.accountant-final-actions { gap: 1.25rem; }
+	.accountant-final-actions .skip-denomination-label { font-size: 1rem; padding: 0.75rem; gap: 0.75rem; }
+	.accountant-final-actions .skip-denomination-text { font-size: 1rem; }
+	@container accountant-layout (max-width: 720px) {
+		.accountant-wizard [data-accountant-step] { padding: 1rem; }
+		.accountant-wizard .bank-fields-row, .accountant-wizard .system-sales-row { grid-template-columns: minmax(0, 1fr); }
+		.accountant-wizard .voucher-input-row { flex-wrap: wrap; }
+	}
+
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; max-width: none; }
+	.accounting-left-half, .accounting-right-half { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+	.accountant-accounting .blank-card { box-sizing: border-box; max-width: 100%; }
+	.accounting-entry-header, .accounting-entry-controls { flex-wrap: wrap; min-width: 0; }
+	.accounting-entry-controls { gap: 0.65rem; }
+	.accounting-right-half .mjv-table { table-layout: fixed; }
+	.accounting-right-half .mjv-table th:nth-child(1) { width: 32%; }
+	.accounting-right-half .mjv-table th:nth-child(2), .accounting-right-half .mjv-table th:nth-child(3) { width: 16%; }
+	.accounting-right-half .mjv-table th:nth-child(4) { width: 36%; }
+	.accounting-right-half .mjv-table td { overflow-wrap: anywhere; }
+	.accounting-right-half .mjv-table .narration { min-width: 0; white-space: normal; }
+	.accounting-right-half .ledger-cell, .accounting-right-half .ledger-name { min-width: 0; overflow-wrap: anywhere; }
+	@container accountant-layout (max-width: 1000px) {
+		.accountant-wizard .accountant-accounting[data-accountant-step="10"] { grid-template-columns: minmax(0, 1fr); }
+	}
+
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] { padding: 0.75rem; gap: 0.75rem; }
+	.accounting-left-half, .accounting-right-half { gap: 0.65rem; }
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] [style*="font-size"] { font-size: 0.85rem !important; }
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] .blank-card { padding: 0.75rem !important; gap: 0.5rem !important; }
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] .difference-label { font-size: 0.8rem; padding: 0.3rem; }
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] button { min-height: 36px; padding: 0.45rem 0.65rem; font-size: 0.85rem; }
+	.accountant-wizard .accountant-accounting[data-accountant-step="10"] input[type="checkbox"] { width: 22px; height: 22px; }
+	.accountant-accounting .mjv-table { font-size: 0.85rem; }
+	.accountant-accounting .mjv-table th, .accountant-accounting .mjv-table td { padding: 0.55rem; }
+	.accounting-entry-controls { gap: 0.4rem; }
+
+	.accountant-completion .button-row { align-items: center; }
+	.accountant-toolbar-steps.accountant-wizard-header { display: flex; flex: 1; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.6rem; min-width: 0; padding: 0; margin: 0; border: 0; background: transparent; }
+	.accountant-toolbar-steps.accountant-wizard-header p { margin: 0; white-space: nowrap; font-size: 0.8rem; }
+	.accountant-toolbar-steps.accountant-wizard-header h2 { margin: 0; font-size: 1rem; }
+	.accountant-toolbar-steps .accountant-progress { margin: 0; flex-wrap: nowrap; gap: 0.3rem; max-width: 100%; overflow-x: auto; }
+	.accountant-toolbar-steps .accountant-progress span { flex: 0 0 1.5rem; width: 1.5rem; height: 1.5rem; }
+
+	.accountant-check-all-row { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+	.accountant-wizard .accountant-check-all { min-height: 40px !important; padding: 0.5rem 1rem !important; border: 1px solid #0284c7; border-radius: 0.4rem; color: #0369a1; background: #e0f2fe; font-size: 0.9rem !important; font-weight: 600; cursor: pointer; }
+	.accountant-check-all:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>
 
 

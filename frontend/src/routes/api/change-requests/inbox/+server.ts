@@ -1,19 +1,27 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { databaseClient } from '$lib/server/breakRegisterAuth';
+import { databaseClient, requireBreakUser } from '$lib/server/breakRegisterAuth';
 import { cashierInBranch } from '$lib/server/cashierChangeBranch';
 
-export const GET: RequestHandler = async ({ request, url }) => {
+export const GET: RequestHandler = async ({ request, url, cookies }) => {
   const userId = request.headers.get('x-cashier-user-id');
   const token = request.headers.get('x-cashier-session-token');
   const branchId = Number(url.searchParams.get('branchId'));
-  if (!userId || !token || !Number.isSafeInteger(branchId) || branchId <= 0) return json({ error: 'Invalid cashier session.' }, { status: 400 });
+  if (!userId || !Number.isSafeInteger(branchId) || branchId <= 0) return json({ error: 'Invalid cashier session.' }, { status: 400 });
   try {
     const db = databaseClient();
-    const { data: session, error: authError } = await db.rpc('heartbeat_cashier_session', {
-      p_user_id: userId, p_session_token: token
-    });
-    if (authError || session?.valid !== true) return json({ error: 'Cashier session expired.' }, { status: 401 });
+    if (token) {
+      const { data: session, error: authError } = await db.rpc('heartbeat_cashier_session', {
+        p_user_id: userId, p_session_token: token
+      });
+      // An invalid device session must never fall back to cookie authentication.
+      if (authError || session?.valid !== true) return json({ error: 'Cashier session expired.' }, { status: 401 });
+    } else {
+      let actor;
+      try { actor = await requireBreakUser(cookies, 'cashier'); }
+      catch { return json({ error: 'Cashier sign-in required. Sign in again before closing.' }, { status: 401 }); }
+      if (String(actor.id) !== userId) return json({ error: 'Cashier session does not match this counter.' }, { status: 403 });
+    }
     if (!await cashierInBranch(db, userId, branchId)) return json({ error: 'Cashier branch mismatch.' }, { status: 403 });
     const { data, error } = await db.from('aqura_change_requests')
       .select('id,request_number,requested_to_user_id,denomination_counts,total_amount,status,requested_at,withdrawal_counts,withdrawal_total,cashier_confirmed_at')

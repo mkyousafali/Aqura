@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/utils/supabase';
+	import { nonCashPostingAccounts } from '$lib/utils/posNonCashEntries';
 
 	export let windowId = '';
 	export let branchId: number;
 	export let branchName = '';
 
-	type AccountKey = 'branch_cash' | 'pos_cash' | 'pos_bank' | 'pos_short' | 'pos_excess';
+	type AccountKey = 'branch_cash' | 'pos_cash' | 'pos_bank' | 'pos_short' | 'pos_excess' | typeof nonCashPostingAccounts[number]['key'];
 	type Ledger = { LedgerID: number; LedgerCode: string | number; LedgerName: string };
 	type Mapping = {
 		id: string;
@@ -22,7 +23,8 @@
 		{ key: 'pos_cash', label: 'POS Cash' },
 		{ key: 'pos_bank', label: 'POS Bank' },
 		{ key: 'pos_short', label: 'POS Short' },
-		{ key: 'pos_excess', label: 'POS Excess' }
+		{ key: 'pos_excess', label: 'POS Excess' },
+		...nonCashPostingAccounts
 	];
 
 	let mappings: Mapping[] = [];

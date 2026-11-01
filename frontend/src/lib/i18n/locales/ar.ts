@@ -4818,6 +4818,8 @@ export const arabicLocale: LocaleData = {
       loyaltyOtpLabel: "رمز التحقق (6 أرقام)",
       loyaltyOtpConfirm: "✅ تأكيد الاسترداد",
       loyaltyOtpVerifying: "جاري التحقق…",
+      loyaltyOtpResend: "إعادة إرسال الرمز",
+      loyaltyOtpSendFailed: "تعذر إرسال رمز واتساب. يرجى إعادة الإرسال.",
       loyaltyOtpCancel: "إلغاء",
       loyaltySuccessTitle: "تم الاسترداد بنجاح!",
       loyaltyCouponCode: "رمز القسيمة",

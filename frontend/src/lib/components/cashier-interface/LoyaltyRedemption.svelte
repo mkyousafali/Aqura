@@ -44,6 +44,9 @@
 	let redemptionId = '';
 	let otpInput = '';
 	let otpError = '';
+	let otpResendAt = 0;
+	let otpNow = Date.now();
+	$: resendSeconds = Math.max(0, Math.ceil((otpResendAt - otpNow) / 1000));
 	let successData: any = null;
 
 	// ─── Autocomplete ────────────────────────────────────────────────────
@@ -56,6 +59,11 @@
 	let redeemSearchTimer: ReturnType<typeof setTimeout>;
 
 	// ─── Lifecycle ───────────────────────────────────────────────────────
+	onMount(() => {
+		const timer = setInterval(() => { otpNow = Date.now(); }, 1000);
+		return () => clearInterval(timer);
+	});
+
 	onMount(async () => {
 		const mod = await import('$lib/utils/supabase');
 		supabase = mod.supabase;
@@ -263,7 +271,8 @@
 		initiateRedeem();
 	}
 
-	async function initiateRedeem() {
+	async function initiateRedeem(resend = false) {
+		if (redeemStep === 'sending_otp' || redeemStep === 'verifying' || (resend && (redeemStep !== 'otp_entry' || Date.now() < otpResendAt))) return;
 		redeemStep = 'sending_otp';
 		redeemError = '';
 		const currentUser = $cashierUser || user;
@@ -278,18 +287,24 @@
 			});
 			if (error) throw error;
 			if (!data?.success) {
-				redeemError = errorMsg(data?.error, data);
-				redeemStep = 'found';
-				return;
+				throw new Error(errorMsg(data?.error, data));
 			}
 			redemptionId = data.redemption_id;
+			otpInput = '';
+			otpResendAt = Date.now() + 30000;
+			otpNow = Date.now();
 			await sendWhatsAppOtp(data.whatsapp_number, data.otp_code, data.customer_name);
 			otpInput = '';
 			otpError = '';
 			redeemStep = 'otp_entry';
 		} catch (e: any) {
-			redeemError = e?.message || $t('coupon.loyaltyErrUnknown');
-			redeemStep = 'found';
+			if (redemptionId) {
+				otpError = e?.message || $t('coupon.loyaltyErrUnknown');
+				redeemStep = 'otp_entry';
+			} else {
+				redeemError = e?.message || $t('coupon.loyaltyErrUnknown');
+				redeemStep = 'found';
+			}
 		}
 	}
 
@@ -299,7 +314,7 @@
 			const { data: { session }, error } = await supabase.auth.getSession();
 			if (error || !session?.access_token) throw error || new Error('Authenticated session is required');
 			const formattedPhone = phone.startsWith('+') ? phone : '+' + phone;
-			await fetch(getEdgeFunctionUrl('send-whatsapp'), {
+			const response = await fetch(getEdgeFunctionUrl('send-whatsapp'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -312,12 +327,15 @@
 					customer_name: name
 				})
 			});
+			const result = await response.json().catch(() => null);
+			if (!response.ok || !result?.success) throw new Error($t('coupon.loyaltyOtpSendFailed'));
 		} catch (e) {
-			console.warn('WhatsApp OTP send failed (non-blocking):', e);
+			throw e;
 		}
 	}
 
 	async function doConfirmOtp() {
+		if (redeemStep !== 'otp_entry') return;
 		const code = otpInput.trim();
 		if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
 			otpError = $t('coupon.loyaltyOtpLabel');
@@ -353,6 +371,7 @@
 		partialPoints = '';
 		pointsToRedeem = 0;
 		redemptionId = '';
+		otpResendAt = 0;
 		otpInput = '';
 		otpError = '';
 		successData = null;
@@ -826,6 +845,13 @@ ${logoTag}
 								{:else}
 									{$t('coupon.loyaltyOtpConfirm')}
 								{/if}
+							</button>
+							<button
+								class="lr-btn lr-btn-ghost lr-btn-full lr-btn-sm"
+								on:click={() => initiateRedeem(true)}
+								disabled={redeemStep !== 'otp_entry' || resendSeconds > 0}
+							>
+								{$t('coupon.loyaltyOtpResend')}{resendSeconds > 0 ? ` (${resendSeconds}s)` : ''}
 							</button>
 							<button
 								class="lr-btn lr-btn-ghost lr-btn-full lr-btn-sm"
