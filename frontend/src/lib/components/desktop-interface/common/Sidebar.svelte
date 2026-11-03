@@ -29,6 +29,7 @@
 	const UploadVendor = lazyWindowComponent('UploadVendor', () => import('$lib/components/desktop-interface/master/vendor/UploadVendor.svelte'));
 	const InternalExpenses = lazyWindowComponent('InternalExpenses', () => import('$lib/components/desktop-interface/master/vendor/InternalExpenses.svelte'));
 	const PayToCredit = lazyWindowComponent('PayToCredit', () => import('$lib/components/desktop-interface/master/vendor/PayToCredit.svelte'));
+	const DirectOrder = lazyWindowComponent('DirectOrder', () => import('$lib/components/desktop-interface/master/vendor/DirectOrder.svelte'));
 	const ApprovalCenter = lazyWindowComponent('ApprovalCenter', () => import('$lib/components/desktop-interface/master/finance/ApprovalCenter.svelte'));
 	const LCPlanner = lazyWindowComponent('LCPlanner', () => import('$lib/components/desktop-interface/master/finance/LCPlanner.svelte'));
 	const ErpLedgers = lazyWindowComponent('ErpLedgers', () => import('$lib/components/desktop-interface/master/finance/ErpLedgers.svelte'));
@@ -377,6 +378,7 @@
 		'STOCK_EXPIRY_CONTROL': 'nav.expiryControl',
 		'ACTION_FOLLOW_UPS': 'nav.actionFollowUps',
 		'INTERNAL_EXPENSES': 'nav.internalExpenses',
+		'DIRECT_ORDER': 'nav.directOrder',
 		'WA_DASHBOARD': 'nav.whatsappDashboard',
 		'WA_LIVE_CHAT': 'nav.whatsappLiveChat',
 		'WA_BROADCASTS': 'nav.whatsappBroadcasts',
@@ -579,7 +581,7 @@
 		DeliveryReports: [],
 		VendorDashboard: ["RECEIVING"],
 		VendorManager: ["UPLOAD_VENDOR","CREATE_VENDOR","MANAGE_VENDOR","DEFAULT_POSITIONS","STOCK_PO_REQUESTS","STOCK_STOCK_REQUESTS","STOCK_BT_REQUESTS","STOCK_NEAR_EXPIRY_REQUESTS","STOCK_CUSTOMER_PRODUCT_REQUESTS","STOCK_OFFER_COST_MANAGER"],
-		VendorOperations: ["START_RECEIVING","RECEIVING_RECORDS","PAY_TO_CREDIT","STOCK_PRODUCT_REQUEST","STOCK_ERP_PRODUCTS","STOCK_PRODUCT_CLAIM_MANAGER","STOCK_EXPIRY_CONTROL","ACTION_FOLLOW_UPS","INTERNAL_EXPENSES"],
+		VendorOperations: ["START_RECEIVING","RECEIVING_RECORDS","PAY_TO_CREDIT","STOCK_PRODUCT_REQUEST","STOCK_ERP_PRODUCTS","STOCK_PRODUCT_CLAIM_MANAGER","STOCK_EXPIRY_CONTROL","ACTION_FOLLOW_UPS","INTERNAL_EXPENSES","DIRECT_ORDER"],
 		VendorReports: ["VENDOR_RECORDS"],
 		MediaDashboard: [],
 		MediaManage: ["PRODUCT_MASTER","VARIATION_MANAGER","OFFER_MANAGER","FLYER_TEMPLATES","FLYER_SETTINGS","NORMAL_PAPER_MANAGER","ONE_DAY_OFFER_MANAGER","SOCIAL_LINK_MANAGER","SHELF_PAPER_TEMPLATE_DESIGNER"],
@@ -2485,6 +2487,7 @@ function openApprovalCenter() {
 			'STOCK_EXPIRY_CONTROL': openExpiryControl,
 			'ACTION_FOLLOW_UPS': openActionFollowUps,
 			'INTERNAL_EXPENSES': openInternalExpenses,
+			'DIRECT_ORDER': openDirectOrder,
 			'WA_DASHBOARD': openWADashboard,
 			'WA_LIVE_CHAT': openWALiveChat,
 			'WA_BROADCASTS': openWABroadcasts,
@@ -3061,6 +3064,24 @@ function openApprovalCenter() {
 				x: 180 + (Math.random() * 100),
 				y: 120 + (Math.random() * 100)
 			},
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+	}
+
+	function openDirectOrder() {
+		collapseAllMenus();
+		const windowId = generateWindowId('direct-order');
+		openWindow({
+			id: windowId,
+			title: t('nav.directOrder'),
+			component: DirectOrder,
+			componentName: 'DirectOrder',
+			icon: '🛒',
+			size: { width: 1100, height: 700 },
+			position: { x: 130, y: 90 },
 			resizable: true,
 			minimizable: true,
 			maximizable: true,
@@ -4957,6 +4978,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openInternalExpenses}>
 								<span class="menu-icon">🧾</span>
 								<span class="menu-text">{t('nav.internalExpenses') || 'Internal Expenses'}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('DIRECT_ORDER')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openDirectOrder}>
+								<span class="menu-icon">🛒</span>
+								<span class="menu-text">{t('nav.directOrder')}</span>
 							</button>
 						</div>
 					{/if}

@@ -37,6 +37,7 @@
 	let hasOfferSelectorPermission = false;
 	let hasShiftsPermission = false;
 	let hasFollowUpsPermission = false;
+	let hasDirectOrderPermission = false;
 
 	// Badge counts
 	let taskCount = 0;
@@ -709,6 +710,7 @@
 	
 	async function loadButtonPermissions() {
 		if (!currentUserData?.id) {
+			hasDirectOrderPermission = false;
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
@@ -720,17 +722,21 @@
 			return;
 		}
 
+		const permissionUserId = currentUserData.id;
+		hasDirectOrderPermission = false;
 		try {
 			// button_permissions stores button_code directly — no sidebar_buttons
 			// join needed. See [[button-permission-system-rewrite]].
 			const { data: permissions, error } = await supabase
 				.from('button_permissions')
 				.select('button_code')
-				.eq('user_id', currentUserData.id)
+				.eq('user_id', permissionUserId)
 				.eq('is_enabled', true);
+			if (currentUserData?.id !== permissionUserId) return;
 
 			if (error) {
 				console.error('Error loading button permissions:', error);
+				hasDirectOrderPermission = false;
 				hasReportsPermission = false;
 				hasBranchPerformancePermission = false;
 				hasLiveChatPermission = false;
@@ -760,11 +766,14 @@
 			hasOfferSelectorPermission = currentUserData?.isMasterAdmin || buttonCodes.has('OFFER_PRODUCT_EDITOR');
 			hasShiftsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('SHIFTS');
 			hasFollowUpsPermission = currentUserData?.isMasterAdmin || buttonCodes.has('ACTION_FOLLOW_UPS');
+			hasDirectOrderPermission = buttonCodes.has('DIRECT_ORDER');
 
 			// Check for incident manager permission from approval_permissions
 			await loadIncidentManagerPermission();
 		} catch (err) {
+			if (currentUserData?.id !== permissionUserId) return;
 			console.error('Error loading button permissions:', err);
+			hasDirectOrderPermission = false;
 			hasReportsPermission = false;
 			hasBranchPerformancePermission = false;
 			hasLiveChatPermission = false;
@@ -1425,7 +1434,7 @@
 
 			<!-- Stock Menu Button -->
 			<div class="nav-item-menu-container">
-				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showFinanceMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') || $page.url.pathname.startsWith('/mobile-interface/offer-selector') }>
+				<button class="nav-item stock-menu-btn" on:click={() => { showStockMenu = !showStockMenu; showOrdersMenu = false; showTasksMenu = false; showEmergenciesMenu = false; showHRMenu = false; showFinanceMenu = false; }} class:active={showStockMenu || $page.url.pathname.startsWith('/mobile-interface/product-request') || $page.url.pathname.startsWith('/mobile-interface/near-expiry') || $page.url.pathname.startsWith('/mobile-interface/expiry-manager') || $page.url.pathname.startsWith('/mobile-interface/price-checker') || $page.url.pathname.startsWith('/mobile-interface/my-products') || $page.url.pathname.startsWith('/mobile-interface/start-receiving') || $page.url.pathname.startsWith('/mobile-interface/offer-selector') || $page.url.pathname.startsWith('/mobile-interface/direct-order') }>
 					<div class="nav-icon">
 						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -1486,6 +1495,16 @@
 							</svg>
 							<span>{$currentLocale === 'ar' ? 'بدء الاستلام' : 'Start Receiving'}</span>
 						</a>
+						{#if $currentUser?.isMasterAdmin || hasDirectOrderPermission}
+							<a href="/mobile-interface/direct-order" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/direct-order')}>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+									<path d="M3 3h2l2.4 12h11.2l2-8H6" />
+									<circle cx="9" cy="20" r="1" />
+									<circle cx="18" cy="20" r="1" />
+								</svg>
+								<span>{getTranslation('nav.directOrder')}</span>
+							</a>
+						{/if}
 						{#if hasOfferSelectorPermission}
 							<a href="/mobile-interface/offer-selector" class="stock-submenu-item" on:click={() => showStockMenu = false} class:active={$page.url.pathname.startsWith('/mobile-interface/offer-selector')}>
 								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
