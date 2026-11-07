@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.1/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseEmailHeaders } from "../_shared/emailHeaders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,31 +30,6 @@ async function readImapResponse(conn: any, tag?: string): Promise<string> {
 async function sendImapCmd(conn: any, tag: string, cmd: string): Promise<string> {
   await conn.write(new TextEncoder().encode(`${tag} ${cmd}\r\n`));
   return await readImapResponse(conn, tag);
-}
-
-// Parse a simple email header from FETCH response
-function parseHeaders(fetchData: string): { subject: string; from: string; fromName: string; date: string; messageId: string; inReplyTo: string; references: string } {
-  const getHeader = (name: string): string => {
-    const regex = new RegExp(`^${name}:\\s*(.+?)(?=\\r?\\n[^ \\t]|$)`, "im");
-    const match = fetchData.match(regex);
-    return match ? match[1].trim() : "";
-  };
-
-  const from = getHeader("From");
-  let fromName = "";
-  let fromAddr = from;
-  const nameMatch = from.match(/^"?([^"<]+)"?\s*<(.+?)>/);
-  if (nameMatch) { fromName = nameMatch[1].trim(); fromAddr = nameMatch[2]; }
-
-  return {
-    subject: getHeader("Subject"),
-    from: fromAddr,
-    fromName: fromName,
-    date: getHeader("Date"),
-    messageId: getHeader("Message-ID") || getHeader("Message-Id"),
-    inReplyTo: getHeader("In-Reply-To"),
-    references: getHeader("References"),
-  };
 }
 
 serve(async (req: Request) => {
@@ -184,7 +160,7 @@ serve(async (req: Request) => {
           `UID FETCH ${uid} (FLAGS BODY[HEADER] BODY[TEXT])`);
 
         // Parse headers
-        const headers = parseHeaders(fetchResp);
+        const headers = parseEmailHeaders(fetchResp);
         
         // Check for duplicate
         if (headers.messageId) {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
+	import { decodeMessageHeaders, emailSenderLabel } from '$lib/utils/emailHeaders';
 
 	let supabase: any = null;
 	let loading = true;
@@ -122,7 +123,7 @@
 			p_page_size: pageSize
 		});
 		if (data) {
-			messages = data.threads || [];
+			messages = (data.threads || []).map(decodeMessageHeaders);
 			totalMessages = data.total || 0;
 			isTrashView = data.is_trash || false;
 		}
@@ -145,6 +146,9 @@
 			const { data } = await supabase.rpc('get_email_message', { p_message_id: msg.latest_message_id || msg.id });
 			threadMessages = data ? [data] : [];
 		}
+		threadMessages = threadMessages.map(item => item.message
+			? { ...item, message: decodeMessageHeaders(item.message) }
+			: decodeMessageHeaders(item));
 		// Mark as read in list
 		msg.is_read = true;
 		msg.unread_in_thread = 0;
@@ -382,7 +386,7 @@
 					<span class="star-btn" on:click|stopPropagation={() => toggleStar(msg)} on:keydown|stopPropagation={() => {}} role="button" tabindex="0">{msg.is_starred ? '⭐' : '☆'}</span>
 						<div class="msg-content">
 							<div class="msg-top">
-								<span class="msg-from">{msg.direction === 'inbound' ? (msg.from_name || msg.from_address) : `To: ${msg.to_address || 'Unknown recipient'}`}</span>
+								<span class="msg-from" title={msg.direction === 'inbound' ? emailSenderLabel(msg.from_name, msg.from_address) : msg.to_address}>{msg.direction === 'inbound' ? emailSenderLabel(msg.from_name, msg.from_address) : `To: ${msg.to_address || 'Unknown recipient'}`}</span>
 								<span class="msg-date">{formatDate(msg.latest_at)}</span>
 							</div>
 							<div class="msg-subject">
@@ -469,7 +473,7 @@
 							<div class="thread-message" class:outbound={msg.direction === 'outbound'}>
 								<div class="thread-msg-header">
 									<span class="thread-sender">
-										{#if msg.direction === 'outbound'}📤 Me{:else}📥 {msg.from_name || msg.from_address}{/if}
+										{#if msg.direction === 'outbound'}📤 Me{:else}📥 {emailSenderLabel(msg.from_name, msg.from_address)}{/if}
 									</span>
 									<span class="thread-date">{formatDate(msg.received_at || msg.sent_at || msg.created_at)}</span>
 								</div>
