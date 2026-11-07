@@ -1,9 +1,12 @@
 ﻿<script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/utils/supabase';
 	import { currentLocale, switchLocale } from '$lib/i18n';
 	import { iconUrlMap } from '$lib/stores/iconStore';
+	import './urban-design.css';
+	import { branchMapEmbedUrl } from '$lib/utils/branchLocation';
+	import { formatStoreOpeningHours } from '$lib/utils/storeOpeningHours';
 
 	let mobileMenuOpen = false;
 
@@ -39,6 +42,25 @@
 
 	$: isAr = $currentLocale === 'ar';
 
+	// Keep the configured About copy, but give its title and prose the same
+	// distinct typography as the reference design.
+	$: aboutSectionTitle = layout?.about?.[isAr ? 'ar' : 'en']?.eyebrow ?? (isAr ? 'من نحن' : 'About Us');
+	$: aboutTitleWords = aboutSectionTitle.trim().split(/\s+/);
+	$: aboutTitleAccent = aboutTitleWords.at(-1) || '';
+	$: aboutTitlePrefix = aboutTitleWords.slice(0, -1).join(' ');
+	$: aboutIntroText = layout?.about?.[isAr ? 'ar' : 'en']?.heading ??
+		(isAr ? 'أكثر من مجرد متجر، إنها تجربة.' : "More Than a Store, It's an Experience.");
+	$: aboutIntroParagraphs = splitAboutParagraphs(aboutIntroText);
+
+	function splitAboutParagraphs(text: string): string[] {
+		const paragraphs = text.trim().split(/\n\s*\n/).filter(Boolean);
+		if (paragraphs.length !== 1 || text.length < 180) return paragraphs;
+		// Long introductory copy uses two balanced paragraphs; the words remain
+		// unchanged and continue to come from Aqura's branding settings.
+		const boundary = paragraphs[0].match(/^([\s\S]*?[.!?؟](?:\s+|$)[\s\S]*?[.!?؟])\s+([\s\S]+)$/u);
+		return boundary ? [boundary[1], boundary[2]] : paragraphs;
+	}
+
 	// Bilingual text pulled from layout.home_content, with hardcoded EN/AR fallbacks
 	$: navLabel = layout?.home_content?.[isAr ? 'ar' : 'en']?.nav_label ?? (isAr ? 'الرئيسية' : 'Home');
 	$: headlinePrefix =
@@ -52,8 +74,15 @@
 		(isAr
 			? 'من البقالة الطازجة إلى الوجبات اللذيذة والقهوة العطرة والعصائر المنعشة والأزياء الأنيقة – كل ما تحتاجه في مكان واحد.'
 			: 'From fresh groceries to delicious meals, aromatic coffee, refreshing juices and stylish fashion – everything you need, all in one place.');
-	$: contactBtnLabel =
-		layout?.home_content?.[isAr ? 'ar' : 'en']?.contact_btn_label ?? (isAr ? 'تواصل معنا' : 'Contact Us');
+	function contactLocationLabel(label: string | undefined, arabic: boolean): string {
+		const legacyLabels = ['contact', 'contact us', 'تواصل', 'تواصل معنا', 'اتصل بنا'];
+		return !label?.trim() || legacyLabels.includes(label.trim().toLowerCase())
+			? (arabic ? 'التواصل / المواقع' : 'Contact / Locations')
+			: label;
+	}
+	$: contactBtnLabel = contactLocationLabel(
+		layout?.home_content?.[isAr ? 'ar' : 'en']?.contact_btn_label, isAr
+	);
 	$: signupBtnLabel =
 		layout?.home_content?.[isAr ? 'ar' : 'en']?.signup_btn_label ?? (isAr ? 'تسجيل الدخول / اشتراك' : 'Sign Up / Login');
 
@@ -89,7 +118,7 @@
 	$: careersNavColor = layout?.careers?.nav_color;
 
 	$: contactNavVisible = layout?.contact?.nav_enabled !== false;
-	$: contactNavText = layout?.contact?.[isAr ? 'ar' : 'en']?.nav_label ?? (isAr ? 'تواصل' : 'Contact');
+	$: contactNavText = contactLocationLabel(layout?.contact?.[isAr ? 'ar' : 'en']?.nav_label, isAr);
 	$: contactNavColor = layout?.contact?.nav_color;
 
 	// Trust badges - managed from BrandingManager's Home section; falls back to defaults when empty
@@ -400,8 +429,9 @@
 		try {
 			const { data, error } = await supabase
 				.from('branches')
-				.select('id, name_en, name_ar, location_en, location_ar, is_active, location_url')
-				.eq('is_active', true);
+				.select('id, name_en, name_ar, location_en, location_ar, is_active, location_url, is_24_hours, operating_start_time, operating_end_time')
+				.eq('is_active', true)
+				.order('id');
 			if (error) throw error;
 			branches = data || [];
 		} catch (e) {
@@ -409,18 +439,13 @@
 		}
 	}
 
-	function getBranchName(b: any) {
-		return isAr ? b.name_ar || b.name_en : b.name_en || b.name_ar;
+	function getBranchName(b: any, arabic: boolean) {
+		const name = (arabic ? b.name_ar : b.name_en) || (arabic ? 'الفرع' : 'Branch');
+		return arabic ? name.replace(/\d/g, (digit: string) => '٠١٢٣٤٥٦٧٨٩'[Number(digit)]) : name;
 	}
 
-	function getBranchLocation(b: any) {
-		return (isAr ? b.location_ar || b.location_en : b.location_en || b.location_ar || '').trim();
-	}
-
-	function getBranchDisplayLabel(b: any) {
-		const name = getBranchName(b);
-		const loc = getBranchLocation(b);
-		return loc ? `${name} - ${loc}` : name;
+	function getBranchLocation(b: any, arabic: boolean) {
+		return ((arabic ? b.location_ar : b.location_en) || '').trim();
 	}
 
 	function branchHasLocationUrl(b: any) {
@@ -429,27 +454,29 @@
 
 	$: validBranches = branches.filter((b: any) => branchHasLocationUrl(b));
 
-	// Branch dropdown (contact section)
-	let branchDropdownOpen = false;
-	let branchDropdownRef: HTMLDivElement | undefined;
-
-	function toggleBranchDropdown() {
-		branchDropdownOpen = !branchDropdownOpen;
-	}
-
-	function closeBranchDropdown() {
-		branchDropdownOpen = false;
-	}
-
-	function handleWindowClickForBranchDropdown(event: MouseEvent) {
-		if (branchDropdownOpen && branchDropdownRef && !branchDropdownRef.contains(event.target as Node)) {
-			branchDropdownOpen = false;
-		}
-	}
-
-	// Social links per branch (public.social_links) - shown once a branch is picked from the dropdown
+	// Social links and map both follow the selected location card.
 	let socialLinksData: any[] = [];
 	let selectedBranchId: number | null = null;
+	let mobileLocationLayout = false;
+	let locationMapPosition: 'none' | 'branch' | 'directions' | 'social' = 'none';
+	let locationMapElement: HTMLDivElement | undefined;
+
+	onMount(() => {
+		const media = window.matchMedia('(max-width: 768px)');
+		const updateLayout = () => { mobileLocationLayout = media.matches; };
+		updateLayout();
+		media.addEventListener('change', updateLayout);
+		return () => media.removeEventListener('change', updateLayout);
+	});
+
+	async function revealLocationMap(position: 'branch' | 'directions' | 'social') {
+		locationMapPosition = position;
+		await tick();
+		locationMapElement?.scrollIntoView({
+			behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+			block: 'nearest'
+		});
+	}
 
 	async function loadSocialLinks() {
 		try {
@@ -463,11 +490,14 @@
 
 	function selectBranch(b: any) {
 		selectedBranchId = b.id;
-		closeBranchDropdown();
+		void revealLocationMap('branch');
 	}
 
+	$: if (!validBranches.some((branch: any) => branch.id === selectedBranchId)) {
+		selectedBranchId = validBranches[0]?.id ?? null;
+	}
 	$: selectedBranchObj = validBranches.find((b: any) => b.id === selectedBranchId) || null;
-	$: branchDropdownDisplayText = selectedBranchObj ? getBranchDisplayLabel(selectedBranchObj) : branchDropdownPlaceholder;
+	$: selectedBranchMapUrl = selectedBranchObj ? branchMapEmbedUrl(selectedBranchObj, isAr ? 'ar' : 'en') : '';
 	$: selectedSocialLinks = socialLinksData.find((s: any) => s.branch_id === selectedBranchId) || null;
 
 	const socialPlatformLabels: Record<string, { en: string; ar: string }> = {
@@ -480,8 +510,8 @@
 		location_link: { en: 'Location', ar: 'الموقع' }
 	};
 
-	function getSocialLabel(key: string) {
-		return socialPlatformLabels[key]?.[isAr ? 'ar' : 'en'] || key;
+	function getSocialLabel(key: string, arabic: boolean) {
+		return socialPlatformLabels[key]?.[arabic ? 'ar' : 'en'] || key;
 	}
 
 	$: socialPlatforms = [
@@ -496,6 +526,11 @@
 
 	function openSocialLink(url: string, platform: string) {
 		if (!url) return;
+		if (platform === 'location_link') {
+			void recordSocialLinkClick(platform);
+			void revealLocationMap('social');
+			return;
+		}
 		const fullUrl = url.startsWith('http') ? url : `https://${url}`;
 		recordSocialLinkClick(platform);
 		window.open(fullUrl, '_blank', 'noopener,noreferrer');
@@ -518,7 +553,9 @@
 		layout?.contact?.[isAr ? 'ar' : 'en']?.tagline ?? (isAr ? 'يسعدنا التواصل معك' : "We'd Love to Hear From You");
 	$: contactBranchesHeadingText =
 		layout?.contact?.[isAr ? 'ar' : 'en']?.branches_heading ?? (isAr ? 'مواقع فروعنا' : 'Our Branch Locations');
-	$: branchDropdownPlaceholder = isAr ? 'اختر الفرع لعرض الموقع' : 'Select a Branch to View Location';
+	$: locationTitleWords = contactBranchesHeadingText.trim().split(/\s+/);
+	$: locationTitleAccent = locationTitleWords.at(-1) || '';
+	$: locationTitlePrefix = locationTitleWords.slice(0, -1).join(' ');
 	$: contactPhoneRaw = (layout?.contact?.phone || '').trim();
 	$: contactPhoneValid = contactPhoneRaw.length > 0;
 	$: contactPhoneHref = 'tel:' + contactPhoneRaw.replace(/[^\d+]/g, '');
@@ -849,15 +886,26 @@
 
 </script>
 
-<svelte:window on:click={handleWindowClickForBranchDropdown} />
-
 <svelte:head>
 	<title>{companyName}</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet" />
 </svelte:head>
 
-<div class="page" dir={isAr ? 'rtl' : 'ltr'} style={layout?.main_layout?.bg_color ? `background: ${layout.main_layout.bg_color}` : undefined}>
+<div class="page urban-login" dir={isAr ? 'rtl' : 'ltr'} style={layout?.main_layout?.bg_color ? `background: ${layout.main_layout.bg_color}` : undefined}>
 	<!-- Header -->
 	<header class="header" style={layout?.topbar?.bg_color ? `background: ${layout.topbar.bg_color}` : undefined}>
+		<div class="urban-topbar">
+			<div class="urban-topbar-inner">
+				<span>{companyName}</span>
+				<button type="button" class="urban-language" on:click={toggleSiteLanguage}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18" /></svg>
+					{isAr ? 'English' : 'العربية'}
+					<span aria-hidden="true">⌄</span>
+				</button>
+			</div>
+		</div>
 		<div class="header-inner">
 			<div class="logo">
 				<div class="logo-badge">
@@ -879,7 +927,7 @@
 				{#if galleryNavVisible}
 					<a href="#gallery" style={galleryNavColor ? `color: ${galleryNavColor}` : undefined} on:click={closeMobileMenu}>{galleryNavText}</a>
 				{/if}
-				{#if offersNavVisible}
+				{#if offersNavVisible && offersVisible}
 					<a href="#offers" style={offersNavColor ? `color: ${offersNavColor}` : undefined} on:click={closeMobileMenu}>{offersNavText}</a>
 				{/if}
 				{#if careersNavVisible}
@@ -888,20 +936,10 @@
 				{#if contactNavVisible}
 					<a href="#contact" style={contactNavColor ? `color: ${contactNavColor}` : undefined} on:click={closeMobileMenu}>{contactNavText}</a>
 				{/if}
-				<button class="lang-toggle-btn" on:click={toggleSiteLanguage}>{isAr ? 'English' : 'العربية'}</button>
 			</nav>
 			<button
-				type="button"
-				class="mobile-lang-toggle"
-				on:click={toggleSiteLanguage}
-				aria-label={isAr ? 'التبديل إلى الإنجليزية' : 'تغيير اللغة إلى العربية'}
-				title={isAr ? 'التبديل إلى الإنجليزية' : 'التبديل إلى العربية'}
-			>
-				<span aria-hidden="true">🌐</span>
-				<span>{isAr ? 'English' : 'العربية'}</span>
-			</button>
-			<button
 				class="menu-toggle"
+				aria-expanded={mobileMenuOpen}
 				aria-label={isAr ? 'فتح أو إغلاق القائمة' : 'Toggle menu'}
 				on:click={() => (mobileMenuOpen = !mobileMenuOpen)}
 			>
@@ -911,15 +949,26 @@
 	</header>
 
 	{#snippet hoursAnnouncementImage()}
-		<img
-			src="/images/announcements/store-hours-6am-2am-v4.png"
-			width="1774"
-			height="887"
-			alt={isAr
-				? 'ايربن ماركت: يعمل فرعا أبو عريش والعارضة يوميًا من ٦ صباحًا إلى ٢ صباحًا من اليوم التالي.'
-				: 'Urban Market: Abu Arish and Al Aridah stores open daily from 6 AM to 2 AM the following day.'}
-			decoding="async"
-		/>
+		<div class="urban-hours-announcement" lang={isAr ? 'ar' : 'en'} dir={isAr ? 'rtl' : 'ltr'}>
+			<h2>{isAr ? 'ساعات عمل الفروع' : 'Store Opening Hours'}</h2>
+			<div class="urban-hours-branches">
+				{#each validBranches.filter(branch => formatStoreOpeningHours(branch)) as branch (branch.id)}
+					<div class="urban-hours-branch">
+						<strong>{isAr ? branch.location_ar || branch.name_ar || 'الفرع' : branch.location_en || branch.name_en || 'Branch'}</strong>
+						<span>{formatStoreOpeningHours(branch, isAr ? 'ar' : 'en')}</span>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/snippet}
+
+	{#snippet selectedLocationMap()}
+		{#if selectedBranchObj}
+			<div class="urban-location-map" id="urban-selected-branch-map" bind:this={locationMapElement}>
+				<iframe src={selectedBranchMapUrl} title={(isAr ? 'موقع ' : 'Location of ') + getBranchName(selectedBranchObj, isAr)} loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+				<a class="urban-map-external" href={selectedBranchObj.location_url} target="_blank" rel="noopener noreferrer">{isAr ? 'فتح في خرائط جوجل' : 'Open in Google Maps'}</a>
+			</div>
+		{/if}
 	{/snippet}
 
 	<!-- Hero -->
@@ -928,8 +977,8 @@
 			<div class="hero-text">
 				{#if homeBlockEnabled.mainTag}
 					<h1 style={layout?.main_layout?.headline_text_color ? `color: ${layout.main_layout.headline_text_color}` : undefined}>
-						<span style={layout?.main_layout?.headline_highlight_target === 'prefix' && layout?.main_layout?.headline_highlight_color ? `color: ${layout.main_layout.headline_highlight_color}` : undefined}>{headlinePrefix}</span><br />
-						<span style={(layout?.main_layout?.headline_highlight_target ?? 'highlight') === 'highlight' && layout?.main_layout?.headline_highlight_color ? `color: ${layout.main_layout.headline_highlight_color}` : undefined}>{headlineHighlight}</span> <span style={layout?.main_layout?.headline_highlight_target === 'suffix' && layout?.main_layout?.headline_highlight_color ? `color: ${layout.main_layout.headline_highlight_color}` : undefined}>{headlineSuffix}</span>
+						<span class:urban-accent={layout?.main_layout?.headline_highlight_target === 'prefix'}>{headlinePrefix}</span><br />
+						<span class:urban-accent={(layout?.main_layout?.headline_highlight_target ?? 'highlight') === 'highlight'}>{headlineHighlight}</span> <span class:urban-accent={layout?.main_layout?.headline_highlight_target === 'suffix'}>{headlineSuffix}</span>
 					</h1>
 				{/if}
 				{#if homeBlockEnabled.tagline}
@@ -946,7 +995,7 @@
 				<div class="hero-actions">
 					{#if homeBlockEnabled.contactBtn}
 						<button
-							class="btn btn-outline"
+							class="btn btn-primary"
 							style={layout?.main_layout?.contact_btn_color ? `color: ${layout.main_layout.contact_btn_color}; border-color: ${layout.main_layout.contact_btn_color}` : undefined}
 							on:click={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}
 						>{contactBtnLabel}</button>
@@ -993,6 +1042,7 @@
 	</section>
 
 	<!-- About -->
+	<div class="urban-about-surface">
 	<section class="about" id="about" class:no-image={!aboutImages.length} style={layout?.about?.bg_color ? `background: ${layout.about.bg_color}` : undefined}>
 		{#if aboutImages.length}
 			<div class="about-img-wrap" style={layout?.about?.bg_color ? `background: ${layout.about.bg_color}` : undefined}>
@@ -1003,10 +1053,12 @@
 		{/if}
 		<div class="about-text">
 			{#if layout?.about?.enabled_blocks?.eyebrow !== false}
-				<span class="eyebrow" style="color: {layout?.about?.eyebrow_color || '#c8912f'}">{layout?.about?.[isAr ? 'ar' : 'en']?.eyebrow ?? (isAr ? 'من نحن' : 'About Us')}</span>
+				<h2 class="urban-about-title"><span>{aboutTitlePrefix}{aboutTitlePrefix ? ' ' : ''}</span><span class="urban-about-title-accent">{aboutTitleAccent}</span></h2>
 			{/if}
 			{#if layout?.about?.enabled_blocks?.heading !== false}
-				<h2 style="color: {layout?.about?.heading_color || '#ffffff'}">{layout?.about?.[isAr ? 'ar' : 'en']?.heading ?? (isAr ? 'أكثر من مجرد متجر، إنها تجربة.' : "More Than a Store, It's an Experience.")}</h2>
+				{#each aboutIntroParagraphs as paragraph}
+					<p class="urban-about-copy">{paragraph}</p>
+				{/each}
 			{/if}
 			{#if layout?.about?.enabled_blocks?.text !== false}
 				<p style="color: {layout?.about?.text_color || '#d7ded9'}">
@@ -1018,6 +1070,7 @@
 			{/if}
 		</div>
 	</section>
+	</div>
 
 	<!-- Categories -->
 	{#if servicesVisible}
@@ -1380,6 +1433,7 @@
 
 	<!-- Contact -->
 	{#if contactSectionVisible}
+		<div class="urban-locations-surface">
 		<section class="contact" id="contact" style={layout?.contact?.bg_color ? `background: ${layout.contact.bg_color}` : undefined}>
 			<div class="contact-text">
 				<span
@@ -1404,82 +1458,40 @@
 					</ul>
 				{/if}
 				{#if contactBranchesValid}
-					<h3 class="contact-branches-heading">{contactBranchesHeadingText}</h3>
-					<div class="branch-dropdown" bind:this={branchDropdownRef}>
-						<button
-							type="button"
-							class="branch-dropdown-toggle"
-							on:click={toggleBranchDropdown}
-							aria-expanded={branchDropdownOpen}
-							aria-haspopup="listbox"
-						>
-							<span class="branch-dropdown-toggle-icon">
-								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-									<circle cx="12" cy="10" r="3"/>
-								</svg>
-							</span>
-							<span class="branch-dropdown-toggle-text">{branchDropdownDisplayText}</span>
-							<svg
-								class="branch-dropdown-chevron"
-								class:open={branchDropdownOpen}
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path d="M6 9l6 6 6-6"/>
-							</svg>
-						</button>
-						{#if branchDropdownOpen}
-							<ul class="branch-dropdown-menu" role="listbox">
-								{#each validBranches as b (b.id)}
-									<li
-										class="branch-dropdown-item"
-										role="option"
-										aria-selected={selectedBranchId === b.id}
-										tabindex="0"
-										on:click={() => selectBranch(b)}
-										on:keydown={(e) => {
-											if (e.key === 'Enter' || e.key === ' ') {
-												e.preventDefault();
-												selectBranch(b);
-											}
-										}}
-									>
-										<span class="branch-item-icon">
-											<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-												<circle cx="12" cy="10" r="3"/>
-											</svg>
-										</span>
-										<span class="branch-item-text">
-											<span class="branch-item-name">{getBranchDisplayLabel(b)}</span>
-										</span>
-										{#if branchHasLocationUrl(b)}
-											<a
-												class="branch-item-link"
-												href={b.location_url}
-												target="_blank"
-												rel="noopener noreferrer"
-												on:click={closeBranchDropdown}
-												aria-label={isAr ? 'فتح الموقع على الخريطة' : 'Open location on map'}
-												title={isAr ? 'فتح الموقع على الخريطة' : 'Open location on map'}
-											>
-												<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-													<path d="M15 3h6v6"/>
-													<path d="M10 14L21 3"/>
-												</svg>
-											</a>
-										{/if}
-									</li>
-								{/each}
-							</ul>
-						{/if}
+					<div class="urban-location-heading">
+						<h3 class="urban-location-title">{locationTitlePrefix}{locationTitlePrefix ? ' ' : ''}<span>{locationTitleAccent}</span></h3>
 					</div>
+					<div class="urban-location-grid">
+						<div class="urban-location-options">
+							<div class="urban-location-cards">
+								{#each validBranches as branch (branch.id)}
+									<div class="urban-location-option">
+									<button type="button" class="urban-location-card" class:selected={selectedBranchId === branch.id} aria-pressed={selectedBranchId === branch.id} aria-expanded={mobileLocationLayout ? locationMapPosition === 'branch' && selectedBranchId === branch.id : undefined} on:click={() => selectBranch(branch)}>
+										<span class="urban-location-icon" aria-hidden="true">
+											<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 3 7 19 3-9 9-3L3 3Z" /></svg>
+										</span>
+										<span class="urban-location-info">
+											<span class="urban-location-name">{getBranchName(branch, isAr)}</span>
+											{#if getBranchLocation(branch, isAr)}<span class="urban-location-address">{getBranchLocation(branch, isAr)}</span>{/if}
+											{#if formatStoreOpeningHours(branch, isAr ? 'ar' : 'en')}<span class="urban-location-hours">{formatStoreOpeningHours(branch, isAr ? 'ar' : 'en')}</span>{/if}
+										</span>
+									</button>
+									{#if mobileLocationLayout && locationMapPosition === 'branch' && selectedBranchId === branch.id}
+										{@render selectedLocationMap()}
+									{/if}
+									</div>
+								{/each}
+							</div>
+							{#if selectedBranchObj}
+								<button type="button" class="urban-directions" aria-controls="urban-selected-branch-map" aria-expanded={!mobileLocationLayout || locationMapPosition === 'directions'} on:click={() => revealLocationMap('directions')}>
+									<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+									{isAr ? 'الحصول على الاتجاهات' : 'Get Directions'}
+									<span>({getBranchName(selectedBranchObj, isAr)})</span>
+								</button>
+								{#if mobileLocationLayout && locationMapPosition === 'directions'}
+									{@render selectedLocationMap()}
+								{/if}
+							{/if}
 					{#if selectedSocialLinks}
 						<div class="branch-social-row">
 							{#each socialPlatforms as platform (platform.key)}
@@ -1489,16 +1501,16 @@
 										type="button"
 										class="social-icon-btn"
 										on:click={() => openSocialLink(url, platform.key)}
-										title={getSocialLabel(platform.key)}
+										title={getSocialLabel(platform.key, isAr)}
 									>
 										<span class="social-icon-circle">
 											<img
 												src={platform.icon}
-												alt={getSocialLabel(platform.key)}
+												alt={getSocialLabel(platform.key, isAr)}
 												style={platform.scale ? `transform: scale(${platform.scale})` : ''}
 											/>
 										</span>
-										<span class="social-icon-label">{getSocialLabel(platform.key)}</span>
+										<span class="social-icon-label">{getSocialLabel(platform.key, isAr)}</span>
 									</button>
 								{/if}
 							{/each}
@@ -1506,9 +1518,18 @@
 					{:else if selectedBranchId}
 						<p class="no-social-links">{isAr ? 'لا توجد روابط تواصل اجتماعي لهذا الفرع' : 'No social links available for this branch'}</p>
 					{/if}
+					{#if mobileLocationLayout && locationMapPosition === 'social'}
+						{@render selectedLocationMap()}
+					{/if}
+						</div>
+						{#if !mobileLocationLayout}
+							{@render selectedLocationMap()}
+						{/if}
+					</div>
 				{/if}
 			</div>
 		</section>
+		</div>
 	{/if}
 
 	<!-- Footer -->
@@ -1679,37 +1700,8 @@
 		border-bottom-color: #c8912f;
 	}
 
-	.lang-toggle-btn {
-		background: rgba(255, 255, 255, 0.1);
-		border: 1.5px solid rgba(255, 255, 255, 0.35);
-		border-radius: 20px;
-		color: #ffffff;
-		font-size: 0.85rem;
-		font-weight: 600;
-		padding: 0.35rem 0.9rem;
-		cursor: pointer;
-		transition: background 0.2s;
-	}
 
-	.lang-toggle-btn:hover {
-		background: rgba(255, 255, 255, 0.2);
-	}
 
-	.mobile-lang-toggle {
-		display: none;
-		align-items: center;
-		justify-content: center;
-		gap: 0.4rem;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1.5px solid rgba(255, 255, 255, 0.35);
-		border-radius: 8px;
-		color: #ffffff;
-		font-size: 0.85rem;
-		font-weight: 600;
-		padding: 0.5rem 0.75rem;
-		cursor: pointer;
-		white-space: nowrap;
-	}
 
 	.menu-toggle {
 		display: none;
@@ -1925,12 +1917,6 @@
 		.hours-announcement {
 			animation: none;
 		}
-	}
-
-	.hours-announcement img {
-		display: block;
-		width: 100%;
-		height: auto;
 	}
 
 	.hours-announcement--mobile {
@@ -2584,157 +2570,6 @@
 		text-decoration: underline;
 	}
 
-	.contact-branches-heading {
-		margin: 1.5rem 0 0.75rem;
-		font-size: 1rem;
-		font-weight: 700;
-		color: #ffffff;
-	}
-
-	.branch-dropdown {
-		position: relative;
-		margin-top: 1.1rem;
-		width: 100%;
-		max-width: 380px;
-		margin-left: auto;
-		margin-right: auto;
-		text-align: start;
-	}
-
-	.branch-dropdown-toggle {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		background: rgba(255, 255, 255, 0.08);
-		border: 1px solid rgba(255, 255, 255, 0.25);
-		color: #ffffff;
-		padding: 0.75rem 1rem;
-		border-radius: 12px;
-		font-size: 0.9rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background 0.2s ease, border-color 0.2s ease;
-	}
-
-	.branch-dropdown-toggle:hover {
-		background: rgba(255, 255, 255, 0.14);
-		border-color: rgba(255, 255, 255, 0.4);
-	}
-
-	.branch-dropdown-toggle-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: #c8912f;
-		flex-shrink: 0;
-	}
-
-	.branch-dropdown-toggle-text {
-		flex: 1;
-		text-align: start;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.branch-dropdown-chevron {
-		flex-shrink: 0;
-		transition: transform 0.2s ease;
-		opacity: 0.8;
-	}
-
-	.branch-dropdown-chevron.open {
-		transform: rotate(180deg);
-	}
-
-	.branch-dropdown-menu {
-		list-style: none;
-		margin: 0.5rem 0 0;
-		padding: 0.4rem;
-		position: absolute;
-		top: 100%;
-		left: 0;
-		right: 0;
-		z-index: 30;
-		max-height: 280px;
-		overflow-y: auto;
-		background: rgba(20, 24, 22, 0.97);
-		backdrop-filter: blur(16px);
-		-webkit-backdrop-filter: blur(16px);
-		border: 1px solid rgba(255, 255, 255, 0.15);
-		border-radius: 12px;
-		box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
-	}
-
-	.branch-dropdown-item {
-		display: flex;
-		align-items: center;
-		gap: 0.65rem;
-		padding: 0.65rem 0.6rem;
-		border-radius: 8px;
-		text-align: start;
-		transition: background 0.15s ease;
-	}
-
-	.branch-dropdown-item:hover {
-		background: rgba(255, 255, 255, 0.08);
-	}
-
-	.branch-dropdown-item + .branch-dropdown-item {
-		border-top: 1px solid rgba(255, 255, 255, 0.06);
-	}
-
-	.branch-item-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: #c8912f;
-		flex-shrink: 0;
-	}
-
-	.branch-item-text {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-		min-width: 0;
-	}
-
-	.branch-item-name {
-		font-size: 0.88rem;
-		font-weight: 600;
-		color: #ffffff;
-	}
-
-	.branch-item-location {
-		font-size: 0.76rem;
-		color: #b9c2bd;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.branch-item-link {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 30px;
-		height: 30px;
-		border-radius: 8px;
-		flex-shrink: 0;
-		color: #ffffff;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		text-decoration: none;
-		transition: background 0.2s ease;
-	}
-
-	.branch-item-link:hover {
-		background: rgba(200, 145, 47, 0.35);
-		border-color: rgba(200, 145, 47, 0.6);
-	}
-
 	.branch-social-row {
 		display: flex;
 		flex-wrap: wrap;
@@ -2905,10 +2740,6 @@
 			display: flex;
 		}
 
-		.mobile-lang-toggle {
-			display: inline-flex;
-			margin-inline-start: auto;
-		}
 
 		.nav {
 			display: none;
@@ -2929,9 +2760,6 @@
 			display: flex;
 		}
 
-		.nav .lang-toggle-btn {
-			display: none;
-		}
 
 		.nav a {
 			padding: 0.75rem 0;

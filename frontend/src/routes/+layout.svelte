@@ -570,6 +570,8 @@
 				// Public / standalone routes that must NEVER be redirected based on interface preference
 				// (gift wheel, customer interface, cashier, privacy, login-test, popout windows, etc.)
 				const isStandalonePublicRoute =
+					currentPath === '/login2' ||
+					currentPath === '/login-backup' ||
 					currentPath.startsWith('/gift-wheel') ||
 					currentPath.startsWith('/surprise-box') ||
 					currentPath.startsWith('/customer-interface') ||
@@ -620,7 +622,7 @@
 			// Only redirect if necessary and avoid loops
 			const isCashier = $page.url.pathname.startsWith('/cashier-interface');
 			const isCustomerLogin = $page.url.pathname.startsWith('/login/customer');
-			if (currentAuthState === false && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && $page.url.pathname !== '/mobile-interface/login' && !isCashier && !isCustomerLogin) {
+			if (currentAuthState === false && !isLoginTestPage && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && $page.url.pathname !== '/mobile-interface/login' && !isCashier && !isCustomerLogin) {
 				console.log('🔐 Initial check: Not authenticated, will redirect to login');
 			} else if (currentAuthState === true && ($page.url.pathname === '/login' || $page.url.pathname === '/mobile-interface/login') && !isCashier && !isCustomerLogin) {
 				console.log('🔐 Initial check: Already authenticated, will redirect to appropriate dashboard');
@@ -813,7 +815,7 @@
 			const isSurpriseBoxRoute = $page.url.pathname.startsWith('/surprise-box');
 			const isLoyaltyRoute = $page.url.pathname.startsWith('/loyalty');
 			const isCareersAdminRoute = $page.url.pathname.startsWith('/careers-admin');
-			if (!authenticated && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
+			if (!authenticated && !isLoginTestPage && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRoute && !isCashierRoute && !isCustomerLoginRoute && !isPrivacyRoute && !isGiftWheelRoute && !isSurpriseBoxRoute && !isLoyaltyRoute && !isCareersAdminRoute && !isPopoutMode) {
 				console.log('🔐 Not authenticated, redirecting to login');
 				goto(getUnauthenticatedLoginRoute($page.url.pathname), { replaceState: true });
 			}
@@ -854,7 +856,7 @@
 					const isGiftWheelRouteTimeout = $page.url.pathname.startsWith('/gift-wheel');
 					const isLoyaltyRouteTimeout = $page.url.pathname.startsWith('/loyalty');
 					const isCareersAdminRouteTimeout = $page.url.pathname.startsWith('/careers-admin');
-					if (!isAuthenticated && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
+					if (!isAuthenticated && !isLoginTestPage && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isMobileRoute && !isMobileLoginRoute && !isCustomerRouteTimeout && !isCashierRouteTimeout && !isCustomerLoginTimeout && !isPrivacyRouteTimeout && !isGiftWheelRouteTimeout && !isLoyaltyRouteTimeout && !isCareersAdminRouteTimeout && !isPopoutMode) {
 						console.log('🔐 Timeout reached, redirecting to login');
 						goto(getUnauthenticatedLoginRoute($page.url.pathname));
 					}
@@ -884,7 +886,7 @@
 			const isCustomerLoginError = $page.url.pathname.startsWith('/login/customer');
 			const isPrivacyRouteError = $page.url.pathname.startsWith('/privacy');
 			const isGiftWheelRouteError = $page.url.pathname.startsWith('/gift-wheel');
-			if ($page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isGiftWheelRouteError && !isPopoutMode) {
+			if (!isLoginTestPage && $page.url.pathname !== '/login' && !$page.url.pathname.startsWith('/login/employee') && !isCustomerRouteError && !isCustomerLoginError && !isPrivacyRouteError && !isGiftWheelRouteError && !isPopoutMode) {
 				console.log('🔐 Initialization failed, redirecting to login');
 				goto(getUnauthenticatedLoginRoute($page.url.pathname), { replaceState: true });
 			}
@@ -1096,7 +1098,8 @@
 	// Check if current route is login page
 	// Page state management - detect mobile routes
 	$: isDesktopInterfaceRoute = $page.url.pathname === '/desktop-interface' || $page.url.pathname.startsWith('/desktop-interface/');
-	$: isLoginPage = $page.url.pathname === '/login' || $page.url.pathname.startsWith('/login/employee');
+	$: isLoginTestPage = $page.url.pathname === '/login2' || $page.url.pathname === '/login-backup';
+	$: isLoginPage = $page.url.pathname === '/login' || $page.url.pathname.startsWith('/login/employee') || isLoginTestPage;
 	$: isMobileRoute = $page.url.pathname.startsWith('/mobile-interface');
 	$: isMobileLoginRoute = $page.url.pathname.startsWith('/mobile-interface/login');
 	$: isCashierRoute = $page.url.pathname.startsWith('/cashier-interface');

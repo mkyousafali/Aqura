@@ -235,3 +235,6 @@ aqura-designer-standalone/
 /tmp-release-check-*/
 /tmp-vikin-extension-package-*/
 /tmp_cp_basetemp_*/
+
+# Original website reference source; the login2 preview assets are tracked separately.
+/Urbanksa.com/

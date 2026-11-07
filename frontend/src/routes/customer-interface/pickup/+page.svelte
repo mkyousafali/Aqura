@@ -1,8 +1,18 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { supabase } from '$lib/utils/supabase';
+  import { orderFlow } from '$lib/stores/orderFlow.js';
+  import { loadStoreOpeningHours, storeOpeningHoursSummary } from '$lib/utils/storeOpeningHours';
   
   let currentLanguage = 'ar';
+  let storeBranches = [];
+  $: selectedStore = storeBranches.filter(branch => branch.id === Number($orderFlow.branchId));
+  $: currentStoreHours = storeOpeningHoursSummary(selectedStore.length ? selectedStore : storeBranches, currentLanguage);
+  onMount(() => {
+    loadStoreOpeningHours(supabase).then(rows => { storeBranches = rows; })
+      .catch(error => console.error('Failed to load store hours:', error));
+  });
 
   onMount(() => {
     const savedLanguage = localStorage.getItem('language');
@@ -17,7 +27,7 @@
     storeInfo: 'معلومات المتجر',
     address: 'الرياض، المملكة العربية السعودية',
     phone: 'هاتف: +966 XX XXX XXXX',
-    hours: 'ساعات العمل: 6:00 ص - 2:00 ص (اليوم التالي) (بتوقيت السعودية)',
+    hours: currentStoreHours || 'راجع ساعات عمل الفرع',
     instructions: 'تعليمات الاستلام',
     instruction1: '• سيتم إشعارك عند جاهزية طلبك',
     instruction2: '• أحضر هويتك عند الاستلام',
@@ -31,7 +41,7 @@
     storeInfo: 'Store Information',
     address: 'Riyadh, Saudi Arabia',
     phone: 'Phone: +966 XX XXX XXXX',
-    hours: 'Hours: 6:00 AM - 2:00 AM (next day) (Saudi time)',
+    hours: currentStoreHours || 'See branch opening hours',
     instructions: 'Pickup Instructions',
     instruction1: '• You will be notified when your order is ready',
     instruction2: '• Bring your ID for pickup',

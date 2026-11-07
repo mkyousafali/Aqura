@@ -1561,7 +1561,7 @@
 			// record's start date in place (cascades to the previous record's end
 			// date automatically) instead of creating a new transition.
 			const isDateCorrection = employmentStatus === savedEmploymentStatus;
-			const { error } = isDateCorrection
+			const { data, error } = isDateCorrection
 				? await supabase.rpc('update_current_status_effective_date', {
 					p_employee_id: selectedEmployee.id,
 					p_new_effective_from: effectiveDate,
@@ -1579,9 +1579,14 @@
 				return;
 			}
 
-			selectedEmployee.employment_status = employmentStatus;
-			selectedEmployee.employment_status_effective_date = effectiveDate;
-			selectedEmployee.employment_status_reason = effectiveDateReason.trim();
+			if (data?.[0]?.effective_to) {
+				// A historical gap was filled; the later current status is unchanged.
+				employmentStatus = savedEmploymentStatus;
+			} else {
+				selectedEmployee.employment_status = employmentStatus;
+				selectedEmployee.employment_status_effective_date = effectiveDate;
+				selectedEmployee.employment_status_reason = effectiveDateReason.trim();
+			}
 			savedEmploymentStatus = employmentStatus;
 			showEffectiveDateModal = false;
 			// Recalculate worked duration

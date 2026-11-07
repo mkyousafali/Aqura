@@ -259,9 +259,11 @@
 		successMessage = '';
 
 		try {
-			// Fetch all users
+			// This view excludes system-removed employees, whose master records are
+			// hidden by RLS. Loading raw users would treat them as new employees and
+			// make Save All attempt an upsert against a hidden, removed record.
 			const { data: usersData, error: usersError } = await supabase
-				.from('users')
+				.from('user_management_view')
 				.select('id, username, status, position_id, branch_id')
 				.limit(1000000);
 

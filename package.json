@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "pnpm --filter aqura-frontend dev",
     "build": "pnpm --filter aqura-frontend build",
+    "build:login2": "node scripts/build-urban-market-preview.mjs",
     "build:pwa": "pnpm --filter aqura-frontend build:pwa",
     "preview": "pnpm --filter aqura-frontend preview",
     "check": "pnpm --filter aqura-frontend check",

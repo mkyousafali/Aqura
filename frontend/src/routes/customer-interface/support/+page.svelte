@@ -1,10 +1,18 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { supabase } from '$lib/utils/supabase';
+  import { loadStoreOpeningHours, storeOpeningHoursSummary } from '$lib/utils/storeOpeningHours';
   
   let currentLanguage = 'ar';
   let adminWhatsAppNumber = '+966548357066'; // Aqura admin WhatsApp
   let supportEmail = 'support@aquaexpress.sa';
+  let storeBranches = [];
+  $: currentStoreHours = storeOpeningHoursSummary(storeBranches, currentLanguage);
+  onMount(() => {
+    loadStoreOpeningHours(supabase).then(rows => { storeBranches = rows; })
+      .catch(error => console.error('Failed to load store hours:', error));
+  });
 
   // Load language from localStorage
   onMount(() => {
@@ -50,7 +58,7 @@
     sendEmail: 'إرسال إيميل',
     backToHome: 'العودة للرئيسية',
     businessHours: 'ساعات العمل',
-    businessHoursDesc: 'فرعا أبو عريش والعارضة: 6:00 ص - 2:00 ص (اليوم التالي)\nالدعم البشري: 12:00 م - 8:00 م\nجميع الأوقات بتوقيت السعودية.',
+    businessHoursDesc: [currentStoreHours, 'الدعم البشري: 12:00 م - 8:00 م', 'جميع الأوقات بتوقيت السعودية.'].filter(Boolean).join('\n'),
     quickActions: 'إجراءات سريعة',
     reportProblem: 'إبلاغ عن مشكلة',
     requestRefund: 'طلب استرداد',
@@ -78,7 +86,7 @@
     sendEmail: 'Send Email',
     backToHome: 'Back to Home',
     businessHours: 'Business Hours',
-    businessHoursDesc: 'Abu Arish and Al Aridah stores: 6:00 AM - 2:00 AM (next day)\nHuman support: 12:00 PM - 8:00 PM\nAll times are Saudi time.',
+    businessHoursDesc: [currentStoreHours, 'Human support: 12:00 PM - 8:00 PM', 'All times are Saudi time.'].filter(Boolean).join('\n'),
     quickActions: 'Quick Actions',
     reportProblem: 'Report a Problem',
     requestRefund: 'Request Refund',

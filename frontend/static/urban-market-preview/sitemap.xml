@@ -1,0 +1,58 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" 
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <!-- Homepage -->
+  <url>
+    <loc>https://urbanksa.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://urbanksa.com/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://urbanksa.com/"/>
+  </url>
+  
+  <!-- About page -->
+  <url>
+    <loc>https://urbanksa.com/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://urbanksa.com/about"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://urbanksa.com/about"/>
+  </url>
+  
+  <!-- Contact page -->
+  <url>
+    <loc>https://urbanksa.com/contact</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://urbanksa.com/contact"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://urbanksa.com/contact"/>
+  </url>
+  
+  <!-- Privacy page -->
+  <url>
+    <loc>https://urbanksa.com/privacy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://urbanksa.com/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://urbanksa.com/privacy"/>
+  </url>
+  
+  <!-- Terms page -->
+  <url>
+    <loc>https://urbanksa.com/terms</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://urbanksa.com/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://urbanksa.com/terms"/>
+  </url>
+  
+  <!-- Loyalty Program page -->
+  <url>
+    <loc>https://urbanksa.com/loyalty-program</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://urbanksa.com/loyalty-program"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://urbanksa.com/loyalty-program"/>
+  </url>
+</urlset>
