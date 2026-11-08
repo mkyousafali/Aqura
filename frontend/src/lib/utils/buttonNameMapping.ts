@@ -33,6 +33,7 @@ export const buttonNameToCodeMap: Record<string, string> = {
   "Pricing Manager": "PRICING_MANAGER",
   "ERP Entry Manager": "ERP_ENTRY_MANAGER",
   "Generate Flyers": "GENERATE_FLYERS",
+  "Posters": "POSTERS",
   "Shelf Paper Manager": "SHELF_PAPER_MANAGER",
   "Coupon Dashboard": "COUPON_DASHBOARD",
   "Manage Campaigns": "MANAGE_CAMPAIGNS",

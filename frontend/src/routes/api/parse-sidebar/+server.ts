@@ -166,6 +166,7 @@ const structure: Record<string, Record<string, string[]>> = {
 			'PRICING_MANAGER',
 			'ERP_ENTRY_MANAGER',
 			'GENERATE_FLYERS',
+			'POSTERS',
 			'SHELF_PAPER_MANAGER',
 			'NEAR_EXPIRY_MANAGER'
 		],

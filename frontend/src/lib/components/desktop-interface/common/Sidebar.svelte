@@ -81,6 +81,7 @@
 	const PricingManager = lazyWindowComponent('PricingManager', () => import('$lib/components/desktop-interface/marketing/flyer/PricingManager.svelte'));
 	const ErpEntryManager = lazyWindowComponent('ErpEntryManager', () => import('$lib/components/desktop-interface/marketing/flyer/ErpEntryManager.svelte'));
 	const FlyerGenerator = lazyWindowComponent('FlyerGenerator', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerGenerator.svelte'));
+	const Posters = lazyWindowComponent('Posters', () => import('$lib/components/desktop-interface/marketing/Posters.svelte'));
 	const FlyerTemplates = lazyWindowComponent('FlyerTemplates', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerTemplates.svelte'));
 	const FlyerSettings = lazyWindowComponent('FlyerSettings', () => import('$lib/components/desktop-interface/marketing/flyer/FlyerSettings.svelte'));
 	const DesignPlanner = lazyWindowComponent('DesignPlanner', () => import('$lib/components/desktop-interface/marketing/flyer/DesignPlanner.svelte'));
@@ -320,6 +321,7 @@
 		'SOCIAL_LINK_MANAGER': 'nav.socialLinkManager', 'OFFER_PRODUCT_EDITOR': 'nav.offerProductEditor',
 		'CREATE_NEW_OFFER': 'nav.createNewOffer', 'PRICING_MANAGER': 'nav.pricingManager',
 		'ERP_ENTRY_MANAGER': 'nav.erpEntryManager', 'GENERATE_FLYERS': 'nav.generateFlyers',
+		'POSTERS': 'nav.posters',
 		'SHELF_PAPER_MANAGER': 'nav.shelfPaperManager', 'SHELF_PAPER_TEMPLATE_DESIGNER': 'nav.shelfPaperTemplateDesigner', 'NEAR_EXPIRY_MANAGER': 'nav.nearExpiryManager',
 		'COUPON_DASHBOARD_PROMO': 'nav.couponDashboard', 'CAMPAIGN_MANAGER': 'nav.manageCampaigns',
 		'VIEW_OFFER_MANAGER': 'nav.viewOfferManager', 'CUSTOMER_IMPORTER': 'nav.importCustomers',
@@ -585,7 +587,7 @@
 		VendorReports: ["VENDOR_RECORDS"],
 		MediaDashboard: [],
 		MediaManage: ["PRODUCT_MASTER","VARIATION_MANAGER","OFFER_MANAGER","FLYER_TEMPLATES","FLYER_SETTINGS","NORMAL_PAPER_MANAGER","ONE_DAY_OFFER_MANAGER","SOCIAL_LINK_MANAGER","SHELF_PAPER_TEMPLATE_DESIGNER"],
-		MediaOperations: ["OFFER_PRODUCT_EDITOR","CREATE_NEW_OFFER","PRICING_MANAGER","ERP_ENTRY_MANAGER","GENERATE_FLYERS","SHELF_PAPER_MANAGER","NEAR_EXPIRY_MANAGER"],
+		MediaOperations: ["OFFER_PRODUCT_EDITOR","CREATE_NEW_OFFER","PRICING_MANAGER","ERP_ENTRY_MANAGER","GENERATE_FLYERS","POSTERS","SHELF_PAPER_MANAGER","NEAR_EXPIRY_MANAGER"],
 		MediaReports: [],
 		PromoDashboard: ["COUPON_DASHBOARD_PROMO","COMMUNICATION_CENTER"],
 		PromoManage: ["CAMPAIGN_MANAGER","GIFT_WHEEL_MANAGER","SURPRISE_BOX_MANAGER","VIP_CAMPAIGN"],
@@ -2405,6 +2407,7 @@ function openApprovalCenter() {
 			'PRICING_MANAGER': openPricingManager,
 			'ERP_ENTRY_MANAGER': openErpEntryManager,
 			'GENERATE_FLYERS': openGenerateFlyers,
+			'POSTERS': openPosters,
 			'SHELF_PAPER_MANAGER': openShelfPaperManager,
 			'SHELF_PAPER_TEMPLATE_DESIGNER': openShelfPaperTemplateDesigner,
 			'NEAR_EXPIRY_MANAGER': openNearExpiryManager,
@@ -4068,6 +4071,23 @@ function openApprovalCenter() {
 		showMediaSubmenu = false;
 	}
 
+	function openPosters() {
+		openWindow({
+			id: generateWindowId('posters'),
+			title: t('nav.posters'),
+			component: Posters,
+			componentName: "Posters",
+			icon: '🖼️',
+			size: { width: 1400, height: 900 },
+			position: { x: 50 + (Math.random() * 100), y: 50 + (Math.random() * 100) },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		showMediaSubmenu = false;
+	}
+
 	function openShelfPaperManager() {
 		const windowId = generateWindowId('shelf-paper-manager');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -5248,6 +5268,14 @@ function openApprovalCenter() {
 							<button class="submenu-item" on:click={openGenerateFlyers}>
 								<span class="menu-icon">📄</span>
 								<span class="menu-text">{t('nav.generateFlyers')}</span>
+							</button>
+						</div>
+					{/if}
+					{#if isButtonAllowed('POSTERS')}
+						<div class="submenu-item-container">
+							<button class="submenu-item" on:click={openPosters}>
+								<span class="menu-icon">🖼️</span>
+								<span class="menu-text">{t('nav.posters')}</span>
 							</button>
 						</div>
 					{/if}
