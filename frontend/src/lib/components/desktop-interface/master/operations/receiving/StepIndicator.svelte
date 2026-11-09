@@ -18,9 +18,10 @@
 <style>
 .step-indicator {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 1.5rem;
+  gap: 0.5rem 1rem;
   margin-bottom: 2rem;
 }
 .step {

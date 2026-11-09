@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { databaseClient, requireBreakUser } from '$lib/server/breakRegisterAuth';
 
-const requestTypes = ['pos_reconciliation', 'receiving_bank_slip', 'pay_to_credit_slip', 'receiving_bill'];
+const requestTypes = ['pos_reconciliation', 'receiving_bank_slip', 'pay_to_credit_slip', 'receiving_bill', 'receiving_draft_bill'];
 
 async function requireMasterAdmin(cookies: Parameters<typeof requireBreakUser>[0]) {
 	const actor = await requireBreakUser(cookies, 'desktop');

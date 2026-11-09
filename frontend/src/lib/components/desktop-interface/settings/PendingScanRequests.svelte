@@ -13,6 +13,7 @@
 		pos_reconciliation: 'Cashier / POS reconciliation',
 		receiving_bank_slip: 'Receiving Records bank slip',
 		receiving_bill: 'Receiving Records original bill',
+		receiving_draft_bill: 'Start Receiving bill',
 		pay_to_credit_slip: 'Pay to Credit bank slip'
 	};
 
@@ -94,7 +95,7 @@
 	$: counts = {
 		pos_reconciliation: requests.filter((item) => item.request_type === 'pos_reconciliation').length,
 		receiving_bank_slip: requests.filter((item) => item.request_type === 'receiving_bank_slip').length,
-		receiving_bill: requests.filter((item) => item.request_type === 'receiving_bill').length,
+		receiving_bill: requests.filter((item) => ['receiving_bill', 'receiving_draft_bill'].includes(item.request_type)).length,
 		pay_to_credit_slip: requests.filter((item) => item.request_type === 'pay_to_credit_slip').length
 	};
 

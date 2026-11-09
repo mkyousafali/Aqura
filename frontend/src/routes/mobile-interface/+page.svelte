@@ -287,7 +287,7 @@
 		try {
 			const { count, error } = await supabase.from('pos_scan_requests')
 				.select('id', { count: 'exact', head: true }).eq('requested_by', userId)
-				.eq('request_type', 'receiving_bill').eq('status', 'pending');
+				.in('request_type', ['receiving_bill', 'receiving_draft_bill']).eq('status', 'pending');
 			if (error) throw error;
 			stats.billScanRequests = count || 0;
 		} catch (error) { console.error('Error loading bill scan request count:', error); }

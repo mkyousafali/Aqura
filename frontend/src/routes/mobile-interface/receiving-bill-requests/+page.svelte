@@ -9,7 +9,8 @@
 
 	interface BillRequest {
 		id: string;
-		receiving_record_id: string;
+		receiving_record_id: string | null;
+		request_type: 'receiving_bill' | 'receiving_draft_bill';
 		request_label: string | null;
 		created_at: string;
 	}
@@ -47,8 +48,8 @@
 	async function loadRequests() {
 		if (!$currentUser?.id) { loading = false; return; }
 		const { data, error } = await supabase.from('pos_scan_requests')
-			.select('id, receiving_record_id, request_label, created_at')
-			.eq('requested_by', $currentUser.id).eq('request_type', 'receiving_bill')
+			.select('id, receiving_record_id, request_type, request_label, created_at')
+			.eq('requested_by', $currentUser.id).in('request_type', ['receiving_bill', 'receiving_draft_bill'])
 			.eq('status', 'pending').order('created_at');
 		if (error) errorMessage = error.message;
 		else requests = data || [];
@@ -90,10 +91,13 @@
 		if (busy) return;
 		opening = true; errorMessage = ''; successMessage = '';
 		try {
-			const { data, error } = await supabase.from('receiving_records')
-				.select('original_bill_url').eq('id', request.receiving_record_id).single();
-			if (error) throw error;
-			expectedOriginalBillUrl = data.original_bill_url;
+			expectedOriginalBillUrl = null;
+			if (request.request_type === 'receiving_bill') {
+				const { data, error } = await supabase.from('receiving_records')
+					.select('original_bill_url').eq('id', request.receiving_record_id).single();
+				if (error) throw error;
+				expectedOriginalBillUrl = data.original_bill_url;
+			}
 			activeRequest = request; pages = []; selectedPageId = null; previewId = null; cameraError = '';
 		} catch (error: any) { errorMessage = error?.message || text('Could not open this request.', 'تعذر فتح الطلب.'); }
 		finally { opening = false; }
@@ -176,7 +180,8 @@
 		if (!activeRequest || !pages.length || busy) return;
 		stopCamera(); saving = true; errorMessage = '';
 		const request = activeRequest;
-		const storagePath = `${request.receiving_record_id}/${request.id}/${crypto.randomUUID()}.pdf`;
+		const isDraft = request.request_type === 'receiving_draft_bill';
+		const storagePath = isDraft ? `drafts/${request.id}/${crypto.randomUUID()}.pdf` : `${request.receiving_record_id}/${request.id}/${crypto.randomUUID()}.pdf`;
 		try {
 			const { jsPDF } = await import('jspdf');
 			const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
@@ -196,7 +201,9 @@
 				.upload(storagePath, blob, { contentType: 'application/pdf', upsert: false });
 			if (uploadError) throw uploadError;
 			const { data: { publicUrl } } = supabase.storage.from('original-bills').getPublicUrl(storagePath);
-			const { error: saveError } = await supabase.rpc('complete_receiving_bill_scan', {
+			const { error: saveError } = isDraft ? await supabase.rpc('complete_start_receiving_bill_scan', {
+				p_request_id: request.id, p_storage_path: storagePath, p_document_url: publicUrl
+			}) : await supabase.rpc('complete_receiving_bill_scan', {
 				p_request_id: request.id, p_storage_path: storagePath, p_pdf_url: publicUrl,
 				p_expected_original_bill_url: expectedOriginalBillUrl
 			});
@@ -212,7 +219,7 @@
 			}
 			requests = requests.filter((item) => item.id !== request.id);
 			activeRequest = null; pages = []; previewId = null;
-			successMessage = text('Bill saved as one PDF and attached to the receiving record.', 'تم حفظ الفاتورة كملف PDF واحد وإرفاقها بسجل الاستلام.');
+			successMessage = isDraft ? text('PDF saved. The bill is ready in Start Receiving.', 'تم حفظ PDF. الفاتورة جاهزة في نافذة بدء الاستلام.') : text('Bill saved as one PDF and attached to the receiving record.', 'تم حفظ الفاتورة كملف PDF واحد وإرفاقها بسجل الاستلام.');
 		} catch (error: any) { errorMessage = error?.message || text('Could not save the bill. Your pages are still here; try again.', 'تعذر حفظ الفاتورة. لا تزال الصفحات موجودة؛ حاول مرة أخرى.'); }
 		finally { saving = false; }
 	}

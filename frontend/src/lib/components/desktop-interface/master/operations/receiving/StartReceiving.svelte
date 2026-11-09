@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
   import StepIndicator from './StepIndicator.svelte';
+  import StartReceivingBillScan from './StartReceivingBillScan.svelte';
   import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
   import { currentUser } from '$lib/utils/persistentAuth';
   import { supabase } from '$lib/utils/supabase';
@@ -23,7 +24,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // receiving_records once the certificate step completes.
   let finalizingPendingRecord = false;
 
-  $: steps = [$t('receiving.stepSelectBranch'), $t('receiving.stepSelectVendor'), $t('receiving.stepBillInformation'), $t('receiving.stepFinalization')];
+  $: steps = [$t('receiving.stepSelectBranch'), $t('receiving.stepSelectVendor'), $t('receiving.stepScanBill'), $t('receiving.stepBillInformation'), $t('receiving.stepFinalization')];
   let currentStep = -1; // -1 = blank intro screen, shown before Step 1
   let allRequiredUsersSelected = false; // Track if all required users are selected
 
@@ -231,6 +232,53 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   let billDate = new Date().toISOString().split('T')[0]; // Auto-fill today's date
   let billAmount = '';
   let billNumber = '';
+  let billScanRequestId: string | null = null;
+  let scannedBillUrl = '';
+  let billScanReading = false;
+  let billScanBusy = false;
+  let scanAttempted = false;
+  let billScanSessionKey = 0;
+  type ScannedField = 'billDate' | 'billAmount' | 'billNumber' | 'billVatNumber';
+  let scanMissing: Partial<Record<ScannedField, boolean>> = {};
+  let scanFieldSnapshot: Record<ScannedField, string> | null = null;
+
+  function snapshotBillFields() {
+    scanFieldSnapshot = { billDate, billAmount: String(billAmount), billNumber, billVatNumber };
+  }
+
+  function applyScannedBill(event) {
+    if (savedReceivingId || !scanFieldSnapshot) return;
+    const fields = event.detail || {};
+    const nextMissing = { ...scanMissing };
+    const snapshot = scanFieldSnapshot;
+    // Preserve edits made while AI was reading, including a field the user cleared.
+    if (billDate === snapshot.billDate) { billDate = fields.billDate || ''; nextMissing.billDate = !fields.billDate; }
+    if (String(billAmount) === snapshot.billAmount) { billAmount = fields.billAmount || ''; nextMissing.billAmount = !fields.billAmount; }
+    if (billNumber === snapshot.billNumber) { billNumber = fields.billNumber || ''; nextMissing.billNumber = !fields.billNumber; }
+    if (billVatNumber === snapshot.billVatNumber) { billVatNumber = fields.billVatNumber || ''; nextMissing.billVatNumber = !fields.billVatNumber; }
+    scanMissing = nextMissing;
+    scanAttempted = true;
+  }
+
+  function clearScanWarning(field: ScannedField, value: string) {
+    if (value.trim()) scanMissing = { ...scanMissing, [field]: false };
+  }
+
+  function resetBillScan() {
+    if (scanAttempted || scannedBillUrl) {
+      billDate = new Date().toISOString().split('T')[0];
+      billAmount = ''; billNumber = ''; billVatNumber = ''; vatMismatchReason = '';
+    }
+    billScanSessionKey += 1;
+    billScanRequestId = null; scannedBillUrl = ''; billScanReading = false; billScanBusy = false;
+    scanMissing = {}; scanAttempted = false; scanFieldSnapshot = null;
+  }
+
+  async function continueToBillInformation() {
+    currentStep = 3;
+    await tick();
+    document.getElementById('billDate')?.focus();
+  }
 
   // Payment information is selected separately for each receiving.
   // Vendor payment settings are displayed only as a read-only reference.
@@ -513,7 +561,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       finalizingPendingRecord = true;
 
       // Jump straight to Step 3 (Bill Information)
-      currentStep = 2;
+      currentStep = 3;
     } catch (err) {
       console.error('Error loading pending record for final receiving:', err);
       finalReceivingLoadError = 'Failed to load record: ' + (err.message || err);
@@ -1759,6 +1807,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   }
 
   function preparePaymentForNewReceiving(vendor) {
+    resetBillScan();
     paymentMethod = '';
     creditPeriod = '';
     bankName = '';
@@ -1787,12 +1836,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Vendor has all required information, proceed normally
       preparePaymentForNewReceiving(vendor);
       selectedVendor = vendor;
-      currentStep = 2; // Move to bill information step
+      currentStep = 2; // Optional bill scan before bill information.
       loadErpVendorBalance(vendor);
       loadOverdueVendorBalance(vendor);
-      await tick();
-      const dateEl = document.getElementById('billDate');
-      if (dateEl) { dateEl.focus(); try { dateEl.showPicker(); } catch(e) {} }
     }
   }
 
@@ -1872,8 +1918,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedVendor = vendorToUpdate;
     showVendorUpdatePopup = false;
     vendorToUpdate = null;
-    currentStep = 2; // Move to bill information step
-    tick().then(() => { const el = document.getElementById('billDate'); if (el) { el.focus(); try { el.showPicker(); } catch(e) {} } });
+    currentStep = 2; // Optional bill scan before bill information.
   }
 
   function skipVendorUpdate() {
@@ -2001,7 +2046,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       alert('Please provide a reason for the VAT number mismatch before proceeding.');
       return;
     }
-    currentStep = 3; // Move to step 4 (finalization)
+    currentStep = 4; // Move to step 4 (finalization)
     console.log('Proceeding to receiving with:', {
       vendor: selectedVendor,
       billDate: billDate,
@@ -2036,6 +2081,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
   // Clearance Certification Functions
   async function saveReceivingData() {
+    if (billScanBusy) {
+      alert($currentLocale === 'ar' ? 'انتظر اكتمال إرسال الطلب أو رفع الفاتورة ثم احفظ.' : 'Wait for the request or file upload to finish, then save.');
+      return;
+    }
     // Validate required fields before saving
     if (!billDate || !billAmount || (!billNumberNotMandatory && (!billNumber || !billNumber.trim())) || (!paymentNotApplicable && (!paymentMethodExplicitlySelected || !dueDateReady))) {
       const missingFields = [];
@@ -2070,6 +2119,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         bill_date: billDate,
         bill_amount: parseFloat(billAmount || 0),
         bill_number: billNumber || null,
+        ...(scannedBillUrl ? { original_bill_url: scannedBillUrl } : {}),
         payment_method: paymentMethod || null,
         credit_period: creditPeriod || null,
         due_date: dueDate || null, // Use calculated due date
@@ -2178,11 +2228,14 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
         console.log('Receiving record updated successfully');
       } else {
+      // Use the exact inserted UUID when linking a scan; concurrent windows can
+      // legitimately have the same vendor, date and amount.
+      const insertedRecordId = crypto.randomUUID();
       // Save to receiving_records (or pending_receiving_records for non-Original-Bill types) -
       // don't select anything back to avoid permission issues
       const { data, error } = await supabase
         .from(receivingTableName)
-        .insert([receivingData]);
+        .insert([{ ...receivingData, id: insertedRecordId }]);
 
       if (error) {
         console.error('Error saving receiving record:', error);
@@ -2194,37 +2247,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Note: data will be null since we didn't use .select(), but the INSERT succeeded if no error
       // We'll need to fetch the ID from the database if needed
 
-      // Fetch the ID of the newly created record by querying the most recent one for this user/vendor/bill
-      const { data: fetchedData, error: fetchError } = await supabase
-        .from(receivingTableName)
-        .select('id')
-        .eq('user_id', $currentUser?.id)
-        .eq('vendor_id', selectedVendor?.erp_vendor_id)
-        .eq('bill_date', receivingData.bill_date)
-        .eq('bill_amount', receivingData.bill_amount)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (fetchError) {
-        console.error('Error fetching receiving record ID:', fetchError);
-        alert('Record saved but could not retrieve ID. Please refresh and try again.');
-        return;
-      }
-
-      if (fetchedData && fetchedData.length > 0) {
-        savedReceivingId = fetchedData[0].id;
-        console.log('Retrieved saved receiving record ID:', savedReceivingId);
-      } else {
-        console.error('Could not find the newly created receiving record');
-        alert('Record saved but ID could not be retrieved.');
-        return;
-      }
+      savedReceivingId = insertedRecordId;
       } // end else (new insert)
       
+      if (billScanRequestId) {
+        const { error: linkError } = await supabase.rpc('link_start_receiving_bill_scan', {
+          p_request_id: billScanRequestId, p_record_id: savedReceivingId, p_is_pending: isPendingBillType
+        });
+        if (linkError) {
+          alert(($currentLocale === 'ar' ? 'تم حفظ السجل، لكن تعذر ربط طلب التصوير. حاول الحفظ مجددًا: ' : 'Record saved, but the scan request could not be linked. Save again to retry: ') + linkError.message);
+          return;
+        }
+      }
+
       receivingSuccessMessage = 'Receiving data saved successfully!';
       showReceivingSuccessModal = true;
       setTimeout(() => { showReceivingSuccessModal = false; }, 2000);
-      currentStep = 3;
+      currentStep = 4;
       setTimeout(() => generateClearanceCertification(), 300);
     } catch (error) {
       console.error('Error saving receiving data:', error);
@@ -3533,21 +3572,36 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       <span class="step-complete-text">{$t('receiving.step2Complete')}</span>
     </div>
     <button type="button" on:click={() => currentStep = 2} class="continue-step-btn">
-      {$t('receiving.continueToStep3')}
+      {$t('receiving.stepScanBill')}
     </button>
   </div>
 {/if}
 
-<!-- Step 3: Bill Information -->
-{#if currentStep === 2 && selectedVendor}
+<!-- Step 3 stays mounted while the user completes bill information, so late mobile uploads are received. -->
+{#if selectedVendor && !finalizingPendingRecord}
+  {#key billScanSessionKey}
+    <StartReceivingBillScan branchId={selectedBranch} vendorName={selectedVendor.vendor_name}
+      visible={currentStep === 2} {savedReceivingId}
+      bind:requestId={billScanRequestId} bind:documentUrl={scannedBillUrl}
+      bind:reading={billScanReading} bind:busy={billScanBusy}
+      on:reading={snapshotBillFields} on:extracted={applyScannedBill}
+      on:back={() => currentStep = 1} on:next={continueToBillInformation} />
+  {/key}
+{/if}
+
+<!-- Step 4: Bill Information -->
+{#if currentStep === 3 && selectedVendor}
   <div class="form-section step3-compact">
 
     <div class="step3-top-bar">
-      <button type="button" class="secondary-btn btn-sm" on:click={() => currentStep = 1}>
+      <button type="button" class="secondary-btn btn-sm" on:click={() => currentStep = finalizingPendingRecord ? 1 : 2}>
         {$t('receiving.back')}
       </button>
       <span class="step3-title">{$t('receiving.billInformation')} {selectedVendor.vendor_name}</span>
     </div>
+    {#if billScanReading || scanAttempted || (billScanRequestId && !scannedBillUrl)}
+      <p class="scan-field-notice" role="status">{billScanReading ? $t('receiving.scanReading') : scanAttempted ? $t('receiving.scanReviewFields') : $t('receiving.scanPending')}</p>
+    {/if}
     
     <!-- Row 1: Bill Info + Return Policy side by side -->
     <div class="step3-row-1">
@@ -3564,7 +3618,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <div class="bill-field__icon">📅</div>
             <div class="bill-field__content">
               <label for="billDate">{$t('receiving.billDate')} <span class="required">*</span> <span class="heartbeat-warning" title={$t('receiving.verifyBillDate')}>⚠️</span></label>
-              <input type="date" id="billDate" bind:value={billDate} class="editable-input" required 
+              <input type="date" id="billDate" bind:value={billDate} class="editable-input" class:scan-unrecognised={scanMissing.billDate} aria-invalid={Boolean(scanMissing.billDate)} title={scanMissing.billDate ? $t('receiving.scanUnreadable') : ''} on:input={(e) => clearScanWarning('billDate', e.currentTarget.value)} required
                 on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('billAmount')?.focus(); }}} />
             </div>
           </div>
@@ -3572,7 +3626,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <div class="bill-field__icon">💰</div>
             <div class="bill-field__content">
               <label for="billAmount">{$t('receiving.amount')} <span class="required">*</span></label>
-              <input type="number" id="billAmount" bind:value={billAmount} step="0.01" min="0" placeholder="0.00" class="editable-input" required 
+              <input type="number" id="billAmount" bind:value={billAmount} step="0.01" min="0" placeholder="0.00" class="editable-input" class:scan-unrecognised={scanMissing.billAmount} aria-invalid={Boolean(scanMissing.billAmount)} title={scanMissing.billAmount ? $t('receiving.scanUnreadable') : ''} on:input={(e) => clearScanWarning('billAmount', e.currentTarget.value)} required
                 on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('billNumber')?.focus(); }}} />
             </div>
           </div>
@@ -3580,7 +3634,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <div class="bill-field__icon">🧾</div>
             <div class="bill-field__content">
               <label for="billNumber">{$t('receiving.billNumber')} {#if !billNumberNotMandatory}<span class="required">*</span>{/if}</label>
-              <input type="text" id="billNumber" bind:value={billNumber} placeholder={$t('receiving.billNumberPlaceholder')} class="editable-input" required={!billNumberNotMandatory}
+              <input type="text" id="billNumber" bind:value={billNumber} placeholder={$t('receiving.billNumberPlaceholder')} class="editable-input" class:scan-unrecognised={scanMissing.billNumber} aria-invalid={Boolean(scanMissing.billNumber)} title={scanMissing.billNumber ? $t('receiving.scanUnreadable') : ''} on:input={(e) => clearScanWarning('billNumber', e.currentTarget.value)} required={!billNumberNotMandatory}
                 on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('return-select-expired')?.focus(); }}} />
             </div>
           </div>
@@ -3772,7 +3826,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
               </div>
               <div class="compact-field">
                 <label for="billVatNumber">{$t('receiving.billVat')}</label>
-                <input type="text" id="billVatNumber" bind:value={billVatNumber} placeholder={$t('receiving.vatFromBill')} class="editable-input" 
+                <input type="text" id="billVatNumber" bind:value={billVatNumber} placeholder={$t('receiving.vatFromBill')} class="editable-input" class:scan-unrecognised={scanMissing.billVatNumber} aria-invalid={Boolean(scanMissing.billVatNumber)} title={scanMissing.billVatNumber ? $t('receiving.scanUnreadable') : ''} on:input={(e) => clearScanWarning('billVatNumber', e.currentTarget.value)}
                   on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => { const reasonEl = document.getElementById('vatMismatchReason'); if (reasonEl) reasonEl.focus(); else { saveReceivingData(); } }, 50); }}} />
               </div>
             </div>
@@ -3797,7 +3851,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     {/if}
 
     <!-- Action Buttons for Step 3 -->
-    {#if currentStep !== 2 && currentStep !== 3}
+    {#if currentStep !== 3 && currentStep !== 4}
     <div class="step-actions">
       <button type="button" class="secondary-btn" on:click={goBackToVendorSelection}>
         {$t('receiving.backToVendor')}
@@ -3813,17 +3867,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 {/if}
 
 <!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 2 && billDate && billAmount && (billNumberNotMandatory || (billNumber && billNumber.trim())) && (paymentNotApplicable || (paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady)) && (vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
+{#if currentStep === 3 && billDate && billAmount && (billNumberNotMandatory || (billNumber && billNumber.trim())) && (paymentNotApplicable || (paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady)) && (vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
   <div class="step-navigation">
     <div class="step-complete-info">
       <span class="step-complete-icon">✅</span>
-      <span class="step-complete-text">{$t('receiving.step3Complete')}</span>
+      <span class="step-complete-text">{$t('receiving.billInformationComplete')}</span>
     </div>
     <button type="button" id="saveReceivingBtn" on:click={saveReceivingData} class="save-continue-btn">
       💾 {$t('receiving.saveContinueCert')}
     </button>
   </div>
-{:else if currentStep === 2}
+{:else if currentStep === 3}
   <div class="step-navigation">
     <div class="step-incomplete-info">
       <span class="step-incomplete-icon">⏳</span>
@@ -3844,13 +3898,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       </span>
     </div>
     <button type="button" disabled class="save-continue-btn disabled">
-      💾 {$t('receiving.completeStep3')}
+      💾 {$t('receiving.completeBillInformation')}
     </button>
   </div>
 {/if}
 
 <!-- Step 4: Finalization -->
-{#if currentStep === 3}
+{#if currentStep === 4}
   <div class="form-section">
 
     <!-- Warning Notice -->
@@ -3860,13 +3914,13 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     </div>
 
     <div class="step4-top-bar">
-      <button type="button" class="edit-bill-btn" on:click={() => currentStep = 2}>
+      <button type="button" class="edit-bill-btn" on:click={() => currentStep = 3}>
         ✏️ {$t('receiving.editBillInfo')}
       </button>
       {#if savedReceivingId}
         <span class="step4-status step4-status--ok">✅ {$t('receiving.receivingSaved')}</span>
       {:else}
-        <span class="step4-status step4-status--warn">⚠️ {$t('receiving.saveFromStep3First')}</span>
+        <span class="step4-status step4-status--warn">⚠️ {$t('receiving.saveBillInformationFirst')}</span>
       {/if}
     </div>
     
@@ -3898,6 +3952,9 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-radius: 8px;
 		border-left: 4px solid #1976d2;
 	}
+	.scan-field-notice { margin: 0 0 10px; padding: 7px 10px; border-radius: 7px; background: #eff6ff; color: #1d4ed8; font-size: 12px; }
+	input.editable-input.scan-unrecognised { border: 2px solid #dc2626 !important; background: #fef2f2 !important; box-shadow: 0 0 0 1px #fecaca; }
+	input.editable-input.scan-unrecognised:focus { outline: 2px solid #fca5a5; outline-offset: 1px; }
 	
 	.user-info-section h2 {
 		margin: 0 0 0.5rem 0;
