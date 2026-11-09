@@ -74,6 +74,9 @@
 	let bankSlipFileChannel = null;
 	let pendingBankSlipRequests = {};
 	let sendingBankSlipRequestId = null;
+	let billScanRequestChannel = null;
+	let pendingBillScanRequests = {};
+	let sendingBillScanRequestId = null;
 	let showBankSlipViewer = false;
 	let bankSlipViewerUrl = '';
 	let bankSlipViewerName = '';
@@ -245,6 +248,7 @@
 			if (disposed) return;
 			setupRealtimeSubscriptions();
 			setupBankSlipRequestRealtime();
+			setupBillScanRequestRealtime();
 			setupBankSlipFileRealtime();
 		})();
 		
@@ -261,6 +265,9 @@
 			}
 			if (bankSlipFileChannel) {
 				import('$lib/utils/supabase').then(({ supabase }) => supabase.removeChannel(bankSlipFileChannel));
+			}
+			if (billScanRequestChannel) {
+				import('$lib/utils/supabase').then(({ supabase }) => supabase.removeChannel(billScanRequestChannel));
 			}
 		};
 	});
@@ -326,6 +333,27 @@
 				}
 			})
 			.subscribe();
+	}
+
+	async function loadPendingBillScanRequests() {
+		const { supabase } = await import('$lib/utils/supabase');
+		const { data, error } = await supabase.from('pos_scan_requests')
+			.select('id, receiving_record_id').eq('request_type', 'receiving_bill').eq('status', 'pending');
+		if (error) { console.error('Error loading bill scan requests:', error); return; }
+		pendingBillScanRequests = Object.fromEntries((data || []).map((row) => [String(row.receiving_record_id), row.id]));
+	}
+
+	async function setupBillScanRequestRealtime() {
+		if (!$currentUser?.id) return;
+		const { supabase } = await import('$lib/utils/supabase');
+		billScanRequestChannel = supabase.channel(`receiving-bill-scans-${$currentUser.id}-${Date.now()}`)
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'pos_scan_requests' }, async (payload) => {
+				const row = payload.new || payload.old;
+				if (payload.eventType !== 'DELETE' && row?.request_type !== 'receiving_bill') return;
+				await loadPendingBillScanRequests();
+				if (row?.request_type === 'receiving_bill' && row.status === 'completed') await loadReceivingRecords();
+			}).subscribe();
+		await loadPendingBillScanRequests();
 	}
 
 	async function setupBankSlipFileRealtime() {
@@ -479,6 +507,14 @@
 						console.log('📝 Record updated, refreshing...');
 						// Update the specific record in the local arrays
 						const updatedRecord = payload.new;
+						if (updatedRecord.original_bill_check_result === null) {
+							const nextStatus = { ...originalBillCheckStatus };
+							const nextResult = { ...originalBillCheckResult };
+							delete nextStatus[updatedRecord.id];
+							delete nextResult[updatedRecord.id];
+							originalBillCheckStatus = nextStatus;
+							originalBillCheckResult = nextResult;
+						}
 						const index = receivingRecords.findIndex(r => r.id === updatedRecord.id);
 						if (index !== -1) {
 							receivingRecords[index] = { ...receivingRecords[index], ...updatedRecord };
@@ -1344,6 +1380,25 @@
 		}
 	}
 
+	async function sendBillScanRequest(record) {
+		if (!$currentUser?.id || sendingBillScanRequestId === record.id || pendingBillScanRequests[String(record.id)]) return;
+		sendingBillScanRequestId = record.id;
+		try {
+			const { supabase } = await import('$lib/utils/supabase');
+			const { data, error } = await supabase.from('pos_scan_requests').insert({
+				box_operation_id: null, branch_id: record.branch_id || null,
+				status: 'pending', requested_by: $currentUser.id, request_type: 'receiving_bill',
+				receiving_record_id: record.id,
+				request_label: [record.bill_number ? `Bill ${record.bill_number}` : 'Original Bill', record.vendors?.vendor_name].filter(Boolean).join(' · ')
+			}).select('id').single();
+			if (error?.code === '23505') { await loadPendingBillScanRequests(); return; }
+			if (error) throw error;
+			pendingBillScanRequests = { ...pendingBillScanRequests, [String(record.id)]: data.id };
+		} catch (error) {
+			alert(tFn('receiving.records.bankSlipRequestFailed', { error: error?.message || 'Unknown error' }));
+		} finally { sendingBillScanRequestId = null; }
+	}
+
 	// Helper function to check if file is PDF
 	function isPdfFile(url) {
 		if (!url) return false;
@@ -1656,9 +1711,14 @@
 		const nextStatus = { ...originalBillCheckStatus };
 		const nextResult = { ...originalBillCheckResult };
 		for (const record of records) {
-			if (record.original_bill_check_result && nextStatus[record.id] === undefined) {
+			if (record.original_bill_check_result) {
 				nextStatus[record.id] = record.original_bill_check_result.status;
 				nextResult[record.id] = record.original_bill_check_result;
+				statusChanged = true;
+				resultChanged = true;
+			} else if (nextStatus[record.id] !== undefined || nextResult[record.id] !== undefined) {
+				delete nextStatus[record.id];
+				delete nextResult[record.id];
 				statusChanged = true;
 				resultChanged = true;
 			}
@@ -2603,6 +2663,12 @@
 									{/if}
 								</div>
 							{/if}
+							<button type="button" class="mt-2 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+								on:click={() => sendBillScanRequest(record)}
+								disabled={sendingBillScanRequestId === record.id || !!pendingBillScanRequests[String(record.id)]}
+								title={$t('receiving.records.billScanRequestHint')}>
+								{sendingBillScanRequestId === record.id ? '⏳' : '📱'} {pendingBillScanRequests[String(record.id)] ? $t('receiving.records.waitingMobileSlip') : $t('receiving.records.sendBillScanRequest')}
+							</button>
 					</td>
 					<td class="px-3 py-3 text-sm text-center">
 							{#if record.pr_excel_file_url}

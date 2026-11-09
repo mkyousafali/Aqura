@@ -22,7 +22,8 @@
 		inUseBoxes: 0,
 		pendingChecklists: 0,
 		scanRequests: 0,
-		bankSlipRequests: 0
+		bankSlipRequests: 0,
+		billScanRequests: 0
 	};
 	let hasAssignedChecklists = false;
 	let expiringProductsCount = 0;
@@ -192,6 +193,7 @@
 			await loadDashboardData();
 			await loadScanRequestCount();
 			await loadBankSlipRequestCount();
+			await loadBillScanRequestCount();
 			setupScanRequestCountRealtime();
 		}
 		isLoading = false;
@@ -279,6 +281,18 @@
 		} catch (e) { console.error('Error loading bank slip request count:', e); }
 	}
 
+	async function loadBillScanRequestCount() {
+		const userId = currentUserData?.id;
+		if (!userId) return;
+		try {
+			const { count, error } = await supabase.from('pos_scan_requests')
+				.select('id', { count: 'exact', head: true }).eq('requested_by', userId)
+				.eq('request_type', 'receiving_bill').eq('status', 'pending');
+			if (error) throw error;
+			stats.billScanRequests = count || 0;
+		} catch (error) { console.error('Error loading bill scan request count:', error); }
+	}
+
 	function setupScanRequestCountRealtime() {
 		const userId = currentUserData?.id;
 		if (!userId) return;
@@ -292,6 +306,7 @@
 			}, () => {
 				loadScanRequestCount();
 				loadBankSlipRequestCount();
+				loadBillScanRequestCount();
 			})
 			.subscribe();
 	}
@@ -707,6 +722,14 @@
 				<div class="stat-info">
 					<p>{$localeData.code === 'ar' ? 'طلب مسح' : 'Scan Request'}</p>
 				</div>
+			</div>
+
+			<div class="stat-card blank clickable scan-request-card" on:click={() => goto('/mobile-interface/receiving-bill-requests')}>
+				<div class="stat-icon">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 12h8M9 16h8M9 20h4"/></svg>
+					{#if stats.billScanRequests > 0}<span class="count-badge">{stats.billScanRequests}</span>{/if}
+				</div>
+				<div class="stat-info"><p>{$localeData.code === 'ar' ? 'طلبات مسح الفواتير' : 'Bill Scan Requests'}</p></div>
 			</div>
 
 			<div class="stat-card blank clickable scan-request-card" on:click={() => goto('/mobile-interface/receiving-bank-slip-requests')}>

@@ -5490,6 +5490,8 @@ export const englishLocale: LocaleData = {
         notBankPayment: "Not a bank payment",
         bankSlipUploadFailed: "Bank slip upload failed: {error}",
         sendMobileSlipRequest: "Send Scan Request",
+        sendBillScanRequest: "Send Scan Request",
+        billScanRequestHint: "Send to Bill Scan Requests on your mobile home page. Photograph multiple pages and save one PDF as the Original Bill.",
         waitingMobileSlip: "Waiting for Mobile",
         bankSlipRequestFailed: "Could not send scan request: {error}",
         downloadTemplate: "Template",

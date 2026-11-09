@@ -5502,6 +5502,8 @@ export const arabicLocale: LocaleData = {
         notBankPayment: "ليست دفعة بنكية",
         bankSlipUploadFailed: "فشل رفع إيصال البنك: {error}",
         sendMobileSlipRequest: "إرسال طلب تصوير",
+        sendBillScanRequest: "إرسال طلب تصوير",
+        billScanRequestHint: "إرسال إلى طلبات مسح الفواتير في صفحتك الرئيسية بالجوال. صوّر عدة صفحات واحفظها كملف PDF واحد للفاتورة الأصلية.",
         waitingMobileSlip: "بانتظار الجوال",
         bankSlipRequestFailed: "تعذر إرسال طلب التصوير: {error}",
         colCertificate: "الشهادة",

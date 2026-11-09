@@ -12,6 +12,7 @@
 	const typeLabels = {
 		pos_reconciliation: 'Cashier / POS reconciliation',
 		receiving_bank_slip: 'Receiving Records bank slip',
+		receiving_bill: 'Receiving Records original bill',
 		pay_to_credit_slip: 'Pay to Credit bank slip'
 	};
 
@@ -93,6 +94,7 @@
 	$: counts = {
 		pos_reconciliation: requests.filter((item) => item.request_type === 'pos_reconciliation').length,
 		receiving_bank_slip: requests.filter((item) => item.request_type === 'receiving_bank_slip').length,
+		receiving_bill: requests.filter((item) => item.request_type === 'receiving_bill').length,
 		pay_to_credit_slip: requests.filter((item) => item.request_type === 'pay_to_credit_slip').length
 	};
 
@@ -118,10 +120,11 @@
 		</div>
 	</div>
 
-	<div class="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-4">
+	<div class="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-5">
 		<div class="rounded border border-slate-200 bg-white p-3"><span class="block text-xs text-slate-500">All pending</span><strong class="text-lg">{requests.length}</strong></div>
 		<div class="rounded border border-slate-200 bg-white p-3"><span class="block text-xs text-slate-500">POS reconciliation</span><strong class="text-lg">{counts.pos_reconciliation}</strong></div>
 		<div class="rounded border border-slate-200 bg-white p-3"><span class="block text-xs text-slate-500">Receiving slips</span><strong class="text-lg">{counts.receiving_bank_slip}</strong></div>
+		<div class="rounded border border-slate-200 bg-white p-3"><span class="block text-xs text-slate-500">Original bills</span><strong class="text-lg">{counts.receiving_bill}</strong></div>
 		<div class="rounded border border-slate-200 bg-white p-3"><span class="block text-xs text-slate-500">Pay to Credit slips</span><strong class="text-lg">{counts.pay_to_credit_slip}</strong></div>
 	</div>
 
