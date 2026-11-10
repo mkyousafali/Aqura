@@ -160,7 +160,7 @@
 		{#if requestId && !completed}<p class="scan-status" role="status">{text('Open Bill Scan Requests on your mobile home page. You can continue while waiting.', 'افتح طلبات مسح الفواتير في صفحة الجوال الرئيسية. يمكنك المتابعة أثناء الانتظار.')}</p>{/if}
 		{#if documentUrl}<div class="scan-result"><a href={documentUrl} target="_blank" rel="noopener noreferrer">📄 {text('View bill', 'عرض الفاتورة')}</a><span role="status">{reading ? text('AI is reading…', 'جارٍ قراءة الفاتورة…') : readDone ? text('Ready — review bill fields next.', 'جاهز — راجع الحقول في الخطوة التالية.') : text('Bill attached', 'تم إرفاق الفاتورة')}</span><button type="button" class="scan-secondary" on:click={readBill} disabled={reading || busy || Boolean(savedReceivingId)}>{text('Read again', 'إعادة القراءة')}</button></div>{/if}
 		{#if errorMessage}<p class="scan-error" role="alert">{errorMessage}</p>{/if}
-		<div class="scan-step-footer"><button type="button" class="scan-primary" on:click={() => dispatch('next')}>{text('Next → Bill Information', 'التالي ← معلومات الفاتورة')}</button></div>
+		<div class="scan-step-footer"><button type="button" class="scan-primary" on:click={() => dispatch('next')}>{text('Next → Bill Details', 'التالي ← تفاصيل الفاتورة')}</button></div>
 	</section>
 {/if}
 

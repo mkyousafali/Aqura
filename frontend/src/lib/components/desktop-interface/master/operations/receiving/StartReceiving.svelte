@@ -24,7 +24,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   // receiving_records once the certificate step completes.
   let finalizingPendingRecord = false;
 
-  $: steps = [$t('receiving.stepSelectBranch'), $t('receiving.stepSelectVendor'), $t('receiving.stepScanBill'), $t('receiving.stepBillInformation'), $t('receiving.stepFinalization')];
+  const BILL_DETAILS_STEP = 3;
+  const RETURNS_STEP = 4;
+  const PAYMENT_STEP = 5;
+  const VAT_STEP = 6;
+  const FINALIZATION_STEP = 7;
+  $: steps = [$t('receiving.stepSelectBranch'), $t('receiving.stepSelectVendor'), $t('receiving.stepScanBill'), $t('receiving.billDetailsStep'), $t('receiving.returns'), $t('receiving.payment'), $t('receiving.vatVerification'), $t('receiving.stepFinalization')];
   let currentStep = -1; // -1 = blank intro screen, shown before Step 1
   let allRequiredUsersSelected = false; // Track if all required users are selected
 
@@ -1440,6 +1445,23 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     console.log('Removed shelf stocker, remaining:', selectedShelfStockers);
   }
 
+  function toggleShelfStocker(user) {
+    if (selectedShelfStockers.some(stocker => stocker.id === user.id)) removeShelfStocker(user.id);
+    else selectShelfStocker(user);
+  }
+
+  function handleStockerRowClick(event: MouseEvent, user) {
+    // The native checkbox and its label handle their own change event.
+    if (event.target instanceof Element && event.target.closest('input, label')) return;
+    toggleShelfStocker(user);
+  }
+
+  function handleStockerRowKeydown(event: KeyboardEvent, user) {
+    if (event.target !== event.currentTarget || (event.key !== ' ' && event.key !== 'Enter')) return;
+    event.preventDefault();
+    toggleShelfStocker(user);
+  }
+
   function removeAllShelfStockers() {
     selectedShelfStockers = [];
     console.log('Removed all shelf stockers');
@@ -1761,6 +1783,44 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   $: vatNumbersMatch = vendorVatNumber && billVatNumber ? 
     vendorVatNumber.trim().toLowerCase() === billVatNumber.trim().toLowerCase() : null;
 
+  $: billDetailsReady = Boolean(billDate) && Number.isFinite(Number(billAmount)) && Number(billAmount) > 0
+    && (billNumberNotMandatory || Boolean(billNumber?.trim()));
+  $: paymentStepReady = paymentNotApplicable || Boolean(paymentMethod?.trim() && paymentMethodExplicitlySelected && dueDateReady);
+  $: vatStepReady = vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable'
+    || !selectedVendor.vat_number || Boolean(billVatNumber?.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim()));
+  $: currentBillStageReady = billDetailsReady && (currentStep < PAYMENT_STEP || paymentStepReady)
+    && (currentStep < VAT_STEP || vatStepReady);
+  $: billStageWarning = !billDetailsReady ? $t('receiving.billDetailsRequired')
+    : currentStep >= PAYMENT_STEP && !paymentStepReady
+      ? (!paymentMethodExplicitlySelected ? $t('receiving.selectPaymentMethod') : $t('receiving.completeDueDate'))
+    : currentStep === VAT_STEP && !vatStepReady
+      ? (!billVatNumber?.trim() ? $t('receiving.enterBillVat') : $t('receiving.provideVatReason')) : '';
+
+  async function focusBillStage() {
+    await tick();
+    const targetId = currentStep === BILL_DETAILS_STEP ? 'billDate'
+      : currentStep === RETURNS_STEP ? 'return-select-expired'
+      : currentStep === PAYMENT_STEP ? 'paymentMethod'
+      : currentStep === VAT_STEP ? 'billVatNumber' : '';
+    (document.getElementById(targetId) || document.getElementById('nextBillStageBtn') || document.getElementById('saveReceivingBtn'))?.focus();
+  }
+
+  function nextBillStage() {
+    if (!currentBillStageReady || currentStep < BILL_DETAILS_STEP || currentStep >= VAT_STEP) return;
+    currentStep += 1;
+    void focusBillStage();
+  }
+
+  function previousBillStage() {
+    currentStep = currentStep === BILL_DETAILS_STEP ? (finalizingPendingRecord ? 1 : 2) : currentStep - 1;
+    void focusBillStage();
+  }
+
+  async function focusPaymentStageField() {
+    await tick();
+    (document.getElementById('creditPeriod') || document.getElementById('bankName') || document.getElementById('nextBillStageBtn'))?.focus();
+  }
+
   // Reactive statement to clear fields when payment method changes
   $: if (paymentMethod) {
     // Clear credit period and bank fields for delivery methods
@@ -1819,6 +1879,17 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     vendorVatNumber = vendor?.vat_number || '';
   }
 
+  function handleVendorRowClick(event: MouseEvent, vendor) {
+    if (event.target instanceof Element && event.target.closest('button, a, input, label, select, textarea')) return;
+    void selectVendor(vendor);
+  }
+
+  function handleVendorRowKeydown(event: KeyboardEvent, vendor) {
+    if (event.target !== event.currentTarget || (event.key !== ' ' && event.key !== 'Enter')) return;
+    event.preventDefault();
+    void selectVendor(vendor);
+  }
+
   async function selectVendor(vendor) {
     // Check if vendor is missing critical information
     const missingSalesmanName = !vendor.salesman_name || vendor.salesman_name.trim() === '';
@@ -1836,7 +1907,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       // Vendor has all required information, proceed normally
       preparePaymentForNewReceiving(vendor);
       selectedVendor = vendor;
-      currentStep = 2; // Optional bill scan before bill information.
+      currentStep = finalizingPendingRecord ? BILL_DETAILS_STEP : 2;
       loadErpVendorBalance(vendor);
       loadOverdueVendorBalance(vendor);
     }
@@ -1918,7 +1989,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     selectedVendor = vendorToUpdate;
     showVendorUpdatePopup = false;
     vendorToUpdate = null;
-    currentStep = 2; // Optional bill scan before bill information.
+    currentStep = finalizingPendingRecord ? BILL_DETAILS_STEP : 2;
   }
 
   function skipVendorUpdate() {
@@ -2025,50 +2096,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     tick().then(() => document.getElementById('vendorSearchInput')?.focus());
   }
 
-  function proceedToReceiving() {
-    if (!billDate) {
-      alert('Please enter the bill date before proceeding.');
-      return;
-    }
-    if (!billAmount || parseFloat(billAmount) <= 0) {
-      alert('Please enter a valid bill amount before proceeding.');
-      return;
-    }
-    if (!paymentMethod || paymentMethod.trim() === '') {
-      alert('Payment Method is required before proceeding. Please select a payment method.');
-      return;
-    }
-    if ((paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit') && !creditPeriod) {
-      alert('Please enter credit period for credit payment methods.');
-      return;
-    }
-    if (selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && billVatNumber && vatNumbersMatch === false && !vatMismatchReason.trim()) {
-      alert('Please provide a reason for the VAT number mismatch before proceeding.');
-      return;
-    }
-    currentStep = 4; // Move to step 4 (finalization)
-    console.log('Proceeding to receiving with:', {
-      vendor: selectedVendor,
-      billDate: billDate,
-      billAmount: parseFloat(billAmount),
-      billNumber: billNumber,
-      paymentMethod: paymentMethod,
-      creditPeriod: creditPeriod ? parseInt(creditPeriod) : null,
-      dueDate: dueDate,
-      bankName: bankName,
-      iban: iban,
-      paymentChanged: paymentChanged,
-      vendorVatNumber: vendorVatNumber,
-      billVatNumber: billVatNumber,
-      vatNumbersMatch: vatNumbersMatch,
-      vatMismatchReason: vatMismatchReason,
-      returns: returns,
-      totalReturnAmount: totalReturnAmount,
-      finalBillAmount: finalBillAmount,
-      currentDateTime: currentDateTime
-    });
-  }
-
   // Update current date/time when component mounts and every second
   onMount(() => {
     updateCurrentDateTime();
@@ -2083,6 +2110,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   async function saveReceivingData() {
     if (billScanBusy) {
       alert($currentLocale === 'ar' ? 'انتظر اكتمال إرسال الطلب أو رفع الفاتورة ثم احفظ.' : 'Wait for the request or file upload to finish, then save.');
+      return;
+    }
+    // Keyboard shortcuts follow the same stage requirements as the navigation buttons.
+    if (!billDetailsReady || !paymentStepReady || !vatStepReady) {
+      currentStep = !billDetailsReady ? BILL_DETAILS_STEP : !paymentStepReady ? PAYMENT_STEP : VAT_STEP;
+      void focusBillStage();
       return;
     }
     // Validate required fields before saving
@@ -2263,7 +2296,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       receivingSuccessMessage = 'Receiving data saved successfully!';
       showReceivingSuccessModal = true;
       setTimeout(() => { showReceivingSuccessModal = false; }, 2000);
-      currentStep = 4;
+      currentStep = FINALIZATION_STEP;
       setTimeout(() => generateClearanceCertification(), 300);
     } catch (error) {
       console.error('Error saving receiving data:', error);
@@ -2898,7 +2931,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   <StepIndicator {steps} {currentStep} />
 </div>
 {/if}
-<div class="receiving-content">
+<div class="receiving-content" class:bill-stages-active={currentStep >= BILL_DETAILS_STEP && currentStep <= VAT_STEP && selectedVendor}>
 
 {#if finalReceivingLoading}
   <div class="form-section" style="text-align:center;">Loading record…</div>
@@ -3103,7 +3136,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <tbody>
               {#each filteredShelfStockers as user, si}
                 {@const isSelected = selectedShelfStockers.some(s => s.id === user.id)}
-                <tr class="stocker-row" class:stocker-row-highlight={si === shelfStockerHighlightIndex} class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}>
+                <tr class="stocker-row" class:stocker-row-highlight={si === shelfStockerHighlightIndex} class:is-stocker={user.position.toLowerCase().includes('shelf') && user.position.toLowerCase().includes('stocker')} class:is-selected={isSelected}
+                  tabindex="0" aria-selected={isSelected}
+                  on:click={(event) => handleStockerRowClick(event, user)}
+                  on:keydown={(event) => handleStockerRowKeydown(event, user)}>
                   <td class="id-cell">{user.employeeId}</td>
                   <td class="name-cell">{user.employeeName}</td>
                   <td class="position-cell">
@@ -3114,7 +3150,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
                       <input 
                         type="checkbox" 
                         checked={isSelected}
-                        on:change={() => isSelected ? removeShelfStocker(user.id) : selectShelfStocker(user)}
+                        on:change={() => toggleShelfStocker(user)}
+                        aria-label={`${user.employeeId} — ${user.employeeName}`}
                         on:keydown={(e) => { if (e.key === 'Enter' && allRequiredUsersSelected) { e.preventDefault(); currentStep = 1; tick().then(() => document.getElementById('vendorSearchInput')?.focus()); }}}
                         class="stocker-checkbox"
                       />
@@ -3324,7 +3361,10 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
               </thead>
               <tbody>
                 {#each filteredVendors as vendor, vi}
-                  <tr class:vendor-row-highlight={vi === vendorHighlightIndex}>
+                  <tr class="vendor-select-row" class:vendor-row-highlight={vi === vendorHighlightIndex}
+                    tabindex="0"
+                    on:click={(event) => handleVendorRowClick(event, vendor)}
+                    on:keydown={(event) => handleVendorRowKeydown(event, vendor)}>
                     {#if visibleColumns.erp_vendor_id}
                       <td class="vendor-id">{vendor.erp_vendor_id}</td>
                     {/if}
@@ -3571,8 +3611,8 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
       <span class="step-complete-icon">✅</span>
       <span class="step-complete-text">{$t('receiving.step2Complete')}</span>
     </div>
-    <button type="button" on:click={() => currentStep = 2} class="continue-step-btn">
-      {$t('receiving.stepScanBill')}
+    <button type="button" on:click={() => currentStep = finalizingPendingRecord ? BILL_DETAILS_STEP : 2} class="continue-step-btn">
+      {finalizingPendingRecord ? $t('receiving.billDetailsStep') : $t('receiving.stepScanBill')}
     </button>
   </div>
 {/if}
@@ -3589,31 +3629,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
   {/key}
 {/if}
 
-<!-- Step 4: Bill Information -->
-{#if currentStep === 3 && selectedVendor}
-  <div class="form-section step3-compact">
-
+<!-- Bill Details, Returns, Payment and VAT are separate stages, sharing the same saved form state. -->
+{#if currentStep >= BILL_DETAILS_STEP && currentStep <= VAT_STEP && selectedVendor}
+  <div class="bill-stage-shell">
+  <div class="form-section bill-stages">
     <div class="step3-top-bar">
-      <button type="button" class="secondary-btn btn-sm" on:click={() => currentStep = finalizingPendingRecord ? 1 : 2}>
-        {$t('receiving.back')}
-      </button>
-      <span class="step3-title">{$t('receiving.billInformation')} {selectedVendor.vendor_name}</span>
+      <span class="step3-title">{steps[currentStep]} - {selectedVendor.vendor_name}</span>
     </div>
     {#if billScanReading || scanAttempted || (billScanRequestId && !scannedBillUrl)}
       <p class="scan-field-notice" role="status">{billScanReading ? $t('receiving.scanReading') : scanAttempted ? $t('receiving.scanReviewFields') : $t('receiving.scanPending')}</p>
     {/if}
-    
-    <!-- Row 1: Bill Info + Return Policy side by side -->
-    <div class="step3-row-1">
+
+    {#if currentStep === BILL_DETAILS_STEP}
       <div class="bill-info-card">
         <div class="bill-info-grid">
-          <div class="bill-field bill-field--date">
-            <div class="bill-field__icon">🕐</div>
-            <div class="bill-field__content">
-              <label>{$t('receiving.currentDate')}</label>
-              <input type="text" value={currentDateTime} readonly class="readonly-input" />
-            </div>
-          </div>
           <div class="bill-field bill-field--billdate">
             <div class="bill-field__icon">📅</div>
             <div class="bill-field__content">
@@ -3635,12 +3664,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <div class="bill-field__content">
               <label for="billNumber">{$t('receiving.billNumber')} {#if !billNumberNotMandatory}<span class="required">*</span>{/if}</label>
               <input type="text" id="billNumber" bind:value={billNumber} placeholder={$t('receiving.billNumberPlaceholder')} class="editable-input" class:scan-unrecognised={scanMissing.billNumber} aria-invalid={Boolean(scanMissing.billNumber)} title={scanMissing.billNumber ? $t('receiving.scanUnreadable') : ''} on:input={(e) => clearScanWarning('billNumber', e.currentTarget.value)} required={!billNumberNotMandatory}
-                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('return-select-expired')?.focus(); }}} />
+                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); nextBillStage(); }}} />
             </div>
           </div>
         </div>
       </div>
-
+    {:else if currentStep === RETURNS_STEP}
       <div class="return-policy-card">
         <div class="rp-header">{$t('receiving.returnPolicy')}</div>
         <div class="rp-chips">
@@ -3661,36 +3690,6 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           </span>
         </div>
       </div>
-
-      <!-- ERP Ledger Balance Card -->
-      <div class="erp-balance-card">
-        <div class="erp-balance-label">🏦 ERP Balance</div>
-        {#if erpVendorBalanceLoading}
-          <div class="erp-balance-loading">⏳</div>
-        {:else if erpVendorBalance}
-          <div class="erp-balance-amount {erpVendorBalance.direction === 'Cr' ? 'erp-cr' : erpVendorBalance.direction === 'Dr' ? 'erp-dr' : ''}">
-            {erpVendorBalance.netBalance.toFixed(2)} {erpVendorBalance.direction}
-          </div>
-        {:else}
-          <div class="erp-balance-na">—</div>
-        {/if}
-      </div>
-
-      <!-- Overdue Balance Card -->
-      <div class="erp-balance-card overdue-card">
-        <div class="erp-balance-label">⏰ Overdue</div>
-        {#if overdueVendorBalanceLoading}
-          <div class="erp-balance-loading">⏳</div>
-        {:else if overdueVendorBalance > 0}
-          <div class="erp-balance-amount erp-dr">
-            {overdueVendorBalance.toFixed(2)}
-          </div>
-        {:else}
-          <div class="erp-balance-amount erp-cr" style="font-size:0.85rem">Cleared</div>
-        {/if}
-      </div>
-    </div>
-
     <!-- Row 2: Return Processing (only if returns accepted) -->
     {#if selectedVendor && !selectedVendor.no_return}
       <div class="step3-returns-row">
@@ -3707,7 +3706,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             { key: 'expired', label: $t('receiving.expiredLabel'), nextId: 'return-select-nearExpiry' },
             { key: 'nearExpiry', label: $t('receiving.nearExpiryLabel'), nextId: 'return-select-overStock' },
             { key: 'overStock', label: $t('receiving.overStockLabel'), nextId: 'return-select-damage' },
-            { key: 'damage', label: $t('receiving.damageLabel'), nextId: 'paymentMethod' }
+            { key: 'damage', label: $t('receiving.damageLabel'), nextId: 'nextBillStageBtn' }
           ] as retType}
             <div class="return-q-card">
               <div class="rq-top">
@@ -3735,10 +3734,43 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
         </div>
       </div>
     {/if}
+      {#if selectedVendor.no_return}
+        <p class="bill-stage-notice">{$t('receiving.noReturnsForVendor')}</p>
+      {/if}
+    {:else if currentStep === PAYMENT_STEP}
+      <div class="payment-balances">
+      <!-- ERP Ledger Balance Card -->
+      <div class="erp-balance-card">
+        <div class="erp-balance-label">🏦 ERP Balance</div>
+        {#if erpVendorBalanceLoading}
+          <div class="erp-balance-loading">⏳</div>
+        {:else if erpVendorBalance}
+          <div class="erp-balance-amount {erpVendorBalance.direction === 'Cr' ? 'erp-cr' : erpVendorBalance.direction === 'Dr' ? 'erp-dr' : ''}">
+            {erpVendorBalance.netBalance.toFixed(2)} {erpVendorBalance.direction}
+          </div>
+        {:else}
+          <div class="erp-balance-na">—</div>
+        {/if}
+      </div>
 
-    <!-- Row 3: Payment + Due Date + VAT all in one row -->
-    {#if selectedVendor}
-      <div class="step3-row-3">
+      <!-- Overdue Balance Card -->
+      <div class="erp-balance-card overdue-card">
+        <div class="erp-balance-label">⏰ Overdue</div>
+        {#if overdueVendorBalanceLoading}
+          <div class="erp-balance-loading">⏳</div>
+        {:else if overdueVendorBalance > 0}
+          <div class="erp-balance-amount erp-dr">
+            {overdueVendorBalance.toFixed(2)}
+          </div>
+        {:else}
+          <div class="erp-balance-amount erp-cr" style="font-size:0.85rem">Cleared</div>
+        {/if}
+      </div>
+      </div>
+      {#if paymentNotApplicable}
+        <p class="bill-stage-notice">{$t('receiving.paymentNotApplicableForBill')}</p>
+      {:else}
+        <div class="step3-row-3 payment-stage-grid">
         <!-- Payment (hidden for Without Bill / Delivery Note — no real payment terms to record) -->
         {#if !paymentNotApplicable}
         <div class="pay-card">
@@ -3754,7 +3786,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             <div class="compact-field">
               <label for="paymentMethod">{$t('receiving.method')} <span class="required">*</span></label>
               <select id="paymentMethod" bind:value={paymentMethod} on:change={() => { paymentChanged = true; paymentMethodExplicitlySelected = true; }} class="editable-input" required
-                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const vatField = document.getElementById('billVatNumber'); if (vatField) vatField.focus(); else document.getElementById('saveReceivingBtn')?.focus(); }}}>
+                on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusPaymentStageField(); }}}>
                 <option value="">{$t('receiving.selectPayment')}</option>
                 <option value="Cash on Delivery">{$t('receiving.cashOnDelivery')}</option>
                 <option value="Bank on Delivery">{$t('receiving.bankOnDelivery')}</option>
@@ -3765,17 +3797,20 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             {#if paymentMethod && (paymentMethod === 'Cash Credit' || paymentMethod === 'Bank Credit')}
               <div class="compact-field">
                 <label for="creditPeriod">{$t('receiving.creditDays')}</label>
-                <input type="number" id="creditPeriod" bind:value={creditPeriod} on:input={() => paymentChanged = true} placeholder={$t('receiving.daysPlaceholder')} min="0" class="editable-input" />
+                <input type="number" id="creditPeriod" bind:value={creditPeriod} on:input={() => paymentChanged = true} placeholder={$t('receiving.daysPlaceholder')} min="0" class="editable-input"
+                  on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (document.getElementById('bankName') || document.getElementById('nextBillStageBtn'))?.focus(); }}} />
               </div>
             {/if}
             {#if paymentMethod && (paymentMethod === 'Bank on Delivery' || paymentMethod === 'Bank Credit')}
               <div class="compact-field">
                 <label for="bankName">{$t('receiving.bank')}</label>
-                <input type="text" id="bankName" bind:value={bankName} on:input={() => paymentChanged = true} placeholder={$t('receiving.bankNamePlaceholder')} class="editable-input" />
+                <input type="text" id="bankName" bind:value={bankName} on:input={() => paymentChanged = true} placeholder={$t('receiving.bankNamePlaceholder')} class="editable-input"
+                  on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('iban')?.focus(); }}} />
               </div>
               <div class="compact-field">
                 <label for="iban">{$t('receiving.ibanLabel')}</label>
-                <input type="text" id="iban" bind:value={iban} on:input={() => paymentChanged = true} placeholder={$t('receiving.ibanPlaceholder')} class="editable-input" />
+                <input type="text" id="iban" bind:value={iban} on:input={() => paymentChanged = true} placeholder={$t('receiving.ibanPlaceholder')} class="editable-input"
+                  on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('nextBillStageBtn')?.focus(); }}} />
               </div>
             {/if}
           </div>
@@ -3811,7 +3846,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
             </div>
           </div>
         {/if}
-
+        </div>
+      {/if}
+    {:else if currentStep === VAT_STEP}
+      {#if vatCheckNotApplicable}
+        <p class="bill-stage-notice">{$t('receiving.vatNotApplicable')}</p>
+      {:else}
         <!-- VAT (hidden for Without Bill / Delivery Note — there's no bill to verify a VAT number against) -->
         {#if !vatCheckNotApplicable}
         <div class="vat-card">
@@ -3847,64 +3887,30 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
           {/if}
         </div>
         {/if}
-      </div>
+      {/if}
     {/if}
-
-    <!-- Action Buttons for Step 3 -->
-    {#if currentStep !== 3 && currentStep !== 4}
-    <div class="step-actions">
-      <button type="button" class="secondary-btn" on:click={goBackToVendorSelection}>
-        {$t('receiving.backToVendor')}
-      </button>
-      <button type="button" class="primary-btn" on:click={proceedToReceiving}>
-        {$t('receiving.continueToReceiving')}
-      </button>
-    </div>
-    {/if}
-    
-
   </div>
+
+  <div class="bill-stage-navigation">
+    <p class="bill-stage-status" role="status">{billStageWarning}</p>
+    <div class="bill-stage-buttons">
+      <button type="button" class="secondary-btn" on:click={previousBillStage}>{$t('receiving.back')}</button>
+      {#if currentStep === VAT_STEP}
+        <button type="button" id="saveReceivingBtn" on:click={saveReceivingData} class="save-continue-btn" disabled={!currentBillStageReady || billScanBusy}>
+          {$t('receiving.saveContinueCert')}
+        </button>
+      {:else}
+        <button type="button" id="nextBillStageBtn" on:click={nextBillStage} class="continue-step-btn" disabled={!currentBillStageReady}>
+          {$t('receiving.next')} {$currentLocale === 'ar' ? '←' : '→'} {steps[currentStep + 1]}
+        </button>
+      {/if}
+    </div>
+  </div>
+  </div><!-- /.bill-stage-shell -->
 {/if}
 
-<!-- Step 3 Complete - Continue Button -->
-{#if currentStep === 3 && billDate && billAmount && (billNumberNotMandatory || (billNumber && billNumber.trim())) && (paymentNotApplicable || (paymentMethod && paymentMethod.trim() && paymentMethodExplicitlySelected && dueDateReady)) && (vatCheckNotApplicable || !selectedVendor || selectedVendor.vat_applicable !== 'VAT Applicable' || !selectedVendor.vat_number || (billVatNumber && billVatNumber.trim() && (vatNumbersMatch !== false || vatMismatchReason.trim())))}
-  <div class="step-navigation">
-    <div class="step-complete-info">
-      <span class="step-complete-icon">✅</span>
-      <span class="step-complete-text">{$t('receiving.billInformationComplete')}</span>
-    </div>
-    <button type="button" id="saveReceivingBtn" on:click={saveReceivingData} class="save-continue-btn">
-      💾 {$t('receiving.saveContinueCert')}
-    </button>
-  </div>
-{:else if currentStep === 3}
-  <div class="step-navigation">
-    <div class="step-incomplete-info">
-      <span class="step-incomplete-icon">⏳</span>
-      <span class="step-incomplete-text">
-        {#if !paymentNotApplicable && !paymentMethodExplicitlySelected}
-          {$t('receiving.selectPaymentMethod')}
-        {:else if !paymentNotApplicable && !dueDateReady}
-          {$t('receiving.completeDueDate')}
-        {:else if !billDate || !billAmount || (!billNumberNotMandatory && (!billNumber || !billNumber.trim()))}
-          {$t('receiving.fillRequiredFields')}
-        {:else if !vatCheckNotApplicable && selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && !billVatNumber}
-          {$t('receiving.enterBillVat')}
-        {:else if !vatCheckNotApplicable && selectedVendor && selectedVendor.vat_applicable === 'VAT Applicable' && selectedVendor.vat_number && billVatNumber && vatNumbersMatch === false && !vatMismatchReason}
-          {$t('receiving.provideVatReason')}
-        {:else}
-          {$t('receiving.completeAllFields')}
-        {/if}
-      </span>
-    </div>
-    <button type="button" disabled class="save-continue-btn disabled">
-      💾 {$t('receiving.completeBillInformation')}
-    </button>
-  </div>
-{/if}
-
-<!-- Step 4: Finalization -->
-{#if currentStep === 4}
+<!-- Finalization follows VAT verification. -->
+{#if currentStep === FINALIZATION_STEP}
   <div class="form-section">
 
     <!-- Warning Notice -->
@@ -3914,7 +3920,7 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
     </div>
 
     <div class="step4-top-bar">
-      <button type="button" class="edit-bill-btn" on:click={() => currentStep = 3}>
+      <button type="button" class="edit-bill-btn" on:click={() => { currentStep = BILL_DETAILS_STEP; void focusBillStage(); }}>
         ✏️ {$t('receiving.editBillInfo')}
       </button>
       {#if savedReceivingId}
@@ -3955,6 +3961,54 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 	.scan-field-notice { margin: 0 0 10px; padding: 7px 10px; border-radius: 7px; background: #eff6ff; color: #1d4ed8; font-size: 12px; }
 	input.editable-input.scan-unrecognised { border: 2px solid #dc2626 !important; background: #fef2f2 !important; box-shadow: 0 0 0 1px #fecaca; }
 	input.editable-input.scan-unrecognised:focus { outline: 2px solid #fca5a5; outline-offset: 1px; }
+	.receiving-content.bill-stages-active { display: flex; flex-direction: column; }
+	.bill-stage-shell { box-sizing: border-box; flex-shrink: 0; width: 100%; max-width: 1440px; margin: auto; padding: clamp(16px, 2.5vw, 36px); container-type: inline-size; }
+	.form-section.bill-stages { width: 100%; max-width: none; margin: 0 0 18px; padding: clamp(20px, 2.5vw, 36px); border: 1px solid #dbeafe; border-radius: 16px; box-shadow: 0 6px 24px #0f172a0a; font-size: 1rem; }
+	.bill-stages .step3-top-bar { justify-content: center; margin-bottom: 24px; text-align: center; }
+	.bill-stages .step3-title { font-size: 1.5rem; line-height: 1.4; overflow-wrap: anywhere; }
+	.bill-stages .scan-field-notice { font-size: 0.95rem; padding: 12px; margin-bottom: 20px; }
+	.bill-stages .bill-info-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+	.bill-stages .bill-field { min-height: 120px; border-radius: 12px; }
+	.bill-stages .bill-field__icon { min-width: 46px; font-size: 1.3rem; }
+	.bill-stages .bill-field__content { min-width: 0; padding: 16px; gap: 10px; }
+	.bill-stages .bill-field__content label, .bill-stages .compact-field label, .bill-stages .rq-top label, .bill-stages .mismatch-reason-compact label { font-size: 1.05rem; line-height: 1.5; white-space: normal; }
+	.bill-stages .bill-field__content input, .bill-stages .compact-field input, .bill-stages .compact-field select, .bill-stages .due-content input, .bill-stages .rq-input, .bill-stages .rq-select { box-sizing: border-box; min-height: 54px; padding: 12px !important; font-size: 1.15rem !important; border-radius: 8px !important; }
+	.bill-stages .bill-field__content input { width: 100%; }
+	.bill-stages .bill-field__content input:not(.scan-unrecognised) { background: #fff !important; border: 1px solid #cbd5e1 !important; }
+	.bill-stages .return-policy-card { margin-bottom: 20px; padding: 16px; }
+	.bill-stages .rp-header, .bill-stages .pay-header, .bill-stages .returns-title { font-size: 1.15rem; margin-bottom: 12px; }
+	.bill-stages .rp-chip, .bill-stages .bill-summary-inline { font-size: 0.95rem; }
+	.bill-stages .return-questions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+	.bill-stages .return-q-card { min-width: 0; padding: 18px; border-radius: 10px; }
+	.bill-stages .rq-fields { gap: 10px; margin-top: 12px; }
+	.bill-stages .rq-top .rq-select { min-width: 82px; }
+	.payment-balances { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+	.bill-stages .erp-balance-card { padding: 12px 18px; }
+	.bill-stages .erp-balance-label { font-size: 0.95rem; }
+	.bill-stages .erp-balance-amount { font-size: 1.3rem; }
+	.bill-stages .payment-stage-grid { grid-template-columns: minmax(0, 2fr) minmax(250px, 1fr); gap: 20px; }
+	.bill-stages .pay-card, .bill-stages .due-card, .bill-stages .vat-card { padding: 24px; border-radius: 12px; }
+	.bill-stages .pay-fields, .bill-stages .vat-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+	.bill-stages .compact-field { min-width: 0; gap: 10px; }
+	.bill-stages .vat-card { width: 100%; max-width: none; }
+	.bill-stages .vendor-payment-reference, .bill-stages .pay-notice, .bill-stages .vat-na, .bill-stages .vat-ok, .bill-stages .vat-warn { font-size: 0.95rem; padding: 10px 12px; }
+	.bill-stages .vendor-payment-reference { margin-bottom: 18px; }
+	.bill-stages .calc-info, .bill-stages .due-notice { font-size: 0.95rem; line-height: 1.5; }
+	.bill-stages .reason-textarea-sm { min-height: 100px; padding: 12px; font-size: 1.05rem; }
+	.bill-stage-notice { padding: 18px; border-radius: 10px; background: #eff6ff; color: #475569; font-size: 1.05rem; }
+	.bill-stage-navigation { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; width: 100%; margin: 0; padding: 20px 24px; border: 1px solid #dbeafe; border-radius: 14px; background: #f8fafc; }
+	.bill-stage-status { flex: 1 1 260px; margin: 0; font-size: 1rem; line-height: 1.5; color: #b45309; }
+	.bill-stage-buttons { display: flex; flex-wrap: wrap; gap: 12px; min-width: 0; max-width: 100%; margin-inline-start: auto; }
+	.bill-stage-buttons button { min-width: 0; min-height: 54px; padding: 14px 26px; font-size: 1.1rem; border-radius: 10px; white-space: normal; text-align: center; }
+	.bill-stage-buttons button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+	@container (max-width: 780px) {
+		.bill-stages .bill-info-grid, .bill-stages .payment-stage-grid, .bill-stages .pay-fields, .bill-stages .vat-fields, .bill-stages .return-questions-grid { grid-template-columns: 1fr; }
+	}
+	@media (max-width: 700px) {
+		.bill-stages .bill-info-grid, .bill-stages .payment-stage-grid, .bill-stages .pay-fields, .bill-stages .vat-fields, .bill-stages .return-questions-grid { grid-template-columns: 1fr; }
+		.bill-stage-buttons { width: 100%; }
+		.bill-stage-buttons button { flex: 1; }
+	}
 	
 	.user-info-section h2 {
 		margin: 0 0 0.5rem 0;
@@ -4861,6 +4915,12 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 
 	.stocker-row {
 		transition: background-color 0.2s;
+		cursor: pointer;
+	}
+
+	.stocker-row:focus-visible {
+		outline: 2px solid #1976d2;
+		outline-offset: -2px;
 	}
 
 	.stocker-row:hover {
@@ -4908,13 +4968,35 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
+		min-height: 24px;
 	}
 
 	.stocker-checkbox {
-		width: 20px;
-		height: 20px;
+		appearance: none;
+		-webkit-appearance: none;
+		flex-shrink: 0;
+		width: 22px;
+		height: 22px;
+		margin: 0;
+		border: 2px solid #dc2626 !important;
+		border-radius: 3px;
+		background-color: #fff;
+		background-image: none;
 		cursor: pointer;
-		accent-color: #28a745;
+	}
+
+	.stocker-checkbox:checked {
+		background-color: #16a34a;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m4 10 4 4 8-8' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+		background-position: center;
+		background-size: 18px 18px;
+		background-repeat: no-repeat;
+	}
+
+	.stocker-checkbox:focus-visible {
+		outline: 2px solid #1976d2;
+		outline-offset: 3px;
+		box-shadow: none;
 	}
 
 	/* Accountant Section Styles */
@@ -6152,6 +6234,15 @@ import { openWindow } from '$lib/utils/windowManagerUtils';
 		border-bottom: 1px solid #e9ecef;
 		vertical-align: middle;
 		font-size: 0.85rem;
+	}
+
+	.vendor-select-row {
+		cursor: pointer;
+	}
+
+	.vendor-select-row:focus-visible {
+		outline: 2px solid #1976d2;
+		outline-offset: -2px;
 	}
 
 	.vendor-table tbody tr:hover {
