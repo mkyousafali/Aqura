@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 import { databaseClient, requireBreakUser } from '$lib/server/breakRegisterAuth';
 import { creditVendorName, loadPayToCreditItems } from '$lib/utils/payToCreditItems';
+import { isReceivingPaymentApproved, loadReceivingPaymentSchedules } from '$lib/utils/receivingPaymentApproval';
 
 function db() {
 	return createClient(env.VITE_SUPABASE_URL || '', env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_SERVICE_KEY || '');
@@ -350,6 +351,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
 			}
 			if (String(record.payment_method || '').trim().toLowerCase() !== 'bank on delivery') return json({ success: false, error: 'Only Bank on Delivery records can create a Bank Payment task' }, { status: 400 });
+			const payments = await loadReceivingPaymentSchedules(secureDb, [String(record.id)]);
+			if (!isReceivingPaymentApproved(payments, Number(record.branch_id))) return json({ success: false, error: 'Payment approval is required before posting this task. Send the payment for approval first.' }, { status: 400 });
 			if (!record.pr_excel_file_url) return json({ success: false, error: 'PR Excel must be uploaded before posting a payment task' }, { status: 400 });
 			if (record.original_bill_check_result?.status !== 'matched') return json({ success: false, error: 'The original bill check must be matched before posting a payment task' }, { status: 400 });
 			if (record.erp_check_result?.status !== 'matched') return json({ success: false, error: 'The ERP check must be matched before posting a payment task' }, { status: 400 });
@@ -369,11 +372,16 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			const receivedBy = employee?.name_en || employee?.name_ar || receiver?.username || 'Unknown user';
 			const amount = Number(record.final_bill_amount ?? record.bill_amount ?? 0);
 			if (!(amount > 0)) return json({ success: false, error: 'The receiving record has no valid final amount' }, { status: 400 });
+			if (payments.some(payment => !Number.isFinite(Number(payment.final_bill_amount ?? payment.bill_amount)) || Number(payment.final_bill_amount ?? payment.bill_amount) <= 0) ||
+				Math.abs(payments.reduce((total, payment) => total + Number(payment.final_bill_amount ?? payment.bill_amount), 0) - amount) > 0.005) {
+				return json({ success: false, error: 'Linked payment schedules do not match the receiving bill amount' }, { status: 400 });
+			}
 			const { data: assignee } = await secureDb.from('hr_employee_master').select('user_id').eq('is_removed', false).eq('user_id', defaults.entry_task_user_id).eq('current_branch_id', record.branch_id).maybeSingle();
 			if (!assignee) return json({ success: false, error: 'The default Entry Task User is not active in this branch' }, { status: 400 });
 
 			const payload = {
 				receiving_record_id: record.id, bank_account_id: defaults.bank_delivery_ledger_id,
+				payment_schedule_ids: payments.map(payment => payment.id), vendor_id: record.vendor_id,
 				bank_account: defaults.bank_delivery_ledger_name, ledger_name: vendor.vendor_name,
 				amount: amount.toFixed(2), narration: `Paid bill ${record.bill_number || '-'} received by ${receivedBy}`,
 				bill_number: record.bill_number || '', received_by: receivedBy
@@ -453,6 +461,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				return json({ success: false, error: 'Only the branch Entry Task User or a Master Admin can post this payment task' }, { status: 403 });
 			}
 			if (String(record.payment_method || '').trim().toLowerCase() !== 'cash on delivery') return json({ success: false, error: 'Only Cash on Delivery records can create a Cash Payment task' }, { status: 400 });
+			const payments = await loadReceivingPaymentSchedules(secureDb, [String(record.id)]);
+			if (!isReceivingPaymentApproved(payments, Number(record.branch_id))) return json({ success: false, error: 'Payment approval is required before posting this task. Send the payment for approval first.' }, { status: 400 });
 			if (!record.pr_excel_file_url) return json({ success: false, error: 'PR Excel must be uploaded before posting a payment task' }, { status: 400 });
 			if (record.original_bill_check_result?.status !== 'matched') return json({ success: false, error: 'The original bill check must be matched before posting a payment task' }, { status: 400 });
 			if (record.erp_check_result?.status !== 'matched') return json({ success: false, error: 'The ERP check must be matched before posting a payment task' }, { status: 400 });
@@ -468,10 +478,15 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			const receivedBy = employee?.name_en || employee?.name_ar || receiver?.username || 'Unknown user';
 			const amount = Number(record.final_bill_amount ?? record.bill_amount ?? 0);
 			if (!(amount > 0)) return json({ success: false, error: 'The receiving record has no valid final amount' }, { status: 400 });
+			if (payments.some(payment => !Number.isFinite(Number(payment.final_bill_amount ?? payment.bill_amount)) || Number(payment.final_bill_amount ?? payment.bill_amount) <= 0) ||
+				Math.abs(payments.reduce((total, payment) => total + Number(payment.final_bill_amount ?? payment.bill_amount), 0) - amount) > 0.005) {
+				return json({ success: false, error: 'Linked payment schedules do not match the receiving bill amount' }, { status: 400 });
+			}
 			const { data: assignee } = await secureDb.from('hr_employee_master').select('user_id').eq('is_removed', false).eq('user_id', defaults.entry_task_user_id).eq('current_branch_id', record.branch_id).maybeSingle();
 			if (!assignee) return json({ success: false, error: 'The default Entry Task User is not active in this branch' }, { status: 400 });
 			const payload = {
 				receiving_record_id: record.id, ledger_name: vendor.vendor_name, amount: amount.toFixed(2),
+				payment_schedule_ids: payments.map(payment => payment.id), vendor_id: record.vendor_id,
 				narration: `Paid bill ${record.bill_number || '-'} received by ${receivedBy}`,
 				bill_number: record.bill_number || '', received_by: receivedBy
 			};

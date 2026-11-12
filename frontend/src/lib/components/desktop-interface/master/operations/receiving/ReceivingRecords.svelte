@@ -11,6 +11,9 @@
 	import { realtimeService } from '$lib/utils/realtimeService';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
 	import { calculateReceivingRecordAmounts } from '$lib/utils/receivingRecordAmounts';
+	import ApproverListModal from '$lib/components/desktop-interface/master/finance/ApproverListModal.svelte';
+	import ReceivingPaymentTaskButton from './ReceivingPaymentTaskButton.svelte';
+	import { createReceivingPaymentApprovalLoader, isReceivingPaymentApproved, loadReceivingPaymentSchedules, receivingPaymentStatus } from '$lib/utils/receivingPaymentApproval';
 
 	// State for receiving records
 	let receivingRecords = []; // Current page records
@@ -64,6 +67,7 @@
 	// Pagination state (disabled UI but optimized loading)
 	let currentPage = 1;
 	let pageSize = 500; // Load 500 records at once via RPC
+	let receivingRecordsRequest = 0;
 	let totalPages = 1;
 	let totalRecords = 0;
 
@@ -87,6 +91,22 @@
 	let sendingCashPaymentTaskId = null;
 	let cashPaymentTasksByRecord = {};
 	let entryTaskPostingBranchIds = new Set();
+	let paymentSchedulesByRecord = {};
+	let paymentApprovalStatusesByRecord = {};
+	const refreshPaymentApprovals = createReceivingPaymentApprovalLoader(async (recordIds) => {
+		const { supabase } = await import('$lib/utils/supabase');
+		return loadReceivingPaymentSchedules(supabase, recordIds);
+	}, (schedules, statuses) => {
+		paymentSchedulesByRecord = schedules;
+		paymentApprovalStatusesByRecord = statuses;
+		receivingRecords = receivingRecords.map(withSavedPaymentStatus);
+		allLoadedRecords = allLoadedRecords.map(withSavedPaymentStatus);
+		archivedRecords = archivedRecords.map(withSavedPaymentStatus);
+		updatePaginatedRecords();
+	});
+	let requestingPaymentApprovalId = null;
+	let showPaymentApproverModal = false;
+	let pendingApprovalPayment = null;
 
 	// Check if current user is master admin
 	$: isMasterAdmin = $currentUser?.isMasterAdmin;
@@ -496,6 +516,7 @@
 								updatePaginatedRecords();
 								seedErpCheckState([newRecord]);
 								seedOriginalBillCheckState([newRecord]);
+								await loadPaymentApprovals([String(newId)]);
 								await loadErpCheckCounts();
 								console.log('✅ New record added to table without full reload');
 							}
@@ -540,6 +561,9 @@
 			unsubscribePaymentSchedule = realtimeService.subscribeToVendorPaymentScheduleChanges(
 				(payload) => {
 					const receivingRecordId = payload.new?.receiving_record_id || payload.old?.receiving_record_id;
+					// Approval decisions must enable posting without reopening the window.
+					if (receivingRecordId) void loadPaymentApprovals([String(receivingRecordId)]);
+					else void loadPaymentApprovals(paginatedRecords.map(record => String(record.id)));
 					console.log('💳 Real-time payment schedule update:', {
 						event: payload.eventType,
 						receivingRecordId: receivingRecordId,
@@ -826,6 +850,7 @@
 
 	// Load data for a specific page using RPC (with server-side filters)
 	async function loadPageData(pageNum) {
+		const request = ++receivingRecordsRequest;
 		try {
 			const { supabase } = await import('$lib/utils/supabase');
 			const startIdx = (pageNum - 1) * pageSize;
@@ -895,6 +920,7 @@
 				rpcError = legacyResult.error;
 			}
 
+			if (request !== receivingRecordsRequest) return;
 			if (rpcError) {
 				console.error(`❌ Error loading page ${pageNum}:`, rpcError);
 				throw rpcError;
@@ -910,7 +936,11 @@
 				return;
 			}
 
-			await loadBankSlips(records.map((record) => record.id));
+			await Promise.all([
+				loadBankSlips(records.map((record) => record.id)),
+				loadPaymentApprovals(records.map((record) => String(record.id)))
+			]);
+			if (request !== receivingRecordsRequest) return;
 
 			// Extract total count from first record (returned by RPC)
 			totalRecords = records[0]?.total_count || records.length;
@@ -971,13 +1001,14 @@
 				original_bill_check_result: record.original_bill_check_result
 			}));
 
-			receivingRecords = recordsWithDetails;
-			allLoadedRecords = recordsWithDetails;
+			receivingRecords = recordsWithDetails.map(withSavedPaymentStatus);
+			allLoadedRecords = receivingRecords;
 			updatePaginatedRecords();
 			seedErpCheckState(recordsWithDetails);
 			seedOriginalBillCheckState(recordsWithDetails);
 			console.log(`✅ Page ${pageNum} loaded via RPC (${recordsWithDetails.length} records shown)`);
 		} catch (err) {
+			if (request !== receivingRecordsRequest) return;
 			console.error(`Error loading page ${pageNum}:`, err);
 			receivingRecords = [];
 			paginatedRecords = [];
@@ -1011,7 +1042,10 @@
 			}
 
 			// Fetch details in bulk for archived records
-			await loadBankSlips(records.map((record) => record.id));
+			await Promise.all([
+				loadBankSlips(records.map((record) => record.id)),
+				loadPaymentApprovals(records.map((record) => String(record.id)))
+			]);
 			const uniqueBranchIds = [...new Set(records.map(r => r.branch_id))];
 			const uniqueVendorIds = [...new Set(records.map(r => r.vendor_id))];
 			const uniqueUserIds = [...new Set(records.map(r => r.user_id).filter(Boolean))];
@@ -1037,7 +1071,7 @@
 				users: userMap.get(record.user_id)
 			}));
 
-			archivedRecords = recordsWithDetails;
+			archivedRecords = recordsWithDetails.map(withSavedPaymentStatus);
 			seedErpCheckState(recordsWithDetails);
 			seedOriginalBillCheckState(recordsWithDetails);
 			const endTime = performance.now();
@@ -1072,7 +1106,7 @@
 			
 			filtered = filtered.filter(record => {
 				// Skip paid records for due-in filter
-				const isPaid = record.is_paid || record.schedule_status?.is_paid || record.payment_method?.toLowerCase()?.includes('on delivery');
+				const isPaid = record.is_paid === true;
 				if (isPaid) return false;
 				
 				if (!record.due_date) return false;
@@ -1098,8 +1132,9 @@
 	async function reloadWithFilters() {
 		currentPage = 1;
 		loading = true;
+		const request = receivingRecordsRequest + 1;
 		await loadPageData(1);
-		loading = false;
+		if (request === receivingRecordsRequest) loading = false;
 	}
 
 	// Called by on:change on select filters
@@ -1880,10 +1915,66 @@
 	}
 
 	function canPostPaymentTask(record) {
+		return paymentApprovalStatusesByRecord[String(record.id)] === 'loaded' && canPreparePaymentTask(record) &&
+			isReceivingPaymentApproved(paymentSchedulesByRecord[String(record.id)], record.branch_id);
+	}
+
+	function withSavedPaymentStatus(record) {
+		const id = String(record.id);
+		if (paymentApprovalStatusesByRecord[id] !== 'loaded') return record;
+		const status = receivingPaymentStatus(paymentSchedulesByRecord[id] || []);
+		return {
+			...record, ...status,
+			schedule_status: status.is_scheduled ? {
+				...record.schedule_status, receiving_record_id: record.id, is_paid: status.is_paid
+			} : null
+		};
+	}
+
+	function canPreparePaymentTask(record) {
 		const hasPostingPermission = $currentUser?.isMasterAdmin || entryTaskPostingBranchIds.has(Number(record.branch_id));
 		return hasPostingPermission && !!record.pr_excel_file_url &&
 			(originalBillCheckStatus[record.id] || record.original_bill_check_result?.status) === 'matched' &&
 			(erpCheckStatus[record.id] || record.erp_check_result?.status) === 'matched';
+	}
+
+	async function loadPaymentApprovals(recordIds) {
+		try {
+			await refreshPaymentApprovals(recordIds || []);
+		} catch (error) {
+			console.error('Error loading receiving payment approvals:', error);
+		}
+	}
+
+	async function requestPaymentApproval(record) {
+		if (!canPreparePaymentTask(record) || requestingPaymentApprovalId) return;
+		requestingPaymentApprovalId = record.id;
+		try {
+			const payments = await refreshPaymentApprovals([String(record.id)]);
+			if (!payments.length) throw new Error('No linked payment schedule was found. Generate the clearance certificate before requesting payment approval.');
+			if (payments.some(payment => Number(payment.branch_id) !== Number(record.branch_id))) throw new Error('The linked payment branch does not match this receiving record.');
+			const payment = payments.find(payment => !['approved', 'sent_for_approval'].includes(payment.approval_status));
+			if (!payment) return;
+			pendingApprovalPayment = {
+				...payment, vendor_name: record.vendors?.vendor_name || '',
+				branch_name: record.branches?.name_en || ''
+			};
+			showPaymentApproverModal = true;
+		} catch (error) {
+			alert(error?.message || 'Unable to request payment approval');
+		} finally {
+			requestingPaymentApprovalId = null;
+		}
+	}
+
+	function closePaymentApproverModal() {
+		showPaymentApproverModal = false;
+		pendingApprovalPayment = null;
+	}
+
+	async function paymentApprovalSubmitted() {
+		closePaymentApproverModal();
+		await loadPaymentApprovals(paginatedRecords.map(record => String(record.id)));
 	}
 
 	function translatePaymentMethod(method) {
@@ -2556,7 +2647,7 @@
 					</thead>
 					<tbody class="divide-y divide-slate-200">
 				
-				{#each paginatedRecords as record, index}
+				{#each paginatedRecords as record, index (record.id)}
 					<tr class="hover:bg-emerald-50/30 transition-colors duration-200 {index % 2 === 0 ? 'bg-slate-50/20' : 'bg-white/20'}">
 					<td class="px-3 py-3 text-sm text-center font-semibold text-slate-500">
 						{index + 1 + (currentPage - 1) * pageSize}
@@ -2742,7 +2833,16 @@
 								{#if bankSlipsByRecord[String(record.id)]?.[0]}
 									{#if bankSlipsByRecord[String(record.id)][0].check_result?.status === 'matched'}
 										<div class="text-[10px] font-bold text-emerald-700">✓ {$t('receiving.records.bankSlipMatched')}</div>
-										{#if canPostPaymentTask(record)}<button type="button" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed" on:click={() => sendBankPaymentTask(record)} disabled={sendingBankPaymentTaskId === record.id || !!bankPaymentTasksByRecord[String(record.id)]} title="Send Bank Payment task to the branch default Entry Task User">{sendingBankPaymentTaskId === record.id ? '⏳ Sending' : (bankPaymentTasksByRecord[String(record.id)] ? '✓ Task Sent' : '➤ Post Task')}</button>{/if}
+										{#if canPreparePaymentTask(record)}
+											<ReceivingPaymentTaskButton
+												approvalStatus={paymentApprovalStatusesByRecord[String(record.id)]}
+												payments={paymentSchedulesByRecord[String(record.id)] || []} branchId={Number(record.branch_id)}
+												sending={sendingBankPaymentTaskId === record.id} taskSent={!!bankPaymentTasksByRecord[String(record.id)]}
+												requestingApproval={requestingPaymentApprovalId === record.id} approvalRequestBusy={!!requestingPaymentApprovalId}
+												onPost={() => sendBankPaymentTask(record)} onRequestApproval={() => requestPaymentApproval(record)}
+												onRetry={() => loadPaymentApprovals([String(record.id)])}
+											/>
+										{/if}
 									{:else}
 										{#if bankSlipsByRecord[String(record.id)][0].check_result?.status === 'not_matched'}
 											<div class="text-[10px] font-bold text-red-600">✕ {$t('receiving.records.bankSlipNotMatched')}</div>
@@ -2752,7 +2852,16 @@
 								{/if}
 							</div>
 							{:else if record.payment_method?.trim().toLowerCase() === 'cash on delivery'}
-								{#if canPostPaymentTask(record)}<button type="button" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed" on:click={() => sendCashPaymentTask(record)} disabled={sendingCashPaymentTaskId === record.id || !!cashPaymentTasksByRecord[String(record.id)]} title="Send Cash Payment task to the branch default Entry Task User">{sendingCashPaymentTaskId === record.id ? '⏳ Sending' : (cashPaymentTasksByRecord[String(record.id)] ? '✓ Task Sent' : '➤ Post Task')}</button>{/if}
+								{#if canPreparePaymentTask(record)}
+									<ReceivingPaymentTaskButton
+										approvalStatus={paymentApprovalStatusesByRecord[String(record.id)]}
+										payments={paymentSchedulesByRecord[String(record.id)] || []} branchId={Number(record.branch_id)}
+										sending={sendingCashPaymentTaskId === record.id} taskSent={!!cashPaymentTasksByRecord[String(record.id)]}
+										requestingApproval={requestingPaymentApprovalId === record.id} approvalRequestBusy={!!requestingPaymentApprovalId}
+										onPost={() => sendCashPaymentTask(record)} onRequestApproval={() => requestPaymentApproval(record)}
+										onRetry={() => loadPaymentApprovals([String(record.id)])}
+									/>
+								{/if}
 							{:else if ['bank credit', 'cash credit'].includes(record.payment_method?.trim().toLowerCase())}
 								<span class="text-[10px] font-bold text-emerald-700">Credit</span>
 							{:else}
@@ -2798,7 +2907,7 @@
 						
 						<td class="px-3 py-3 text-sm text-left text-slate-700">
 							<div>
-								{#if record.payment_method?.toLowerCase()?.includes('on delivery') || record.is_paid || record.schedule_status?.is_paid}
+								{#if record.is_paid === true}
 									<div class="text-xs text-emerald-600">{$t('receiving.records.paid')}</div>
 								{:else if record.is_scheduled || record.schedule_status}
 									<div class:text-red-600={record.due_date && getDaysRemaining(record.due_date).includes('-')}>{getDaysRemaining(record.due_date)}</div>
@@ -3303,6 +3412,17 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+{#if showPaymentApproverModal && pendingApprovalPayment}
+	<ApproverListModal
+		bind:isOpen={showPaymentApproverModal}
+		paymentData={pendingApprovalPayment}
+		currentUserId={$currentUser?.id}
+		currentUserName={$currentUser?.username || 'Unknown'}
+		on:submitted={paymentApprovalSubmitted}
+		on:close={closePaymentApproverModal}
+	/>
 {/if}
 
 <style>

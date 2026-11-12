@@ -223,6 +223,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     host: true,
+    watch: {
+      // Large locale files can be read mid-write during hot reload on Windows.
+      awaitWriteFinish: {
+        stabilityThreshold: 300,
+        pollInterval: 50,
+      },
+    },
     fs: {
       allow: [".."],
     },

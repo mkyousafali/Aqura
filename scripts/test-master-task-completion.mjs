@@ -9,12 +9,18 @@ const migration = name => readFileSync(resolve('database/migrations', name), 'ut
 let sql = readFileSync('database/tests/assistant_completed_payments_mark_paid.sql', 'utf8');
 const setup = `
 create temp table users (id uuid primary key, status text, is_master_admin boolean);
+create temp table receiving_records (
+ id uuid primary key, branch_id bigint, vendor_id integer, payment_method text,
+ bill_amount numeric, final_bill_amount numeric
+);
+alter table pg_temp.vendor_payment_schedule add column receiving_record_id uuid;
+alter table pg_temp.vendor_payment_schedule add column approval_status text default 'pending';
 alter table pg_temp.assistant_workflow_tasks add column result jsonb;
 create function pg_temp.aqura_current_user_id() returns uuid language sql stable as $$
  select nullif(current_setting('test.actor', true), '')::uuid;
 $$;
 `;
-sql = sql.replace('-- INSTALL_MIGRATION_HERE', () => setup + migration('20261019_assistant_completed_payments_mark_paid.sql') + migration('20261031_master_complete_assistant_task.sql'));
-sql = sql.replace("select 'PASS: '", () => readFileSync('database/tests/master_complete_assistant_task.sql', 'utf8') + "\nselect 'PASS: '");
+sql = sql.replace('-- INSTALL_MIGRATION_HERE', () => setup + migration('20261019_assistant_completed_payments_mark_paid.sql') + migration('20261031_master_complete_assistant_task.sql') + migration('20261112_receiving_assistant_completed_payments_mark_paid.sql'));
+sql = sql.replace("select 'PASS: '", () => readFileSync('database/tests/master_complete_assistant_task.sql', 'utf8') + '\n' + readFileSync('database/tests/receiving_assistant_completed_payments_mark_paid.sql', 'utf8') + "\nselect 'PASS: '");
 const output = execFileSync('ssh', ['-o','BatchMode=yes','-o','ConnectTimeout=10','-o','IdentitiesOnly=yes','-i',resolve(homedir(),'.ssh/id_ed25519_nopass'),'root@8.213.42.21','docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1'], { input: sql, encoding:'utf8', timeout:60000 });
 console.log(output);

@@ -204,10 +204,14 @@
 	const EmailFailed = lazyWindowComponent('EmailFailed', () => import('$lib/components/desktop-interface/email/EmailFailed.svelte'));
 	const EmailSetupGuide = lazyWindowComponent('EmailSetupGuide', () => import('$lib/components/desktop-interface/email/EmailSetupGuide.svelte'));
 	const CreateCompany = lazyWindowComponent('CreateCompany', () => import('$lib/components/desktop-interface/master/company/CreateCompany.svelte'));
+	const BakeryWindow = lazyWindowComponent('BakeryWindow', () => import('$lib/components/desktop-interface/business/BakeryWindow.svelte'));
+	const CoffeeCounterWindow = lazyWindowComponent('CoffeeCounterWindow', () => import('$lib/components/desktop-interface/business/CoffeeCounterWindow.svelte'));
 
 	let showSettingsSubmenu = false;
 	let showCustomerAppSubmenu = false;
 
+	let showBusinessSubmenu = false;
+	let activeBusinessSubsection: string | null = null;
 	let showCompanySubmenu = false;
 	let showCompanyDashboardSubmenu = false;
 	let showCompanyManageSubmenu = false;
@@ -1810,6 +1814,46 @@ function openApprovalCenter() {
 		alert(`${section} - ${t('status.pending') || 'pending'}...`);
 	}
 
+	function openBakery() {
+		const windowId = generateWindowId('bakery');
+		openWindow({
+			id: windowId,
+			title: t('nav.bakery'),
+			component: BakeryWindow,
+			componentName: 'BakeryWindow',
+			props: { windowId },
+			icon: '🥐',
+			size: { width: 1000, height: 650 },
+			minSize: { width: 480, height: 350 },
+			position: { x: 130, y: 90 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllMenus();
+	}
+
+	function openCoffeeCounter() {
+		const windowId = generateWindowId('coffee-counter');
+		openWindow({
+			id: windowId,
+			title: t('nav.coffeeCounter'),
+			component: CoffeeCounterWindow,
+			componentName: 'CoffeeCounterWindow',
+			props: { windowId },
+			icon: '☕',
+			size: { width: 1000, height: 650 },
+			minSize: { width: 480, height: 350 },
+			position: { x: 130, y: 90 },
+			resizable: true,
+			minimizable: true,
+			maximizable: true,
+			closable: true
+		});
+		collapseAllMenus();
+	}
+
 	function openCreateCompany() {
 		const windowId = generateWindowId('create-company');
 		const instanceNumber = Math.floor(Math.random() * 1000) + 1;
@@ -2558,6 +2602,7 @@ function openApprovalCenter() {
 
 	// Open Receiving window
 	function collapseAllSubsections() {
+		activeBusinessSubsection = null;
 		showCompanyDashboardSubmenu = false;
 		showCompanyManageSubmenu = false;
 		showCompanyOperationsSubmenu = false;
@@ -2618,6 +2663,7 @@ function openApprovalCenter() {
 
 	function collapseAllMenus() {
 		collapseAllSubsections();
+		showBusinessSubmenu = false;
 		showCompanySubmenu = false;
 		showDeliverySubmenu = false;
 		showVendorSubmenu = false;
@@ -7555,6 +7601,63 @@ function openApprovalCenter() {
 		</div>
 	{/if}
 
+	<!-- Business currently contains placeholder content without protected data. -->
+	{#if $currentUser}
+	<div class="menu-section">
+		<button
+			class="section-button"
+			on:click={() => showBusinessSubmenu = !showBusinessSubmenu}
+			aria-expanded={showBusinessSubmenu}
+			aria-controls="business-submenu"
+		>
+			<span class="section-icon">💼</span>
+			<span class="section-text">{t('nav.business')}</span>
+			<span class="arrow" class:expanded={showBusinessSubmenu}>▼</span>
+		</button>
+	</div>
+	{#if showBusinessSubmenu}
+		<div id="business-submenu" class="submenu-inline business-submenu">
+			{#each ['dashboard', 'manage', 'operations', 'reports'] as subsection}
+				<div class="submenu-item-container">
+					<button
+						class="submenu-subsection-button icon-only"
+						on:click={() => {
+							const shouldOpen = activeBusinessSubsection !== subsection;
+							collapseAllSubsections();
+							if (shouldOpen) activeBusinessSubsection = subsection;
+						}}
+						title={t(`nav.${subsection}`)}
+						aria-expanded={activeBusinessSubsection === subsection}
+						aria-controls={`business-${subsection}-submenu`}
+					>
+						<span class="menu-text">{t(`nav.${subsection}`)}</span>
+					</button>
+				</div>
+				{#if activeBusinessSubsection === subsection}
+					<div id={`business-${subsection}-submenu`} class="submenu-subitem-container">
+						{#if subsection === 'manage'}
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openBakery}>
+									<span class="menu-icon">🥐</span>
+									<span class="menu-text">{t('nav.bakery')}</span>
+								</button>
+							</div>
+							<div class="submenu-item-container">
+								<button class="submenu-item" on:click={openCoffeeCounter}>
+									<span class="menu-icon">☕</span>
+									<span class="menu-text">{t('nav.coffeeCounter')}</span>
+								</button>
+							</div>
+						{:else}
+							<p class="business-empty">{t('nav.businessEmpty')}</p>
+						{/if}
+					</div>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+	{/if}
+
 	{:else}
 	<!-- ============ FAVORITES SIDEBAR ============ -->
 	<div class="favorites-sidebar-view">
@@ -7709,6 +7812,13 @@ function openApprovalCenter() {
 		flex-direction: column;
 		gap: 6px;
 		padding-bottom: 4px;
+	}
+
+	.business-empty {
+		margin: 0;
+		padding: 8px;
+		font-size: 11px;
+		opacity: 0.7;
 	}
 
 	.menu-section {
