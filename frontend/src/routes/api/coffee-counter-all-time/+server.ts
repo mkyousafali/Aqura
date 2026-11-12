@@ -21,7 +21,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			.eq('is_active', true).order('branch_id');
 		if (error) throw error;
 		const connections = configs || [];
-		const asOfDate = bakeryDate();
+		const asOfDate = bakeryDate(-1);
 		const arda = connections.find(config => String(config.branch_id) === COFFEE_PURCHASE_BRANCH_ID);
 		const [sales, input, vendorPayments, otherPaymentsTotal, stockValues, otherExpenseTotals] = await Promise.all([
 			Promise.all(connections.map(config => readDaily(config, asOfDate, 'sales'))),

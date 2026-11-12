@@ -2,8 +2,13 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { _ as t, currentLocale } from '$lib/i18n';
 	import { authenticatedFetch } from '$lib/utils/authenticatedFetch';
+	import { tFor } from '$lib/i18n';
+	import { iconUrlMap, error as iconError, loadIcons } from '$lib/stores/iconStore';
+	import type { CounterPdfPeriod, CounterPdfReport } from '$lib/utils/businessCounterReportPdf';
+	import type { CoffeeOtherPayment } from '$lib/types/coffeeOtherPayments';
+	import type { CoffeeOtherExpense } from '$lib/types/coffeeOtherExpenses';
 	import { COFFEE_COUNTER, COFFEE_PURCHASE_BRANCH_ID, COFFEE_INITIAL_CAPITAL, counterRentPercentage, type BusinessCounterProfile } from '$lib/types/businessCounter';
-	import type { BakeryBranch, BakeryExpenseBranch } from '$lib/types/bakery';
+	import { bakeryDate, type BakeryBranch, type BakeryExpenseBranch } from '$lib/types/bakery';
 	import type { CoffeeAllTimeSale, CoffeeAllTimeInputVat, CoffeeAllTimeResponse, CoffeeVendorPayments } from '$lib/types/coffeeAllTime';
 	import type { CoffeeBranchStockValue } from '$lib/types/coffeeStock';
 	import type { CoffeeOtherExpenseTotals } from '$lib/types/coffeeOtherExpenses';
@@ -32,6 +37,12 @@
 	let loading = true;
 	let failed = false;
 	let controller: AbortController | null = null;
+	let loadedAt = '';
+	let downloading = false;
+	let showReportLanguages = false;
+	let downloadError = '';
+	let downloadController: AbortController | null = null;
+	$: canDownload = salesReady && inputReady && asOfDate >= profile.reportStartDate && totals.netPayable !== null && totals.operatorsProfit !== null;
 	$: visibleBranches = branches.filter(branch => !selectedBranch || branch.id === selectedBranch);
 	$: failedBranches = visibleBranches.filter(branch => branch.status !== 'loaded');
 	$: salesReady = !loading && !failed && visibleBranches.length > 0 && failedBranches.length === 0;
@@ -135,6 +146,93 @@
 			? { sales: amounts.sales, operator: amounts.operator } : null;
 	}
 
+	async function downloadReport(locale: 'en' | 'ar') {
+		if (!canDownload || downloading) return;
+		if (asOfDate !== bakeryDate(-1)) {
+			showReportLanguages = false;
+			downloadError = $t('businessReportPdf.changed');
+			void loadReport();
+			return;
+		}
+		showReportLanguages = false;
+		downloading = true;
+		downloadError = '';
+		const pending = new AbortController();
+		downloadController = pending;
+		// Freeze the displayed financial snapshot before any asynchronous work.
+		const snapshotTotals = { ...totals };
+		const reportDate = asOfDate;
+		const snapshotLoadedAt = loadedAt;
+		const scope = selectedBranch;
+		const records = [...visibleSales];
+		const inputRecords = [...visiblePurchaseVat];
+		const rates = { ...rentPercentages };
+		const reportBranches = [...visibleBranches];
+		const stocks = [...visibleStockValues];
+		const reportStockValue = stockValue;
+		const payments = vendorPayments ? { ...vendorPayments } : null;
+		try {
+			await loadIcons(true);
+			if ($iconError) throw new Error('Logo unavailable');
+			const logoUrl = $iconUrlMap[`${profile.id}-logo`];
+			async function readEntries(kind: 'payments' | 'expenses') {
+				const response = await authenticatedFetch(`/api/${profile.id}-other-${kind}?through=${encodeURIComponent(reportDate)}`, { signal: pending.signal });
+				const result = await response.json();
+				if (!response.ok || !result.success || result.asOfDate !== reportDate || !Array.isArray(result.payments)) throw new Error('snapshotChanged');
+				if (!result.payments.every((row: CoffeeOtherExpense) => typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0 &&
+					typeof row.narration === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.paymentDate) && row.paymentDate <= reportDate &&
+					row.paymentDate >= profile.reportStartDate && (kind !== 'expenses' || ['sales', 'operator'].includes(row.paidFrom)))) throw new Error('Incomplete entries');
+				return result.payments.sort((a: CoffeeOtherPayment, b: CoffeeOtherPayment) => a.paymentDate.localeCompare(b.paymentDate) || a.id.localeCompare(b.id));
+			}
+			const [withdrawals, otherExpenses]: [CoffeeOtherPayment[], CoffeeOtherExpense[]] = scope ? [[], []] : await Promise.all([readEntries('payments'), readEntries('expenses')]);
+			const sum = (rows: CoffeeOtherPayment[]) => rows.reduce((value, row) => value + Math.round(row.amount * 100), 0);
+			if (sum(withdrawals) !== Math.round((snapshotTotals.otherPayments ?? 0) * 100) ||
+				sum(otherExpenses.filter(row => row.paidFrom === 'sales')) !== Math.round((snapshotTotals.salesPaidExpenses ?? 0) * 100) ||
+				sum(otherExpenses.filter(row => row.paidFrom === 'operator')) !== Math.round((snapshotTotals.operatorPaidExpenses ?? 0) * 100)) throw new Error('snapshotChanged');
+			const dates = [...new Set([...records.map(row => row.date), ...inputRecords.map(row => row.date), ...withdrawals.map(row => row.paymentDate), ...otherExpenses.map(row => row.paymentDate)])].sort();
+			const daily = dates.map(date => {
+				const expenses = otherExpenses.filter(row => row.paymentDate === date);
+				const dailyTotals = buildTotals(records.filter(row => row.date === date), inputRecords.filter(row => row.date === date), rates, scope, true, true, 0, 0,
+					{ sales: sum(expenses.filter(row => row.paidFrom === 'sales')) / 100, operator: sum(expenses.filter(row => row.paidFrom === 'operator')) / 100 });
+				const key = `${scope || 'all'}|${date}`;
+				const rate = Object.prototype.hasOwnProperty.call(rates, key) ? rates[key] : counterRentPercentage(profile, date);
+				return { date, percentage: typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : null,
+					salesIncludingVat: dailyTotals.salesIncludingVat!, salesExcludingVat: dailyTotals.salesExcludingVat!, rent: dailyTotals.rent!,
+					inputVat: dailyTotals.inputVat!, expensesIncludingVat: dailyTotals.expensesIncludingVat!,
+					receivable: roundMoney(dailyTotals.payableBeforePayments! - dailyTotals.initialCapital), profit: dailyTotals.operatorsProfit! };
+			});
+			const months = new Map<string, CounterPdfPeriod>();
+			for (const row of daily) {
+				const month = row.date.slice(0, 7);
+				const current = months.get(month) || { date: month, percentage: null, salesIncludingVat: 0, salesExcludingVat: 0, rent: 0, inputVat: 0, expensesIncludingVat: 0, receivable: 0, profit: 0 };
+				for (const key of ['salesIncludingVat', 'salesExcludingVat', 'rent', 'inputVat', 'expensesIncludingVat', 'receivable', 'profit'] as const) current[key] = roundMoney(current[key] + row[key]);
+				months.set(month, current);
+			}
+			const report: CounterPdfReport = {
+				profile, locale, logoUrl, totals: snapshotTotals,
+				startDate: isCoffee ? [dates[0], ...(!scope || scope === COFFEE_PURCHASE_BRANCH_ID ? [payments?.firstPaymentDate] : [])].filter((date): date is string => !!date).sort()[0] || reportDate : profile.reportStartDate, asOfDate: reportDate,
+				loadedAt: snapshotLoadedAt, generatedAt: new Date().toISOString(), combined: !scope,
+				scope: scope ? (locale === 'ar' ? reportBranches[0].nameAr : reportBranches[0].nameEn) : tFor(locale, `${profile.localeKey}.allBranches`),
+				daily, monthly: [...months.values()], withdrawals, otherExpenses,
+				branches: reportBranches.map(branch => {
+					const rows = records.filter(row => row.branchId === branch.id);
+					const branchTotals = buildTotals(rows, [], {}, branch.id, true, true, 0, 0, { sales: 0, operator: 0 });
+					return { name: locale === 'ar' ? branch.nameAr : branch.nameEn, sales: branchTotals.salesIncludingVat!,
+						salesExcludingVat: branchTotals.salesExcludingVat!, outputVat: branchTotals.outputVat!,
+						stock: stocks.find(item => item.branch.id === branch.id && item.branch.status === 'loaded')?.value ?? null };
+				}),
+				stockValue: reportStockValue, cashAndBank: isCoffee && (!scope || scope === COFFEE_PURCHASE_BRANCH_ID) ? payments?.cashAndBankAmount ?? null : 0,
+				journalPayments: isCoffee && (!scope || scope === COFFEE_PURCHASE_BRANCH_ID) ? payments?.journalAmount ?? null : 0
+			};
+			const { downloadBusinessCounterReportPdf } = await import('$lib/utils/businessCounterReportPdf');
+			await downloadBusinessCounterReportPdf(report, pending.signal);
+		} catch (error) {
+			if (!pending.signal.aborted) downloadError = $t(error instanceof Error && error.message === 'snapshotChanged' ? 'businessReportPdf.changed' : 'businessReportPdf.failed');
+		} finally {
+			if (!pending.signal.aborted) downloading = false;
+		}
+	}
+
 	async function loadOtherPaymentTotal() {
 		const version = ++otherPaymentReadVersion;
 		otherPaymentController?.abort();
@@ -151,8 +249,8 @@
 				} catch { return null; }
 			}
 			const [result, expenseResult] = await Promise.all([
-				readSummary(`/api/${profile.id}-other-payments?summary=1`),
-				readSummary(`/api/${profile.id}-other-expenses?summary=1`)
+				readSummary(`/api/${profile.id}-other-payments?summary=1&through=${encodeURIComponent(asOfDate || bakeryDate(-1))}`),
+				readSummary(`/api/${profile.id}-other-expenses?summary=1&through=${encodeURIComponent(asOfDate || bakeryDate(-1))}`)
 			]);
 			if (pending.signal.aborted || version !== otherPaymentReadVersion) return;
 			if (asOfDate && ((result && result.asOfDate !== asOfDate) || (expenseResult && expenseResult.asOfDate !== asOfDate))) { void loadReport(); return; }
@@ -198,6 +296,7 @@
 				otherExpenseTotals = parseExpenseTotals(result.otherExpenseTotals);
 			}
 			asOfDate = result.asOfDate;
+			loadedAt = new Date().toISOString();
 			if (!branches.some(branch => branch.id === selectedBranch)) selectedBranch = '';
 		} catch {
 			if (!pending.signal.aborted) failed = true;
@@ -206,8 +305,16 @@
 		}
 	}
 
-	onMount(() => { lastOtherPaymentsRevision = otherPaymentsRevision; mounted = true; void loadReport(); });
-	onDestroy(() => { mounted = false; controller?.abort(); otherPaymentController?.abort(); });
+	onMount(() => {
+		lastOtherPaymentsRevision = otherPaymentsRevision;
+		mounted = true;
+		void loadReport();
+		const rollover = setInterval(() => {
+			if (asOfDate && asOfDate !== bakeryDate(-1) && !loading && !downloading) void loadReport();
+		}, 60000);
+		return () => clearInterval(rollover);
+	});
+	onDestroy(() => { mounted = false; controller?.abort(); otherPaymentController?.abort(); downloadController?.abort(); });
 </script>
 
 <div class="all-time-report">
@@ -215,24 +322,40 @@
 		<div>
 			<h2>{$t(`${profile.localeKey}.allTimeReport`)}</h2>
 			<p>{$t(`${profile.localeKey}.allTime.through`)} <bdi>{asOfDate || '—'}</bdi></p>
+			<p>{$t('businessReportPdf.yesterdayNote')}</p>
 		</div>
 		<div class="controls">
 			<label for={`${windowId}-all-time-branch`}>{$t(`${profile.localeKey}.branch`)}</label>
-			<select id={`${windowId}-all-time-branch`} bind:value={selectedBranch} disabled={loading || failed}>
+			<select id={`${windowId}-all-time-branch`} bind:value={selectedBranch} disabled={loading || failed || downloading}>
 				<option value="">{$t(`${profile.localeKey}.allBranches`)}</option>
 				{#each branches as branch (branch.id)}
 					<option value={branch.id}>{$currentLocale === 'ar' ? branch.nameAr : branch.nameEn}</option>
 				{/each}
 			</select>
-			<button type="button" on:click={loadReport} disabled={loading}>{$t(`${profile.localeKey}.refresh`)}</button>
+			<button type="button" on:click={loadReport} disabled={loading || downloading}>{$t(`${profile.localeKey}.refresh`)}</button>
+			<button type="button" on:click={() => showReportLanguages = !showReportLanguages} disabled={!canDownload || downloading}
+				aria-expanded={showReportLanguages} aria-controls={`${windowId}-report-languages`}>
+				{$t(downloading ? 'businessReportPdf.downloading' : 'businessReportPdf.download')}
+			</button>
 		</div>
 	</div>
+	{#if showReportLanguages}
+		<div id={`${windowId}-report-languages`} class="report-languages" role="group" aria-label={$t('businessReportPdf.chooseLanguage')}>
+			<strong>{$t('businessReportPdf.chooseLanguage')}</strong>
+			<button type="button" lang="en" on:click={() => downloadReport('en')}>English</button>
+			<button type="button" lang="ar" dir="rtl" on:click={() => downloadReport('ar')}>العربية</button>
+			<button type="button" on:click={() => showReportLanguages = false}>{$t('businessReportPdf.cancel')}</button>
+		</div>
+	{/if}
+	{#if downloadError}<p class="message error" role="alert">{downloadError}</p>{/if}
 	{#if loading}
 		<p class="message" role="status">{$t(`${profile.localeKey}.allTime.loading`)}</p>
 	{:else if failed}
 		<p class="message error" role="alert">{$t(`${profile.localeKey}.allTime.failed`)}</p>
 	{:else if branches.length === 0}
 		<p class="message">{$t(`${profile.localeKey}.noBranches`)}</p>
+	{:else if asOfDate < profile.reportStartDate}
+		<p class="message">{$t('businessReportPdf.noCompletedPeriod', { date: profile.reportStartDate })}</p>
 	{:else}
 		{#each failedBranches as branch (branch.id)}
 			<p class="message error" role="alert">{$currentLocale === 'ar' ? branch.nameAr : branch.nameEn}: {$t(`${profile.localeKey}.salesBranchStatus.${branch.status}`)}</p>
@@ -322,6 +445,7 @@
 	.toolbar p, .note { color: #64748b; font-size: 12px; }
 	.toolbar p { margin: 0; }
 	.controls { font-size: 13px; }
+	.report-languages { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #b5d8cb; border-radius: 8px; background: #f0f8f4; }
 	select, button { padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #1e293b; font: inherit; }
 	button { cursor: pointer; color: #047857; font-weight: 600; }
 	button:disabled { cursor: wait; opacity: 0.6; }

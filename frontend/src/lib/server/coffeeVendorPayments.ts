@@ -5,6 +5,7 @@ export async function readCoffeeVendorPayments(config: any, asOfDate: string): P
 	const details = Array.isArray(config?.branches) ? config.branches[0] : config?.branches;
 	const report: CoffeeVendorPayments = {
 		asOfDate,
+		firstPaymentDate: null,
 		branch: { id: COFFEE_PURCHASE_BRANCH_ID, nameEn: details?.name_en || config?.branch_name || 'Arda',
 			nameAr: details?.name_ar || config?.branch_name || 'العارضة', status: 'unavailable' },
 		cashAndBankAmount: null, journalAmount: null, total: null
@@ -60,6 +61,9 @@ export async function readCoffeeVendorPayments(config: any, asOfDate: string): P
 			for (const row of rows) {
 				const debit = Number(row.debit), credit = Number(row.credit);
 				if (![debit, credit].every(Number.isFinite)) throw new Error('Invalid payment amount');
+				const entryDate = `${String(row.report_year).padStart(4, '0')}-${String(row.report_month).padStart(2, '0')}-${String(row.report_day).padStart(2, '0')}`;
+				if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) throw new Error('Invalid payment date');
+				if (!report.firstPaymentDate || entryDate < report.firstPaymentDate) report.firstPaymentDate = entryDate;
 				if (row.voucher_type === 'CP' || row.voucher_type === 'BP') { cashAndBank += debit - credit; continue; }
 				// The user confirmed all related suppliers' journal payments,
 				// including JV/MJV entries across the complete reporting history.

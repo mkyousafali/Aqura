@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { AuthenticationRequiredError, createAuthenticatedSupabase } from '$lib/server/authenticatedSupabase';
 import { coffeeOtherPayment, readCoffeeOtherPaymentTotal } from '$lib/server/coffeeOtherPayments';
-import { bakeryDate } from '$lib/types/bakery';
+import { counterEntryThroughDate, counterPostingDate } from '$lib/server/businessCounterCutoff';
 import type { CoffeeOtherPayment } from '$lib/types/coffeeOtherPayments';
 import { coffeePaymentEditHandler } from '$lib/server/coffeePaymentEdits';
 
@@ -26,7 +26,8 @@ function failure(error: unknown) {
 export const GET: RequestHandler = async ({ request, url }) => {
 	try {
 		const db = await authenticatedDb(request);
-		const asOfDate = bakeryDate();
+		const asOfDate = counterEntryThroughDate(url.searchParams.get('through'));
+		if (asOfDate === null) return json({ success: false, error: 'Invalid report cutoff date' }, { status: 400, headers });
 		const month = url.searchParams.get('month');
 		if (month !== null && (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || Number(month.slice(0, 4)) < 1753 || Number(month.slice(0, 4)) > 9998)) {
 			return json({ success: false, error: 'Invalid month' }, { status: 400, headers });
@@ -71,11 +72,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		const id = typeof body?.id === 'string' ? body.id : '';
 		const amount = String(body?.amount ?? '');
 		const narration = typeof body?.narration === 'string' ? body.narration.trim() : '';
+		const postingDate = counterPostingDate(body?.postingDate, 'coffee');
+		if (postingDate === null) return json({ success: false, error: 'Invalid posting date' }, { status: 400, headers });
 		if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ||
 			!/^\d{1,12}(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0 || narration.length < 1 || narration.length > 2000) {
 			return json({ success: false, error: 'Enter a positive amount with at most two decimals and a narration' }, { status: 400, headers });
 		}
-		const { data, error } = await db.rpc('record_coffee_other_payment', { p_id: id, p_amount: amount, p_narration: narration }).single();
+		const { data, error } = await db.rpc('record_coffee_other_payment', { p_id: id, p_amount: amount, p_narration: narration, p_posting_date: postingDate }).single();
 		if (error || !data) {
 			if (error?.code === '23505') return json({ success: false, error: 'Payment request already exists with different details' }, { status: 409, headers });
 			throw error || new Error('Unable to save payment');

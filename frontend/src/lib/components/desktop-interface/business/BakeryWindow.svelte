@@ -1,5 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { _ as t, currentLocale } from '$lib/i18n';
+	import { iconUrlMap, loadIcons } from '$lib/stores/iconStore';
+	import { windowManager } from '$lib/stores/windowManager';
+	import BusinessCounterSettings from './BusinessCounterSettings.svelte';
 	import BakeryProducts from './BakeryProducts.svelte';
 	import BakerySales from './BakerySales.svelte';
 	import BakeryExpenses from './BakeryExpenses.svelte';
@@ -14,10 +18,20 @@
 	export let profile: BusinessCounterProfile = BAKERY_COUNTER;
 	export let windowId: string;
 
-	type BakeryTab = 'sales' | 'products' | 'expenses' | 'supplierLedger' | 'operationsReport' | 'allTimeReport' | 'otherPayments' | 'otherExpenses';
+	$: counterLogo = $iconUrlMap[`${profile.id}-logo`];
+	onMount(() => {
+		// Logo changes update the window chrome independently of its render cycle.
+		const unsubscribe = iconUrlMap.subscribe(logos => {
+			windowManager.updateWindowIcon(windowId, logos[`${profile.id}-logo`] || profile.icon);
+		});
+		void loadIcons();
+		return unsubscribe;
+	});
+
+	type BakeryTab = 'sales' | 'products' | 'expenses' | 'supplierLedger' | 'operationsReport' | 'allTimeReport' | 'otherPayments' | 'otherExpenses' | 'settings';
 	const tabs: BakeryTab[] = profile.id === 'coffee-counter'
-		? ['sales', 'products', 'expenses', 'supplierLedger', 'operationsReport', 'allTimeReport', 'otherPayments', 'otherExpenses']
-		: ['sales', 'products', 'expenses', 'operationsReport', 'allTimeReport', 'otherPayments', 'otherExpenses'];
+		? ['sales', 'products', 'expenses', 'supplierLedger', 'operationsReport', 'allTimeReport', 'otherPayments', 'otherExpenses', 'settings']
+		: ['sales', 'products', 'expenses', 'operationsReport', 'allTimeReport', 'otherPayments', 'otherExpenses', 'settings'];
 	let activeTab: BakeryTab = 'sales';
 	const operationsTabs = ['salesAndRent', 'vat', 'operatorsProfit'] as const;
 	type OperationsTab = typeof operationsTabs[number];
@@ -74,7 +88,7 @@
 
 <div class="bakery-window" dir={$currentLocale === 'ar' ? 'rtl' : 'ltr'}>
 	<header>
-		<h1><span aria-hidden="true">{profile.icon}</span> {$t(profile.titleKey)}</h1>
+		<h1>{#if counterLogo}<img class="counter-logo" src={counterLogo} alt="" />{:else}<span aria-hidden="true">{profile.icon}</span>{/if} {$t(profile.titleKey)}</h1>
 	</header>
 	<div class="tabs" role="tablist" aria-label={$t(profile.titleKey)}>
 		{#each tabs as tab}
@@ -103,7 +117,9 @@
 				hidden={activeTab !== tab}
 				tabindex="0"
 			>
-				{#if tab === 'products'}
+				{#if tab === 'settings'}
+					{#if activeTab === 'settings'}<BusinessCounterSettings {windowId} {profile} />{/if}
+				{:else if tab === 'products'}
 					{#if productsOpened}<BakeryProducts {profile} {windowId} />{/if}
 				{:else if tab === 'expenses'}
 					{#if expensesOpened}<BakeryExpenses {profile} {windowId} />{/if}
@@ -180,10 +196,14 @@
 	}
 
 	h1 {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		margin: 0;
 		font-size: 24px;
 		font-weight: 700;
 	}
+	.counter-logo { width: 40px; height: 40px; object-fit: contain; }
 
 	.tabs {
 		display: flex;

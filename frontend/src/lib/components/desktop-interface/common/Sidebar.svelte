@@ -4,6 +4,8 @@
 	// - frontend/src/lib/i18n/locales/ar.ts (Arabic)
 	
 	import { onMount } from 'svelte';
+	import { iconUrlMap, loadIcons } from '$lib/stores/iconStore';
+	onMount(() => { void loadIcons(); });
 	import { goto } from '$app/navigation';
 	import { windowManager } from '$lib/stores/windowManager';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -1822,7 +1824,7 @@ function openApprovalCenter() {
 			component: BakeryWindow,
 			componentName: 'BakeryWindow',
 			props: { windowId },
-			icon: '🥐',
+			icon: $iconUrlMap['bakery-logo'] || '🥐',
 			size: { width: 1000, height: 650 },
 			minSize: { width: 480, height: 350 },
 			position: { x: 130, y: 90 },
@@ -1842,7 +1844,7 @@ function openApprovalCenter() {
 			component: CoffeeCounterWindow,
 			componentName: 'CoffeeCounterWindow',
 			props: { windowId },
-			icon: '☕',
+			icon: $iconUrlMap['coffee-counter-logo'] || '☕',
 			size: { width: 1000, height: 650 },
 			minSize: { width: 480, height: 350 },
 			position: { x: 130, y: 90 },
@@ -7638,13 +7640,13 @@ function openApprovalCenter() {
 						{#if subsection === 'manage'}
 							<div class="submenu-item-container">
 								<button class="submenu-item" on:click={openBakery}>
-									<span class="menu-icon">🥐</span>
+									<span class="menu-icon">{#if $iconUrlMap['bakery-logo']}<img src={$iconUrlMap['bakery-logo']} alt="" style="width: 24px; height: 24px; object-fit: contain;" />{:else}🥐{/if}</span>
 									<span class="menu-text">{t('nav.bakery')}</span>
 								</button>
 							</div>
 							<div class="submenu-item-container">
 								<button class="submenu-item" on:click={openCoffeeCounter}>
-									<span class="menu-icon">☕</span>
+									<span class="menu-icon">{#if $iconUrlMap['coffee-counter-logo']}<img src={$iconUrlMap['coffee-counter-logo']} alt="" style="width: 24px; height: 24px; object-fit: contain;" />{:else}☕{/if}</span>
 									<span class="menu-text">{t('nav.coffeeCounter')}</span>
 								</button>
 							</div>

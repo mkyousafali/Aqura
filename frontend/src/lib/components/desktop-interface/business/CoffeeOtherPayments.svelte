@@ -5,6 +5,7 @@
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import type { CoffeeOtherPayment, CoffeeOtherPaymentsResponse } from '$lib/types/coffeeOtherPayments';
 	import type { CoffeeExpensePaidFrom } from '$lib/types/coffeeOtherExpenses';
+	import { bakeryDate } from '$lib/types/bakery';
 
 	import { COFFEE_COUNTER, type BusinessCounterProfile } from '$lib/types/businessCounter';
 
@@ -23,6 +24,7 @@
 	let showForm = false;
 	let amount = '';
 	let narration = '';
+	let postingDate = bakeryDate();
 	let requestId = '';
 	let saving = false;
 	let saveError = '';
@@ -36,6 +38,7 @@
 
 	async function openForm() {
 		editing = null;
+		postingDate = bakeryDate();
 		amount = '';
 		narration = '';
 		paidFrom = '';
@@ -51,6 +54,7 @@
 		if (!canEdit || saving) return;
 		if (!Number.isSafeInteger(payment.version) || payment.version < 1) { void loadPayments(); return; }
 		editing = payment;
+		postingDate = payment.paymentDate;
 		amount = payment.amount.toFixed(2);
 		narration = payment.narration;
 		paidFrom = payment.paidFrom || '';
@@ -91,6 +95,10 @@
 		if (editing && !canEdit) { saveError = $t(`${profile.localeKey}.paymentEditing.masterOnly`); return; }
 		const paymentAmount = amount.trim();
 		const paymentNarration = narration.trim();
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(postingDate) || postingDate < profile.reportStartDate || postingDate > bakeryDate()) {
+			saveError = $t('businessCounterEntries.invalidDate');
+			return;
+		}
 		if (!/^\d{1,12}(\.\d{1,2})?$/.test(paymentAmount) || Number(paymentAmount) <= 0 || !paymentNarration || (isExpense && !['sales', 'operator'].includes(paidFrom))) {
 			saveError = $t(`${profile.localeKey}.${reportKey}.invalid`);
 			return;
@@ -102,10 +110,11 @@
 		try {
 			const response = await authenticatedFetch(endpoint, {
 				method: editedEntry ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ id: editedEntry?.id || requestId, amount: paymentAmount, narration: paymentNarration,
+				body: JSON.stringify({ id: editedEntry?.id || requestId, amount: paymentAmount, narration: paymentNarration, postingDate,
 					...(editedEntry ? { expectedVersion: editedEntry.version } : {}), ...(isExpense ? { paidFrom } : {}) })
 			});
 			const result: { success: boolean; payment?: Entry } = await response.json();
+			if (response.status === 400) { saveError = $t('businessCounterEntries.invalidEntry'); return; }
 			if (editedEntry && response.status === 409) { saveError = $t(`${profile.localeKey}.paymentEditing.conflict`); return; }
 			if (editedEntry && response.status === 403) { saveError = $t(`${profile.localeKey}.paymentEditing.masterOnly`); return; }
 			if (!response.ok || !result.success || !result.payment) throw new Error('Unable to save other payment');
@@ -146,6 +155,8 @@
 	{#if showForm && (!editing || canEdit)}
 		<form id={`${windowId}-other-payment-form`} on:submit|preventDefault={savePayment}>
 			{#if editing}<h3>{$t(isExpense ? `${profile.localeKey}.paymentEditing.editExpense` : `${profile.localeKey}.paymentEditing.editWithdrawal`)}</h3>{/if}
+			<label for={`${windowId}-other-payment-date`}>{$t('businessCounterEntries.postingDate')}</label>
+			<input id={`${windowId}-other-payment-date`} type="date" required min={profile.reportStartDate} max={bakeryDate()} bind:value={postingDate} on:input={changeRequest} disabled={saving} />
 			<label for={`${windowId}-other-payment-amount`}>{$t(`${profile.localeKey}.${reportKey}.amount`)}</label>
 			<input id={`${windowId}-other-payment-amount`} type="text" inputmode="decimal" maxlength="15" required bind:value={amount} on:input={changeRequest} disabled={saving} autocomplete="off" />
 			{#if isExpense}
@@ -179,7 +190,7 @@
 				<table>
 					<thead><tr>
 						<th scope="col">{$t(`${profile.localeKey}.rowNumber`)}</th>
-						<th scope="col">{$t(`${profile.localeKey}.date`)}</th>
+						<th scope="col">{$t('businessCounterEntries.postingDate')}</th>
 						<th scope="col">{$t(`${profile.localeKey}.narration`)}</th>
 						{#if isExpense}<th scope="col">{$t(`${profile.localeKey}.otherExpensesReport.paidFrom`)}</th>{/if}
 						<th scope="col" class="number">{$t(`${profile.localeKey}.${reportKey}.amount`)}</th>

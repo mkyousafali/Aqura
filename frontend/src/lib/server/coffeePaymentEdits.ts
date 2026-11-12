@@ -2,6 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { AuthenticationRequiredError, createAuthenticatedSupabase } from './authenticatedSupabase';
 import { coffeeOtherPayment } from './coffeeOtherPayments';
 import { coffeeOtherExpense } from './coffeeOtherExpenses';
+import { counterPostingDate } from './businessCounterCutoff';
 
 const headers = { 'Cache-Control': 'no-store' };
 
@@ -22,12 +23,15 @@ export function coffeePaymentEditHandler(kind: 'withdrawal' | 'expense', counter
 			const amount = String(body?.amount ?? '');
 			const narration = typeof body?.narration === 'string' ? body.narration.trim() : '';
 			const version = body?.expectedVersion;
+			const postingDate = body?.postingDate === undefined ? undefined : counterPostingDate(body.postingDate, counter);
+			if (postingDate === null) return json({ success: false, error: 'Invalid posting date' }, { status: 400, headers });
 			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ||
 				!/^\d{1,12}(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0 || narration.length < 1 || narration.length > 2000 ||
 				!Number.isSafeInteger(version) || version < 1 || (kind === 'expense' && !['sales', 'operator'].includes(body?.paidFrom))) {
 				return json({ success: false, error: 'Invalid entry details' }, { status: 400, headers });
 			}
-			const parameters = { p_id: id, p_expected_version: version, p_amount: amount, p_narration: narration };
+			const parameters = { p_id: id, p_expected_version: version, p_amount: amount, p_narration: narration,
+				...(postingDate === undefined ? {} : { p_posting_date: postingDate }) };
 			const { data, error } = kind === 'expense'
 				? await db.rpc(`edit_${counter}_other_expense`, { ...parameters, p_paid_from: body.paidFrom }).single()
 				: await db.rpc(`edit_${counter}_withdrawal`, parameters).single();

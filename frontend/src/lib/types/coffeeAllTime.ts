@@ -18,6 +18,7 @@ export interface CoffeeAllTimeInputVat {
 
 export interface CoffeeVendorPayments {
 	asOfDate: string;
+	firstPaymentDate?: string | null;
 	branch: BakeryBranch;
 	cashAndBankAmount: number | null;
 	journalAmount: number | null;

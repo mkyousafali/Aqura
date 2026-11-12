@@ -19,7 +19,17 @@ export const GET: RequestHandler = async ({ request }) => {
 			.eq('is_active', true).order('branch_id');
 		if (error) throw error;
 		const connections = configs || [];
-		const asOfDate = bakeryDate();
+		const asOfDate = bakeryDate(-1);
+		if (asOfDate < BAKERY_COUNTER.reportStartDate) {
+			const branches = connections.map(config => {
+				const details = Array.isArray(config.branches) ? config.branches[0] : config.branches;
+				return { id: String(config.branch_id), nameEn: details?.name_en || config.branch_name || String(config.branch_id),
+					nameAr: details?.name_ar || config.branch_name || String(config.branch_id), status: 'loaded' as const };
+			});
+			return json({ success: true, asOfDate, branches, expenseBranches: branches, inputVatBranch: null,
+				dailySales: [], dailyInputVat: [], vendorPayments: null, otherPaymentsTotal: 0,
+				otherExpenseTotals: { sales: 0, operator: 0 }, stockValues: [] }, { headers });
+		}
 		const [sales, expenses, otherPaymentsTotal, otherExpenseTotals] = await Promise.all([
 			Promise.all(connections.map(config => readCounterDaily(config, asOfDate, 'sales', BAKERY_COUNTER))),
 			Promise.all(connections.map(config => readBakeryAllTimeExpenses(config, asOfDate))),

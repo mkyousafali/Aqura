@@ -369,6 +369,18 @@ class WindowManager {
     });
   }
 
+  public updateWindowIcon(windowId: string, icon: string): void {
+    // Object stores notify subscribers even if update() returns the same Map.
+    // Skip unchanged icons before entering update() to avoid render feedback.
+    const current = get(this.windows).get(windowId);
+    if (!current || current.icon === icon) return;
+    this.windows.update((windows) => {
+      const updated = new Map(windows);
+      updated.set(windowId, { ...current, icon });
+      return updated;
+    });
+  }
+
   /**
    * Set window dragging state
    */
