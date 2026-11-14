@@ -4,9 +4,10 @@ import { bakeryOtherPayment, readBakeryOtherPaymentTotal } from '$lib/server/bak
 import { BAKERY_REPORT_START_MONTH } from '$lib/types/bakery';
 import { counterEntryThroughDate, counterPostingDate } from '$lib/server/businessCounterCutoff';
 import type { CoffeeOtherPayment } from '$lib/types/coffeeOtherPayments';
-import { coffeePaymentEditHandler } from '$lib/server/coffeePaymentEdits';
+import { coffeePaymentEditHandler, coffeeWithdrawalDeleteHandler } from '$lib/server/coffeePaymentEdits';
 
 export const PATCH = coffeePaymentEditHandler('withdrawal', 'bakery');
+export const DELETE = coffeeWithdrawalDeleteHandler('bakery');
 
 const headers = { 'Cache-Control': 'no-store' };
 
@@ -46,6 +47,7 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		do {
 			let query = db.from('bakery_other_payments')
 				.select('id, amount, narration, payment_date, created_at, updated_at, version', { count: 'exact' })
+				.is('deleted_at', null)
 				.lte('payment_date', asOfDate).order('created_at', { ascending: false }).order('id')
 				.range(offset, offset + 499);
 			if (month !== null) {

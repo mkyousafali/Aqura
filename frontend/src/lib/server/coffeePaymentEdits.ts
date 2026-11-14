@@ -47,3 +47,34 @@ export function coffeePaymentEditHandler(kind: 'withdrawal' | 'expense', counter
 		}
 	};
 }
+
+export function coffeeWithdrawalDeleteHandler(counter: 'coffee' | 'bakery' = 'coffee'): RequestHandler {
+	return async ({ request }) => {
+		try {
+			const db = createAuthenticatedSupabase(request);
+			const { data: auth, error: authError } = await db.auth.getUser();
+			if (authError || !auth.user) throw new AuthenticationRequiredError('Authenticated session is required');
+			const { data: allowed, error: accessError } = await db.rpc(`${counter}_master_admin_allowed`);
+			if (accessError) throw new Error('Unable to verify delete access');
+			if (allowed !== true) return json({ success: false, error: 'Master admin required' }, { status: 403, headers });
+			const raw = await request.text();
+			if (raw.length > 1024) return json({ success: false, error: 'Request is too large' }, { status: 400, headers });
+			let body;
+			try { body = JSON.parse(raw); } catch { return json({ success: false, error: 'Invalid request' }, { status: 400, headers }); }
+			const id = typeof body?.id === 'string' ? body.id : '';
+			const version = body?.expectedVersion;
+			if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || !Number.isSafeInteger(version) || version < 1) {
+				return json({ success: false, error: 'Invalid withdrawal details' }, { status: 400, headers });
+			}
+			const { data, error } = await db.rpc(`delete_${counter}_withdrawal`, { p_id: id, p_expected_version: version });
+			if (error || data !== true) {
+				const status = error?.code === '42501' ? 403 : error?.code === '40001' ? 409 : error?.code === '22023' ? 400 : 500;
+				return json({ success: false, error: status === 409 ? 'Withdrawal changed; refresh before deleting' : status === 403 ? 'Master admin required' : 'Unable to delete withdrawal' }, { status, headers });
+			}
+			return json({ success: true, id }, { headers });
+		} catch (error) {
+			const unauthorized = error instanceof AuthenticationRequiredError;
+			return json({ success: false, error: unauthorized ? 'Authenticated session is required' : 'Unable to delete withdrawal' }, { status: unauthorized ? 401 : 500, headers });
+		}
+	};
+}

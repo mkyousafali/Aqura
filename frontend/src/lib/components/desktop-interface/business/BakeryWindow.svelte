@@ -128,7 +128,7 @@
 				{:else if tab === 'allTimeReport'}
 					{#if allTimeOpened}<CoffeeAllTimeReport {profile} {windowId} {rentPercentages} {otherPaymentsRevision} />{/if}
 				{:else if tab === 'otherPayments'}
-					{#if otherPaymentsOpened}<CoffeeOtherPayments {profile} {windowId} on:saved={() => otherPaymentsRevision += 1} />{/if}
+					{#if otherPaymentsOpened}<CoffeeOtherPayments {profile} {windowId} on:saved={() => otherPaymentsRevision += 1} on:deleted={() => otherPaymentsRevision += 1} />{/if}
 				{:else if tab === 'otherExpenses'}
 					{#if otherExpensesOpened}<CoffeeOtherPayments {profile} windowId={`${windowId}-expenses`} mode="expense" on:saved={() => otherPaymentsRevision += 1} />{/if}
 				{:else if tab === 'operationsReport'}

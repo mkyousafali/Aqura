@@ -60,7 +60,7 @@ interface PdfRow { cells: string[]; total?: boolean }
 /** Browser canvas preserves native Arabic shaping and embeds the result in A4
  * pages. A fresh canvas is reused per page, rather than slicing a huge screenshot. */
 export async function downloadBusinessCounterReportPdf(report: CounterPdfReport, signal?: AbortSignal): Promise<void> {
-	if (report.asOfDate > bakeryDate(-1) || report.startDate > report.asOfDate) throw new Error('Invalid completed reporting period');
+	if (report.asOfDate > bakeryDate() || report.startDate > report.asOfDate) throw new Error('Invalid reporting period');
 	const { jsPDF } = await import('jspdf');
 	const rtl = report.locale === 'ar';
 	const label = (key: string) => tFor(report.locale, `businessReportPdf.${key}`);
@@ -74,7 +74,11 @@ export async function downloadBusinessCounterReportPdf(report: CounterPdfReport,
 	const timestamp = (value: string) => new Intl.DateTimeFormat(rtl ? 'ar-SA-u-ca-gregory' : 'en-GB', {
 		dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Asia/Riyadh'
 	}).format(new Date(value));
-	const cutoff = `${date(report.asOfDate)} 23:59:59`;
+	const loadedDateParts = new Intl.DateTimeFormat('en-GB', {
+		year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Riyadh'
+	}).formatToParts(new Date(report.loadedAt));
+	const loadedDate = ['year', 'month', 'day'].map(type => loadedDateParts.find(part => part.type === type)?.value).join('-');
+	const cutoff = loadedDate === report.asOfDate ? timestamp(report.loadedAt) : `${date(report.asOfDate)} 23:59:59`;
 	function active() { if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError'); }
 	active();
 	await document.fonts.ready;

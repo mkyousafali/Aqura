@@ -7,6 +7,7 @@
 	import ClearanceCertificateManager from './ClearanceCertificateManager.svelte';
 	import ManualScheduling from '$lib/components/desktop-interface/master/finance/ManualScheduling.svelte';
 	import PriceVerifier from './PriceVerifier.svelte';
+	import PurchaseEntry from './PurchaseEntry.svelte';
 	import { currentUser } from '$lib/utils/persistentAuth';
 	import { realtimeService } from '$lib/utils/realtimeService';
 	import { openWindow } from '$lib/utils/windowManagerUtils';
@@ -2640,9 +2641,7 @@
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colDaysToDue')}</th>
 							<th class="px-3 py-3 text-left text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colAmounts')}</th>
 							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colErpCheck')}</th>
-							{#if isMasterAdmin || canEditRecord || canDeleteRecord}
-								<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colActions')}</th>
-							{/if}
+							<th class="px-3 py-3 text-center text-xs font-black uppercase tracking-wider border-b-2 border-emerald-400">{$t('receiving.records.colActions')}</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-200">
@@ -3007,7 +3006,6 @@
 							{/if}
 						</td>
 						
-						{#if isMasterAdmin || canEditRecord || canDeleteRecord}
 							<td class="px-3 py-3 text-sm text-center">
 								{#if deletingRecordId === record.id}
 									<div class="deleting-indicator">
@@ -3016,6 +3014,24 @@
 									</div>
 								{:else}
 									<div class="inline-flex items-center gap-1.5">
+										<button
+											type="button"
+											class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
+											on:click={() => openWindow({
+												id: `purchase-entry-${record.id}`,
+												title: $t('receiving.records.purchaseEntryTitle'),
+												component: PurchaseEntry,
+												componentName: 'PurchaseEntry',
+												props: { record, branchName: getBranchName(record, $currentLocale) },
+												icon: '🛒',
+												size: { width: 1000, height: 700 },
+												minSize: { width: 600, height: 400 }
+											})}
+											title={$t('receiving.records.enterPurchase')}
+											aria-label={$t('receiving.records.enterPurchase')}
+										>
+											<span aria-hidden="true">🛒</span>
+										</button>
 										{#if isMasterAdmin || canEditRecord}
 											<button
 												class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 hover:shadow-lg transition-all duration-200 transform hover:scale-110"
@@ -3037,7 +3053,6 @@
 									</div>
 								{/if}
 							</td>
-						{/if}
 					</tr>
 				{/each}
 					</tbody>

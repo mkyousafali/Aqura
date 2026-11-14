@@ -5,21 +5,22 @@ import { readBakeryAllTimeExpenses } from '$lib/server/bakeryAllTimeExpenses';
 import { readBakeryOtherPaymentTotal } from '$lib/server/bakeryOtherPayments';
 import { readBakeryOtherExpenseTotals } from '$lib/server/bakeryOtherExpenses';
 import { BAKERY_COUNTER } from '$lib/types/businessCounter';
-import { bakeryDate } from '$lib/types/bakery';
+import { counterEntryThroughDate } from '$lib/server/businessCounterCutoff';
 
 const headers = { 'Cache-Control': 'no-store' };
 
-export const GET: RequestHandler = async ({ request }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
 	try {
 		const db = createAuthenticatedSupabase(request);
 		const { data: auth, error: authError } = await db.auth.getUser();
 		if (authError || !auth.user) throw new AuthenticationRequiredError('Authenticated session is required');
+		const asOfDate = counterEntryThroughDate(url.searchParams.get('through'));
+		if (asOfDate === null) return json({ success: false, error: 'Invalid report cutoff date' }, { status: 400, headers });
 		const { data: configs, error } = await db.from('erp_connections')
 			.select('branch_id, branch_name, erp_branch_id, tunnel_url, bridge_api_secret, branches(name_en, name_ar)')
 			.eq('is_active', true).order('branch_id');
 		if (error) throw error;
 		const connections = configs || [];
-		const asOfDate = bakeryDate(-1);
 		if (asOfDate < BAKERY_COUNTER.reportStartDate) {
 			const branches = connections.map(config => {
 				const details = Array.isArray(config.branches) ? config.branches[0] : config.branches;

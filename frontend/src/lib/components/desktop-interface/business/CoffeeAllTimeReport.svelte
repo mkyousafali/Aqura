@@ -33,6 +33,10 @@
 	let otherPaymentReadVersion = 0;
 	let otherPaymentController: AbortController | null = null;
 	let asOfDate = '';
+	let today = bakeryDate();
+	let throughDate = today;
+	let followCurrentDate = true;
+	let dateError = '';
 	let selectedBranch = '';
 	let loading = true;
 	let failed = false;
@@ -42,7 +46,7 @@
 	let showReportLanguages = false;
 	let downloadError = '';
 	let downloadController: AbortController | null = null;
-	$: canDownload = salesReady && inputReady && asOfDate >= profile.reportStartDate && totals.netPayable !== null && totals.operatorsProfit !== null;
+	$: canDownload = salesReady && inputReady && !dateError && asOfDate === throughDate && asOfDate >= profile.reportStartDate && totals.netPayable !== null && totals.operatorsProfit !== null;
 	$: visibleBranches = branches.filter(branch => !selectedBranch || branch.id === selectedBranch);
 	$: failedBranches = visibleBranches.filter(branch => branch.status !== 'loaded');
 	$: salesReady = !loading && !failed && visibleBranches.length > 0 && failedBranches.length === 0;
@@ -148,7 +152,9 @@
 
 	async function downloadReport(locale: 'en' | 'ar') {
 		if (!canDownload || downloading) return;
-		if (asOfDate !== bakeryDate(-1)) {
+		if (followCurrentDate && throughDate !== bakeryDate()) {
+			today = bakeryDate();
+			throughDate = today;
 			showReportLanguages = false;
 			downloadError = $t('businessReportPdf.changed');
 			void loadReport();
@@ -234,6 +240,7 @@
 	}
 
 	async function loadOtherPaymentTotal() {
+		if (loading) return;
 		const version = ++otherPaymentReadVersion;
 		otherPaymentController?.abort();
 		const pending = new AbortController();
@@ -249,8 +256,8 @@
 				} catch { return null; }
 			}
 			const [result, expenseResult] = await Promise.all([
-				readSummary(`/api/${profile.id}-other-payments?summary=1&through=${encodeURIComponent(asOfDate || bakeryDate(-1))}`),
-				readSummary(`/api/${profile.id}-other-expenses?summary=1&through=${encodeURIComponent(asOfDate || bakeryDate(-1))}`)
+				readSummary(`/api/${profile.id}-other-payments?summary=1&through=${encodeURIComponent(asOfDate || throughDate)}`),
+				readSummary(`/api/${profile.id}-other-expenses?summary=1&through=${encodeURIComponent(asOfDate || throughDate)}`)
 			]);
 			if (pending.signal.aborted || version !== otherPaymentReadVersion) return;
 			if (asOfDate && ((result && result.asOfDate !== asOfDate) || (expenseResult && expenseResult.asOfDate !== asOfDate))) { void loadReport(); return; }
@@ -261,7 +268,28 @@
 		}
 	}
 
+	function changeReportDate(event: Event) {
+		throughDate = (event.currentTarget as HTMLInputElement).value;
+		followCurrentDate = throughDate === bakeryDate();
+		void loadReport();
+	}
+
 	async function loadReport() {
+		if (followCurrentDate) {
+			today = bakeryDate();
+			throughDate = today;
+		}
+		const requestedDate = throughDate;
+		const parsedDate = new Date(`${requestedDate}T00:00:00Z`);
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || requestedDate < profile.reportStartDate || requestedDate > bakeryDate() ||
+			!Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== requestedDate) {
+			dateError = $t('businessReportPdf.invalidThroughDate', { date: profile.reportStartDate });
+			return;
+		}
+		dateError = '';
+		downloadError = '';
+		showReportLanguages = false;
+		const entriesRevision = otherPaymentsRevision;
 		const totalVersion = ++otherPaymentReadVersion;
 		otherPaymentController?.abort();
 		controller?.abort();
@@ -279,9 +307,9 @@
 		otherExpenseTotals = null;
 		stockValues = [];
 		try {
-			const response = await authenticatedFetch(`/api/${profile.id}-all-time`, { signal: pending.signal });
+			const response = await authenticatedFetch(`/api/${profile.id}-all-time?through=${encodeURIComponent(requestedDate)}`, { signal: pending.signal });
 			const result: CoffeeAllTimeResponse = await response.json();
-			if (!response.ok || !result.success || !Array.isArray(result.branches) || !Array.isArray(result.dailySales) ||
+			if (!response.ok || !result.success || result.asOfDate !== requestedDate || !Array.isArray(result.branches) || !Array.isArray(result.dailySales) ||
 				!Array.isArray(result.dailyInputVat) || !Array.isArray(result.stockValues) || (isCoffee && (!result.inputVatBranch || !result.vendorPayments)) || (!isCoffee && !Array.isArray(result.expenseBranches))) throw new Error('Unable to load all-time report');
 			if (pending.signal.aborted) return;
 			branches = result.branches;
@@ -301,16 +329,25 @@
 		} catch {
 			if (!pending.signal.aborted) failed = true;
 		} finally {
-			if (!pending.signal.aborted) loading = false;
+			if (!pending.signal.aborted) {
+				loading = false;
+				if (!failed && entriesRevision !== otherPaymentsRevision) void loadOtherPaymentTotal();
+			}
 		}
 	}
 
 	onMount(() => {
+		today = bakeryDate();
+		throughDate = today;
 		lastOtherPaymentsRevision = otherPaymentsRevision;
 		mounted = true;
 		void loadReport();
 		const rollover = setInterval(() => {
-			if (asOfDate && asOfDate !== bakeryDate(-1) && !loading && !downloading) void loadReport();
+			today = bakeryDate();
+			if (followCurrentDate && throughDate !== today && !loading && !downloading) {
+				throughDate = today;
+				void loadReport();
+			}
 		}, 60000);
 		return () => clearInterval(rollover);
 	});
@@ -322,9 +359,12 @@
 		<div>
 			<h2>{$t(`${profile.localeKey}.allTimeReport`)}</h2>
 			<p>{$t(`${profile.localeKey}.allTime.through`)} <bdi>{asOfDate || '—'}</bdi></p>
-			<p>{$t('businessReportPdf.yesterdayNote')}</p>
 		</div>
 		<div class="controls">
+			<label for={`${windowId}-all-time-through`}>{$t('businessReportPdf.upToDate')}</label>
+			<input id={`${windowId}-all-time-through`} type="date" min={profile.reportStartDate} max={today}
+				bind:value={throughDate} on:change={changeReportDate} required disabled={loading || downloading}
+				aria-invalid={!!dateError} aria-describedby={dateError ? `${windowId}-all-time-date-error` : undefined} />
 			<label for={`${windowId}-all-time-branch`}>{$t(`${profile.localeKey}.branch`)}</label>
 			<select id={`${windowId}-all-time-branch`} bind:value={selectedBranch} disabled={loading || failed || downloading}>
 				<option value="">{$t(`${profile.localeKey}.allBranches`)}</option>
@@ -339,6 +379,7 @@
 			</button>
 		</div>
 	</div>
+	{#if dateError}<p id={`${windowId}-all-time-date-error`} class="message error" role="alert">{dateError}</p>{/if}
 	{#if showReportLanguages}
 		<div id={`${windowId}-report-languages`} class="report-languages" role="group" aria-label={$t('businessReportPdf.chooseLanguage')}>
 			<strong>{$t('businessReportPdf.chooseLanguage')}</strong>
@@ -446,10 +487,10 @@
 	.toolbar p { margin: 0; }
 	.controls { font-size: 13px; }
 	.report-languages { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #b5d8cb; border-radius: 8px; background: #f0f8f4; }
-	select, button { padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #1e293b; font: inherit; }
+	select, input, button { padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #1e293b; font: inherit; }
 	button { cursor: pointer; color: #047857; font-weight: 600; }
 	button:disabled { cursor: wait; opacity: 0.6; }
-	select:focus-visible, button:focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
+	select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid #059669; outline-offset: 2px; }
 	.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 	.summary div { padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
 	.summary span { display: block; font-size: 12px; color: #64748b; }

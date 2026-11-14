@@ -28,7 +28,7 @@ async function loadBranch(profile: BusinessCounterProfile, config: any, date: st
 		const dailySales: BakeryDailySale[] = [];
 		let offset = 0;
 		let total = 0;
-		const salesScope = counterSalesScope(profile, config.branch_id);
+		const salesScope = counterSalesScope(profile);
 		// The branch servers reject the string-to-datetime conversion even with
 		// style 23. Build a date from the validated numeric parts instead.
 		const [year, month, day] = date.split('-').map(Number);

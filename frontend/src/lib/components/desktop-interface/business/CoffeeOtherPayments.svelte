@@ -17,7 +17,7 @@
 	const endpoint = `/api/${profile.id}-other-${isExpense ? 'expenses' : 'payments'}`;
 	type Entry = CoffeeOtherPayment & { paidFrom?: CoffeeExpensePaidFrom };
 	let paidFrom: '' | CoffeeExpensePaidFrom = '';
-	const dispatch = createEventDispatcher<{ saved: CoffeeOtherPayment }>();
+	const dispatch = createEventDispatcher<{ saved: CoffeeOtherPayment; deleted: CoffeeOtherPayment }>();
 	let payments: Entry[] = [];
 	let loading = true;
 	let failed = false;
@@ -31,12 +31,20 @@
 	let saved = false;
 	let editing: Entry | null = null;
 	let updated = false;
+	let deletingId: string | null = null;
+	let deleteError = '';
+	let deleted = false;
 	let controller: AbortController | null = null;
 	$: canEdit = $currentUser?.isMasterAdmin === true;
+	$: canDelete = canEdit && !isExpense;
+	$: busy = saving || deletingId !== null;
 	$: total = payments.reduce((sum, payment) => sum + Math.round(payment.amount * 100), 0) / 100;
 	$: money = new Intl.NumberFormat($currentLocale === 'ar' ? 'ar-SA' : 'en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 	async function openForm() {
+		if (busy || loading || failed) return;
+		deleteError = '';
+		deleted = false;
 		editing = null;
 		postingDate = bakeryDate();
 		amount = '';
@@ -51,7 +59,9 @@
 	}
 
 	async function editPayment(payment: Entry) {
-		if (!canEdit || saving) return;
+		if (!canEdit || busy) return;
+		deleteError = '';
+		deleted = false;
 		if (!Number.isSafeInteger(payment.version) || payment.version < 1) { void loadPayments(); return; }
 		editing = payment;
 		postingDate = payment.paymentDate;
@@ -73,6 +83,8 @@
 	}
 
 	async function loadPayments() {
+		if (busy) return;
+		deleteError = '';
 		controller?.abort();
 		const pending = new AbortController();
 		controller = pending;
@@ -91,7 +103,7 @@
 	}
 
 	async function savePayment() {
-		if (saving || loading || failed) return;
+		if (busy || loading || failed) return;
 		if (editing && !canEdit) { saveError = $t(`${profile.localeKey}.paymentEditing.masterOnly`); return; }
 		const paymentAmount = amount.trim();
 		const paymentNarration = narration.trim();
@@ -137,6 +149,40 @@
 		}
 	}
 
+	async function deleteWithdrawal(payment: Entry) {
+		if (!canDelete || busy || loading || failed) return;
+		if (!Number.isSafeInteger(payment.version) || payment.version < 1) { void loadPayments(); return; }
+		const confirmed = window.confirm($t('businessCounterEntries.confirmDeleteWithdrawal', {
+			date: payment.paymentDate, amount: money.format(payment.amount), narration: payment.narration
+		}));
+		if (!confirmed) return;
+		deletingId = payment.id;
+		deleteError = '';
+		deleted = false;
+		saved = false;
+		try {
+			const response = await authenticatedFetch(endpoint, {
+				method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ id: payment.id, expectedVersion: payment.version })
+			});
+			const result: { success: boolean; id?: string } = await response.json();
+			if (response.status === 409) { deleteError = $t('businessCounterEntries.deleteConflict'); return; }
+			if (response.status === 403) { deleteError = $t('businessCounterEntries.deleteMasterOnly'); return; }
+			if (!response.ok || !result.success || result.id !== payment.id) throw new Error('Unable to delete withdrawal');
+			payments = payments.filter(row => row.id !== payment.id);
+			if (editing?.id === payment.id) {
+				editing = null;
+				showForm = false;
+			}
+			deleted = true;
+			dispatch('deleted', payment);
+		} catch {
+			deleteError = $t('businessCounterEntries.deleteFailed');
+		} finally {
+			deletingId = null;
+		}
+	}
+
 	onMount(() => { void loadPayments(); });
 	onDestroy(() => controller?.abort());
 </script>
@@ -145,8 +191,8 @@
 	<div class="toolbar">
 		<h2>{$t(isExpense ? `${profile.localeKey}.otherExpenses` : `${profile.localeKey}.otherPayments`)}</h2>
 		<div class="actions">
-			<button type="button" on:click={loadPayments} disabled={loading || saving}>{$t(`${profile.localeKey}.refresh`)}</button>
-			<button class="add" type="button" on:click={openForm} disabled={saving || loading || failed} aria-expanded={showForm} aria-controls={`${windowId}-other-payment-form`}>
+			<button type="button" on:click={loadPayments} disabled={loading || busy}>{$t(`${profile.localeKey}.refresh`)}</button>
+			<button class="add" type="button" on:click={openForm} disabled={busy || loading || failed} aria-expanded={showForm} aria-controls={`${windowId}-other-payment-form`}>
 				<span aria-hidden="true">+</span> {$t(`${profile.localeKey}.${reportKey}.add`)}
 			</button>
 		</div>
@@ -156,27 +202,29 @@
 		<form id={`${windowId}-other-payment-form`} on:submit|preventDefault={savePayment}>
 			{#if editing}<h3>{$t(isExpense ? `${profile.localeKey}.paymentEditing.editExpense` : `${profile.localeKey}.paymentEditing.editWithdrawal`)}</h3>{/if}
 			<label for={`${windowId}-other-payment-date`}>{$t('businessCounterEntries.postingDate')}</label>
-			<input id={`${windowId}-other-payment-date`} type="date" required min={profile.reportStartDate} max={bakeryDate()} bind:value={postingDate} on:input={changeRequest} disabled={saving} />
+			<input id={`${windowId}-other-payment-date`} type="date" required min={profile.reportStartDate} max={bakeryDate()} bind:value={postingDate} on:input={changeRequest} disabled={busy} />
 			<label for={`${windowId}-other-payment-amount`}>{$t(`${profile.localeKey}.${reportKey}.amount`)}</label>
-			<input id={`${windowId}-other-payment-amount`} type="text" inputmode="decimal" maxlength="15" required bind:value={amount} on:input={changeRequest} disabled={saving} autocomplete="off" />
+			<input id={`${windowId}-other-payment-amount`} type="text" inputmode="decimal" maxlength="15" required bind:value={amount} on:input={changeRequest} disabled={busy} autocomplete="off" />
 			{#if isExpense}
 				<label for={`${windowId}-expense-paid-from`}>{$t(`${profile.localeKey}.otherExpensesReport.paidFrom`)}</label>
-				<select id={`${windowId}-expense-paid-from`} bind:value={paidFrom} on:change={changeRequest} required disabled={saving}>
+				<select id={`${windowId}-expense-paid-from`} bind:value={paidFrom} on:change={changeRequest} required disabled={busy}>
 					<option value="" disabled>{$t(`${profile.localeKey}.otherExpensesReport.chooseSource`)}</option>
 					<option value="sales">{$t(`${profile.localeKey}.otherExpensesReport.sales`)}</option>
 					<option value="operator">{$t(`${profile.localeKey}.otherExpensesReport.operator`)}</option>
 				</select>
 			{/if}
 			<label for={`${windowId}-other-payment-narration`}>{$t(`${profile.localeKey}.narration`)}</label>
-			<textarea id={`${windowId}-other-payment-narration`} rows="3" maxlength="2000" required bind:value={narration} on:input={changeRequest} disabled={saving}></textarea>
+			<textarea id={`${windowId}-other-payment-narration`} rows="3" maxlength="2000" required bind:value={narration} on:input={changeRequest} disabled={busy}></textarea>
 			{#if saveError}<p class="message error" role="alert">{saveError}</p>{/if}
 			<div class="actions">
-				<button class="add" type="submit" disabled={saving || loading || failed}>{$t(saving ? `${profile.localeKey}.${reportKey}.saving` : editing ? `${profile.localeKey}.paymentEditing.saveChanges` : `${profile.localeKey}.${reportKey}.save`)}</button>
-				<button type="button" disabled={saving} on:click={() => showForm = false}>{$t(`${profile.localeKey}.${reportKey}.cancel`)}</button>
+				<button class="add" type="submit" disabled={busy || loading || failed}>{$t(saving ? `${profile.localeKey}.${reportKey}.saving` : editing ? `${profile.localeKey}.paymentEditing.saveChanges` : `${profile.localeKey}.${reportKey}.save`)}</button>
+				<button type="button" disabled={busy} on:click={() => showForm = false}>{$t(`${profile.localeKey}.${reportKey}.cancel`)}</button>
 			</div>
 		</form>
 	{/if}
 	{#if saved}<p class="message success" role="status">{$t(updated ? `${profile.localeKey}.paymentEditing.updated` : `${profile.localeKey}.${reportKey}.saved`)}</p>{/if}
+	{#if deleted}<p class="message success" role="status">{$t('businessCounterEntries.withdrawalDeleted')}</p>{/if}
+	{#if deleteError}<p class="message error" role="alert">{deleteError}</p>{/if}
 	{#if loading}
 		<p class="message" role="status">{$t(`${profile.localeKey}.${reportKey}.loading`)}</p>
 	{:else if failed}
@@ -203,7 +251,14 @@
 							<td class="narration">{payment.narration}</td>
 							{#if isExpense}<td>{$t(`${profile.localeKey}.otherExpensesReport.${payment.paidFrom}`)}</td>{/if}
 							<td class="number"><bdi>{money.format(payment.amount)}</bdi></td>
-							{#if canEdit}<td><button type="button" disabled={saving || loading} on:click={() => editPayment(payment)}>{$t(`${profile.localeKey}.paymentEditing.edit`)}</button></td>{/if}
+							{#if canEdit}<td>
+								<div class="actions">
+									<button type="button" disabled={busy || loading} on:click={() => editPayment(payment)}>{$t(`${profile.localeKey}.paymentEditing.edit`)}</button>
+									{#if canDelete}<button class="delete" type="button" disabled={busy || loading} on:click={() => deleteWithdrawal(payment)}>
+										{$t(deletingId === payment.id ? 'businessCounterEntries.deleting' : 'businessCounterEntries.delete')}
+									</button>{/if}
+								</div>
+							</td>{/if}
 						</tr>{/each}
 					</tbody>
 				</table>
@@ -222,6 +277,7 @@
 	button, input, textarea, select { padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #1e293b; font: inherit; }
 	button { cursor: pointer; color: #047857; font-size: 13px; font-weight: 600; }
 	button.add { background: #047857; color: white; border-color: #047857; }
+	button.delete { color: #b91c1c; border-color: #fecaca; }
 	button.add span { font-size: 20px; line-height: 1; }
 	button:disabled { opacity: 0.6; cursor: wait; }
 	button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #059669; outline-offset: 2px; }

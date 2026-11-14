@@ -26,7 +26,7 @@ export async function readCounterDaily(config: any, asOfDate: string, source: 's
 		const start = `DATEFROMPARTS(${startYear}, ${startMonth}, ${startDay})`;
 		const end = `DATEADD(day, 1, DATEFROMPARTS(${year}, ${month}, ${day}))`;
 		const group = profile.productGroup.replace(/'/g, "''");
-		const scope = source === 'sales' ? counterSalesScope(profile, config.branch_id) : `LTRIM(RTRIM(g.GroupName)) = N'${group}'`;
+		const scope = source === 'sales' ? counterSalesScope(profile) : `LTRIM(RTRIM(g.GroupName)) = N'${group}'`;
 		const vouchers = source === 'sales' ? "'SI', 'SR'" : "'PI', 'PR'";
 		const amounts = source === 'sales' ? `
 			SUM(CASE WHEN m.VoucherType = 'SR' THEN -ABS(ISNULL(d.NetAmount, 0)) ELSE ISNULL(d.NetAmount, 0) END) AS sales_including_vat,
